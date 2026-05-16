@@ -1,0 +1,99 @@
+package dev.openstream.app.encoder
+
+import android.media.MediaCodec
+import android.media.MediaCodecInfo
+import android.media.MediaCodecList
+import android.media.MediaFormat
+import android.os.Handler
+import android.os.HandlerThread
+import android.view.Surface
+import java.nio.ByteBuffer
+
+enum class CodecPreference {
+    PreferHevc,
+    ForceAvc,
+}
+
+data class EncodedAccessUnit(
+    val data: ByteArray,
+    val presentationTimeUs: Long,
+    val flags: Int,
+)
+
+class MediaCodecVideoEncoder(
+    preference: CodecPreference,
+    private val width: Int,
+    private val height: Int,
+    private val fps: Int,
+    private val bitrate: Int,
+    private val keyframeIntervalSeconds: Int,
+    private val onEncodedAccessUnit: (EncodedAccessUnit) -> Unit,
+) {
+    private val mimeType = chooseMimeType(preference)
+    private val codec = MediaCodec.createEncoderByType(mimeType)
+    private val thread = HandlerThread("OpenStreamEncoder")
+    private lateinit var handler: Handler
+    private lateinit var surface: Surface
+
+    val codecName: String = mimeType
+
+    fun inputSurface(): Surface = surface
+
+    fun start() {
+        val format = MediaFormat.createVideoFormat(mimeType, width, height).apply {
+            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+            setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
+            setInteger(MediaFormat.KEY_FRAME_RATE, fps)
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, keyframeIntervalSeconds)
+            setInteger(MediaFormat.KEY_LATENCY, 0)
+        }
+        codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        surface = codec.createInputSurface()
+
+        if (!thread.isAlive) {
+            thread.start()
+        }
+        handler = Handler(thread.looper)
+        codec.setCallback(object : MediaCodec.Callback() {
+            override fun onInputBufferAvailable(codec: MediaCodec, index: Int) = Unit
+
+            override fun onOutputBufferAvailable(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
+                val buffer: ByteBuffer = codec.getOutputBuffer(index) ?: return
+                val bytes = ByteArray(info.size)
+                buffer.position(info.offset)
+                buffer.limit(info.offset + info.size)
+                buffer.get(bytes)
+                onEncodedAccessUnit(
+                    EncodedAccessUnit(
+                        data = bytes,
+                        presentationTimeUs = info.presentationTimeUs,
+                        flags = info.flags,
+                    )
+                )
+                codec.releaseOutputBuffer(index, false)
+            }
+
+            override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
+                throw e
+            }
+
+            override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) = Unit
+        }, handler)
+        codec.start()
+    }
+
+    fun stop() {
+        runCatching { codec.stop() }
+        runCatching { codec.release() }
+    }
+
+    private fun chooseMimeType(preference: CodecPreference): String {
+        if (preference == CodecPreference.ForceAvc) {
+            return MediaFormat.MIMETYPE_VIDEO_AVC
+        }
+        val hasHevc = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.any { info ->
+            info.isEncoder && info.supportedTypes.any { it.equals(MediaFormat.MIMETYPE_VIDEO_HEVC, true) }
+        }
+        return if (hasHevc) MediaFormat.MIMETYPE_VIDEO_HEVC else MediaFormat.MIMETYPE_VIDEO_AVC
+    }
+}
