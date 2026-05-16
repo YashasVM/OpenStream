@@ -1,5 +1,9 @@
 # OpenStream
 
+> [!IMPORTANT]
+> # STILL IN PROGRESS
+> OpenStream is actively being built. The current codebase is a prototype scaffold, not a finished OBS-ready wireless camera system yet.
+
 OpenStream is an open-source prototype for turning Android phones into low-latency wireless OBS camera sources.
 
 This repository implements the practical V1 direction:
