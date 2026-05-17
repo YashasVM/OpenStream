@@ -13,7 +13,7 @@ This repository implements the practical V1 direction:
 - Android encodes with hardware HEVC/H.265 by default, H.264 fallback.
 - Android sends the contribution feed over SRT.
 - Windows receives the feed through FFmpeg/libsrt.
-- OBS integration starts as a native source plugin scaffold.
+- OBS integration starts as a native FFmpeg-backed source plugin.
 - Raw YUV/zstd lossless transport is kept as a later research track.
 
 ## Repository layout
@@ -64,12 +64,12 @@ The Android project requires Android Studio or a local Gradle installation with 
 
 The current native Android SRT bridge is a deliberate integration placeholder. It exposes the JNI boundary and logs encoded access units; the next implementation step is linking libsrt and packaging the `MediaCodec` access units into an FFmpeg-readable stream.
 
-The OBS plugin scaffold requires:
+The OBS plugin requires:
 
 - OBS Studio development headers/libraries
 - CMake
 - FFmpeg development libraries
-- libsrt development libraries
+- an FFmpeg build with SRT protocol support
 
 See [docs/setup.md](docs/setup.md) for setup details.
 

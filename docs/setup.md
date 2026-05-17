@@ -38,18 +38,20 @@ Recommended first stream settings:
 
 ## OBS plugin
 
-The plugin scaffold is in `obs-plugin/`.
+The plugin is in `obs-plugin/`. It registers an `OpenStream Phone` source,
+listens for the Android SRT caller through FFmpeg, decodes the video stream,
+converts frames to BGRA, and submits them to OBS.
 
-Configure with paths to your OBS, FFmpeg, and SRT development installations:
+Configure with paths to your OBS and FFmpeg development installations:
 
 ```powershell
 cmake -S obs-plugin -B build/obs-plugin `
   -DOBS_ROOT="C:/Program Files/obs-studio" `
-  -DFFMPEG_ROOT="C:/path/to/ffmpeg-dev" `
-  -DSRT_ROOT="C:/path/to/srt-dev"
+  -DFFMPEG_ROOT="C:/path/to/ffmpeg-dev"
 ```
 
-The scaffold registers the `openstream_source` source type and exposes the initial settings expected by V1.
+The FFmpeg build used by the plugin must include SRT protocol support. Verify
+your runtime FFmpeg with `ffmpeg -protocols`; the output should include `srt`.
 
 Expected V1 user flow:
 

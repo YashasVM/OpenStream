@@ -65,4 +65,5 @@ The initial OBS source exposes:
 - `bitrate_mbps`
 - start/stop listener controls
 
-The next plugin milestone should connect those settings to an FFmpeg/libsrt decode worker and submit frames through OBS video output APIs.
+The OBS plugin connects those settings to an FFmpeg/libsrt decode worker and
+submits decoded video frames through OBS video output APIs.
