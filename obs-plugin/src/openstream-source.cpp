@@ -304,53 +304,70 @@ void decode_packets(OpenStreamSource *ctx,
 void openstream_worker(OpenStreamSource *ctx, std::string srt_url) {
   avformat_network_init();
 
-  AVFormatContext *raw_format_ctx = avformat_alloc_context();
-  if (!raw_format_ctx) {
-    blog(LOG_WARNING, "[OpenStream] Could not allocate FFmpeg format context");
-    ctx->connected = false;
-    return;
-  }
-  raw_format_ctx->interrupt_callback.callback = ffmpeg_interrupt_callback;
-  raw_format_ctx->interrupt_callback.opaque = ctx;
-
-  AVDictionary *options = nullptr;
-  av_dict_set(&options, "fflags", "nobuffer", 0);
-  av_dict_set(&options, "flags", "low_delay", 0);
-  av_dict_set(&options, "probesize", "32768", 0);
-  av_dict_set(&options, "analyzeduration", "100000", 0);
-
-  blog(LOG_INFO, "[OpenStream] Listening for Android stream at %s", srt_url.c_str());
-  int result = avformat_open_input(&raw_format_ctx, srt_url.c_str(), nullptr, &options);
-  av_dict_free(&options);
-  if (result < 0) {
-    if (!ctx->stop_requested.load()) {
-      blog(LOG_WARNING,
-           "[OpenStream] Could not open SRT input: %s",
-           av_error(result).c_str());
+  while (!ctx->stop_requested.load()) {
+    AVFormatContext *raw_format_ctx = avformat_alloc_context();
+    if (!raw_format_ctx) {
+      blog(LOG_WARNING, "[OpenStream] Could not allocate FFmpeg format context");
+      break;
     }
-    avformat_free_context(raw_format_ctx);
-    ctx->connected = false;
-    return;
+    raw_format_ctx->interrupt_callback.callback = ffmpeg_interrupt_callback;
+    raw_format_ctx->interrupt_callback.opaque = ctx;
+
+    AVDictionary *options = nullptr;
+    av_dict_set(&options, "fflags", "nobuffer", 0);
+    av_dict_set(&options, "flags", "low_delay", 0);
+    av_dict_set(&options, "probesize", "32768", 0);
+    av_dict_set(&options, "analyzeduration", "100000", 0);
+
+    blog(LOG_INFO,
+         "[OpenStream] Listening for Android stream at %s",
+         srt_url.c_str());
+    int result =
+        avformat_open_input(&raw_format_ctx, srt_url.c_str(), nullptr, &options);
+    av_dict_free(&options);
+    if (result < 0) {
+      if (!ctx->stop_requested.load()) {
+        blog(LOG_WARNING,
+             "[OpenStream] Could not open SRT input: %s",
+             av_error(result).c_str());
+        if (raw_format_ctx) {
+          avformat_free_context(raw_format_ctx);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        continue;
+      }
+      if (raw_format_ctx) {
+        avformat_free_context(raw_format_ctx);
+      }
+      break;
+    }
+
+    FormatContextPtr format_ctx(raw_format_ctx);
+
+    int video_stream_index = -1;
+    CodecContextPtr decoder_ctx;
+    if (!open_video_decoder(format_ctx.get(), &video_stream_index, &decoder_ctx)) {
+      if (!ctx->stop_requested.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        continue;
+      }
+      break;
+    }
+
+    const AVCodecParameters *codecpar =
+        format_ctx->streams[video_stream_index]->codecpar;
+    blog(LOG_INFO,
+         "[OpenStream] Receiving %dx%d video stream codec=%s",
+         codecpar->width,
+         codecpar->height,
+         avcodec_get_name(codecpar->codec_id));
+
+    decode_packets(ctx, format_ctx.get(), video_stream_index, decoder_ctx.get());
+    if (!ctx->stop_requested.load()) {
+      blog(LOG_INFO, "[OpenStream] Waiting for stream reconnect");
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
   }
-
-  FormatContextPtr format_ctx(raw_format_ctx);
-
-  int video_stream_index = -1;
-  CodecContextPtr decoder_ctx;
-  if (!open_video_decoder(format_ctx.get(), &video_stream_index, &decoder_ctx)) {
-    ctx->connected = false;
-    return;
-  }
-
-  const AVCodecParameters *codecpar =
-      format_ctx->streams[video_stream_index]->codecpar;
-  blog(LOG_INFO,
-       "[OpenStream] Receiving %dx%d video stream codec=%s",
-       codecpar->width,
-       codecpar->height,
-       avcodec_get_name(codecpar->codec_id));
-
-  decode_packets(ctx, format_ctx.get(), video_stream_index, decoder_ctx.get());
   ctx->connected = false;
   blog(LOG_INFO, "[OpenStream] Listener worker exited");
 }
@@ -441,24 +458,16 @@ obs_properties_t *openstream_properties(void *) {
   return props;
 }
 
-void openstream_tick(void *data, float) {
-  auto *ctx = static_cast<OpenStreamSource *>(data);
-  if (!ctx || !ctx->connected) {
-    return;
-  }
-}
-
 obs_source_info openstream_source_info = {
     .id = "openstream_source",
     .type = OBS_SOURCE_TYPE_INPUT,
-    .output_flags = OBS_SOURCE_VIDEO,
+    .output_flags = OBS_SOURCE_ASYNC_VIDEO,
     .get_name = openstream_get_name,
     .create = openstream_create,
     .destroy = openstream_destroy,
     .get_defaults = openstream_defaults,
     .get_properties = openstream_properties,
     .update = openstream_update,
-    .video_tick = openstream_tick,
 };
 }  // namespace
 
