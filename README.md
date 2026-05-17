@@ -4,7 +4,7 @@
 > # STILL IN PROGRESS
 > OpenStream is actively being built. The current codebase is a prototype scaffold, not a finished OBS-ready wireless camera system yet.
 
-OpenStream is an open-source prototype for turning Android phones into low-latency wireless OBS camera sources.
+OpenStream is an open-source prototype for turning Android phones into low-latency wireless OBS camera sources over local Wi-Fi.
 
 This repository implements the practical V1 direction:
 
@@ -20,7 +20,7 @@ This repository implements the practical V1 direction:
 
 ```text
 android/                 Android Camera2 + MediaCodec app scaffold
-obs-plugin/              Native OBS source plugin scaffold
+obs-plugin/              Native OBS source plugin with FFmpeg receive path
 tools/openstream_receiver.py
                          Windows feasibility receiver using FFmpeg SRT input
 tests/test_repo_contract.py
@@ -31,6 +31,12 @@ docs/                    Architecture, setup, and test notes
 ## Prototype target
 
 The first working milestone is one Android phone streaming 1080p30 to a Windows receiver or OBS source for 30 minutes without freezing.
+
+Current progress:
+
+- Android camera capture and hardware encoder scaffolding are in place.
+- The OBS source now includes an FFmpeg-backed listener/decoder path.
+- The Android native SRT bridge still needs real libsrt packet sending.
 
 Default video settings:
 
