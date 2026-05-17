@@ -21,6 +21,15 @@ def test_android_project_declares_camera_media_codec_srt_boundaries() -> None:
     assert "Camera2" in app
     assert "MediaCodec" in app
     assert "SrtStreamClient" in app
+    assert "Start camera feed" in app
+    assert "RECORD_AUDIO" not in app
+
+
+def test_android_connection_target_builds_srt_caller_url() -> None:
+    target = read("android/app/src/main/java/dev/openstream/app/stream/ConnectionTarget.kt")
+    assert "toSrtCallerUrl" in target
+    assert "mode=caller" in target
+    assert "DEFAULT_PORT = 9000" in target
 
 
 def test_obs_plugin_registers_openstream_source() -> None:
@@ -28,6 +37,8 @@ def test_obs_plugin_registers_openstream_source() -> None:
     assert "openstream_source" in source
     assert "obs_register_source" in source
     assert "srt_url" in source
+    assert "listener_port" in source
+    assert "phone_target_hint" in source
 
 
 def test_receiver_validates_srt_support() -> None:

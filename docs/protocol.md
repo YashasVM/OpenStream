@@ -10,7 +10,18 @@ Default caller URL:
 srt://<windows-ip>:9000?mode=caller&latency=120
 ```
 
-The Android app sends encoded access units produced by `MediaCodec`.
+The Android app sends only the Camera2 camera feed. It does not capture the Android screen, notifications, navigation UI, or microphone for the V1 camera-source milestone.
+
+The simplified pairing model is:
+
+```text
+OBS source listens on srt://0.0.0.0:<port>?mode=listener&latency=<latency_ms>
+Android app calls srt://<obs-pc-ip>:<port>?mode=caller&latency=<latency_ms>
+```
+
+The Android app collects OBS PC IP, listener port, and latency as separate fields, then generates the caller URL. Users should not need to hand-edit SRT query strings during normal setup.
+
+The Android app sends encoded video access units produced by `MediaCodec`.
 
 Required metadata per video access unit:
 
@@ -47,9 +58,11 @@ Minimum telemetry payload:
 The initial OBS source exposes:
 
 - `device_name`
+- `listener_port`
 - `srt_url`
+- `phone_target_hint`
 - `latency_ms`
 - `bitrate_mbps`
-- connect/disconnect controls
+- start/stop listener controls
 
-The next plugin milestone should connect those settings to an FFmpeg/libsrt decode worker and submit frames through OBS video/audio output APIs.
+The next plugin milestone should connect those settings to an FFmpeg/libsrt decode worker and submit frames through OBS video output APIs.

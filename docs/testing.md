@@ -5,7 +5,7 @@
 - One Android phone streams 1080p30 for 30 minutes without receiver crash.
 - SRT reconnect completes within 2 seconds after a short Wi-Fi interruption.
 - OBS receives video as one source.
-- Phone mic arrives as an independent audio source or track.
+- The OBS source shows only the phone camera feed, never the Android screen.
 - 1080p60 works on devices that advertise hardware support.
 - Telemetry updates at least once per second.
 

@@ -23,11 +23,10 @@ Open `android/` in Android Studio.
 Required permissions:
 
 - Camera
-- Microphone
 - Network
 - Foreground service
 
-Set the Windows machine IP and port in the app. The initial prototype supports manual connection first; mDNS discovery should be added after one-phone streaming is stable.
+Set the OBS PC IP and listener port in the app. The app builds the SRT caller URL for you and captures only the selected phone camera, not the phone screen.
 
 Recommended first stream settings:
 
@@ -51,6 +50,14 @@ cmake -S obs-plugin -B build/obs-plugin `
 ```
 
 The scaffold registers the `openstream_source` source type and exposes the initial settings expected by V1.
+
+Expected V1 user flow:
+
+1. Add `OpenStream Phone` as an OBS source.
+2. Keep the default listener port `9000` and latency `120 ms`, or change them if needed.
+3. Start the listener in the source properties.
+4. Enter the OBS PC IP, port, and latency in the Android app.
+5. Tap `Start camera feed`.
 
 ## Network recommendations
 

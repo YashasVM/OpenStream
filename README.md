@@ -9,6 +9,7 @@ OpenStream is an open-source prototype for turning Android phones into low-laten
 This repository implements the practical V1 direction:
 
 - Android captures with Camera2.
+- Android exposes only the selected phone camera feed, not the whole phone screen.
 - Android encodes with hardware HEVC/H.265 by default, H.264 fallback.
 - Android sends the contribution feed over SRT.
 - Windows receives the feed through FFmpeg/libsrt.
@@ -54,6 +55,8 @@ The Android app should call:
 ```text
 srt://<windows-ip>:9000?mode=caller&latency=120
 ```
+
+In the app this is entered as three simple fields: OBS PC IP, listener port, and latency. The app generates the SRT caller URL internally.
 
 ## Build notes
 

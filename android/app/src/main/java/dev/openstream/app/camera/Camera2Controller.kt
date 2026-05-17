@@ -6,6 +6,7 @@ import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.CameraCharacteristics
 import android.os.Handler
 import android.os.HandlerThread
 import android.view.Surface
@@ -14,6 +15,7 @@ class Camera2Controller(
     private val context: Context,
     private val previewSurfaceProvider: () -> Surface,
     private val encodedSurfaceProvider: () -> Surface,
+    private val lensProvider: () -> CameraLens = { CameraLens.Back },
 ) {
     private val cameraManager = context.getSystemService(CameraManager::class.java)
     private val thread = HandlerThread("OpenStreamCamera")
@@ -27,7 +29,7 @@ class Camera2Controller(
             thread.start()
         }
         handler = Handler(thread.looper)
-        val cameraId = cameraManager.cameraIdList.first()
+        val cameraId = selectCameraId(lensProvider())
         cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
             override fun onOpened(device: CameraDevice) {
                 camera = device
@@ -75,5 +77,16 @@ class Camera2Controller(
             },
             handler,
         )
+    }
+
+    private fun selectCameraId(lens: CameraLens): String {
+        val facing = when (lens) {
+            CameraLens.Back -> CameraCharacteristics.LENS_FACING_BACK
+            CameraLens.Front -> CameraCharacteristics.LENS_FACING_FRONT
+        }
+        return cameraManager.cameraIdList.firstOrNull { id ->
+            cameraManager.getCameraCharacteristics(id)
+                .get(CameraCharacteristics.LENS_FACING) == facing
+        } ?: cameraManager.cameraIdList.first()
     }
 }

@@ -21,7 +21,7 @@ data class EncodedAccessUnit(
 )
 
 class MediaCodecVideoEncoder(
-    preference: CodecPreference,
+    private val preference: CodecPreference,
     private val width: Int,
     private val height: Int,
     private val fps: Int,
@@ -29,17 +29,21 @@ class MediaCodecVideoEncoder(
     private val keyframeIntervalSeconds: Int,
     private val onEncodedAccessUnit: (EncodedAccessUnit) -> Unit,
 ) {
-    private val mimeType = chooseMimeType(preference)
-    private val codec = MediaCodec.createEncoderByType(mimeType)
+    private var mimeType = chooseMimeType(preference)
+    private var codec: MediaCodec? = null
     private val thread = HandlerThread("OpenStreamEncoder")
     private lateinit var handler: Handler
-    private lateinit var surface: Surface
+    private var surface: Surface? = null
 
     val codecName: String = mimeType
 
-    fun inputSurface(): Surface = surface
+    fun inputSurface(): Surface = checkNotNull(surface) { "Encoder input surface is not ready" }
 
     fun start() {
+        check(codec == null) { "Encoder is already running" }
+        mimeType = chooseMimeType(preference)
+        val encoder = MediaCodec.createEncoderByType(mimeType)
+        codec = encoder
         val format = MediaFormat.createVideoFormat(mimeType, width, height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
@@ -47,18 +51,21 @@ class MediaCodecVideoEncoder(
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, keyframeIntervalSeconds)
             setInteger(MediaFormat.KEY_LATENCY, 0)
         }
-        codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-        surface = codec.createInputSurface()
+        encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        surface = encoder.createInputSurface()
 
         if (!thread.isAlive) {
             thread.start()
         }
         handler = Handler(thread.looper)
-        codec.setCallback(object : MediaCodec.Callback() {
+        encoder.setCallback(object : MediaCodec.Callback() {
             override fun onInputBufferAvailable(codec: MediaCodec, index: Int) = Unit
 
             override fun onOutputBufferAvailable(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
-                val buffer: ByteBuffer = codec.getOutputBuffer(index) ?: return
+                val buffer: ByteBuffer = codec.getOutputBuffer(index) ?: run {
+                    codec.releaseOutputBuffer(index, false)
+                    return
+                }
                 val bytes = ByteArray(info.size)
                 buffer.position(info.offset)
                 buffer.limit(info.offset + info.size)
@@ -79,12 +86,15 @@ class MediaCodecVideoEncoder(
 
             override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) = Unit
         }, handler)
-        codec.start()
+        encoder.start()
     }
 
     fun stop() {
-        runCatching { codec.stop() }
-        runCatching { codec.release() }
+        val encoder = codec ?: return
+        codec = null
+        surface = null
+        runCatching { encoder.stop() }
+        runCatching { encoder.release() }
     }
 
     private fun chooseMimeType(preference: CodecPreference): String {
