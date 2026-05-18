@@ -82,7 +82,7 @@ using SwsContextPtr = std::unique_ptr<SwsContext, SwsContextDeleter>;
 
 constexpr int kDiscoveryPort = 51515;
 constexpr int kDefaultListenerPort = 9000;
-constexpr const char *kOpenStreamSourceName = "OpenStream Phone V2";
+constexpr const char *kOpenStreamSourceName = "OpenStream Phone V3";
 constexpr const char *kDiscoveryMulticastAddress = "239.255.42.99";
 constexpr const char *kPhoneDiscoveryPrefix = "OPENSTREAM_PHONE/1 ";
 
@@ -670,8 +670,40 @@ bool output_decoded_frame(OpenStreamSource *ctx,
   const AVPixelFormat source_format =
       static_cast<AVPixelFormat>(decoded_frame->format);
 
+  struct obs_source_frame native_frame = {};
+  native_frame.width = static_cast<uint32_t>(width);
+  native_frame.height = static_cast<uint32_t>(height);
+  native_frame.timestamp = os_gettime_ns();
+  native_frame.flip = false;
+  native_frame.full_range = decoder_ctx->color_range == AVCOL_RANGE_JPEG ||
+                            source_format == AV_PIX_FMT_YUVJ420P;
+
+  if ((source_format == AV_PIX_FMT_YUV420P || source_format == AV_PIX_FMT_YUVJ420P) &&
+      decoded_frame->data[0] && decoded_frame->data[1] && decoded_frame->data[2]) {
+    native_frame.format = VIDEO_FORMAT_I420;
+    native_frame.data[0] = decoded_frame->data[0];
+    native_frame.data[1] = decoded_frame->data[1];
+    native_frame.data[2] = decoded_frame->data[2];
+    native_frame.linesize[0] = static_cast<uint32_t>(decoded_frame->linesize[0]);
+    native_frame.linesize[1] = static_cast<uint32_t>(decoded_frame->linesize[1]);
+    native_frame.linesize[2] = static_cast<uint32_t>(decoded_frame->linesize[2]);
+    obs_source_output_video(ctx->source, &native_frame);
+    return true;
+  }
+
+  if (source_format == AV_PIX_FMT_NV12 && decoded_frame->data[0] && decoded_frame->data[1]) {
+    native_frame.format = VIDEO_FORMAT_NV12;
+    native_frame.data[0] = decoded_frame->data[0];
+    native_frame.data[1] = decoded_frame->data[1];
+    native_frame.linesize[0] = static_cast<uint32_t>(decoded_frame->linesize[0]);
+    native_frame.linesize[1] = static_cast<uint32_t>(decoded_frame->linesize[1]);
+    obs_source_output_video(ctx->source, &native_frame);
+    return true;
+  }
+
+  SwsContext *current_sws = sws_ctx->get();
   SwsContext *scaled = sws_getCachedContext(
-      sws_ctx->get(),
+      current_sws,
       width,
       height,
       source_format,
@@ -686,7 +718,9 @@ bool output_decoded_frame(OpenStreamSource *ctx,
     blog(LOG_WARNING, "[OpenStream] Could not create BGRA converter");
     return false;
   }
-  sws_ctx->reset(scaled);
+  if (scaled != current_sws) {
+    sws_ctx->reset(scaled);
+  }
 
   const int linesize = width * 4;
   const size_t buffer_size = static_cast<size_t>(linesize) * height;
@@ -696,7 +730,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
 
   uint8_t *dst_data[4] = {bgra_buffer->data(), nullptr, nullptr, nullptr};
   int dst_linesize[4] = {linesize, 0, 0, 0};
-  const int scaled_rows = sws_scale(sws_ctx->get(),
+  const int scaled_rows = sws_scale(scaled,
                                    decoded_frame->data,
                                    decoded_frame->linesize,
                                    0,
@@ -1039,7 +1073,7 @@ obs_properties_t *openstream_properties(void *) {
 }
 
 obs_source_info openstream_source_info = {
-    .id = "openstream_phone_v2_source",
+    .id = "openstream_phone_v3_source",
     .type = OBS_SOURCE_TYPE_INPUT,
     .output_flags = OBS_SOURCE_ASYNC_VIDEO,
     .get_name = openstream_get_name,
@@ -1061,7 +1095,7 @@ bool obs_module_load(void) {
   }
 #endif
   obs_register_source(&openstream_source_info);
-  blog(LOG_INFO, "[OpenStream] OBS plugin loaded: phone-discovery V2");
+  blog(LOG_INFO, "[OpenStream] OBS plugin loaded: phone-discovery V3 native-yuv");
   return true;
 }
 
