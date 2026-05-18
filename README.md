@@ -71,9 +71,9 @@ OBS source directly.
 
 The Android project requires Android Studio or a local Gradle installation with the Android Gradle plugin available.
 
-Normal Android APK builds require Android ABI-compatible libsrt binaries for real
-network sending. Use `-Popenstream.nonStreamingCiBuild=true` only for source
-compile checks that intentionally skip streaming support.
+Normal Android APK builds link the bundled Android ABI-compatible libsrt static
+libraries for real network sending. Use `-Popenstream.nonStreamingCiBuild=true`
+only for source compile checks that intentionally skip streaming support.
 
 The OBS plugin requires:
 

@@ -32,13 +32,12 @@ block UDP discovery.
 
 The native Android sender packetizes `MediaCodec` H.264/H.265 access units
 as MPEG-TS before sending them to SRT, which lets FFmpeg/ffplay/OBS read the
-phone stream as a normal SRT transport stream. Normal APK builds require
-Android ABI-compatible libsrt headers and libraries:
+phone stream as a normal SRT transport stream. Normal APK builds link the
+bundled Android libsrt static libraries under
+`app/src/main/cpp/third_party/srt`.
 
 ```powershell
-./gradlew :app:assembleDebug `
-  -Popenstream.libsrtIncludeDir=C:/path/to/libsrt/include `
-  -Popenstream.libsrtLibrary=C:/path/to/libsrt/android/arm64-v8a/libsrt.so
+./gradlew :app:assembleDebug
 ```
 
 Use `-Popenstream.nonStreamingCiBuild=true` only for CI/source compile checks

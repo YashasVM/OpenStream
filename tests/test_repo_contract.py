@@ -77,8 +77,10 @@ def test_android_default_build_requires_libsrt_with_ci_escape_hatch() -> None:
     cmake = read("android/app/src/main/cpp/CMakeLists.txt")
     assert "openstream.nonStreamingCiBuild" in gradle
     assert "?: !nonStreamingCiBuild" in gradle
+    assert "third_party/srt" in cmake
+    assert "lib/${ANDROID_ABI}/libsrt.a" in cmake
     assert "OPENSTREAM_ENABLE_LIBSRT" in cmake
-    assert "Normal OpenStream APK builds require Android ABI-compatible libsrt" in cmake
+    assert "OPENSTREAM_HAVE_LIBSRT=1" in cmake
 
 
 def test_receiver_validates_srt_support() -> None:
