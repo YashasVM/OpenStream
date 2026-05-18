@@ -19,7 +19,11 @@ android {
         externalNativeBuild {
             cmake {
                 cppFlags += "-std=c++20"
-                val enableLibsrt = providers.gradleProperty("openstream.enableLibsrt").orNull == "true"
+                val nonStreamingCiBuild =
+                    providers.gradleProperty("openstream.nonStreamingCiBuild").orNull == "true"
+                val enableLibsrt =
+                    providers.gradleProperty("openstream.enableLibsrt").orNull?.toBooleanStrictOrNull()
+                        ?: !nonStreamingCiBuild
                 arguments += "-DOPENSTREAM_ENABLE_LIBSRT=${if (enableLibsrt) "ON" else "OFF"}"
                 providers.gradleProperty("openstream.libsrtIncludeDir").orNull?.let {
                     arguments += "-DOPENSTREAM_LIBSRT_INCLUDE_DIR=$it"

@@ -11,7 +11,7 @@ ffmpeg -protocols
 The output should include `srt`.
 
 Normal use does not require the standalone Python receiver. OBS listens directly
-through the `OpenStream Phone Link` source.
+through the `OpenStream Phone` source.
 
 ## Android app
 
@@ -21,29 +21,28 @@ Required permissions:
 
 - Camera
 - Network
+- Wi-Fi multicast/broadcast discovery
 - Foreground service
 
-Open the app on the same Wi-Fi network as OBS. Available `OpenStream Phone Link`
+Open the app on the same Wi-Fi network as OBS. Camera preview starts as soon as
+camera permission is granted. Available `OpenStream Phone`
 listeners appear as tappable devices. Tap the OBS device to connect the selected
 phone camera directly; manual IP/port entry is only a fallback for networks that
 block UDP discovery.
 
-The native Android sender now packetizes `MediaCodec` H.264/H.265 access units
+The native Android sender packetizes `MediaCodec` H.264/H.265 access units
 as MPEG-TS before sending them to SRT, which lets FFmpeg/ffplay/OBS read the
-phone stream as a normal SRT transport stream. The repo keeps libsrt disabled by
-default so the scaffold still builds without vendored native dependencies. To
-enable real network sending, provide Android ABI-compatible libsrt headers and
-libraries to CMake and build with:
+phone stream as a normal SRT transport stream. Normal APK builds require
+Android ABI-compatible libsrt headers and libraries:
 
 ```powershell
 ./gradlew :app:assembleDebug `
-  -Popenstream.enableLibsrt=true `
   -Popenstream.libsrtIncludeDir=C:/path/to/libsrt/include `
   -Popenstream.libsrtLibrary=C:/path/to/libsrt/android/arm64-v8a/libsrt.so
 ```
 
-The app will fail fast at connect time if it was built without libsrt instead of
-silently dropping encoded frames.
+Use `-Popenstream.nonStreamingCiBuild=true` only for CI/source compile checks
+that intentionally build the non-streaming native bridge.
 
 Recommended first stream settings:
 
@@ -55,7 +54,7 @@ Recommended first stream settings:
 
 ## OBS plugin
 
-The plugin is in `obs-plugin/`. It registers an `OpenStream Phone Link` source,
+The plugin is in `obs-plugin/`. It registers an `OpenStream Phone` source,
 listens for the Android SRT caller through FFmpeg, advertises itself over LAN
 UDP discovery on port `51515`, decodes the video stream, converts frames to BGRA,
 and submits them to OBS.
@@ -73,9 +72,9 @@ your runtime FFmpeg with `ffmpeg -protocols`; the output should include `srt`.
 
 Expected V1 user flow:
 
-1. Add `OpenStream Phone Link` as an OBS source.
-2. Keep the default listener port `9000` and latency `120 ms`, or change them if needed.
-3. Start the listener in the source properties.
+1. Add `OpenStream Phone` as an OBS source.
+2. Keep `Start listener` enabled, then click `OK`; the source waits blank.
+3. Keep the default listener port `9000` and latency `120 ms`, or change them if needed.
 4. Open the Android app on the same Wi-Fi network.
 5. Tap the available OBS device.
 6. Direct camera video appears in OBS.

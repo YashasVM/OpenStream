@@ -3,7 +3,7 @@ project(openstream_srt)
 
 add_library(openstream_srt SHARED openstream_srt.cpp)
 
-option(OPENSTREAM_ENABLE_LIBSRT "Link the Android native sender against libsrt" OFF)
+option(OPENSTREAM_ENABLE_LIBSRT "Link the Android native sender against Android ABI-compatible libsrt" ON)
 
 find_library(log-lib log)
 target_link_libraries(openstream_srt ${log-lib})
@@ -13,7 +13,7 @@ if (OPENSTREAM_ENABLE_LIBSRT)
     find_library(OPENSTREAM_LIBSRT_LIBRARY srt)
 
     if (NOT OPENSTREAM_LIBSRT_INCLUDE_DIR OR NOT OPENSTREAM_LIBSRT_LIBRARY)
-        message(FATAL_ERROR "OPENSTREAM_ENABLE_LIBSRT=ON requires srt/srt.h and libsrt for the target ABI")
+        message(FATAL_ERROR "Normal OpenStream APK builds require Android ABI-compatible libsrt. Provide OPENSTREAM_LIBSRT_INCLUDE_DIR and OPENSTREAM_LIBSRT_LIBRARY, or set -Popenstream.nonStreamingCiBuild=true for source-only CI checks.")
     endif()
 
     target_compile_definitions(openstream_srt PRIVATE OPENSTREAM_HAVE_LIBSRT=1)

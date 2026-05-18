@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
 import android.widget.ArrayAdapter
@@ -50,7 +51,7 @@ class MainActivity : Activity() {
 
         streamClient = SrtStreamClient()
         telemetry = TelemetrySampler(this)
-        discoveryClient = ObsDiscoveryClient(::renderDiscoveredDevices)
+        discoveryClient = ObsDiscoveryClient(this, ::renderDiscoveredDevices)
         encoder = MediaCodecVideoEncoder(
             preference = streamConfig.codecPreference,
             width = streamConfig.width,
@@ -63,9 +64,13 @@ class MainActivity : Activity() {
         camera = Camera2Controller(
             context = this,
             previewSurfaceProvider = { preview.holder.surface },
-            encodedSurfaceProvider = encoder::inputSurface,
             lensProvider = { selectedLens() },
         )
+        preview.holder.addCallback(object : SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: SurfaceHolder) = startPreviewIfAllowed()
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
+            override fun surfaceDestroyed(holder: SurfaceHolder) = camera.stop()
+        })
 
         handlePairingIntent(intent)
     }
@@ -76,8 +81,21 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
+        stopStream()
+        camera.stop()
         discoveryClient.stop()
         super.onStop()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 100 && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+            startPreviewIfAllowed()
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -89,7 +107,7 @@ class MainActivity : Activity() {
     private fun buildUi() {
         preview = SurfaceView(this)
         status = TextView(this).apply {
-            text = "Open OBS, start OpenStream Phone Link, then tap it here."
+            text = "Camera preview is ready. Waiting for an OBS source on the same Wi-Fi."
         }
         devicesContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -176,7 +194,7 @@ class MainActivity : Activity() {
         devicesContainer.removeAllViews()
         if (devices.isEmpty()) {
             devicesContainer.addView(TextView(this).apply {
-                text = "No OBS listeners found yet."
+                text = "No OBS sources found yet. Check same Wi-Fi and firewall, or use manual fallback."
             })
             return
         }
@@ -222,7 +240,7 @@ class MainActivity : Activity() {
                 fps = streamConfig.fps,
             )
             encoder.start()
-            camera.start()
+            camera.startStreaming(encoder.inputSurface())
             val sample: DeviceTelemetry = telemetry.sample(
                 streamUrl = url,
                 codec = encoder.codecName,
@@ -239,10 +257,18 @@ class MainActivity : Activity() {
     }
 
     private fun stopStream() {
-        camera.stop()
+        camera.stopStreaming()
         encoder.stop()
         streamClient.disconnect()
-        status.text = "Stopped"
+        status.text = "Streaming stopped. Camera preview remains ready."
+    }
+
+    private fun startPreviewIfAllowed() {
+        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
+            preview.holder.surface.isValid
+        ) {
+            camera.startPreview()
+        }
     }
 
     private fun requestRuntimePermissions() {

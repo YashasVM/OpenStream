@@ -1,5 +1,7 @@
 package dev.openstream.app.discovery
 
+import android.content.Context
+import android.net.wifi.WifiManager
 import android.os.Handler
 import android.os.Looper
 import org.json.JSONObject
@@ -11,6 +13,7 @@ import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicBoolean
 
 class ObsDiscoveryClient(
+    private val context: Context,
     private val onDevicesChanged: (List<DiscoveredObsDevice>) -> Unit,
     private val nowMs: () -> Long = { System.currentTimeMillis() },
 ) {
@@ -19,9 +22,11 @@ class ObsDiscoveryClient(
     private val devices = linkedMapOf<String, DiscoveredObsDevice>()
     private var socket: DatagramSocket? = null
     private var worker: Thread? = null
+    private var multicastLock: WifiManager.MulticastLock? = null
 
     fun start() {
         if (!running.compareAndSet(false, true)) return
+        acquireMulticastLock()
         worker = Thread(::receiveLoop, "OpenStreamDiscovery").apply {
             isDaemon = true
             start()
@@ -36,7 +41,25 @@ class ObsDiscoveryClient(
         synchronized(devices) {
             devices.clear()
         }
+        releaseMulticastLock()
         publishDevices()
+    }
+
+    private fun acquireMulticastLock() {
+        val wifiManager = context.applicationContext.getSystemService(WifiManager::class.java) ?: return
+        multicastLock = wifiManager.createMulticastLock("OpenStreamDiscovery").apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+    }
+
+    private fun releaseMulticastLock() {
+        multicastLock?.let { lock ->
+            if (lock.isHeld) {
+                lock.release()
+            }
+        }
+        multicastLock = null
     }
 
     private fun receiveLoop() {

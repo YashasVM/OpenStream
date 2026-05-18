@@ -14,7 +14,6 @@ import android.view.Surface
 class Camera2Controller(
     private val context: Context,
     private val previewSurfaceProvider: () -> Surface,
-    private val encodedSurfaceProvider: () -> Surface,
     private val lensProvider: () -> CameraLens = { CameraLens.Back },
 ) {
     private val cameraManager = context.getSystemService(CameraManager::class.java)
@@ -22,18 +21,23 @@ class Camera2Controller(
     private lateinit var handler: Handler
     private var camera: CameraDevice? = null
     private var session: CameraCaptureSession? = null
+    private var streamingSurface: Surface? = null
 
     @SuppressLint("MissingPermission")
-    fun start() {
+    fun startPreview() {
         if (!thread.isAlive) {
             thread.start()
         }
         handler = Handler(thread.looper)
+        if (camera != null) {
+            createSession()
+            return
+        }
         val cameraId = selectCameraId(lensProvider())
         cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
             override fun onOpened(device: CameraDevice) {
                 camera = device
-                createSession(device)
+                createSession()
             }
 
             override fun onDisconnected(device: CameraDevice) = stop()
@@ -41,11 +45,28 @@ class Camera2Controller(
         }, handler)
     }
 
+    fun startStreaming(encodedSurface: Surface) {
+        streamingSurface = encodedSurface
+        if (camera == null) {
+            startPreview()
+        } else {
+            createSession()
+        }
+    }
+
+    fun stopStreaming() {
+        streamingSurface = null
+        if (camera != null) {
+            createSession()
+        }
+    }
+
     fun stop() {
         session?.close()
         camera?.close()
         session = null
         camera = null
+        streamingSurface = null
     }
 
     fun setManualExposure(iso: Int, exposureTimeNs: Long) {
@@ -54,17 +75,27 @@ class Camera2Controller(
         require(exposureTimeNs > 0)
     }
 
-    private fun createSession(device: CameraDevice) {
+    private fun createSession() {
+        val device = camera ?: return
         val preview = previewSurfaceProvider()
-        val encoded = encodedSurfaceProvider()
+        val encoded = streamingSurface
+        val surfaces = if (encoded != null) listOf(preview, encoded) else listOf(preview)
+        session?.close()
         device.createCaptureSession(
-            listOf(preview, encoded),
+            surfaces,
             object : CameraCaptureSession.StateCallback() {
                 override fun onConfigured(captureSession: CameraCaptureSession) {
                     session = captureSession
-                    val request = device.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
+                    val template = if (encoded != null) {
+                        CameraDevice.TEMPLATE_RECORD
+                    } else {
+                        CameraDevice.TEMPLATE_PREVIEW
+                    }
+                    val request = device.createCaptureRequest(template).apply {
                         addTarget(preview)
-                        addTarget(encoded)
+                        if (encoded != null) {
+                            addTarget(encoded)
+                        }
                         set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
                         set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
                         set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)

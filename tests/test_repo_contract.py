@@ -20,14 +20,19 @@ def test_architecture_documents_practical_v1_transport() -> None:
 def test_android_project_declares_camera_media_codec_srt_discovery_boundaries() -> None:
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
     discovery = read("android/app/src/main/java/dev/openstream/app/discovery/ObsDiscoveryClient.kt")
+    manifest = read("android/app/src/main/AndroidManifest.xml")
     assert "Camera2" in app
     assert "MediaCodec" in app
     assert "SrtStreamClient" in app
     assert "Available OBS devices" in app
     assert "ObsDiscoveryClient" in app
+    assert "startPreviewIfAllowed" in app
+    assert "startStreaming(encoder.inputSurface())" in app
     assert "OPENSTREAM/1" in discovery
     assert "DISCOVERY_PORT = 51515" in discovery
     assert "DEVICE_TTL_MS = 5_000L" in discovery
+    assert "createMulticastLock" in discovery
+    assert "CHANGE_WIFI_MULTICAST_STATE" in manifest
     assert "RECORD_AUDIO" not in app
 
 
@@ -45,7 +50,10 @@ def test_obs_plugin_registers_openstream_source_and_discovery() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
     assert "openstream_source" in source
     assert "obs_register_source" in source
-    assert "OpenStream Phone Link" in source
+    assert "OpenStream Phone" in source
+    assert "listener_enabled" in source
+    assert "reserve_listener_port" in source
+    assert "discovery_broadcast_addresses" in source
     assert "DiscoveryAdvertiser" in source
     assert "kDiscoveryPort = 51515" in source
     assert "OPENSTREAM/1" in source
@@ -53,6 +61,24 @@ def test_obs_plugin_registers_openstream_source_and_discovery() -> None:
     assert "listener_port" in source
     assert "phone_target_hint" in source
     assert "pairing_url" in source
+
+
+def test_camera_controller_supports_preview_before_streaming() -> None:
+    camera = read("android/app/src/main/java/dev/openstream/app/camera/Camera2Controller.kt")
+    assert "fun startPreview()" in camera
+    assert "fun startStreaming(encodedSurface: Surface)" in camera
+    assert "fun stopStreaming()" in camera
+    assert "TEMPLATE_PREVIEW" in camera
+    assert "TEMPLATE_RECORD" in camera
+
+
+def test_android_default_build_requires_libsrt_with_ci_escape_hatch() -> None:
+    gradle = read("android/app/build.gradle.kts")
+    cmake = read("android/app/src/main/cpp/CMakeLists.txt")
+    assert "openstream.nonStreamingCiBuild" in gradle
+    assert "?: !nonStreamingCiBuild" in gradle
+    assert "OPENSTREAM_ENABLE_LIBSRT" in cmake
+    assert "Normal OpenStream APK builds require Android ABI-compatible libsrt" in cmake
 
 
 def test_receiver_validates_srt_support() -> None:

@@ -23,7 +23,7 @@ Normal setup uses LAN discovery. When the OBS source listener starts, it
 broadcasts a UDP beacon once per second on port `51515`:
 
 ```text
-OPENSTREAM/1 {"type":"dev.openstream.listener","version":1,"name":"OpenStream Phone Link","instanceId":"...","listenerPort":9000,"latencyMs":120,"bitrateMbps":12,"busy":false}
+OPENSTREAM/1 {"type":"dev.openstream.listener","version":1,"name":"OpenStream Phone","instanceId":"...","listenerPort":9000,"latencyMs":120,"bitrateMbps":12,"busy":false}
 ```
 
 The Android app uses the packet source IP plus the advertised port and latency
@@ -66,8 +66,9 @@ Minimum telemetry payload:
 
 ## OBS source settings
 
-The initial OBS source exposes:
+The OBS source exposes:
 
+- `listener_enabled`
 - `device_name`
 - `listener_port`
 - `srt_url`
@@ -75,7 +76,7 @@ The initial OBS source exposes:
 - `pairing_url`
 - `latency_ms`
 - `bitrate_mbps`
-- start/stop listener controls
+- start/stop listener controls for advanced/debug use
 
 The OBS plugin connects those settings to an FFmpeg/libsrt decode worker and
 submits decoded video frames through OBS video output APIs.

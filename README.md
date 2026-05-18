@@ -50,10 +50,10 @@ Default video settings:
 
 ## Normal user workflow
 
-1. Add `OpenStream Phone Link` as an OBS source.
-2. Click `Start listener`.
-3. Open the Android app on the same Wi-Fi network.
-4. Tap the available OBS device.
+1. Add `OpenStream Phone` as an OBS source.
+2. Leave `Start listener` enabled and click `OK`; the source waits blank.
+3. Open the Android app on the same Wi-Fi network; camera preview appears immediately.
+4. Tap the available OBS source.
 5. Direct camera video appears in OBS.
 
 ## Developer receiver smoke test
@@ -71,8 +71,9 @@ OBS source directly.
 
 The Android project requires Android Studio or a local Gradle installation with the Android Gradle plugin available.
 
-The native Android SRT bridge requires Android ABI-compatible libsrt binaries for
-real network sending.
+Normal Android APK builds require Android ABI-compatible libsrt binaries for real
+network sending. Use `-Popenstream.nonStreamingCiBuild=true` only for source
+compile checks that intentionally skip streaming support.
 
 The OBS plugin requires:
 
