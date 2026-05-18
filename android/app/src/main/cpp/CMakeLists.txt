@@ -3,5 +3,22 @@ project(openstream_srt)
 
 add_library(openstream_srt SHARED openstream_srt.cpp)
 
+option(OPENSTREAM_ENABLE_LIBSRT "Link the Android native sender against libsrt" OFF)
+
 find_library(log-lib log)
 target_link_libraries(openstream_srt ${log-lib})
+
+if (OPENSTREAM_ENABLE_LIBSRT)
+    find_path(OPENSTREAM_LIBSRT_INCLUDE_DIR srt/srt.h)
+    find_library(OPENSTREAM_LIBSRT_LIBRARY srt)
+
+    if (NOT OPENSTREAM_LIBSRT_INCLUDE_DIR OR NOT OPENSTREAM_LIBSRT_LIBRARY)
+        message(FATAL_ERROR "OPENSTREAM_ENABLE_LIBSRT=ON requires srt/srt.h and libsrt for the target ABI")
+    endif()
+
+    target_compile_definitions(openstream_srt PRIVATE OPENSTREAM_HAVE_LIBSRT=1)
+    target_include_directories(openstream_srt PRIVATE ${OPENSTREAM_LIBSRT_INCLUDE_DIR})
+    target_link_libraries(openstream_srt ${OPENSTREAM_LIBSRT_LIBRARY})
+else()
+    target_compile_definitions(openstream_srt PRIVATE OPENSTREAM_HAVE_LIBSRT=0)
+endif()

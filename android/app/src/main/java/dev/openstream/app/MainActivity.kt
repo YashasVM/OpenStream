@@ -123,7 +123,13 @@ class MainActivity : Activity() {
         targetUrl.text = url
         status.text = "Connecting camera to OBS on ${target.host}:${target.port}"
         runCatching {
-            streamClient.connect(url)
+            streamClient.connect(
+                url = url,
+                codecMime = encoder.codecName,
+                width = streamConfig.width,
+                height = streamConfig.height,
+                fps = streamConfig.fps,
+            )
             encoder.start()
             camera.start()
             val sample: DeviceTelemetry = telemetry.sample(

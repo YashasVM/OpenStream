@@ -5,9 +5,9 @@ import dev.openstream.app.encoder.EncodedAccessUnit
 class SrtStreamClient {
     private var connected = false
 
-    fun connect(url: String) {
+    fun connect(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
         require(url.startsWith("srt://")) { "OpenStream V1 expects an SRT URL" }
-        check(SrtNativeBridge.connect(url)) { "Native SRT bridge failed to connect" }
+        check(SrtNativeBridge.connect(url, codecMime, width, height, fps)) { "Native SRT bridge failed to connect" }
         connected = true
     }
 
@@ -29,7 +29,7 @@ private object SrtNativeBridge {
         System.loadLibrary("openstream_srt")
     }
 
-    external fun connect(url: String): Boolean
+    external fun connect(url: String, codecMime: String, width: Int, height: Int, fps: Int): Boolean
     external fun sendVideo(data: ByteArray, presentationTimeUs: Long, flags: Int): Boolean
     external fun disconnect()
 }

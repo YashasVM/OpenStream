@@ -28,6 +28,23 @@ Required permissions:
 
 Set the OBS PC IP and listener port in the app. The app builds the SRT caller URL for you and captures only the selected phone camera, not the phone screen.
 
+The native Android sender now packetizes `MediaCodec` H.264/H.265 access units
+as MPEG-TS before sending them to SRT, which lets FFmpeg/ffplay/OBS read the
+phone stream as a normal SRT transport stream. The repo keeps libsrt disabled by
+default so the scaffold still builds without vendored native dependencies. To
+enable real network sending, provide Android ABI-compatible libsrt headers and
+libraries to CMake and build with:
+
+```powershell
+./gradlew :app:assembleDebug `
+  -Popenstream.enableLibsrt=true `
+  -Popenstream.libsrtIncludeDir=C:/path/to/libsrt/include `
+  -Popenstream.libsrtLibrary=C:/path/to/libsrt/android/arm64-v8a/libsrt.so
+```
+
+The app will fail fast at connect time if it was built without libsrt instead of
+silently dropping encoded frames.
+
 Recommended first stream settings:
 
 - `1920x1080`
