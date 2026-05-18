@@ -6,6 +6,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
@@ -43,6 +45,16 @@ class MainActivity : Activity() {
     private lateinit var telemetry: TelemetrySampler
     private lateinit var discoveryClient: ObsDiscoveryClient
     private val streamConfig = StreamConfig.Default1080p30
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var activeTargetName: String? = null
+    private val statsTicker = object : Runnable {
+        override fun run() {
+            renderStreamStats()
+            if (activeTargetName != null) {
+                mainHandler.postDelayed(this, 1_000)
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,7 +71,12 @@ class MainActivity : Activity() {
             fps = streamConfig.fps,
             bitrate = streamConfig.bitrate,
             keyframeIntervalSeconds = streamConfig.keyframeIntervalSeconds,
-            onEncodedAccessUnit = streamClient::sendVideoAccessUnit,
+            onEncodedAccessUnit = { accessUnit ->
+                val sent = streamClient.sendVideoAccessUnit(accessUnit)
+                if (!sent) {
+                    runOnUiThread { renderStreamStats(forceFailure = true) }
+                }
+            },
         )
         camera = Camera2Controller(
             context = this,
@@ -69,7 +86,7 @@ class MainActivity : Activity() {
         preview.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) = startPreviewIfAllowed()
             override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
-            override fun surfaceDestroyed(holder: SurfaceHolder) = camera.stop()
+            override fun surfaceDestroyed(holder: SurfaceHolder) = stopStream()
         })
 
         handlePairingIntent(intent)
@@ -228,6 +245,7 @@ class MainActivity : Activity() {
     }
 
     private fun startStream(target: ConnectionTarget) {
+        stopStream(updateStatus = false)
         val url = target.toSrtCallerUrl()
         targetUrl.text = url
         status.text = "Connecting ${selectedLens().displayName} camera to ${target.name}"
@@ -241,6 +259,9 @@ class MainActivity : Activity() {
             )
             encoder.start()
             camera.startStreaming(encoder.inputSurface())
+            activeTargetName = target.name
+            mainHandler.removeCallbacks(statsTicker)
+            mainHandler.post(statsTicker)
             val sample: DeviceTelemetry = telemetry.sample(
                 streamUrl = url,
                 codec = encoder.codecName,
@@ -249,18 +270,45 @@ class MainActivity : Activity() {
                 fps = streamConfig.fps,
                 bitrate = streamConfig.bitrate,
             )
-            status.text = "Live in OBS: ${target.name}, ${sample.codec} ${sample.width}x${sample.height}@${sample.fps}"
+            status.text = "Starting video: ${target.name}, ${sample.codec} ${sample.width}x${sample.height}@${sample.fps}"
         }.onFailure { error ->
             stopStream()
             status.text = "Could not start camera feed: ${error.message ?: "unknown error"}"
         }
     }
 
-    private fun stopStream() {
+    private fun stopStream(updateStatus: Boolean = true) {
+        activeTargetName = null
+        mainHandler.removeCallbacks(statsTicker)
         camera.stopStreaming()
         encoder.stop()
         streamClient.disconnect()
-        status.text = "Streaming stopped. Camera preview remains ready."
+        if (updateStatus) {
+            status.text = "Streaming stopped. Camera preview remains ready."
+        }
+    }
+
+    private fun renderStreamStats(forceFailure: Boolean = false) {
+        val targetName = activeTargetName ?: return
+        val stats = streamClient.stats
+        val megabits = stats.bytesSent * 8.0 / 1_000_000.0
+        val prefix = if (forceFailure || stats.sendFailures > 0) {
+            "Send issue"
+        } else if (stats.accessUnitsSent == 0L) {
+            "Waiting for encoded frames"
+        } else {
+            "Live"
+        }
+        status.text = String.format(
+            "%s: %s | frames=%d keyframes=%d sent=%.1f Mb stream=%.1fs failures=%d",
+            prefix,
+            targetName,
+            stats.accessUnitsSent,
+            stats.keyframesSent,
+            megabits,
+            stats.secondsSent,
+            stats.sendFailures,
+        )
     }
 
     private fun startPreviewIfAllowed() {

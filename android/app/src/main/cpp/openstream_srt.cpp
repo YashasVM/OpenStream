@@ -352,7 +352,11 @@ class NativeSender {
     }
 
     int yes = 1;
+    int transportType = SRTT_LIVE;
+    int payloadSize = 188 * 7;
+    srt_setsockopt(socket_, 0, SRTO_TRANSTYPE, &transportType, sizeof transportType);
     srt_setsockopt(socket_, 0, SRTO_SENDER, &yes, sizeof yes);
+    srt_setsockopt(socket_, 0, SRTO_PAYLOADSIZE, &payloadSize, sizeof payloadSize);
     const int latency = parsed->latencyMs;
     srt_setsockopt(socket_, 0, SRTO_LATENCY, &latency, sizeof latency);
     srt_setsockopt(socket_, 0, SRTO_PEERLATENCY, &latency, sizeof latency);
@@ -410,7 +414,11 @@ class NativeSender {
         __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT send failed: %s", srt_getlasterror_str());
         return false;
       }
-      offset += chunk;
+      if (sent <= 0) {
+        logError("SRT send made no progress");
+        return false;
+      }
+      offset += static_cast<size_t>(sent);
     }
     return true;
 #else

@@ -7,6 +7,7 @@ import android.media.MediaFormat
 import android.os.Handler
 import android.os.HandlerThread
 import android.view.Surface
+import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 
 enum class CodecPreference {
@@ -35,7 +36,8 @@ class MediaCodecVideoEncoder(
     private lateinit var handler: Handler
     private var surface: Surface? = null
 
-    val codecName: String = mimeType
+    val codecName: String
+        get() = mimeType
 
     fun inputSurface(): Surface = checkNotNull(surface) { "Encoder input surface is not ready" }
 
@@ -49,7 +51,9 @@ class MediaCodecVideoEncoder(
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, keyframeIntervalSeconds)
-            setInteger(MediaFormat.KEY_LATENCY, 0)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                setInteger(MediaFormat.KEY_LATENCY, 0)
+            }
         }
         encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         surface = encoder.createInputSurface()
@@ -63,6 +67,10 @@ class MediaCodecVideoEncoder(
 
             override fun onOutputBufferAvailable(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
                 val buffer: ByteBuffer = codec.getOutputBuffer(index) ?: run {
+                    codec.releaseOutputBuffer(index, false)
+                    return
+                }
+                if (info.size <= 0) {
                     codec.releaseOutputBuffer(index, false)
                     return
                 }
@@ -84,7 +92,17 @@ class MediaCodecVideoEncoder(
                 throw e
             }
 
-            override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) = Unit
+            override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
+                codecConfigFrom(format)?.let { config ->
+                    onEncodedAccessUnit(
+                        EncodedAccessUnit(
+                            data = config,
+                            presentationTimeUs = 0,
+                            flags = MediaCodec.BUFFER_FLAG_CODEC_CONFIG,
+                        ),
+                    )
+                }
+            }
         }, handler)
         encoder.start()
     }
@@ -105,5 +123,20 @@ class MediaCodecVideoEncoder(
             info.isEncoder && info.supportedTypes.any { it.equals(MediaFormat.MIMETYPE_VIDEO_HEVC, true) }
         }
         return if (hasHevc) MediaFormat.MIMETYPE_VIDEO_HEVC else MediaFormat.MIMETYPE_VIDEO_AVC
+    }
+
+    private fun codecConfigFrom(format: MediaFormat): ByteArray? {
+        val output = ByteArrayOutputStream()
+        for (index in 0..2) {
+            val key = "csd-$index"
+            if (!format.containsKey(key)) continue
+            val buffer = format.getByteBuffer(key) ?: continue
+            val duplicate = buffer.duplicate()
+            duplicate.position(0)
+            val bytes = ByteArray(duplicate.remaining())
+            duplicate.get(bytes)
+            output.write(bytes)
+        }
+        return output.toByteArray().takeIf { it.isNotEmpty() }
     }
 }
