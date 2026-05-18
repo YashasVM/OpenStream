@@ -82,7 +82,7 @@ using SwsContextPtr = std::unique_ptr<SwsContext, SwsContextDeleter>;
 
 constexpr int kDiscoveryPort = 51515;
 constexpr int kDefaultListenerPort = 9000;
-constexpr const char *kOpenStreamSourceName = "OpenStream Phone";
+constexpr const char *kOpenStreamSourceName = "OpenStream Phone V2";
 constexpr const char *kDiscoveryMulticastAddress = "239.255.42.99";
 constexpr const char *kPhoneDiscoveryPrefix = "OPENSTREAM_PHONE/1 ";
 
@@ -1039,7 +1039,7 @@ obs_properties_t *openstream_properties(void *) {
 }
 
 obs_source_info openstream_source_info = {
-    .id = "openstream_source",
+    .id = "openstream_phone_v2_source",
     .type = OBS_SOURCE_TYPE_INPUT,
     .output_flags = OBS_SOURCE_ASYNC_VIDEO,
     .get_name = openstream_get_name,
@@ -1061,7 +1061,7 @@ bool obs_module_load(void) {
   }
 #endif
   obs_register_source(&openstream_source_info);
-  blog(LOG_INFO, "[OpenStream] OBS plugin loaded");
+  blog(LOG_INFO, "[OpenStream] OBS plugin loaded: phone-discovery V2");
   return true;
 }
 
