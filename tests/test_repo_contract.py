@@ -32,6 +32,7 @@ def test_android_project_declares_camera_media_codec_srt_discovery_boundaries() 
     assert "DISCOVERY_PORT = 51515" in discovery
     assert "DEVICE_TTL_MS = 5_000L" in discovery
     assert "createMulticastLock" in discovery
+    assert "joinGroup" in discovery
     assert "CHANGE_WIFI_MULTICAST_STATE" in manifest
     assert "RECORD_AUDIO" not in app
 
@@ -52,8 +53,8 @@ def test_obs_plugin_registers_openstream_source_and_discovery() -> None:
     assert "obs_register_source" in source
     assert "OpenStream Phone" in source
     assert "listener_enabled" in source
-    assert "reserve_listener_port" in source
     assert "discovery_broadcast_addresses" in source
+    assert "kDiscoveryMulticastAddress" in source
     assert "DiscoveryAdvertiser" in source
     assert "kDiscoveryPort = 51515" in source
     assert "OPENSTREAM/1" in source

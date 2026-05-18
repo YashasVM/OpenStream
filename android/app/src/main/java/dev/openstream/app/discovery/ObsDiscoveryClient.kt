@@ -8,6 +8,9 @@ import org.json.JSONObject
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetSocketAddress
+import java.net.InetAddress
+import java.net.MulticastSocket
+import java.net.NetworkInterface
 import java.net.SocketTimeoutException
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicBoolean
@@ -20,7 +23,7 @@ class ObsDiscoveryClient(
     private val running = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val devices = linkedMapOf<String, DiscoveredObsDevice>()
-    private var socket: DatagramSocket? = null
+    private var socket: MulticastSocket? = null
     private var worker: Thread? = null
     private var multicastLock: WifiManager.MulticastLock? = null
 
@@ -63,12 +66,13 @@ class ObsDiscoveryClient(
     }
 
     private fun receiveLoop() {
-        val udp = DatagramSocket(null).apply {
+        val udp = MulticastSocket(null).apply {
             reuseAddress = true
             soTimeout = 500
             bind(InetSocketAddress(DISCOVERY_PORT))
         }
         socket = udp
+        joinDiscoveryMulticast(udp)
         val buffer = ByteArray(4096)
 
         while (running.get()) {
@@ -98,6 +102,17 @@ class ObsDiscoveryClient(
         udp.close()
     }
 
+    private fun joinDiscoveryMulticast(socket: MulticastSocket) {
+        val group = InetAddress.getByName(DISCOVERY_MULTICAST_ADDRESS)
+        NetworkInterface.getNetworkInterfaces().asSequence()
+            .filter { it.isUp && !it.isLoopback }
+            .forEach { iface ->
+                runCatching {
+                    socket.joinGroup(InetSocketAddress(group, DISCOVERY_PORT), iface)
+                }
+            }
+    }
+
     private fun pruneExpired(): Boolean {
         val cutoff = nowMs() - DEVICE_TTL_MS
         synchronized(devices) {
@@ -118,6 +133,7 @@ class ObsDiscoveryClient(
 
     companion object {
         const val DISCOVERY_PORT = 51515
+        const val DISCOVERY_MULTICAST_ADDRESS = "239.255.42.99"
         const val DEVICE_TTL_MS = 5_000L
     }
 }

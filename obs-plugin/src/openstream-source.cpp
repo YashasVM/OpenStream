@@ -28,7 +28,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include <set>
 #include <algorithm>
 
 extern "C" {
@@ -84,9 +83,7 @@ using SwsContextPtr = std::unique_ptr<SwsContext, SwsContextDeleter>;
 constexpr int kDiscoveryPort = 51515;
 constexpr int kDefaultListenerPort = 9000;
 constexpr const char *kOpenStreamSourceName = "OpenStream Phone";
-
-std::mutex g_ports_mutex;
-std::set<int> g_allocated_ports;
+constexpr const char *kDiscoveryMulticastAddress = "239.255.42.99";
 
 #ifdef _WIN32
 using SocketHandle = SOCKET;
@@ -352,6 +349,8 @@ class DiscoveryAdvertiser {
       destination.sin_addr.s_addr = inet_addr(address.c_str());
       destinations.push_back(destination);
     }
+    destination.sin_addr.s_addr = inet_addr(kDiscoveryMulticastAddress);
+    destinations.push_back(destination);
 
     while (!stop_requested_.load()) {
       const std::string payload = beacon_payload();
@@ -400,27 +399,6 @@ struct OpenStreamSource {
   std::thread worker;
   std::mutex settings_mutex;
 };
-
-int reserve_listener_port(int requested_port, int current_port) {
-  std::lock_guard<std::mutex> lock(g_ports_mutex);
-  if (current_port > 0) {
-    g_allocated_ports.erase(current_port);
-  }
-  int port = requested_port > 0 ? requested_port : kDefaultListenerPort;
-  while (g_allocated_ports.count(port) != 0 && port < 65535) {
-    ++port;
-  }
-  g_allocated_ports.insert(port);
-  return port;
-}
-
-void release_listener_port(int port) {
-  if (port <= 0) {
-    return;
-  }
-  std::lock_guard<std::mutex> lock(g_ports_mutex);
-  g_allocated_ports.erase(port);
-}
 
 std::string av_error(int error) {
   char buffer[AV_ERROR_MAX_STRING_SIZE] = {};
@@ -557,24 +535,13 @@ bool output_decoded_frame(OpenStreamSource *ctx,
     return false;
   }
 
-  const int64_t best_timestamp = decoded_frame->best_effort_timestamp;
-  const AVRational nanosecond_time_base = {1, 1000000000};
-  uint64_t timestamp_ns = 0;
-  if (best_timestamp != AV_NOPTS_VALUE) {
-    timestamp_ns = static_cast<uint64_t>(
-        av_rescale_q(best_timestamp, stream->time_base, nanosecond_time_base));
-  } else if (decoded_frame->pts != AV_NOPTS_VALUE) {
-    timestamp_ns = static_cast<uint64_t>(
-        av_rescale_q(decoded_frame->pts, stream->time_base, nanosecond_time_base));
-  } else {
-    timestamp_ns = os_gettime_ns();
-  }
+  (void)stream;
 
   struct obs_source_frame obs_frame = {};
   obs_frame.format = VIDEO_FORMAT_BGRA;
   obs_frame.width = static_cast<uint32_t>(width);
   obs_frame.height = static_cast<uint32_t>(height);
-  obs_frame.timestamp = timestamp_ns;
+  obs_frame.timestamp = os_gettime_ns();
   obs_frame.data[0] = bgra_buffer->data();
   obs_frame.linesize[0] = static_cast<uint32_t>(linesize);
   obs_frame.flip = false;
@@ -770,11 +737,11 @@ void openstream_update(void *data, obs_data_t *settings) {
     ctx->listener_enabled = obs_data_get_bool(settings, "listener_enabled");
     ctx->device_name = obs_data_get_string(settings, "device_name");
     int requested_port = static_cast<int>(obs_data_get_int(settings, "listener_port"));
-    if (requested_port <= 0 || ctx->listener_port <= 0 ||
-        requested_port != ctx->listener_port) {
-      ctx->listener_port = reserve_listener_port(requested_port, ctx->listener_port);
-      obs_data_set_int(settings, "listener_port", ctx->listener_port);
+    if (requested_port <= 0) {
+      requested_port = kDefaultListenerPort;
+      obs_data_set_int(settings, "listener_port", requested_port);
     }
+    ctx->listener_port = requested_port;
     ctx->latency_ms = static_cast<int>(obs_data_get_int(settings, "latency_ms"));
     ctx->bitrate_mbps = static_cast<int>(obs_data_get_int(settings, "bitrate_mbps"));
     ctx->srt_url = "srt://0.0.0.0:" + std::to_string(ctx->listener_port) +
@@ -806,7 +773,6 @@ void *openstream_create(obs_data_t *settings, obs_source_t *source) {
 void openstream_destroy(void *data) {
   auto *ctx = static_cast<OpenStreamSource *>(data);
   openstream_stop_worker(ctx);
-  release_listener_port(ctx->listener_port);
   delete ctx;
 }
 

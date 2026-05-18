@@ -22,7 +22,7 @@ data class StreamConfig(
             bitrate = 12_000_000,
             keyframeIntervalSeconds = 1,
             latencyMs = 120,
-            codecPreference = CodecPreference.PreferHevc,
+            codecPreference = CodecPreference.ForceAvc,
         )
 
         val Fallback720p30 = StreamConfig(
@@ -32,7 +32,7 @@ data class StreamConfig(
             bitrate = 8_000_000,
             keyframeIntervalSeconds = 1,
             latencyMs = 120,
-            codecPreference = CodecPreference.PreferHevc,
+            codecPreference = CodecPreference.ForceAvc,
         )
     }
 }
