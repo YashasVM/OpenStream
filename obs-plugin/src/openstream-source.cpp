@@ -1,4 +1,5 @@
 #include <obs-module.h>
+#include <util/platform.h>
 
 #include <chrono>
 #include <atomic>
