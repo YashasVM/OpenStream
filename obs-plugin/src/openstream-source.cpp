@@ -1,18 +1,3 @@
-#include <obs-module.h>
-#include <util/platform.h>
-
-#include <chrono>
-#include <atomic>
-#include <cstdint>
-#include <cstdlib>
-#include <cstring>
-#include <memory>
-#include <mutex>
-#include <sstream>
-#include <string>
-#include <thread>
-#include <vector>
-
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -28,6 +13,21 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
+
+#include <obs-module.h>
+#include <util/platform.h>
+
+#include <chrono>
+#include <atomic>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <memory>
+#include <mutex>
+#include <sstream>
+#include <string>
+#include <thread>
+#include <vector>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
