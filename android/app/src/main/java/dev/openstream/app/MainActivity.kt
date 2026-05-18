@@ -20,8 +20,7 @@ import android.widget.Spinner
 import android.widget.TextView
 import dev.openstream.app.camera.Camera2Controller
 import dev.openstream.app.camera.CameraLens
-import dev.openstream.app.discovery.DiscoveredObsDevice
-import dev.openstream.app.discovery.ObsDiscoveryClient
+import dev.openstream.app.discovery.PhoneDiscoveryAdvertiser
 import dev.openstream.app.encoder.MediaCodecVideoEncoder
 import dev.openstream.app.stream.ConnectionTarget
 import dev.openstream.app.stream.StreamConfig
@@ -43,10 +42,13 @@ class MainActivity : Activity() {
     private lateinit var encoder: MediaCodecVideoEncoder
     private lateinit var streamClient: SrtStreamClient
     private lateinit var telemetry: TelemetrySampler
-    private lateinit var discoveryClient: ObsDiscoveryClient
+    private lateinit var phoneAdvertiser: PhoneDiscoveryAdvertiser
     private val streamConfig = StreamConfig.Default1080p30
     private val mainHandler = Handler(Looper.getMainLooper())
     private var activeTargetName: String? = null
+    @Volatile private var phoneServerRunning = false
+    @Volatile private var phoneConnected = false
+    private var listenerThread: Thread? = null
     private val statsTicker = object : Runnable {
         override fun run() {
             renderStreamStats()
@@ -63,7 +65,12 @@ class MainActivity : Activity() {
 
         streamClient = SrtStreamClient()
         telemetry = TelemetrySampler(this)
-        discoveryClient = ObsDiscoveryClient(this, ::renderDiscoveredDevices)
+        phoneAdvertiser = PhoneDiscoveryAdvertiser(
+            context = this,
+            config = streamConfig,
+            port = ConnectionTarget.DEFAULT_PORT,
+            busyProvider = { phoneConnected },
+        )
         encoder = MediaCodecVideoEncoder(
             preference = streamConfig.codecPreference,
             width = streamConfig.width,
@@ -74,6 +81,7 @@ class MainActivity : Activity() {
             onEncodedAccessUnit = { accessUnit ->
                 val sent = streamClient.sendVideoAccessUnit(accessUnit)
                 if (!sent) {
+                    phoneConnected = false
                     runOnUiThread { renderStreamStats(forceFailure = true) }
                 }
             },
@@ -84,9 +92,12 @@ class MainActivity : Activity() {
             lensProvider = { selectedLens() },
         )
         preview.holder.addCallback(object : SurfaceHolder.Callback {
-            override fun surfaceCreated(holder: SurfaceHolder) = startPreviewIfAllowed()
+            override fun surfaceCreated(holder: SurfaceHolder) {
+                startPreviewIfAllowed()
+                startPhoneServerIfAllowed()
+            }
             override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
-            override fun surfaceDestroyed(holder: SurfaceHolder) = stopStream()
+            override fun surfaceDestroyed(holder: SurfaceHolder) = stopPhoneServer()
         })
 
         handlePairingIntent(intent)
@@ -94,13 +105,14 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
-        discoveryClient.start()
+        phoneAdvertiser.start()
+        startPhoneServerIfAllowed()
     }
 
     override fun onStop() {
-        stopStream()
+        stopPhoneServer()
         camera.stop()
-        discoveryClient.stop()
+        phoneAdvertiser.stop()
         super.onStop()
     }
 
@@ -112,6 +124,7 @@ class MainActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 100 && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
             startPreviewIfAllowed()
+            startPhoneServerIfAllowed()
         }
     }
 
@@ -124,7 +137,7 @@ class MainActivity : Activity() {
     private fun buildUi() {
         preview = SurfaceView(this)
         status = TextView(this).apply {
-            text = "Camera preview is ready. Waiting for an OBS source on the same Wi-Fi."
+            text = "Camera preview is ready. OBS can discover this phone on the same Wi-Fi."
         }
         devicesContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -169,7 +182,7 @@ class MainActivity : Activity() {
         }
         val stop = Button(this).apply {
             text = "Stop"
-            setOnClickListener { stopStream() }
+            setOnClickListener { stopPhoneServer() }
         }
 
         manualContainer.addView(TextView(this).apply { text = "OBS PC IP" })
@@ -179,6 +192,7 @@ class MainActivity : Activity() {
         manualContainer.addView(TextView(this).apply { text = "Latency ms" })
         manualContainer.addView(latency)
         manualContainer.addView(manualStart)
+        renderReadyState()
 
         setContentView(
             ScrollView(this).apply {
@@ -192,7 +206,7 @@ class MainActivity : Activity() {
                                 resources.displayMetrics.heightPixels / 3,
                             ),
                         )
-                        addView(TextView(this@MainActivity).apply { text = "Available OBS devices" })
+                        addView(TextView(this@MainActivity).apply { text = "OBS workflow" })
                         addView(devicesContainer)
                         addView(TextView(this@MainActivity).apply { text = "Camera" })
                         addView(lensSelector)
@@ -207,35 +221,14 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun renderDiscoveredDevices(devices: List<DiscoveredObsDevice>) {
+    private fun renderReadyState() {
         devicesContainer.removeAllViews()
-        if (devices.isEmpty()) {
-            devicesContainer.addView(TextView(this).apply {
-                text = "No OBS sources found yet. Check same Wi-Fi and firewall, or use manual fallback."
-            })
-            return
-        }
-
-        devices.forEach { device ->
-            val row = Button(this).apply {
-                text = buildString {
-                    append(device.name)
-                    append("\n")
-                    append(device.displayEndpoint)
-                    append("  ")
-                    append(device.latencyMs)
-                    append(" ms  ")
-                    append(device.bitrateMbps)
-                    append(" Mbps")
-                    if (device.busy) append("\nBusy")
-                }
-                isEnabled = !device.busy
-                setOnClickListener {
-                    startStream(ConnectionTarget.fromDiscoveredDevice(device))
-                }
-            }
-            devicesContainer.addView(row)
-        }
+        devicesContainer.addView(TextView(this).apply {
+            text = "Open OBS, add OpenStream Phone, choose this phone, then click Connect."
+        })
+        devicesContainer.addView(TextView(this).apply {
+            text = "Phone SRT listener: port ${ConnectionTarget.DEFAULT_PORT}, ${streamConfig.width}x${streamConfig.height}@${streamConfig.fps}, ${streamConfig.bitrateMbps} Mbps"
+        })
     }
 
     private fun handlePairingIntent(intent: Intent?) {
@@ -277,12 +270,81 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun startPhoneServerIfAllowed() {
+        if (phoneServerRunning) return
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
+        if (!preview.holder.surface.isValid) return
+
+        phoneServerRunning = true
+        phoneConnected = false
+        activeTargetName = null
+        val listenUrl = "srt://0.0.0.0:${ConnectionTarget.DEFAULT_PORT}?mode=listener&latency=${streamConfig.latencyMs}"
+        targetUrl.text = listenUrl
+        status.text = "Ready for OBS. Waiting on port ${ConnectionTarget.DEFAULT_PORT}."
+        listenerThread = Thread({
+            while (phoneServerRunning) {
+                runCatching {
+                    streamClient.listen(
+                        url = listenUrl,
+                        codecMime = encoder.codecName,
+                        width = streamConfig.width,
+                        height = streamConfig.height,
+                        fps = streamConfig.fps,
+                    )
+                    if (!phoneServerRunning) return@runCatching
+                    phoneConnected = true
+                    activeTargetName = "OBS"
+                    runOnUiThread {
+                        status.text = "OBS connected. Starting camera stream."
+                        mainHandler.removeCallbacks(statsTicker)
+                        mainHandler.post(statsTicker)
+                    }
+                    encoder.start()
+                    camera.startStreaming(encoder.inputSurface())
+                    while (phoneServerRunning && phoneConnected) {
+                        Thread.sleep(250)
+                    }
+                }.onFailure { error ->
+                    runOnUiThread {
+                        status.text = "Phone listener error: ${error.message ?: "unknown error"}"
+                    }
+                    Thread.sleep(750)
+                }
+                stopActiveEncoding(updateStatus = false)
+                phoneConnected = false
+                activeTargetName = null
+                if (phoneServerRunning) {
+                    runOnUiThread {
+                        status.text = "Ready for OBS. Waiting on port ${ConnectionTarget.DEFAULT_PORT}."
+                    }
+                }
+            }
+        }, "OpenStreamPhoneSrtListener").apply {
+            isDaemon = true
+            start()
+        }
+    }
+
+    private fun stopPhoneServer() {
+        phoneServerRunning = false
+        phoneConnected = false
+        activeTargetName = null
+        mainHandler.removeCallbacks(statsTicker)
+        streamClient.disconnect()
+        stopActiveEncoding()
+    }
+
     private fun stopStream(updateStatus: Boolean = true) {
         activeTargetName = null
         mainHandler.removeCallbacks(statsTicker)
+        phoneConnected = false
+        streamClient.disconnect()
+        stopActiveEncoding(updateStatus)
+    }
+
+    private fun stopActiveEncoding(updateStatus: Boolean = true) {
         camera.stopStreaming()
         encoder.stop()
-        streamClient.disconnect()
         if (updateStatus) {
             status.text = "Streaming stopped. Camera preview remains ready."
         }

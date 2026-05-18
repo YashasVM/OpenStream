@@ -6,6 +6,7 @@ import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Handler
 import android.os.HandlerThread
+import android.util.Log
 import android.view.Surface
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
@@ -89,7 +90,7 @@ class MediaCodecVideoEncoder(
             }
 
             override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
-                throw e
+                Log.e("OpenStreamEncoder", "MediaCodec encoder error", e)
             }
 
             override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {

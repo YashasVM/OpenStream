@@ -396,6 +396,73 @@ class NativeSender {
 #endif
   }
 
+  bool listen(const std::string &url) {
+#if OPENSTREAM_HAVE_LIBSRT
+    disconnect();
+    const auto parsed = parseSrtUrl(url);
+    if (!parsed) {
+      logError("Invalid SRT listener URL");
+      return false;
+    }
+
+    if (srt_startup() != 0) {
+      logError("libsrt startup failed");
+      return false;
+    }
+
+    listener_socket_ = srt_create_socket();
+    if (listener_socket_ == SRT_INVALID_SOCK) {
+      logError("Could not create SRT listener socket");
+      return false;
+    }
+
+    int yes = 1;
+    int transportType = SRTT_LIVE;
+    int payloadSize = 188 * 7;
+    const int latency = parsed->latencyMs;
+    srt_setsockopt(listener_socket_, 0, SRTO_TRANSTYPE, &transportType, sizeof transportType);
+    srt_setsockopt(listener_socket_, 0, SRTO_SENDER, &yes, sizeof yes);
+    srt_setsockopt(listener_socket_, 0, SRTO_REUSEADDR, &yes, sizeof yes);
+    srt_setsockopt(listener_socket_, 0, SRTO_PAYLOADSIZE, &payloadSize, sizeof payloadSize);
+    srt_setsockopt(listener_socket_, 0, SRTO_LATENCY, &latency, sizeof latency);
+    srt_setsockopt(listener_socket_, 0, SRTO_PEERLATENCY, &latency, sizeof latency);
+
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_port = htons(static_cast<uint16_t>(std::atoi(parsed->port.c_str())));
+    address.sin_addr.s_addr = INADDR_ANY;
+
+    if (srt_bind(listener_socket_, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == SRT_ERROR) {
+      __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT bind failed: %s", srt_getlasterror_str());
+      disconnect();
+      return false;
+    }
+    if (srt_listen(listener_socket_, 1) == SRT_ERROR) {
+      __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT listen failed: %s", srt_getlasterror_str());
+      disconnect();
+      return false;
+    }
+
+    sockaddr_storage peer{};
+    int peer_len = sizeof(peer);
+    __android_log_print(ANDROID_LOG_INFO, kTag, "Waiting for OBS caller on SRT port %s", parsed->port.c_str());
+    socket_ = srt_accept(listener_socket_, reinterpret_cast<sockaddr *>(&peer), &peer_len);
+    srt_close(listener_socket_);
+    listener_socket_ = SRT_INVALID_SOCK;
+    if (socket_ == SRT_INVALID_SOCK) {
+      __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT accept failed: %s", srt_getlasterror_str());
+      disconnect();
+      return false;
+    }
+    logInfo("OBS connected to Android SRT listener");
+    return true;
+#else
+    (void)url;
+    logError("openstream_srt was built without libsrt. Rebuild with OPENSTREAM_ENABLE_LIBSRT=ON.");
+    return false;
+#endif
+  }
+
   bool send(const std::vector<uint8_t> &bytes) {
 #if OPENSTREAM_HAVE_LIBSRT
     if (socket_ == SRT_INVALID_SOCK) {
@@ -429,17 +496,22 @@ class NativeSender {
 
   void disconnect() {
 #if OPENSTREAM_HAVE_LIBSRT
+    if (listener_socket_ != SRT_INVALID_SOCK) {
+      srt_close(listener_socket_);
+      listener_socket_ = SRT_INVALID_SOCK;
+    }
     if (socket_ != SRT_INVALID_SOCK) {
       srt_close(socket_);
       socket_ = SRT_INVALID_SOCK;
-      srt_cleanup();
     }
+    srt_cleanup();
 #endif
   }
 
  private:
 #if OPENSTREAM_HAVE_LIBSRT
   SRTSOCKET socket_ = SRT_INVALID_SOCK;
+  SRTSOCKET listener_socket_ = SRT_INVALID_SOCK;
 #endif
 };
 
@@ -483,6 +555,39 @@ Java_dev_openstream_app_stream_SrtNativeBridge_connect(
   g_state.connected = g_state.sender.connect(urlString);
   if (g_state.connected) {
     __android_log_print(ANDROID_LOG_INFO, kTag, "Connected SRT MPEG-TS sender to %s", urlString.c_str());
+  }
+  return g_state.connected ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_openstream_app_stream_SrtNativeBridge_listen(
+    JNIEnv *env,
+    jobject,
+    jstring url,
+    jstring codec_mime,
+    jint,
+    jint,
+    jint) {
+  const char *rawUrl = env->GetStringUTFChars(url, nullptr);
+  const char *rawCodec = env->GetStringUTFChars(codec_mime, nullptr);
+  const std::string urlString(rawUrl);
+  const std::string codecString(rawCodec);
+  env->ReleaseStringUTFChars(url, rawUrl);
+  env->ReleaseStringUTFChars(codec_mime, rawCodec);
+
+  const auto codec = parseCodec(codecString);
+  if (!codec) {
+    logError("Unsupported video codec for SRT bridge");
+    return JNI_FALSE;
+  }
+
+  g_state.sender.disconnect();
+  g_state.muxer.emplace(*codec);
+  g_state.muxer->reset();
+  g_state.codecConfig.clear();
+  g_state.connected = g_state.sender.listen(urlString);
+  if (g_state.connected) {
+    __android_log_print(ANDROID_LOG_INFO, kTag, "Accepted OBS SRT caller at %s", urlString.c_str());
   }
   return g_state.connected ? JNI_TRUE : JNI_FALSE;
 }

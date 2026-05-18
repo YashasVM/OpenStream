@@ -150,10 +150,12 @@ object ObsDiscoveryProtocol {
 
         val port = json.optInt("listenerPort", -1)
         if (port !in 1..65535) return null
+        val advertisedHost = json.optString("host").trim()
+        val host = advertisedHost.ifBlank { packetHost }
 
         return DiscoveredObsDevice(
             name = json.optString("name", "OpenStream Phone Link").ifBlank { "OpenStream Phone Link" },
-            host = packetHost,
+            host = host,
             port = port,
             latencyMs = json.optInt("latencyMs", 120).coerceIn(20, 2000),
             bitrateMbps = json.optInt("bitrateMbps", 12).coerceIn(1, 200),

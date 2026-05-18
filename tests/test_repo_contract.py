@@ -19,20 +19,19 @@ def test_architecture_documents_practical_v1_transport() -> None:
 
 def test_android_project_declares_camera_media_codec_srt_discovery_boundaries() -> None:
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
-    discovery = read("android/app/src/main/java/dev/openstream/app/discovery/ObsDiscoveryClient.kt")
+    discovery = read("android/app/src/main/java/dev/openstream/app/discovery/PhoneDiscoveryAdvertiser.kt")
     manifest = read("android/app/src/main/AndroidManifest.xml")
     assert "Camera2" in app
     assert "MediaCodec" in app
     assert "SrtStreamClient" in app
-    assert "Available OBS devices" in app
-    assert "ObsDiscoveryClient" in app
+    assert "Ready for OBS" in app
+    assert "PhoneDiscoveryAdvertiser" in app
     assert "startPreviewIfAllowed" in app
-    assert "startStreaming(encoder.inputSurface())" in app
-    assert "OPENSTREAM/1" in discovery
+    assert "startPhoneServerIfAllowed" in app
+    assert "OPENSTREAM_PHONE/1" in discovery
     assert "DISCOVERY_PORT = 51515" in discovery
-    assert "DEVICE_TTL_MS = 5_000L" in discovery
-    assert "createMulticastLock" in discovery
-    assert "joinGroup" in discovery
+    assert "dev.openstream.phone" in discovery
+    assert "DatagramSocket" in discovery
     assert "CHANGE_WIFI_MULTICAST_STATE" in manifest
     assert "RECORD_AUDIO" not in app
 

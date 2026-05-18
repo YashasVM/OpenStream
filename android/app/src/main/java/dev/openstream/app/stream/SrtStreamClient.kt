@@ -25,6 +25,13 @@ class SrtStreamClient {
         connected = true
     }
 
+    fun listen(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
+        require(url.startsWith("srt://")) { "OpenStream V2 expects an SRT URL" }
+        check(SrtNativeBridge.listen(url, codecMime, width, height, fps)) { "Native SRT bridge failed to listen" }
+        stats = StreamStats()
+        connected = true
+    }
+
     fun sendVideoAccessUnit(accessUnit: EncodedAccessUnit): Boolean {
         if (!connected) return false
         val sent = SrtNativeBridge.sendVideo(accessUnit.data, accessUnit.presentationTimeUs, accessUnit.flags)
@@ -61,6 +68,7 @@ private object SrtNativeBridge {
     }
 
     external fun connect(url: String, codecMime: String, width: Int, height: Int, fps: Int): Boolean
+    external fun listen(url: String, codecMime: String, width: Int, height: Int, fps: Int): Boolean
     external fun sendVideo(data: ByteArray, presentationTimeUs: Long, flags: Int): Boolean
     external fun disconnect()
 }
