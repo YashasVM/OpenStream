@@ -19,7 +19,18 @@ OBS source listens on srt://0.0.0.0:<port>?mode=listener&latency=<latency_ms>
 Android app calls srt://<obs-pc-ip>:<port>?mode=caller&latency=<latency_ms>
 ```
 
-The Android app collects OBS PC IP, listener port, and latency as separate fields, then generates the caller URL. Users should not need to hand-edit SRT query strings during normal setup.
+Normal setup uses LAN discovery. When the OBS source listener starts, it
+broadcasts a UDP beacon once per second on port `51515`:
+
+```text
+OPENSTREAM/1 {"type":"dev.openstream.listener","version":1,"name":"OpenStream Phone Link","instanceId":"...","listenerPort":9000,"latencyMs":120,"bitrateMbps":12,"busy":false}
+```
+
+The Android app uses the packet source IP plus the advertised port and latency
+to generate the SRT caller URL. Users should not need to hand-edit SRT query
+strings during normal setup. If discovery is blocked, the OBS source exposes an
+`openstream://connect?host=<obs-ip>&port=<port>&latency=<latency_ms>&name=...`
+fallback URL for QR/manual pairing.
 
 The Android app sends encoded video access units produced by `MediaCodec`.
 
@@ -61,6 +72,7 @@ The initial OBS source exposes:
 - `listener_port`
 - `srt_url`
 - `phone_target_hint`
+- `pairing_url`
 - `latency_ms`
 - `bitrate_mbps`
 - start/stop listener controls

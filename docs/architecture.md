@@ -6,12 +6,15 @@
 Android Camera2
   -> MediaCodec hardware HEVC/H.264 encode
   -> SRT caller over local Wi-Fi
-  -> Windows FFmpeg/libsrt receiver
-  -> Native OBS source plugin
+  -> Native OBS source plugin FFmpeg/libsrt listener
   -> OBS final stream/record encode
 ```
 
 The V1 prototype intentionally uses hardware video encoding on the phone. This is the best path for stable, high-quality wireless streaming over commodity Wi-Fi.
+
+OBS starts the media listener and advertises it on the LAN with OpenStream UDP
+discovery. Android shows discovered OBS listeners as tappable devices, then
+connects directly over SRT.
 
 ## Why not raw YUV first?
 
@@ -21,6 +24,7 @@ Raw 1080p YUV420 is hundreds of megabits per second before overhead. Lossless zs
 
 - Android is the SRT caller.
 - Windows is the SRT listener.
+- OBS advertises active listeners with UDP discovery on port `51515`.
 - One port per device.
 - Default port: `9000`.
 - Default latency: `120 ms`.

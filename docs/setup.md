@@ -1,6 +1,6 @@
 # OpenStream Setup
 
-## Windows receiver
+## OBS receiver
 
 Install FFmpeg with SRT enabled. Verify:
 
@@ -10,11 +10,8 @@ ffmpeg -protocols
 
 The output should include `srt`.
 
-Start the feasibility receiver:
-
-```powershell
-python tools/openstream_receiver.py --port 9000 --latency-ms 120 --ffplay
-```
+Normal use does not require the standalone Python receiver. OBS listens directly
+through the `OpenStream Phone Link` source.
 
 ## Android app
 
@@ -26,7 +23,10 @@ Required permissions:
 - Network
 - Foreground service
 
-Set the OBS PC IP and listener port in the app. The app builds the SRT caller URL for you and captures only the selected phone camera, not the phone screen.
+Open the app on the same Wi-Fi network as OBS. Available `OpenStream Phone Link`
+listeners appear as tappable devices. Tap the OBS device to connect the selected
+phone camera directly; manual IP/port entry is only a fallback for networks that
+block UDP discovery.
 
 The native Android sender now packetizes `MediaCodec` H.264/H.265 access units
 as MPEG-TS before sending them to SRT, which lets FFmpeg/ffplay/OBS read the
@@ -55,9 +55,10 @@ Recommended first stream settings:
 
 ## OBS plugin
 
-The plugin is in `obs-plugin/`. It registers an `OpenStream Phone` source,
-listens for the Android SRT caller through FFmpeg, decodes the video stream,
-converts frames to BGRA, and submits them to OBS.
+The plugin is in `obs-plugin/`. It registers an `OpenStream Phone Link` source,
+listens for the Android SRT caller through FFmpeg, advertises itself over LAN
+UDP discovery on port `51515`, decodes the video stream, converts frames to BGRA,
+and submits them to OBS.
 
 Configure with paths to your OBS and FFmpeg development installations:
 
@@ -72,11 +73,25 @@ your runtime FFmpeg with `ffmpeg -protocols`; the output should include `srt`.
 
 Expected V1 user flow:
 
-1. Add `OpenStream Phone` as an OBS source.
+1. Add `OpenStream Phone Link` as an OBS source.
 2. Keep the default listener port `9000` and latency `120 ms`, or change them if needed.
 3. Start the listener in the source properties.
-4. Enter the OBS PC IP, port, and latency in the Android app.
-5. Tap `Start camera feed`.
+4. Open the Android app on the same Wi-Fi network.
+5. Tap the available OBS device.
+6. Direct camera video appears in OBS.
+
+The source also exposes an `openstream://connect?...` fallback URL that can be
+encoded as a QR code if UDP discovery is blocked on the network.
+
+## Developer receiver
+
+For receiver smoke tests without OBS, keep using the Python tool:
+
+```powershell
+python tools/openstream_receiver.py --port 9000 --latency-ms 120 --ffplay
+```
+
+This is a developer/debug path only; it is not part of the normal user workflow.
 
 ## Network recommendations
 

@@ -80,6 +80,10 @@ target_link_libraries(openstream-obs PRIVATE
     ${SWSCALE_LIBRARY}
 )
 
+if (WIN32)
+    target_link_libraries(openstream-obs PRIVATE ws2_32 iphlpapi)
+endif()
+
 target_compile_definitions(openstream-obs PRIVATE
     OPENSTREAM_VERSION="${PROJECT_VERSION}"
 )

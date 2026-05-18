@@ -2,17 +2,23 @@ package dev.openstream.app
 
 import android.Manifest
 import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.view.SurfaceView
+import android.view.View
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.Spinner
-import android.widget.ArrayAdapter
 import android.widget.TextView
 import dev.openstream.app.camera.Camera2Controller
 import dev.openstream.app.camera.CameraLens
+import dev.openstream.app.discovery.DiscoveredObsDevice
+import dev.openstream.app.discovery.ObsDiscoveryClient
 import dev.openstream.app.encoder.MediaCodecVideoEncoder
 import dev.openstream.app.stream.ConnectionTarget
 import dev.openstream.app.stream.StreamConfig
@@ -23,6 +29,8 @@ import dev.openstream.app.telemetry.TelemetrySampler
 class MainActivity : Activity() {
     private lateinit var preview: SurfaceView
     private lateinit var status: TextView
+    private lateinit var devicesContainer: LinearLayout
+    private lateinit var manualContainer: LinearLayout
     private lateinit var obsHost: EditText
     private lateinit var obsPort: EditText
     private lateinit var latency: EditText
@@ -32,15 +40,63 @@ class MainActivity : Activity() {
     private lateinit var encoder: MediaCodecVideoEncoder
     private lateinit var streamClient: SrtStreamClient
     private lateinit var telemetry: TelemetrySampler
+    private lateinit var discoveryClient: ObsDiscoveryClient
     private val streamConfig = StreamConfig.Default1080p30
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestRuntimePermissions()
+        buildUi()
 
+        streamClient = SrtStreamClient()
+        telemetry = TelemetrySampler(this)
+        discoveryClient = ObsDiscoveryClient(::renderDiscoveredDevices)
+        encoder = MediaCodecVideoEncoder(
+            preference = streamConfig.codecPreference,
+            width = streamConfig.width,
+            height = streamConfig.height,
+            fps = streamConfig.fps,
+            bitrate = streamConfig.bitrate,
+            keyframeIntervalSeconds = streamConfig.keyframeIntervalSeconds,
+            onEncodedAccessUnit = streamClient::sendVideoAccessUnit,
+        )
+        camera = Camera2Controller(
+            context = this,
+            previewSurfaceProvider = { preview.holder.surface },
+            encodedSurfaceProvider = encoder::inputSurface,
+            lensProvider = { selectedLens() },
+        )
+
+        handlePairingIntent(intent)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        discoveryClient.start()
+    }
+
+    override fun onStop() {
+        discoveryClient.stop()
+        super.onStop()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handlePairingIntent(intent)
+    }
+
+    private fun buildUi() {
         preview = SurfaceView(this)
         status = TextView(this).apply {
-            text = "Camera-only feed. Enter the OBS PC IP, then Start."
+            text = "Open OBS, start OpenStream Phone Link, then tap it here."
+        }
+        devicesContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        manualContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
         }
         obsHost = EditText(this).apply {
             hint = ConnectionTarget.DEFAULT_HOST
@@ -64,64 +120,99 @@ class MainActivity : Activity() {
             )
         }
         targetUrl = TextView(this)
-        val start = Button(this).apply {
-            text = "Start camera feed"
-            setOnClickListener { startStream() }
+
+        val manualToggle = Button(this).apply {
+            text = "Manual fallback"
+            setOnClickListener {
+                manualContainer.visibility =
+                    if (manualContainer.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            }
+        }
+        val manualStart = Button(this).apply {
+            text = "Connect manually"
+            setOnClickListener { startStream(connectionTargetFromManualFields()) }
         }
         val stop = Button(this).apply {
             text = "Stop"
             setOnClickListener { stopStream() }
         }
 
-        setContentView(
-            LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(
-                    preview,
-                    LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        0,
-                        1f,
-                    ),
-                )
-                addView(TextView(this@MainActivity).apply { text = "OBS PC IP" })
-                addView(obsHost)
-                addView(TextView(this@MainActivity).apply { text = "OBS listener port" })
-                addView(obsPort)
-                addView(TextView(this@MainActivity).apply { text = "Latency ms" })
-                addView(latency)
-                addView(lensSelector)
-                addView(targetUrl)
-                addView(start)
-                addView(stop)
-                addView(status)
-            }
-        )
+        manualContainer.addView(TextView(this).apply { text = "OBS PC IP" })
+        manualContainer.addView(obsHost)
+        manualContainer.addView(TextView(this).apply { text = "OBS listener port" })
+        manualContainer.addView(obsPort)
+        manualContainer.addView(TextView(this).apply { text = "Latency ms" })
+        manualContainer.addView(latency)
+        manualContainer.addView(manualStart)
 
-        streamClient = SrtStreamClient()
-        telemetry = TelemetrySampler(this)
-        encoder = MediaCodecVideoEncoder(
-            preference = streamConfig.codecPreference,
-            width = streamConfig.width,
-            height = streamConfig.height,
-            fps = streamConfig.fps,
-            bitrate = streamConfig.bitrate,
-            keyframeIntervalSeconds = streamConfig.keyframeIntervalSeconds,
-            onEncodedAccessUnit = streamClient::sendVideoAccessUnit,
-        )
-        camera = Camera2Controller(
-            context = this,
-            previewSurfaceProvider = { preview.holder.surface },
-            encodedSurfaceProvider = encoder::inputSurface,
-            lensProvider = { selectedLens() },
+        setContentView(
+            ScrollView(this).apply {
+                addView(
+                    LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        addView(
+                            preview,
+                            LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.MATCH_PARENT,
+                                resources.displayMetrics.heightPixels / 3,
+                            ),
+                        )
+                        addView(TextView(this@MainActivity).apply { text = "Available OBS devices" })
+                        addView(devicesContainer)
+                        addView(TextView(this@MainActivity).apply { text = "Camera" })
+                        addView(lensSelector)
+                        addView(targetUrl)
+                        addView(manualToggle)
+                        addView(manualContainer)
+                        addView(stop)
+                        addView(status)
+                    },
+                )
+            },
         )
     }
 
-    private fun startStream() {
-        val target = connectionTarget()
+    private fun renderDiscoveredDevices(devices: List<DiscoveredObsDevice>) {
+        devicesContainer.removeAllViews()
+        if (devices.isEmpty()) {
+            devicesContainer.addView(TextView(this).apply {
+                text = "No OBS listeners found yet."
+            })
+            return
+        }
+
+        devices.forEach { device ->
+            val row = Button(this).apply {
+                text = buildString {
+                    append(device.name)
+                    append("\n")
+                    append(device.displayEndpoint)
+                    append("  ")
+                    append(device.latencyMs)
+                    append(" ms  ")
+                    append(device.bitrateMbps)
+                    append(" Mbps")
+                    if (device.busy) append("\nBusy")
+                }
+                isEnabled = !device.busy
+                setOnClickListener {
+                    startStream(ConnectionTarget.fromDiscoveredDevice(device))
+                }
+            }
+            devicesContainer.addView(row)
+        }
+    }
+
+    private fun handlePairingIntent(intent: Intent?) {
+        val uri: Uri = intent?.data ?: return
+        val target = ConnectionTarget.fromPairingUri(uri) ?: return
+        startStream(target)
+    }
+
+    private fun startStream(target: ConnectionTarget) {
         val url = target.toSrtCallerUrl()
         targetUrl.text = url
-        status.text = "Connecting camera to OBS on ${target.host}:${target.port}"
+        status.text = "Connecting ${selectedLens().displayName} camera to ${target.name}"
         runCatching {
             streamClient.connect(
                 url = url,
@@ -140,7 +231,7 @@ class MainActivity : Activity() {
                 fps = streamConfig.fps,
                 bitrate = streamConfig.bitrate,
             )
-            status.text = "Camera feed live: ${selectedLens().displayName}, ${sample.codec} ${sample.width}x${sample.height}@${sample.fps}"
+            status.text = "Live in OBS: ${target.name}, ${sample.codec} ${sample.width}x${sample.height}@${sample.fps}"
         }.onFailure { error ->
             stopStream()
             status.text = "Could not start camera feed: ${error.message ?: "unknown error"}"
@@ -163,11 +254,12 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun connectionTarget(): ConnectionTarget {
+    private fun connectionTargetFromManualFields(): ConnectionTarget {
         val host = obsHost.text.toString().ifBlank { obsHost.hint.toString() }.trim()
         val port = obsPort.text.toString().toIntOrNull() ?: ConnectionTarget.DEFAULT_PORT
         val latencyMs = latency.text.toString().toIntOrNull() ?: ConnectionTarget.DEFAULT_LATENCY_MS
         return ConnectionTarget(
+            name = ConnectionTarget.DEFAULT_NAME,
             host = host,
             port = port.coerceIn(1, 65535),
             latencyMs = latencyMs.coerceIn(80, 200),

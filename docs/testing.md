@@ -3,6 +3,9 @@
 ## Prototype acceptance tests
 
 - One Android phone streams 1080p30 for 30 minutes without receiver crash.
+- Android discovers an OBS `OpenStream Phone Link` listener without manual IP entry.
+- Tapping a discovered OBS device starts the stream directly.
+- Stopping the OBS listener removes the device from Android discovery within about 5 seconds.
 - SRT reconnect completes within 2 seconds after a short Wi-Fi interruption.
 - OBS receives video as one source.
 - The OBS source shows only the phone camera feed, never the Android screen.
@@ -25,6 +28,11 @@ Expected behavior:
 - Reconnect attempts should continue automatically.
 - Telemetry should report degraded state.
 - SRT latency can be increased from 120 ms to 200 ms for lossy networks.
+
+## Developer receiver
+
+`tools/openstream_receiver.py` remains available for FFmpeg/SRT smoke tests
+without OBS. It is not part of the normal user workflow.
 
 ## Thermal tests
 
