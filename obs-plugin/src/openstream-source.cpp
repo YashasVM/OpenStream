@@ -582,6 +582,47 @@ std::string av_error(int error) {
   return buffer;
 }
 
+video_colorspace obs_colorspace_for_frame(const AVFrame *frame) {
+  switch (frame->colorspace) {
+    case AVCOL_SPC_BT709:
+      return VIDEO_CS_709;
+    case AVCOL_SPC_BT470BG:
+    case AVCOL_SPC_SMPTE170M:
+    case AVCOL_SPC_FCC:
+      return VIDEO_CS_601;
+    case AVCOL_SPC_BT2020_NCL:
+    case AVCOL_SPC_BT2020_CL:
+      if (frame->color_trc == AVCOL_TRC_SMPTE2084) {
+        return VIDEO_CS_2100_PQ;
+      }
+      if (frame->color_trc == AVCOL_TRC_ARIB_STD_B67) {
+        return VIDEO_CS_2100_HLG;
+      }
+      return VIDEO_CS_709;
+    default:
+      return frame->height >= 720 ? VIDEO_CS_709 : VIDEO_CS_601;
+  }
+}
+
+video_range_type obs_range_for_frame(const AVFrame *frame, AVPixelFormat format) {
+  return frame->color_range == AVCOL_RANGE_JPEG || format == AV_PIX_FMT_YUVJ420P
+             ? VIDEO_RANGE_FULL
+             : VIDEO_RANGE_PARTIAL;
+}
+
+video_trc obs_trc_for_frame(const AVFrame *frame) {
+  switch (frame->color_trc) {
+    case AVCOL_TRC_SMPTE2084:
+      return VIDEO_TRC_PQ;
+    case AVCOL_TRC_ARIB_STD_B67:
+      return VIDEO_TRC_HLG;
+    case AVCOL_TRC_IEC61966_2_1:
+      return VIDEO_TRC_SRGB;
+    default:
+      return VIDEO_TRC_DEFAULT;
+  }
+}
+
 int ffmpeg_interrupt_callback(void *opaque) {
   auto *ctx = static_cast<OpenStreamSource *>(opaque);
   return ctx->stop_requested.load() ? 1 : 0;
@@ -672,6 +713,54 @@ bool output_decoded_frame(OpenStreamSource *ctx,
   const int height = decoded_frame->height;
   const AVPixelFormat source_format =
       static_cast<AVPixelFormat>(decoded_frame->format);
+
+  const bool can_output_i420 =
+      (source_format == AV_PIX_FMT_YUV420P || source_format == AV_PIX_FMT_YUVJ420P) &&
+      decoded_frame->data[0] && decoded_frame->data[1] && decoded_frame->data[2];
+  const bool can_output_nv12 =
+      source_format == AV_PIX_FMT_NV12 && decoded_frame->data[0] && decoded_frame->data[1];
+  if (can_output_i420 || can_output_nv12) {
+    struct obs_source_frame2 yuv_frame = {};
+    yuv_frame.format = can_output_i420 ? VIDEO_FORMAT_I420 : VIDEO_FORMAT_NV12;
+    yuv_frame.width = static_cast<uint32_t>(width);
+    yuv_frame.height = static_cast<uint32_t>(height);
+    yuv_frame.timestamp = os_gettime_ns();
+    yuv_frame.range = obs_range_for_frame(decoded_frame, source_format);
+    yuv_frame.trc = static_cast<uint8_t>(obs_trc_for_frame(decoded_frame));
+    yuv_frame.flip = false;
+    yuv_frame.data[0] = decoded_frame->data[0];
+    yuv_frame.data[1] = decoded_frame->data[1];
+    yuv_frame.linesize[0] = static_cast<uint32_t>(decoded_frame->linesize[0]);
+    yuv_frame.linesize[1] = static_cast<uint32_t>(decoded_frame->linesize[1]);
+    if (can_output_i420) {
+      yuv_frame.data[2] = decoded_frame->data[2];
+      yuv_frame.linesize[2] = static_cast<uint32_t>(decoded_frame->linesize[2]);
+    }
+
+    const video_colorspace colorspace = obs_colorspace_for_frame(decoded_frame);
+    if (!video_format_get_parameters_for_format(colorspace,
+                                                yuv_frame.range,
+                                                yuv_frame.format,
+                                                yuv_frame.color_matrix,
+                                                yuv_frame.color_range_min,
+                                                yuv_frame.color_range_max)) {
+      blog(LOG_WARNING, "[OpenStream] Could not calculate OBS YUV color parameters");
+      return false;
+    }
+
+    obs_source_output_video2(ctx->source, &yuv_frame);
+    const uint64_t frames_output = ++ctx->frames_output;
+    if (frames_output == 1 || frames_output % 300 == 0) {
+      const char *format_name = av_get_pix_fmt_name(source_format);
+      blog(LOG_INFO,
+           "[OpenStream] Output %" PRIu64 " decoded YUV frame(s) to OBS (%dx%d, source format=%s)",
+           frames_output,
+           width,
+           height,
+           format_name ? format_name : "unknown");
+    }
+    return true;
+  }
 
   SwsContext *current_sws = sws_ctx->get();
   SwsContext *scaled = sws_getCachedContext(
@@ -1078,7 +1167,7 @@ bool obs_module_load(void) {
   }
 #endif
   obs_register_source(&openstream_source_info);
-  blog(LOG_INFO, "[OpenStream] OBS plugin loaded: phone-discovery V4 BGRA output");
+  blog(LOG_INFO, "[OpenStream] OBS plugin loaded: phone-discovery V4 YUV output");
   return true;
 }
 
