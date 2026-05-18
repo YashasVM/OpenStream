@@ -20,6 +20,7 @@
 #include <chrono>
 #include <atomic>
 #include <cstdint>
+#include <inttypes.h>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -36,6 +37,7 @@ extern "C" {
 #include <libavutil/error.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/opt.h>
+#include <libavutil/pixdesc.h>
 #include <libavutil/pixfmt.h>
 #include <libswscale/swscale.h>
 }
@@ -82,7 +84,7 @@ using SwsContextPtr = std::unique_ptr<SwsContext, SwsContextDeleter>;
 
 constexpr int kDiscoveryPort = 51515;
 constexpr int kDefaultListenerPort = 9000;
-constexpr const char *kOpenStreamSourceName = "OpenStream Phone V3";
+constexpr const char *kOpenStreamSourceName = "OpenStream Phone V4";
 constexpr const char *kDiscoveryMulticastAddress = "239.255.42.99";
 constexpr const char *kPhoneDiscoveryPrefix = "OPENSTREAM_PHONE/1 ";
 
@@ -571,6 +573,7 @@ struct OpenStreamSource {
   int active_latency_ms = 0;
   int active_bitrate_mbps = 0;
   std::string active_device_name;
+  uint64_t frames_output = 0;
 };
 
 std::string av_error(int error) {
@@ -670,37 +673,6 @@ bool output_decoded_frame(OpenStreamSource *ctx,
   const AVPixelFormat source_format =
       static_cast<AVPixelFormat>(decoded_frame->format);
 
-  struct obs_source_frame native_frame = {};
-  native_frame.width = static_cast<uint32_t>(width);
-  native_frame.height = static_cast<uint32_t>(height);
-  native_frame.timestamp = os_gettime_ns();
-  native_frame.flip = false;
-  native_frame.full_range = decoder_ctx->color_range == AVCOL_RANGE_JPEG ||
-                            source_format == AV_PIX_FMT_YUVJ420P;
-
-  if ((source_format == AV_PIX_FMT_YUV420P || source_format == AV_PIX_FMT_YUVJ420P) &&
-      decoded_frame->data[0] && decoded_frame->data[1] && decoded_frame->data[2]) {
-    native_frame.format = VIDEO_FORMAT_I420;
-    native_frame.data[0] = decoded_frame->data[0];
-    native_frame.data[1] = decoded_frame->data[1];
-    native_frame.data[2] = decoded_frame->data[2];
-    native_frame.linesize[0] = static_cast<uint32_t>(decoded_frame->linesize[0]);
-    native_frame.linesize[1] = static_cast<uint32_t>(decoded_frame->linesize[1]);
-    native_frame.linesize[2] = static_cast<uint32_t>(decoded_frame->linesize[2]);
-    obs_source_output_video(ctx->source, &native_frame);
-    return true;
-  }
-
-  if (source_format == AV_PIX_FMT_NV12 && decoded_frame->data[0] && decoded_frame->data[1]) {
-    native_frame.format = VIDEO_FORMAT_NV12;
-    native_frame.data[0] = decoded_frame->data[0];
-    native_frame.data[1] = decoded_frame->data[1];
-    native_frame.linesize[0] = static_cast<uint32_t>(decoded_frame->linesize[0]);
-    native_frame.linesize[1] = static_cast<uint32_t>(decoded_frame->linesize[1]);
-    obs_source_output_video(ctx->source, &native_frame);
-    return true;
-  }
-
   SwsContext *current_sws = sws_ctx->get();
   SwsContext *scaled = sws_getCachedContext(
       current_sws,
@@ -759,6 +731,16 @@ bool output_decoded_frame(OpenStreamSource *ctx,
   }
 
   obs_source_output_video(ctx->source, &obs_frame);
+  const uint64_t frames_output = ++ctx->frames_output;
+  if (frames_output == 1 || frames_output % 300 == 0) {
+    const char *format_name = av_get_pix_fmt_name(source_format);
+    blog(LOG_INFO,
+         "[OpenStream] Output %" PRIu64 " decoded BGRA frame(s) to OBS (%dx%d, source format=%s)",
+         frames_output,
+         width,
+         height,
+         format_name ? format_name : "unknown");
+  }
   return true;
 }
 
@@ -891,6 +873,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string srt_url) {
 
     FormatContextPtr format_ctx(raw_format_ctx);
     ctx->phone_connected = true;
+    ctx->frames_output = 0;
 
     int video_stream_index = -1;
     CodecContextPtr decoder_ctx;
@@ -1073,7 +1056,7 @@ obs_properties_t *openstream_properties(void *) {
 }
 
 obs_source_info openstream_source_info = {
-    .id = "openstream_phone_v3_source",
+    .id = "openstream_phone_v4_source",
     .type = OBS_SOURCE_TYPE_INPUT,
     .output_flags = OBS_SOURCE_ASYNC_VIDEO,
     .get_name = openstream_get_name,
@@ -1095,7 +1078,7 @@ bool obs_module_load(void) {
   }
 #endif
   obs_register_source(&openstream_source_info);
-  blog(LOG_INFO, "[OpenStream] OBS plugin loaded: phone-discovery V3 native-yuv");
+  blog(LOG_INFO, "[OpenStream] OBS plugin loaded: phone-discovery V4 BGRA output");
   return true;
 }
 
