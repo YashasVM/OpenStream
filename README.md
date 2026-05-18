@@ -12,8 +12,8 @@ This repository implements the practical V1 direction:
 - Android exposes only the selected phone camera feed, not the whole phone screen.
 - Android encodes with hardware HEVC/H.265 by default, H.264 fallback.
 - Android sends the contribution feed over SRT.
-- Windows receives the feed through FFmpeg/libsrt.
-- OBS integration starts as a native FFmpeg-backed source plugin.
+- OBS receives the feed through a native FFmpeg/libsrt source plugin.
+- OBS advertises active listeners on the LAN so Android can tap to connect.
 - Raw YUV/zstd lossless transport is kept as a later research track.
 
 ## Repository layout
@@ -34,9 +34,9 @@ The first working milestone is one Android phone streaming 1080p30 to a Windows 
 
 Current progress:
 
-- Android camera capture and hardware encoder scaffolding are in place.
-- The OBS source now includes an FFmpeg-backed listener/decoder path.
-- The Android native SRT bridge still needs real libsrt packet sending.
+- Android camera capture, hardware encoder, and tap-to-connect discovery scaffolding are in place.
+- The OBS source includes an FFmpeg-backed listener/decoder path and UDP discovery beacon.
+- The Android native SRT bridge packetizes MediaCodec output as MPEG-TS and links to libsrt when provided.
 
 Default video settings:
 
@@ -48,27 +48,31 @@ Default video settings:
 - No B-frame dependency in the target encoder profile
 - SRT latency range: 80-200 ms
 
-## Local receiver smoke test
+## Normal user workflow
 
-Run this on Windows to validate FFmpeg/SRT support and listen for one phone:
+1. Add `OpenStream Phone Link` as an OBS source.
+2. Click `Start listener`.
+3. Open the Android app on the same Wi-Fi network.
+4. Tap the available OBS device.
+5. Direct camera video appears in OBS.
+
+## Developer receiver smoke test
+
+Run this on Windows to validate FFmpeg/SRT support without OBS:
 
 ```powershell
 python tools/openstream_receiver.py --port 9000 --latency-ms 120 --ffplay
 ```
 
-The Android app should call:
-
-```text
-srt://<windows-ip>:9000?mode=caller&latency=120
-```
-
-In the app this is entered as three simple fields: OBS PC IP, listener port, and latency. The app generates the SRT caller URL internally.
+The Python receiver is only a developer/debug path. Normal users should use the
+OBS source directly.
 
 ## Build notes
 
 The Android project requires Android Studio or a local Gradle installation with the Android Gradle plugin available.
 
-The current native Android SRT bridge is a deliberate integration placeholder. It exposes the JNI boundary and logs encoded access units; the next implementation step is linking libsrt and packaging the `MediaCodec` access units into an FFmpeg-readable stream.
+The native Android SRT bridge requires Android ABI-compatible libsrt binaries for
+real network sending.
 
 The OBS plugin requires:
 
