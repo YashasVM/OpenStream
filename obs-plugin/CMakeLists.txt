@@ -52,7 +52,7 @@ find_library(SWSCALE_LIBRARY
 
 find_library(OBS_LIBRARY
     NAMES obs libobs
-    HINTS ${OBS_ROOT}
+    HINTS ${OBS_ROOT} ${FFMPEG_ROOT}
     PATH_SUFFIXES lib lib/x64 build/libobs/Release build_x64/libobs/Release bin/64bit bin/64bit/obs
     REQUIRED
 )
