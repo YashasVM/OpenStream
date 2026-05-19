@@ -84,7 +84,7 @@ using SwsContextPtr = std::unique_ptr<SwsContext, SwsContextDeleter>;
 
 constexpr int kDiscoveryPort = 51515;
 constexpr int kDefaultListenerPort = 9000;
-constexpr const char *kOpenStreamSourceName = "OpenStream Phone V5";
+constexpr const char *kOpenStreamSourceName = "OpenStream";
 constexpr const char *kDiscoveryMulticastAddress = "239.255.42.99";
 constexpr const char *kPhoneDiscoveryPrefix = "OPENSTREAM_PHONE/1 ";
 
@@ -1149,7 +1149,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string srt_url) {
       break;
     }
 
-    // Try to open audio decoder (optional â€” video-only is fine)
+    // Try to open audio decoder (optional Ã¢â‚¬â€ video-only is fine)
     int audio_stream_index = -1;
     CodecContextPtr audio_decoder_ctx;
     open_audio_decoder(format_ctx.get(), &audio_stream_index, &audio_decoder_ctx);
@@ -1324,7 +1324,7 @@ obs_properties_t *openstream_properties(void *) {
     return true;
   });
 
-  // â”€â”€ Camera remote controls â”€â”€
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Camera remote controls Ã¢â€â‚¬Ã¢â€â‚¬
   obs_properties_t *camera_group = obs_properties_create();
 
   obs_properties_add_float_slider(camera_group, "cam_zoom", "Zoom", 1.0, 10.0, 0.1);
@@ -1371,7 +1371,7 @@ obs_properties_t *openstream_properties(void *) {
     if (!ctx) return false;
     auto phone = ctx->phone_discovery.latest();
     if (!phone.has_value()) return false;
-    send_control_command(phone->host, phone->control_port, "/lens", "{\"lens\":\"1Ã—\"}");
+    send_control_command(phone->host, phone->control_port, "/lens", "{\"lens\":\"1Ãƒâ€”\"}");
     blog(LOG_INFO, "[OpenStream] Switch to back camera");
     return true;
   });
@@ -1414,7 +1414,7 @@ bool obs_module_load(void) {
   }
 #endif
   obs_register_source(&openstream_source_info);
-  blog(LOG_INFO, "[OpenStream] OBS plugin loaded: V5 â€” video + audio + remote controls");
+  blog(LOG_INFO, "[OpenStream] OBS plugin loaded: V5 Ã¢â‚¬â€ video + audio + remote controls");
   return true;
 }
 
