@@ -1150,7 +1150,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string srt_url) {
       break;
     }
 
-    // Try to open audio decoder (optional â€” video-only is fine)
+    // Try to open audio decoder (optional — video-only is fine)
     int audio_stream_index = -1;
     CodecContextPtr audio_decoder_ctx;
     open_audio_decoder(format_ctx.get(), &audio_stream_index, &audio_decoder_ctx);
@@ -1325,7 +1325,7 @@ obs_properties_t *openstream_properties(void *data) {
     return true;
   });
 
-  // â”€â”€ Camera remote controls â”€â”€
+  // ── Camera remote controls ──
   obs_properties_t *camera_group = obs_properties_create();
 
   obs_property_t *zoom_prop = obs_properties_add_float_slider(camera_group, "cam_zoom", "Zoom", 1.0, 10.0, 0.1);
@@ -1369,7 +1369,7 @@ obs_properties_t *openstream_properties(void *data) {
     if (!ctx) return false;
     auto phone = ctx->phone_discovery.latest();
     if (!phone.has_value()) return false;
-    send_control_command(phone->host, phone->control_port, "/lens", "{\"lens\":\"1Ã—\"}");
+    send_control_command(phone->host, phone->control_port, "/lens", "{\"lens\":\"1×\"}");
     blog(LOG_INFO, "[OpenStream] Switch to back camera");
     return true;
   });
@@ -1385,6 +1385,9 @@ obs_properties_t *openstream_properties(void *data) {
   });
 
   obs_properties_add_group(props, "camera_controls", "Camera Remote Controls", OBS_GROUP_NORMAL, camera_group);
+
+  // Credit
+  obs_properties_add_text(props, "credit", "Made by @yashas.vm", OBS_TEXT_INFO);
 
   return props;
 }
@@ -1412,7 +1415,7 @@ bool obs_module_load(void) {
   }
 #endif
   obs_register_source(&openstream_source_info);
-  blog(LOG_INFO, "[OpenStream] OBS plugin loaded - video + audio + remote controls");
+  blog(LOG_INFO, "[OpenStream] OBS plugin loaded — video + audio + remote controls (Made by @yashas.vm)");
   return true;
 }
 
