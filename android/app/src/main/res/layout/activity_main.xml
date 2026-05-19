@@ -4,11 +4,29 @@
     android:layout_height="match_parent"
     android:background="@color/os_black">
 
-    <!-- ====== CAMERA PREVIEW — full-bleed ====== -->
-    <SurfaceView
-        android:id="@+id/cameraPreview"
+    <!-- ====== CAMERA PREVIEW — aspect-ratio-correct, centered ====== -->
+    <FrameLayout
+        android:id="@+id/previewContainer"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        android:layout_gravity="center">
+
+        <SurfaceView
+            android:id="@+id/cameraPreview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_gravity="center" />
+    </FrameLayout>
+
+    <!-- ====== SCREEN-OFF OVERLAY — covers everything when display-off mode active ====== -->
+    <View
+        android:id="@+id/screenOffOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#FF000000"
+        android:visibility="gone"
+        android:clickable="true"
+        android:focusable="true" />
 
     <!-- ====== TOP OVERLAY — status bar area ====== -->
     <FrameLayout
@@ -99,6 +117,7 @@
 
     <!-- ====== BOTTOM CAMERA CONTROLS — overlay on preview ====== -->
     <LinearLayout
+        android:id="@+id/bottomControls"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
@@ -106,7 +125,8 @@
         android:gravity="center_horizontal"
         android:background="@drawable/scrim_bottom"
         android:paddingTop="48dp"
-        android:paddingBottom="@dimen/os_spacing_xl">
+        android:paddingBottom="@dimen/os_spacing_xl"
+        android:fitsSystemWindows="true">
 
         <!-- Status text -->
         <TextView
@@ -126,7 +146,62 @@
             android:textColor="@color/os_text_tertiary"
             android:textSize="@dimen/os_text_tiny"
             android:fontFamily="monospace"
-            android:layout_marginBottom="@dimen/os_spacing_lg" />
+            android:layout_marginBottom="@dimen/os_spacing_md" />
+
+        <!-- PORT SELECTOR ROW — easily change listening port for multi-cam -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="@dimen/os_spacing_md">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="PORT"
+                android:textColor="@color/os_text_tertiary"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.1"
+                android:layout_marginEnd="@dimen/os_spacing_sm" />
+
+            <TextView
+                android:id="@+id/btnPortDown"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:gravity="center"
+                android:background="@drawable/bg_btn_ghost"
+                android:text="−"
+                android:textColor="@color/os_text_secondary"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/portLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="9000"
+                android:textColor="@color/os_accent"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace"
+                android:minWidth="56dp"
+                android:gravity="center"
+                android:paddingStart="@dimen/os_spacing_sm"
+                android:paddingEnd="@dimen/os_spacing_sm" />
+
+            <TextView
+                android:id="@+id/btnPortUp"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:gravity="center"
+                android:background="@drawable/bg_btn_ghost"
+                android:text="+"
+                android:textColor="@color/os_text_secondary"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+        </LinearLayout>
 
         <!-- Lens selector row -->
         <LinearLayout
@@ -145,6 +220,22 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical">
+
+            <!-- Screen off toggle (dims display, keeps streaming) -->
+            <TextView
+                android:id="@+id/btnScreenOff"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/os_control_btn_size"
+                android:gravity="center"
+                android:background="@drawable/bg_btn_ghost"
+                android:text="DISPLAY"
+                android:textColor="@color/os_text_secondary"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.03"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:layout_marginEnd="@dimen/os_spacing_sm" />
 
             <!-- Keep screen on toggle -->
             <TextView
@@ -242,7 +333,8 @@
         android:background="@drawable/bg_controls_panel"
         android:padding="@dimen/os_spacing_lg"
         android:elevation="16dp"
-        android:visibility="gone">
+        android:visibility="gone"
+        android:fitsSystemWindows="true">
 
         <!-- Drag handle -->
         <View

@@ -8,17 +8,22 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
+import android.view.ViewGroup
+import android.view.WindowInsets
 import android.view.WindowManager
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import dev.openstream.app.camera.Camera2Controller
@@ -36,6 +41,7 @@ class MainActivity : Activity() {
 
     // ── Views ──
     private lateinit var cameraPreview: SurfaceView
+    private lateinit var previewContainer: FrameLayout
     private lateinit var statusText: TextView
     private lateinit var statusDetail: TextView
     private lateinit var connectionInfo: TextView
@@ -49,11 +55,17 @@ class MainActivity : Activity() {
     private lateinit var streamInfoChip: TextView
     private lateinit var zoomLabel: TextView
     private lateinit var btnKeepScreenOn: TextView
+    private lateinit var btnScreenOff: TextView
     private lateinit var btnTorch: TextView
     private lateinit var btnFlipCamera: TextView
     private lateinit var btnManualToggle: TextView
     private lateinit var btnManualConnect: TextView
     private lateinit var btnStop: TextView
+    private lateinit var screenOffOverlay: View
+    private lateinit var bottomControls: LinearLayout
+    private lateinit var portLabel: TextView
+    private lateinit var btnPortUp: TextView
+    private lateinit var btnPortDown: TextView
 
     // ── Core components ──
     private lateinit var camera: Camera2Controller
@@ -71,12 +83,15 @@ class MainActivity : Activity() {
     @Volatile private var phoneConnected = false
     private var listenerThread: Thread? = null
     private var keepScreenOn = false
+    private var displayOff = false
+    private var originalBrightness = -1f
     private var torchOn = false
     private var currentLens: CameraLens = CameraLens.Back
     private var availableLenses: List<CameraLens> = listOf(CameraLens.Back)
     private lateinit var scaleGestureDetector: ScaleGestureDetector
     private var zoomHideRunnable: Runnable? = null
     private var liveDotAnimator: ObjectAnimator? = null
+    private var currentPort: Int = ConnectionTarget.DEFAULT_PORT
 
     private val statsTicker = object : Runnable {
         override fun run() {
@@ -101,7 +116,7 @@ class MainActivity : Activity() {
         phoneAdvertiser = PhoneDiscoveryAdvertiser(
             context = this,
             config = streamConfig,
-            port = ConnectionTarget.DEFAULT_PORT,
+            port = currentPort,
             busyProvider = { phoneConnected },
         )
         encoder = MediaCodecVideoEncoder(
@@ -156,11 +171,15 @@ class MainActivity : Activity() {
                 startPreviewIfAllowed()
                 startPhoneServerIfAllowed()
             }
-            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                // Fix stretched preview: adjust SurfaceView to maintain camera aspect ratio
+                adjustPreviewAspectRatio(width, height)
+            }
             override fun surfaceDestroyed(holder: SurfaceHolder) = stopPhoneServer()
         })
 
         setupButtons()
+        setupNavBarInsets()
         renderConnectionInfo()
         handlePairingIntent(intent)
     }
@@ -209,6 +228,7 @@ class MainActivity : Activity() {
 
     private fun bindViews() {
         cameraPreview = findViewById(R.id.cameraPreview)
+        previewContainer = findViewById(R.id.previewContainer)
         statusText = findViewById(R.id.statusText)
         statusDetail = findViewById(R.id.statusDetail)
         connectionInfo = findViewById(R.id.connectionInfo)
@@ -222,15 +242,22 @@ class MainActivity : Activity() {
         streamInfoChip = findViewById(R.id.streamInfoChip)
         zoomLabel = findViewById(R.id.zoomLabel)
         btnKeepScreenOn = findViewById(R.id.btnKeepScreenOn)
+        btnScreenOff = findViewById(R.id.btnScreenOff)
         btnTorch = findViewById(R.id.btnTorch)
         btnFlipCamera = findViewById(R.id.btnFlipCamera)
         btnManualToggle = findViewById(R.id.btnManualToggle)
         btnManualConnect = findViewById(R.id.btnManualConnect)
         btnStop = findViewById(R.id.btnStop)
+        screenOffOverlay = findViewById(R.id.screenOffOverlay)
+        bottomControls = findViewById(R.id.bottomControls)
+        portLabel = findViewById(R.id.portLabel)
+        btnPortUp = findViewById(R.id.btnPortUp)
+        btnPortDown = findViewById(R.id.btnPortDown)
     }
 
     private fun setupButtons() {
         btnKeepScreenOn.setOnClickListener { toggleKeepScreenOn() }
+        btnScreenOff.setOnClickListener { toggleDisplayOff() }
         btnTorch.setOnClickListener { toggleTorch() }
         btnFlipCamera.setOnClickListener { flipCamera() }
         btnManualToggle.setOnClickListener {
@@ -239,6 +266,14 @@ class MainActivity : Activity() {
         }
         btnManualConnect.setOnClickListener { startStream(connectionTargetFromManualFields()) }
         btnStop.setOnClickListener { stopPhoneServer() }
+
+        // Port selector buttons
+        portLabel.text = currentPort.toString()
+        btnPortUp.setOnClickListener { changePort(currentPort + 1) }
+        btnPortDown.setOnClickListener { changePort(currentPort - 1) }
+
+        // Tap the screen-off overlay to re-enable display
+        screenOffOverlay.setOnClickListener { toggleDisplayOff() }
     }
 
     private fun setupGestureDetector() {
@@ -300,13 +335,26 @@ class MainActivity : Activity() {
             btnTorch.setBackgroundResource(R.drawable.bg_btn_ghost)
             btnTorch.setTextColor(getColor(R.color.os_text_secondary))
         }
+        val wasStreaming = activeTargetName != null
+        // Stop the encoder before switching cameras to avoid surface conflicts
+        if (wasStreaming) {
+            camera.stopStreaming()
+            encoder.stop()
+        }
         currentLens = lens
         camera.switchLens(lens)
-        // If streaming, re-attach encode surface
-        if (activeTargetName != null) {
-            runCatching {
-                camera.startStreaming(encoder.inputSurface())
-            }
+        // If we were streaming, re-create the encoder and re-attach after the camera settles
+        if (wasStreaming) {
+            mainHandler.postDelayed({
+                runCatching {
+                    encoder.start()
+                    camera.startStreaming(encoder.inputSurface())
+                }.onFailure { e ->
+                    Log.e("OpenStream", "Failed to restart encoder after lens switch", e)
+                    statusText.text = "Encoder error"
+                    statusDetail.text = e.message ?: "Unknown"
+                }
+            }, 500)
         }
         buildLensButtons()
     }
@@ -371,7 +419,7 @@ class MainActivity : Activity() {
     private fun renderConnectionInfo() {
         connectionInfo.text = getString(
             R.string.info_listener,
-            ConnectionTarget.DEFAULT_PORT,
+            currentPort,
             streamConfig.width,
             streamConfig.height,
             streamConfig.fps,
@@ -419,12 +467,12 @@ class MainActivity : Activity() {
         phoneConnected = false
         activeTargetName = null
         statusText.text = getString(R.string.status_ready)
-        statusDetail.text = getString(R.string.status_waiting, ConnectionTarget.DEFAULT_PORT)
+        statusDetail.text = getString(R.string.status_waiting, currentPort)
         btnStop.visibility = View.GONE
 
         listenerThread = Thread({
             while (phoneServerRunning) {
-                val listenUrl = "srt://0.0.0.0:${ConnectionTarget.DEFAULT_PORT}?mode=listener&latency=${streamConfig.latencyMs}"
+                val listenUrl = "srt://0.0.0.0:${currentPort}?mode=listener&latency=${streamConfig.latencyMs}"
                 runCatching {
                     streamClient.listen(
                         url = listenUrl,
@@ -442,7 +490,9 @@ class MainActivity : Activity() {
                         mainHandler.post(statsTicker)
                     }
                     encoder.start()
-                    audioEncoder.start()
+                    runCatching { audioEncoder.start() }.onFailure { e ->
+                        Log.w("OpenStream", "Audio encoder start failed", e)
+                    }
                     camera.startStreaming(encoder.inputSurface())
                     while (phoneServerRunning && phoneConnected) {
                         Thread.sleep(250)
@@ -461,7 +511,7 @@ class MainActivity : Activity() {
                     runOnUiThread {
                         hideLiveState()
                         statusText.text = getString(R.string.status_ready)
-                        statusDetail.text = getString(R.string.status_waiting, ConnectionTarget.DEFAULT_PORT)
+                        statusDetail.text = getString(R.string.status_waiting, currentPort)
                     }
                 }
             }
@@ -592,6 +642,134 @@ class MainActivity : Activity() {
             port = port.coerceIn(1, 65535),
             latencyMs = latencyMs.coerceIn(80, 200),
         )
+    }
+
+    // ─────────────────────────── Display off (screen off while streaming) ───────────────────────────
+
+    private fun toggleDisplayOff() {
+        displayOff = !displayOff
+        if (displayOff) {
+            // Save current brightness and dim to minimum
+            originalBrightness = window.attributes.screenBrightness
+            val params = window.attributes
+            params.screenBrightness = 0.001f // minimum possible brightness
+            window.attributes = params
+            // Show black overlay to hide all UI (saves power on OLED)
+            screenOffOverlay.visibility = View.VISIBLE
+            // Ensure screen stays on even when dimmed
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            btnScreenOff.text = "DISPLAY ✓"
+            btnScreenOff.setBackgroundResource(R.drawable.bg_btn_accent)
+            btnScreenOff.setTextColor(getColor(R.color.os_black))
+        } else {
+            // Restore original brightness
+            val params = window.attributes
+            params.screenBrightness = if (originalBrightness >= 0) originalBrightness else -1f
+            window.attributes = params
+            screenOffOverlay.visibility = View.GONE
+            // Restore keep-screen-on to user's toggle state
+            if (!keepScreenOn) {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+            btnScreenOff.text = "DISPLAY"
+            btnScreenOff.setBackgroundResource(R.drawable.bg_btn_ghost)
+            btnScreenOff.setTextColor(getColor(R.color.os_text_secondary))
+        }
+    }
+
+    // ─────────────────────────── Port selector ───────────────────────────
+
+    private fun changePort(newPort: Int) {
+        val clamped = newPort.coerceIn(1024, 65535)
+        if (clamped == currentPort) return
+        currentPort = clamped
+        portLabel.text = currentPort.toString()
+        renderConnectionInfo()
+        // Restart the phone server on the new port
+        stopPhoneServer()
+        // Re-create the advertiser with new port
+        phoneAdvertiser.stop()
+        phoneAdvertiser = PhoneDiscoveryAdvertiser(
+            context = this,
+            config = streamConfig,
+            port = currentPort,
+            busyProvider = { phoneConnected },
+        )
+        phoneAdvertiser.start()
+        startPhoneServerIfAllowed()
+    }
+
+    // ─────────────────────────── Preview aspect ratio fix ───────────────────────────
+
+    private fun adjustPreviewAspectRatio(surfaceWidth: Int, surfaceHeight: Int) {
+        // Camera outputs in landscape (e.g. 1920x1080) but phone is portrait
+        // The preview surface should match the camera aspect ratio to avoid stretching
+        val cameraAspect = streamConfig.width.toFloat() / streamConfig.height.toFloat()
+        // In portrait, the preview aspect should be height/width = 16/9
+        val targetAspect = cameraAspect // = 16:9
+
+        val containerWidth = previewContainer.width
+        val containerHeight = previewContainer.height
+        if (containerWidth == 0 || containerHeight == 0) return
+
+        val containerAspect = containerWidth.toFloat() / containerHeight.toFloat()
+        // In portrait, we want the preview to fill width and adjust height
+        val targetWidth: Int
+        val targetHeight: Int
+        if (containerAspect > (1f / targetAspect)) {
+            // Container is wider than needed — match height, crop width
+            targetHeight = containerHeight
+            targetWidth = (containerHeight / targetAspect).toInt()
+        } else {
+            // Container is taller than needed — match width, crop height
+            targetWidth = containerWidth
+            targetHeight = (containerWidth * targetAspect).toInt()
+        }
+
+        val lp = cameraPreview.layoutParams as FrameLayout.LayoutParams
+        lp.width = targetWidth
+        lp.height = targetHeight
+        lp.gravity = Gravity.CENTER
+        cameraPreview.layoutParams = lp
+    }
+
+    // ─────────────────────────── Nav bar insets (3-button nav fix) ───────────────────────────
+
+    private fun setupNavBarInsets() {
+        bottomControls.setOnApplyWindowInsetsListener { view, insets ->
+            val navBarHeight = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                insets.getInsets(WindowInsets.Type.systemBars()).bottom
+            } else {
+                @Suppress("DEPRECATION")
+                insets.systemWindowInsetBottom
+            }
+            view.setPadding(
+                view.paddingLeft,
+                view.paddingTop,
+                view.paddingRight,
+                resources.getDimensionPixelSize(R.dimen.os_spacing_xl) + navBarHeight,
+            )
+            insets
+        }
+        // Also apply to manual container
+        manualContainer.setOnApplyWindowInsetsListener { view, insets ->
+            val navBarHeight = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                insets.getInsets(WindowInsets.Type.systemBars()).bottom
+            } else {
+                @Suppress("DEPRECATION")
+                insets.systemWindowInsetBottom
+            }
+            view.setPadding(
+                view.paddingLeft,
+                view.paddingTop,
+                view.paddingRight,
+                resources.getDimensionPixelSize(R.dimen.os_spacing_lg) + navBarHeight,
+            )
+            insets
+        }
+        // Request insets
+        bottomControls.requestApplyInsets()
+        manualContainer.requestApplyInsets()
     }
 
     companion object {

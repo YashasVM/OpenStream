@@ -43,7 +43,10 @@ class MediaCodecVideoEncoder(
     fun inputSurface(): Surface = checkNotNull(surface) { "Encoder input surface is not ready" }
 
     fun start() {
-        check(codec == null) { "Encoder is already running" }
+        // If already running, stop first to allow clean restart
+        if (codec != null) {
+            stop()
+        }
         mimeType = chooseMimeType(preference)
         val encoder = MediaCodec.createEncoderByType(mimeType)
         codec = encoder

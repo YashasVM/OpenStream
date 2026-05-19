@@ -44,6 +44,8 @@ Phone Camera  →  HEVC/H.264 Encode  →  SRT over Wi-Fi  → OBS Studio
 | **Torch Control** | Toggle flashlight on/off during streaming |
 | **Keep Screen On** | Prevents display timeout for uninterrupted sessions |
 | **Auto-Discovery** | OBS instances on the same network appear automatically — tap to connect |
+| **Multi-Cam Setup** | Easily change the streaming port in-app to use multiple phones simultaneously in OBS |
+| **Display Off Mode** | Turns screen black and minimizes brightness to save battery/OLED while streaming |
 | **Manual Connect** | Fallback IP/port entry for networks that block UDP discovery |
 
 ### OBS Plugin
@@ -252,7 +254,7 @@ This opens an FFmpeg/ffplay window showing the live phone stream. This is a **de
 - [x] Multi-lens switching (wide, ultrawide, telephoto, front)
 - [x] Pinch-to-zoom with live indicator
 - [x] Keep screen on / torch toggle in app
-- [ ] Multi-phone support (multiple sources in OBS)
+- [x] Multi-phone support (multiple sources in OBS via port config)
 - [ ] Adaptive bitrate based on network conditions
 - [ ] QR code pairing for restricted networks
 - [ ] GPU zero-copy receive path

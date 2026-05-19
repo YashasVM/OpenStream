@@ -9,7 +9,7 @@
         <item name="android:navigationBarColor">@color/os_black</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowTranslucentStatus">true</item>
-        <item name="android:windowTranslucentNavigation">true</item>
+        <item name="android:windowTranslucentNavigation">false</item>
         <item name="android:fontFamily">sans-serif-medium</item>
     </style>
 </resources>

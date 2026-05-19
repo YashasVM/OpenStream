@@ -25,7 +25,10 @@ class MediaCodecAudioEncoder(
     @Volatile private var running = false
 
     fun start() {
-        check(codec == null) { "Audio encoder is already running" }
+        // If already running, stop first to allow clean restart
+        if (codec != null) {
+            stop()
+        }
 
         val mime = MediaFormat.MIMETYPE_AUDIO_AAC
         val format = MediaFormat.createAudioFormat(mime, sampleRate, channelCount).apply {
