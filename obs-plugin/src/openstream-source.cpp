@@ -576,6 +576,7 @@ struct OpenStreamSource {
   int active_bitrate_mbps = 0;
   std::string active_device_name;
   uint64_t frames_output = 0;
+  double last_cam_zoom = 1.0;
 };
 
 // Simple HTTP POST helper for camera controls
@@ -1149,7 +1150,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string srt_url) {
       break;
     }
 
-    // Try to open audio decoder (optional Ã¢â‚¬â€ video-only is fine)
+    // Try to open audio decoder (optional â€” video-only is fine)
     int audio_stream_index = -1;
     CodecContextPtr audio_decoder_ctx;
     open_audio_decoder(format_ctx.get(), &audio_stream_index, &audio_decoder_ctx);
@@ -1283,7 +1284,7 @@ void openstream_defaults(obs_data_t *settings) {
   obs_data_set_default_double(settings, "cam_zoom", 1.0);
 }
 
-obs_properties_t *openstream_properties(void *) {
+obs_properties_t *openstream_properties(void *data) {
   obs_properties_t *props = obs_properties_create();
   obs_properties_add_bool(props, "listener_enabled", "Auto-connect discovered phone");
   obs_properties_add_text(props, "device_name", "Device label", OBS_TEXT_DEFAULT);
@@ -1324,27 +1325,24 @@ obs_properties_t *openstream_properties(void *) {
     return true;
   });
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ Camera remote controls Ã¢â€â‚¬Ã¢â€â‚¬
+  // â”€â”€ Camera remote controls â”€â”€
   obs_properties_t *camera_group = obs_properties_create();
 
-  obs_properties_add_float_slider(camera_group, "cam_zoom", "Zoom", 1.0, 10.0, 0.1);
-  obs_properties_add_button(camera_group, "cam_zoom_apply", "Apply Zoom", [](obs_properties_t *, obs_property_t *, void *data) {
-    auto *ctx = static_cast<OpenStreamSource *>(data);
+  obs_property_t *zoom_prop = obs_properties_add_float_slider(camera_group, "cam_zoom", "Zoom", 1.0, 10.0, 0.1);
+  obs_property_set_modified_callback2(zoom_prop, [](void *priv, obs_properties_t *, obs_property_t *, obs_data_t *settings) -> bool {
+    auto *ctx = static_cast<OpenStreamSource *>(priv);
     if (!ctx) return false;
-    auto phone = ctx->phone_discovery.latest();
-    if (!phone.has_value()) {
-      blog(LOG_WARNING, "[OpenStream] No phone discovered for control");
-      return false;
-    }
-    obs_data_t *settings = obs_source_get_settings(ctx->source);
     double zoom = obs_data_get_double(settings, "cam_zoom");
-    obs_data_release(settings);
+    // Only send if value actually changed (avoid flooding)
+    if (std::abs(zoom - ctx->last_cam_zoom) < 0.05) return false;
+    ctx->last_cam_zoom = zoom;
+    auto phone = ctx->phone_discovery.latest();
+    if (!phone.has_value()) return false;
     std::ostringstream body;
     body << "{\"value\":" << zoom << "}";
-    bool ok = send_control_command(phone->host, phone->control_port, "/zoom", body.str());
-    blog(LOG_INFO, "[OpenStream] Zoom %.1f -> %s", zoom, ok ? "OK" : "FAILED");
-    return true;
-  });
+    send_control_command(phone->host, phone->control_port, "/zoom", body.str());
+    return false;
+  }, static_cast<OpenStreamSource *>(data));
 
   obs_properties_add_button(camera_group, "cam_torch_on", "Torch ON", [](obs_properties_t *, obs_property_t *, void *data) {
     auto *ctx = static_cast<OpenStreamSource *>(data);
@@ -1371,7 +1369,7 @@ obs_properties_t *openstream_properties(void *) {
     if (!ctx) return false;
     auto phone = ctx->phone_discovery.latest();
     if (!phone.has_value()) return false;
-    send_control_command(phone->host, phone->control_port, "/lens", "{\"lens\":\"1Ãƒâ€”\"}");
+    send_control_command(phone->host, phone->control_port, "/lens", "{\"lens\":\"1Ã—\"}");
     blog(LOG_INFO, "[OpenStream] Switch to back camera");
     return true;
   });
@@ -1414,7 +1412,7 @@ bool obs_module_load(void) {
   }
 #endif
   obs_register_source(&openstream_source_info);
-  blog(LOG_INFO, "[OpenStream] OBS plugin loaded: V5 Ã¢â‚¬â€ video + audio + remote controls");
+  blog(LOG_INFO, "[OpenStream] OBS plugin loaded - video + audio + remote controls");
   return true;
 }
 
