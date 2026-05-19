@@ -1,143 +1,89 @@
 # OpenStream
 
-> **⚠️ Beta** — This project is under active development. Features may change and bugs may exist.
+> [!IMPORTANT]
+> # STILL IN PROGRESS
+> OpenStream is actively being built. The current codebase is a prototype scaffold, not a finished OBS-ready wireless camera system yet.
 
-**Stream your Android phone camera directly into OBS Studio** with ultra-low latency over your local network. No cloud, no subscriptions — just plug-and-play over Wi-Fi.
+OpenStream is an open-source prototype for turning Android phones into low-latency wireless OBS camera sources over local Wi-Fi.
 
-Made by **[@yashas.vm](https://instagram.com/yashas.vm)**
+This repository implements the practical V1 direction:
 
----
+- Android captures with Camera2.
+- Android exposes only the selected phone camera feed, not the whole phone screen.
+- Android encodes with hardware HEVC/H.265 by default, H.264 fallback.
+- Android sends the contribution feed over SRT.
+- OBS receives the feed through a native FFmpeg/libsrt source plugin.
+- OBS advertises active listeners on the LAN so Android can tap to connect.
+- Raw YUV/zstd lossless transport is kept as a later research track.
 
-## ✨ Features
+## Repository layout
 
-### 📱 Android App
-- **1080p @ 60fps** real-time camera streaming via SRT protocol
-- **Multi-lens switching** — seamlessly switch between all available camera lenses (wide, ultrawide, telephoto, front)
-- **Pinch-to-zoom** with smooth digital zoom
-- **Torch/flashlight** toggle
-- **Keep screen on** mode for uninterrupted streaming
-- **Audio streaming** — microphone audio transmitted alongside video
-- **Auto-discovery** — OBS finds your phone automatically on the same network
-
-### 🖥️ OBS Plugin
-- **Zero-config setup** — add the source and it finds your phone automatically
-- **Separate audio mixer channel** — adjust phone audio independently in OBS
-- **Remote camera controls** directly from OBS:
-  - 🔍 Smooth zoom slider (live preview as you adjust)
-  - 💡 Torch ON/OFF
-  - 📷 Lens switching (Back / Front camera)
-- **H.264 hardware-accelerated** decoding via FFmpeg
-- **Auto-reconnect** on disconnect
-
----
-
-## 📥 Installation
-
-### Android App
-
-1. Download the latest `app-debug.apk` from [Releases](https://github.com/YashasVM/OpenStream/releases)
-2. Install on your Android phone (enable "Install from unknown sources" if needed)
-3. Grant camera and microphone permissions when prompted
-
-### OBS Plugin (Windows)
-
-1. Download `openstream-obs.dll` from [Releases](https://github.com/YashasVM/OpenStream/releases)
-2. Copy it to your OBS plugins directory:
-   ```
-   C:\ProgramData\obs-studio\plugins\openstream-obs\bin\64bit\
-   ```
-   Create the folders if they don't exist.
-3. You also need the FFmpeg 7 DLLs in the same directory. These are included in the release zip.
-4. Restart OBS
-
----
-
-## 🚀 Usage
-
-1. **Connect both devices** to the same Wi-Fi network
-2. **Open the Android app** — it will start the SRT server and broadcast its presence
-3. **In OBS**, go to `Sources → + → OpenStream`
-4. The plugin will **auto-discover** your phone and start streaming
-5. Use the **Camera Remote Controls** in source properties to adjust zoom, toggle torch, or switch lenses
-
-### OBS Source Properties
-
-| Property | Description |
-|----------|-------------|
-| Auto-connect | Automatically connect to discovered phone |
-| Device label | Custom name for this source |
-| SRT latency | Adjust latency (80–200ms, default 120ms) |
-| Zoom | Smooth zoom control — adjusts live as you drag |
-| Torch ON/OFF | Toggle phone flashlight remotely |
-| Back/Front Camera | Switch between rear and front camera |
-
----
-
-## 🛠️ Building from Source
-
-### Android App
-
-```bash
-cd android
-# Requires Android Studio or Android SDK with NDK installed
-./gradlew :app:assembleDebug
+```text
+android/                 Android Camera2 + MediaCodec app scaffold
+obs-plugin/              Native OBS source plugin with FFmpeg receive path
+tools/openstream_receiver.py
+                         Windows feasibility receiver using FFmpeg SRT input
+tests/test_repo_contract.py
+                         Contract tests for the prototype architecture
+docs/                    Architecture, setup, and test notes
 ```
 
-The APK will be at `android/app/build/outputs/apk/debug/app-debug.apk`
+## Prototype target
 
-### OBS Plugin (Windows)
+The first working milestone is one Android phone streaming 1080p30 to a Windows receiver or OBS source for 30 minutes without freezing.
 
-**Prerequisites:**
-- Visual Studio 2022 Build Tools (C++ workload)
-- CMake 3.24+
-- OBS Studio 32.x installed
-- FFmpeg 7 development libraries
+Current progress:
 
-```bash
-# 1. Set up the Visual Studio environment
-call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+- Android camera capture, hardware encoder, and tap-to-connect discovery scaffolding are in place.
+- The OBS source includes an FFmpeg-backed listener/decoder path and UDP discovery beacon.
+- The Android native SRT bridge packetizes MediaCodec output as MPEG-TS and links to libsrt when provided.
 
-# 2. Download OBS 32 source headers into obs-plugin/deps/obs-src/
-# 3. Download FFmpeg dev libs into obs-plugin/deps/ffmpeg/
-# 4. Generate obs.lib from your installed OBS:
-dumpbin /exports "C:\Program Files\obs-studio\bin\64bit\obs.dll" > obs_dump.txt
-# Parse exports into a .def file, then:
-lib /def:obs.def /out:obs-plugin/deps/ffmpeg/lib/obs.lib /machine:x64
+Default video settings:
 
-# 5. Build
-cmake -S obs-plugin -B obs-plugin/build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release \
-  -DOBS_ROOT=obs-plugin/deps/obs-src/libobs -DFFMPEG_ROOT=obs-plugin/deps/ffmpeg
-cd obs-plugin/build && nmake
+- 1080p30
+- HEVC/H.265 if hardware encoder exists
+- H.264 fallback
+- 12 Mbps default bitrate
+- 1 second keyframe interval
+- No B-frame dependency in the target encoder profile
+- SRT latency range: 80-200 ms
+
+## Normal user workflow
+
+1. Add `OpenStream Phone` as an OBS source.
+2. Leave `Start listener` enabled and click `OK`; the source waits blank.
+3. Open the Android app on the same Wi-Fi network; camera preview appears immediately.
+4. Tap the available OBS source.
+5. Direct camera video appears in OBS.
+
+## Developer receiver smoke test
+
+Run this on Windows to validate FFmpeg/SRT support without OBS:
+
+```powershell
+python tools/openstream_receiver.py --port 9000 --latency-ms 120 --ffplay
 ```
 
----
+The Python receiver is only a developer/debug path. Normal users should use the
+OBS source directly.
 
-## 📐 Architecture
+## Build notes
 
-```
-Phone (Android)                    OBS Studio (Windows)
-┌─────────────────┐                ┌─────────────────────┐
-│ Camera2 API     │                │ OpenStream Plugin    │
-│ ↓               │   SRT/MPEG-TS │ ↓                    │
-│ H.264 Encoder   │ ──────────→   │ FFmpeg Demux/Decode  │
-│ AAC Encoder     │    Wi-Fi LAN  │ ↓                    │
-│ MPEG-TS Muxer   │                │ OBS Video + Audio    │
-│                 │                │                      │
-│ HTTP Control    │ ←───────────   │ Camera Controls UI   │
-│ Server (:9001)  │   HTTP POST   │ (Zoom, Torch, Lens)  │
-└─────────────────┘                └─────────────────────┘
-       ↕ UDP Beacon (port 51515)
-   Auto-Discovery
-```
+The Android project requires Android Studio or a local Gradle installation with the Android Gradle plugin available.
 
----
+Normal Android APK builds link the bundled Android ABI-compatible libsrt static
+libraries for real network sending. Use `-Popenstream.nonStreamingCiBuild=true`
+only for source compile checks that intentionally skip streaming support.
 
-## 🤝 Contributing
+The OBS plugin requires:
 
-This project is in **beta**. If you encounter issues or have feature requests, please open an issue on GitHub.
+- OBS Studio development headers/libraries
+- CMake
+- FFmpeg development libraries
+- an FFmpeg build with SRT protocol support
 
----
+See [docs/setup.md](docs/setup.md) for setup details.
 
-## 📄 License
+## License
 
-This project is open source. See the repository for license details.
+OpenStream is intended for MIT or Apache-2.0 licensing. Add the final license file before publishing packages or releases.
