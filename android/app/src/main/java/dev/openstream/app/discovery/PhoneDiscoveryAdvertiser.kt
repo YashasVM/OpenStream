@@ -69,6 +69,7 @@ class PhoneDiscoveryAdvertiser(
             .put("width", config.width)
             .put("height", config.height)
             .put("fps", config.fps)
+            .put("controlPort", 9001)
             .put("busy", busyProvider())
         return "$PREFIX $json"
     }

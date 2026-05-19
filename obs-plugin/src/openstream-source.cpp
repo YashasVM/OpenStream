@@ -327,6 +327,7 @@ struct PhoneDevice {
   std::string name;
   std::string host;
   int port = 9000;
+  int control_port = 9001;
   int latency_ms = 120;
   int width = 1920;
   int height = 1080;
@@ -423,6 +424,7 @@ class PhoneDiscoveryReceiver {
         device.host = packet_host;
       }
       device.port = json_int_value(json, "listenerPort").value_or(9000);
+      device.control_port = json_int_value(json, "controlPort").value_or(9001);
       device.latency_ms = json_int_value(json, "latencyMs").value_or(120);
       device.width = json_int_value(json, "width").value_or(1920);
       device.height = json_int_value(json, "height").value_or(1080);
@@ -576,6 +578,51 @@ struct OpenStreamSource {
   uint64_t frames_output = 0;
 };
 
+// Simple HTTP POST helper for camera controls
+bool send_control_command(const std::string &host, int port,
+                          const std::string &path, const std::string &body) {
+  SocketHandle sock = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (sock == kInvalidSocket) return false;
+
+#ifdef _WIN32
+  DWORD timeout = 3000;
+  setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char *>(&timeout), sizeof(timeout));
+  setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char *>(&timeout), sizeof(timeout));
+#else
+  timeval timeout = {};
+  timeout.tv_sec = 3;
+  setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+  setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+#endif
+
+  sockaddr_in addr = {};
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons(static_cast<uint16_t>(port));
+  addr.sin_addr.s_addr = inet_addr(host.c_str());
+
+  if (connect(sock, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) != 0) {
+    close_socket(sock);
+    return false;
+  }
+
+  std::ostringstream request;
+  request << "POST " << path << " HTTP/1.1\r\n"
+          << "Host: " << host << ":" << port << "\r\n"
+          << "Content-Type: application/json\r\n"
+          << "Content-Length: " << body.size() << "\r\n"
+          << "Connection: close\r\n"
+          << "\r\n"
+          << body;
+  const std::string req = request.str();
+  send(sock, req.c_str(), static_cast<int>(req.size()), 0);
+
+  char response[1024] = {};
+  recv(sock, response, sizeof(response) - 1, 0);
+  close_socket(sock);
+
+  return std::strstr(response, "200 OK") != nullptr;
+}
+
 std::string av_error(int error) {
   char buffer[AV_ERROR_MAX_STRING_SIZE] = {};
   av_strerror(error, buffer, sizeof(buffer));
@@ -696,6 +743,58 @@ bool open_video_decoder(AVFormatContext *format_ctx,
 
   *video_stream_index = best_stream;
   *decoder_ctx = std::move(codec_ctx);
+  return true;
+}
+
+bool open_audio_decoder(AVFormatContext *format_ctx,
+                        int *audio_stream_index,
+                        CodecContextPtr *decoder_ctx) {
+  const int best_stream = av_find_best_stream(
+      format_ctx, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
+  if (best_stream < 0) {
+    blog(LOG_INFO, "[OpenStream] No audio stream found (video-only mode)");
+    *audio_stream_index = -1;
+    return false;
+  }
+
+  AVStream *stream = format_ctx->streams[best_stream];
+  const AVCodec *decoder = avcodec_find_decoder(stream->codecpar->codec_id);
+  if (!decoder) {
+    blog(LOG_WARNING,
+         "[OpenStream] No audio decoder found for codec id %d",
+         stream->codecpar->codec_id);
+    *audio_stream_index = -1;
+    return false;
+  }
+
+  CodecContextPtr codec_ctx(avcodec_alloc_context3(decoder));
+  if (!codec_ctx) {
+    *audio_stream_index = -1;
+    return false;
+  }
+
+  int result = avcodec_parameters_to_context(codec_ctx.get(), stream->codecpar);
+  if (result < 0) {
+    *audio_stream_index = -1;
+    return false;
+  }
+
+  result = avcodec_open2(codec_ctx.get(), decoder, nullptr);
+  if (result < 0) {
+    blog(LOG_WARNING,
+         "[OpenStream] Could not open audio decoder: %s",
+         av_error(result).c_str());
+    *audio_stream_index = -1;
+    return false;
+  }
+
+  *audio_stream_index = best_stream;
+  *decoder_ctx = std::move(codec_ctx);
+  blog(LOG_INFO,
+       "[OpenStream] Opened audio decoder: %s, %d Hz, %d channels",
+       avcodec_get_name(stream->codecpar->codec_id),
+       stream->codecpar->sample_rate,
+       stream->codecpar->ch_layout.nb_channels);
   return true;
 }
 
@@ -836,10 +935,13 @@ bool output_decoded_frame(OpenStreamSource *ctx,
 void decode_packets(OpenStreamSource *ctx,
                     AVFormatContext *format_ctx,
                     int video_stream_index,
-                    AVCodecContext *decoder_ctx) {
+                    AVCodecContext *video_decoder_ctx,
+                    int audio_stream_index,
+                    AVCodecContext *audio_decoder_ctx) {
   PacketPtr packet(av_packet_alloc());
   FramePtr frame(av_frame_alloc());
-  if (!packet || !frame) {
+  FramePtr audio_frame(av_frame_alloc());
+  if (!packet || !frame || !audio_frame) {
     blog(LOG_WARNING, "[OpenStream] Could not allocate decode packet/frame");
     return;
   }
@@ -847,6 +949,7 @@ void decode_packets(OpenStreamSource *ctx,
   SwsContextPtr sws_ctx(nullptr);
   std::vector<uint8_t> bgra_buffer;
   AVStream *video_stream = format_ctx->streams[video_stream_index];
+  uint64_t audio_frames_output = 0;
 
   while (!ctx->stop_requested.load()) {
     const int read_result = av_read_frame(format_ctx, packet.get());
@@ -864,35 +967,106 @@ void decode_packets(OpenStreamSource *ctx,
       break;
     }
 
-    if (packet->stream_index != video_stream_index) {
+    // Handle video packets
+    if (packet->stream_index == video_stream_index) {
+      int result = avcodec_send_packet(video_decoder_ctx, packet.get());
       av_packet_unref(packet.get());
-      continue;
-    }
-
-    int result = avcodec_send_packet(decoder_ctx, packet.get());
-    av_packet_unref(packet.get());
-    if (result < 0) {
-      blog(LOG_WARNING,
-           "[OpenStream] Could not send packet to decoder: %s",
-           av_error(result).c_str());
-      continue;
-    }
-
-    while (!ctx->stop_requested.load()) {
-      result = avcodec_receive_frame(decoder_ctx, frame.get());
-      if (result == AVERROR(EAGAIN) || result == AVERROR_EOF) {
-        break;
-      }
       if (result < 0) {
         blog(LOG_WARNING,
-             "[OpenStream] Could not decode frame: %s",
+             "[OpenStream] Could not send packet to decoder: %s",
              av_error(result).c_str());
-        break;
+        continue;
       }
 
-      output_decoded_frame(
-          ctx, video_stream, decoder_ctx, frame.get(), &sws_ctx, &bgra_buffer);
-      av_frame_unref(frame.get());
+      while (!ctx->stop_requested.load()) {
+        result = avcodec_receive_frame(video_decoder_ctx, frame.get());
+        if (result == AVERROR(EAGAIN) || result == AVERROR_EOF) {
+          break;
+        }
+        if (result < 0) {
+          blog(LOG_WARNING,
+               "[OpenStream] Could not decode frame: %s",
+               av_error(result).c_str());
+          break;
+        }
+
+        output_decoded_frame(
+            ctx, video_stream, video_decoder_ctx, frame.get(), &sws_ctx, &bgra_buffer);
+        av_frame_unref(frame.get());
+      }
+    }
+    // Handle audio packets
+    else if (audio_decoder_ctx && packet->stream_index == audio_stream_index) {
+      int result = avcodec_send_packet(audio_decoder_ctx, packet.get());
+      av_packet_unref(packet.get());
+      if (result < 0) {
+        continue;
+      }
+
+      while (!ctx->stop_requested.load()) {
+        result = avcodec_receive_frame(audio_decoder_ctx, audio_frame.get());
+        if (result == AVERROR(EAGAIN) || result == AVERROR_EOF) {
+          break;
+        }
+        if (result < 0) {
+          break;
+        }
+
+        // Output decoded audio to OBS
+        struct obs_source_audio obs_audio = {};
+        obs_audio.samples_per_sec = audio_decoder_ctx->sample_rate;
+        obs_audio.frames = static_cast<uint32_t>(audio_frame->nb_samples);
+        obs_audio.timestamp = os_gettime_ns();
+
+        // Determine OBS audio format from FFmpeg sample format
+        switch (audio_decoder_ctx->sample_fmt) {
+          case AV_SAMPLE_FMT_U8:
+          case AV_SAMPLE_FMT_U8P:
+            obs_audio.format = AUDIO_FORMAT_U8BIT;
+            break;
+          case AV_SAMPLE_FMT_S16:
+          case AV_SAMPLE_FMT_S16P:
+            obs_audio.format = AUDIO_FORMAT_16BIT;
+            break;
+          case AV_SAMPLE_FMT_S32:
+          case AV_SAMPLE_FMT_S32P:
+            obs_audio.format = AUDIO_FORMAT_32BIT;
+            break;
+          case AV_SAMPLE_FMT_FLT:
+          case AV_SAMPLE_FMT_FLTP:
+            obs_audio.format = AUDIO_FORMAT_FLOAT;
+            break;
+          default:
+            obs_audio.format = AUDIO_FORMAT_FLOAT;
+            break;
+        }
+
+        // Set speaker layout based on channel count
+        const int channels = audio_decoder_ctx->ch_layout.nb_channels;
+        switch (channels) {
+          case 1: obs_audio.speakers = SPEAKERS_MONO; break;
+          case 2: obs_audio.speakers = SPEAKERS_STEREO; break;
+          default: obs_audio.speakers = SPEAKERS_MONO; break;
+        }
+
+        // Set audio data pointers
+        for (int i = 0; i < MAX_AV_PLANES && audio_frame->data[i]; i++) {
+          obs_audio.data[i] = audio_frame->data[i];
+        }
+
+        obs_source_output_audio(ctx->source, &obs_audio);
+        ++audio_frames_output;
+        if (audio_frames_output == 1 || audio_frames_output % 1000 == 0) {
+          blog(LOG_INFO,
+               "[OpenStream] Output %" PRIu64 " decoded audio frame(s) (%d Hz, %d ch)",
+               audio_frames_output,
+               audio_decoder_ctx->sample_rate,
+               channels);
+        }
+        av_frame_unref(audio_frame.get());
+      }
+    } else {
+      av_packet_unref(packet.get());
     }
   }
 }
@@ -965,8 +1139,8 @@ void openstream_worker(OpenStreamSource *ctx, std::string srt_url) {
     ctx->frames_output = 0;
 
     int video_stream_index = -1;
-    CodecContextPtr decoder_ctx;
-    if (!open_video_decoder(format_ctx.get(), &video_stream_index, &decoder_ctx)) {
+    CodecContextPtr video_decoder_ctx;
+    if (!open_video_decoder(format_ctx.get(), &video_stream_index, &video_decoder_ctx)) {
       ctx->phone_connected = false;
       if (!ctx->stop_requested.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -975,15 +1149,22 @@ void openstream_worker(OpenStreamSource *ctx, std::string srt_url) {
       break;
     }
 
+    // Try to open audio decoder (optional — video-only is fine)
+    int audio_stream_index = -1;
+    CodecContextPtr audio_decoder_ctx;
+    open_audio_decoder(format_ctx.get(), &audio_stream_index, &audio_decoder_ctx);
+
     const AVCodecParameters *codecpar =
         format_ctx->streams[video_stream_index]->codecpar;
     blog(LOG_INFO,
-         "[OpenStream] Receiving %dx%d video stream codec=%s",
+         "[OpenStream] Receiving %dx%d video stream codec=%s%s",
          codecpar->width,
          codecpar->height,
-         avcodec_get_name(codecpar->codec_id));
+         avcodec_get_name(codecpar->codec_id),
+         audio_stream_index >= 0 ? " + audio" : "");
 
-    decode_packets(ctx, format_ctx.get(), video_stream_index, decoder_ctx.get());
+    decode_packets(ctx, format_ctx.get(), video_stream_index, video_decoder_ctx.get(),
+                   audio_stream_index, audio_decoder_ctx.get());
     ctx->phone_connected = false;
     if (!ctx->stop_requested.load()) {
       blog(LOG_INFO, "[OpenStream] Waiting for stream reconnect");
@@ -1099,6 +1280,7 @@ void openstream_defaults(obs_data_t *settings) {
   obs_data_set_default_int(settings, "listener_port", kDefaultListenerPort);
   obs_data_set_default_int(settings, "latency_ms", 120);
   obs_data_set_default_int(settings, "bitrate_mbps", 12);
+  obs_data_set_default_double(settings, "cam_zoom", 1.0);
 }
 
 obs_properties_t *openstream_properties(void *) {
@@ -1141,13 +1323,78 @@ obs_properties_t *openstream_properties(void *) {
     blog(LOG_INFO, "[OpenStream] Listener stopped");
     return true;
   });
+
+  // ── Camera remote controls ──
+  obs_properties_t *camera_group = obs_properties_create();
+
+  obs_properties_add_float_slider(camera_group, "cam_zoom", "Zoom", 1.0, 10.0, 0.1);
+  obs_properties_add_button(camera_group, "cam_zoom_apply", "Apply Zoom", [](obs_properties_t *, obs_property_t *, void *data) {
+    auto *ctx = static_cast<OpenStreamSource *>(data);
+    if (!ctx) return false;
+    auto phone = ctx->phone_discovery.latest();
+    if (!phone.has_value()) {
+      blog(LOG_WARNING, "[OpenStream] No phone discovered for control");
+      return false;
+    }
+    obs_data_t *settings = obs_source_get_settings(ctx->source);
+    double zoom = obs_data_get_double(settings, "cam_zoom");
+    obs_data_release(settings);
+    std::ostringstream body;
+    body << "{\"value\":" << zoom << "}";
+    bool ok = send_control_command(phone->host, phone->control_port, "/zoom", body.str());
+    blog(LOG_INFO, "[OpenStream] Zoom %.1f -> %s", zoom, ok ? "OK" : "FAILED");
+    return true;
+  });
+
+  obs_properties_add_button(camera_group, "cam_torch_on", "Torch ON", [](obs_properties_t *, obs_property_t *, void *data) {
+    auto *ctx = static_cast<OpenStreamSource *>(data);
+    if (!ctx) return false;
+    auto phone = ctx->phone_discovery.latest();
+    if (!phone.has_value()) return false;
+    send_control_command(phone->host, phone->control_port, "/torch", "{\"enabled\":true}");
+    blog(LOG_INFO, "[OpenStream] Torch ON");
+    return true;
+  });
+
+  obs_properties_add_button(camera_group, "cam_torch_off", "Torch OFF", [](obs_properties_t *, obs_property_t *, void *data) {
+    auto *ctx = static_cast<OpenStreamSource *>(data);
+    if (!ctx) return false;
+    auto phone = ctx->phone_discovery.latest();
+    if (!phone.has_value()) return false;
+    send_control_command(phone->host, phone->control_port, "/torch", "{\"enabled\":false}");
+    blog(LOG_INFO, "[OpenStream] Torch OFF");
+    return true;
+  });
+
+  obs_properties_add_button(camera_group, "cam_lens_back", "Back Camera", [](obs_properties_t *, obs_property_t *, void *data) {
+    auto *ctx = static_cast<OpenStreamSource *>(data);
+    if (!ctx) return false;
+    auto phone = ctx->phone_discovery.latest();
+    if (!phone.has_value()) return false;
+    send_control_command(phone->host, phone->control_port, "/lens", "{\"lens\":\"1×\"}");
+    blog(LOG_INFO, "[OpenStream] Switch to back camera");
+    return true;
+  });
+
+  obs_properties_add_button(camera_group, "cam_lens_front", "Front Camera", [](obs_properties_t *, obs_property_t *, void *data) {
+    auto *ctx = static_cast<OpenStreamSource *>(data);
+    if (!ctx) return false;
+    auto phone = ctx->phone_discovery.latest();
+    if (!phone.has_value()) return false;
+    send_control_command(phone->host, phone->control_port, "/lens", "{\"lens\":\"Front\"}");
+    blog(LOG_INFO, "[OpenStream] Switch to front camera");
+    return true;
+  });
+
+  obs_properties_add_group(props, "camera_controls", "Camera Remote Controls", OBS_GROUP_NORMAL, camera_group);
+
   return props;
 }
 
 obs_source_info openstream_source_info = {
     .id = "openstream_phone_v4_source",
     .type = OBS_SOURCE_TYPE_INPUT,
-    .output_flags = OBS_SOURCE_ASYNC_VIDEO,
+    .output_flags = OBS_SOURCE_ASYNC_VIDEO | OBS_SOURCE_ASYNC_AUDIO,
     .get_name = openstream_get_name,
     .create = openstream_create,
     .destroy = openstream_destroy,

@@ -49,6 +49,11 @@ class SrtStreamClient {
         return sent
     }
 
+    fun sendAudioAccessUnit(accessUnit: EncodedAccessUnit): Boolean {
+        if (!connected) return false
+        return SrtNativeBridge.sendAudio(accessUnit.data, accessUnit.presentationTimeUs, accessUnit.flags)
+    }
+
     fun disconnect() {
         if (connected) {
             SrtNativeBridge.disconnect()
@@ -70,5 +75,6 @@ private object SrtNativeBridge {
     external fun connect(url: String, codecMime: String, width: Int, height: Int, fps: Int): Boolean
     external fun listen(url: String, codecMime: String, width: Int, height: Int, fps: Int): Boolean
     external fun sendVideo(data: ByteArray, presentationTimeUs: Long, flags: Int): Boolean
+    external fun sendAudio(data: ByteArray, presentationTimeUs: Long, flags: Int): Boolean
     external fun disconnect()
 }

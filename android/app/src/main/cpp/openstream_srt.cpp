@@ -27,6 +27,8 @@ namespace {
 constexpr const char *kTag = "OpenStreamSRT";
 constexpr int kMediaCodecBufferFlagKeyFrame = 1;
 constexpr int kMediaCodecBufferFlagCodecConfig = 2;
+constexpr int kAudioSampleRate = 44100;
+constexpr int kAudioChannelCount = 1;
 
 void logInfo(const char *message) {
   __android_log_print(ANDROID_LOG_INFO, kTag, "%s", message);
@@ -152,12 +154,14 @@ class MpegTsMuxer {
     continuity_.clear();
     forceTables_ = true;
     packetIndex_ = 0;
+    audioPacketIndex_ = 0;
   }
 
  private:
   static constexpr uint16_t kProgramNumber = 1;
   static constexpr uint16_t kPmtPid = 0x100;
   static constexpr uint16_t kVideoPid = 0x101;
+  static constexpr uint16_t kAudioPid = 0x102;
 
   uint8_t nextContinuity(uint16_t pid) {
     uint8_t &counter = continuity_[pid];
@@ -198,15 +202,20 @@ class MpegTsMuxer {
   void writePmt(std::vector<uint8_t> &output) {
     std::vector<uint8_t> section;
     section.push_back(0x02);
-    append16(section, 0xb000 | 18);
+    append16(section, 0xb000 | 23);  // section_length: 23 = 5 + 5 (video) + 5 (audio) + 4 (CRC) + 4 (header)
     append16(section, kProgramNumber);
     section.push_back(0xc1);
     section.push_back(0x00);
     section.push_back(0x00);
     append16(section, 0xe000 | kVideoPid);
     append16(section, 0xf000);
+    // Video elementary stream
     section.push_back(streamType());
     append16(section, 0xe000 | kVideoPid);
+    append16(section, 0xf000);
+    // Audio elementary stream (AAC = 0x0f)
+    section.push_back(0x0f);
+    append16(section, 0xe000 | kAudioPid);
     append16(section, 0xf000);
     append32(section, crc32Mpeg(section.data(), section.size()));
     packetizeSection(output, kPmtPid, section);
@@ -283,6 +292,35 @@ class MpegTsMuxer {
   std::map<uint16_t, uint8_t> continuity_;
   bool forceTables_ = true;
   uint64_t packetIndex_ = 0;
+  uint64_t audioPacketIndex_ = 0;
+
+ public:
+  std::vector<uint8_t> muxAudioAccessUnit(const std::vector<uint8_t> &accessUnit,
+                                           int64_t presentationTimeUs) {
+    std::vector<uint8_t> output;
+    // Include tables periodically for audio too
+    if (audioPacketIndex_ % 50 == 0) {
+      writePat(output);
+      writePmt(output);
+    }
+
+    // Build audio PES (stream ID 0xC0 = audio stream 0)
+    std::vector<uint8_t> pes;
+    const uint64_t pts = pts90k(presentationTimeUs);
+    const size_t pesPayloadLength = accessUnit.size() + 8;
+    const uint16_t packetLength = pesPayloadLength > 0xffff ? 0 : static_cast<uint16_t>(pesPayloadLength);
+    pes.insert(pes.end(), {0x00, 0x00, 0x01, 0xc0});
+    append16(pes, packetLength);
+    pes.push_back(0x80);
+    pes.push_back(0x80);
+    pes.push_back(0x05);
+    appendPts(pes, 0x02, pts);
+    pes.insert(pes.end(), accessUnit.begin(), accessUnit.end());
+
+    packetizePayload(output, kAudioPid, pes, true, std::nullopt);
+    ++audioPacketIndex_;
+    return output;
+  }
 };
 
 struct SrtUrl {
@@ -519,6 +557,7 @@ struct StreamState {
   NativeSender sender;
   std::optional<MpegTsMuxer> muxer;
   std::vector<uint8_t> codecConfig;
+  std::vector<uint8_t> audioCodecConfig;
   bool connected = false;
 };
 
@@ -631,6 +670,33 @@ Java_dev_openstream_app_stream_SrtNativeBridge_disconnect(JNIEnv *, jobject) {
   g_state.sender.disconnect();
   g_state.muxer.reset();
   g_state.codecConfig.clear();
+  g_state.audioCodecConfig.clear();
   g_state.connected = false;
   logInfo("SRT bridge disconnected");
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_openstream_app_stream_SrtNativeBridge_sendAudio(
+    JNIEnv *env,
+    jobject,
+    jbyteArray data,
+    jlong presentation_time_us,
+    jint flags) {
+  if (!g_state.connected || !g_state.muxer) {
+    return JNI_FALSE;
+  }
+
+  const jsize size = env->GetArrayLength(data);
+  std::vector<uint8_t> bytes(static_cast<size_t>(size));
+  env->GetByteArrayRegion(data, 0, size, reinterpret_cast<jbyte *>(bytes.data()));
+
+  if ((flags & kMediaCodecBufferFlagCodecConfig) != 0) {
+    g_state.audioCodecConfig = std::move(bytes);
+    logInfo("Stored audio codec config (ADTS/ASC)");
+    return JNI_TRUE;
+  }
+
+  const std::vector<uint8_t> ts =
+      g_state.muxer->muxAudioAccessUnit(bytes, static_cast<int64_t>(presentation_time_us));
+  return g_state.sender.send(ts) ? JNI_TRUE : JNI_FALSE;
 }

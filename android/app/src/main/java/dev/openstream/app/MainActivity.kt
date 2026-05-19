@@ -23,7 +23,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import dev.openstream.app.camera.Camera2Controller
 import dev.openstream.app.camera.CameraLens
+import dev.openstream.app.control.CameraControlServer
 import dev.openstream.app.discovery.PhoneDiscoveryAdvertiser
+import dev.openstream.app.encoder.MediaCodecAudioEncoder
 import dev.openstream.app.encoder.MediaCodecVideoEncoder
 import dev.openstream.app.stream.ConnectionTarget
 import dev.openstream.app.stream.StreamConfig
@@ -56,9 +58,11 @@ class MainActivity : Activity() {
     // ── Core components ──
     private lateinit var camera: Camera2Controller
     private lateinit var encoder: MediaCodecVideoEncoder
+    private lateinit var audioEncoder: MediaCodecAudioEncoder
     private lateinit var streamClient: SrtStreamClient
     private lateinit var telemetry: TelemetrySampler
     private lateinit var phoneAdvertiser: PhoneDiscoveryAdvertiser
+    private lateinit var controlServer: CameraControlServer
 
     private val streamConfig = StreamConfig.Default1080p30
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -115,10 +119,35 @@ class MainActivity : Activity() {
                 }
             },
         )
+        audioEncoder = MediaCodecAudioEncoder(
+            sampleRate = 44100,
+            channelCount = 1,
+            bitrate = 128_000,
+            onEncodedAccessUnit = { accessUnit ->
+                streamClient.sendAudioAccessUnit(accessUnit)
+            },
+        )
         camera = Camera2Controller(
             context = this,
             previewSurfaceProvider = { cameraPreview.holder.surface },
             lensProvider = { currentLens },
+        )
+        controlServer = CameraControlServer(
+            cameraProvider = { camera },
+            lensListProvider = { availableLenses },
+            currentLensProvider = { currentLens },
+            onSwitchLens = { lens -> runOnUiThread { selectLens(lens) } },
+            onToggleTorch = { enabled -> runOnUiThread {
+                torchOn = enabled
+                camera.setTorch(enabled)
+                if (enabled) {
+                    btnTorch.setBackgroundResource(R.drawable.bg_btn_accent)
+                    btnTorch.setTextColor(getColor(R.color.os_black))
+                } else {
+                    btnTorch.setBackgroundResource(R.drawable.bg_btn_ghost)
+                    btnTorch.setTextColor(getColor(R.color.os_text_secondary))
+                }
+            }},
         )
 
         cameraPreview.holder.addCallback(object : SurfaceHolder.Callback {
@@ -139,6 +168,7 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         phoneAdvertiser.start()
+        controlServer.start()
         startPhoneServerIfAllowed()
     }
 
@@ -146,6 +176,7 @@ class MainActivity : Activity() {
         stopPhoneServer()
         camera.stop()
         phoneAdvertiser.stop()
+        controlServer.stop()
         stopLiveDotAnimation()
         super.onStop()
     }
@@ -411,6 +442,7 @@ class MainActivity : Activity() {
                         mainHandler.post(statsTicker)
                     }
                     encoder.start()
+                    audioEncoder.start()
                     camera.startStreaming(encoder.inputSurface())
                     while (phoneServerRunning && phoneConnected) {
                         Thread.sleep(250)
@@ -462,6 +494,7 @@ class MainActivity : Activity() {
     private fun stopActiveEncoding(updateStatus: Boolean = true) {
         camera.stopStreaming()
         encoder.stop()
+        audioEncoder.stop()
         if (updateStatus) {
             statusText.text = getString(R.string.status_stopped)
             statusDetail.text = "Camera preview remains active"
@@ -564,6 +597,7 @@ class MainActivity : Activity() {
     companion object {
         private val REQUIRED_PERMISSIONS = arrayOf(
             Manifest.permission.CAMERA,
+            Manifest.permission.RECORD_AUDIO,
         )
     }
 }
