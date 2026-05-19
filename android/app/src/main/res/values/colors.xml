@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- OpenStream — Obsidian + Signal Green palette -->
+    <color name="os_black">#FF080810</color>
+    <color name="os_surface">#FF111118</color>
+    <color name="os_surface_elevated">#FF1A1A24</color>
+    <color name="os_card">#FF1E1E2A</color>
+    <color name="os_border">#FF2A2A38</color>
+
+    <!-- Accent: signal green -->
+    <color name="os_accent">#FF00E676</color>
+    <color name="os_accent_dim">#FF00C853</color>
+    <color name="os_accent_surface">#1A00E676</color>
+
+    <!-- Signal colors -->
+    <color name="os_live_red">#FFFF1744</color>
+    <color name="os_live_red_dim">#66FF1744</color>
+    <color name="os_warning">#FFFFAB00</color>
+    <color name="os_success">#FF00E676</color>
+
+    <!-- Text hierarchy -->
+    <color name="os_text_primary">#FFEAEAF0</color>
+    <color name="os_text_secondary">#FF7C7C90</color>
+    <color name="os_text_tertiary">#FF50506A</color>
+
+    <!-- Overlays -->
+    <color name="os_overlay_dark">#CC080810</color>
+    <color name="os_overlay_medium">#80080810</color>
+    <color name="os_scrim_top">#99000000</color>
+    <color name="os_scrim_bottom">#E6080810</color>
+
+    <!-- Status bar -->
+    <color name="os_status_bar">#FF050508</color>
+
+    <!-- Transparent -->
+    <color name="os_transparent">#00000000</color>
+    <color name="os_white">#FFFFFFFF</color>
+</resources>

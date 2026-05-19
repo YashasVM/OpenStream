@@ -1,0 +1,311 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/os_black">
+
+    <!-- ====== CAMERA PREVIEW — full-bleed ====== -->
+    <SurfaceView
+        android:id="@+id/cameraPreview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- ====== TOP OVERLAY — status bar area ====== -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="110dp"
+        android:layout_gravity="top"
+        android:background="@drawable/scrim_top">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="@dimen/os_spacing_lg"
+            android:paddingEnd="@dimen/os_spacing_lg"
+            android:paddingTop="44dp">
+
+            <!-- LIVE badge -->
+            <LinearLayout
+                android:id="@+id/liveBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_chip"
+                android:paddingStart="10dp"
+                android:paddingEnd="12dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:visibility="gone">
+
+                <View
+                    android:id="@+id/liveDot"
+                    android:layout_width="8dp"
+                    android:layout_height="8dp"
+                    android:background="@drawable/live_dot" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="LIVE"
+                    android:textColor="@color/os_live_red"
+                    android:textSize="@dimen/os_text_caption"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.15"
+                    android:layout_marginStart="6dp" />
+            </LinearLayout>
+
+            <!-- Stream info chip -->
+            <TextView
+                android:id="@+id/streamInfoChip"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_chip"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:textColor="@color/os_text_secondary"
+                android:textSize="@dimen/os_text_tiny"
+                android:fontFamily="monospace"
+                android:layout_marginStart="@dimen/os_spacing_sm"
+                android:visibility="gone" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <!-- Zoom label (shown during pinch) -->
+            <TextView
+                android:id="@+id/zoomLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_chip"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:textColor="@color/os_accent"
+                android:textSize="@dimen/os_text_body"
+                android:fontFamily="monospace"
+                android:textStyle="bold"
+                android:visibility="gone" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- ====== BOTTOM CAMERA CONTROLS — overlay on preview ====== -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:background="@drawable/scrim_bottom"
+        android:paddingTop="48dp"
+        android:paddingBottom="@dimen/os_spacing_xl">
+
+        <!-- Status text -->
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/status_ready"
+            android:textColor="@color/os_text_primary"
+            android:textSize="@dimen/os_text_title"
+            android:textStyle="bold"
+            android:layout_marginBottom="2dp" />
+
+        <TextView
+            android:id="@+id/statusDetail"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/os_text_tertiary"
+            android:textSize="@dimen/os_text_tiny"
+            android:fontFamily="monospace"
+            android:layout_marginBottom="@dimen/os_spacing_lg" />
+
+        <!-- Lens selector row -->
+        <LinearLayout
+            android:id="@+id/lensSelectorRow"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="@dimen/os_spacing_md">
+            <!-- Lens buttons are added programmatically -->
+        </LinearLayout>
+
+        <!-- Utility buttons row -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <!-- Keep screen on toggle -->
+            <TextView
+                android:id="@+id/btnKeepScreenOn"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/os_control_btn_size"
+                android:gravity="center"
+                android:background="@drawable/bg_btn_ghost"
+                android:text="☀"
+                android:textColor="@color/os_text_secondary"
+                android:textSize="18sp"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:layout_marginEnd="@dimen/os_spacing_sm" />
+
+            <!-- Flip camera button -->
+            <TextView
+                android:id="@+id/btnFlipCamera"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/os_control_btn_size"
+                android:gravity="center"
+                android:background="@drawable/bg_btn_ghost"
+                android:text="@string/btn_flip_camera"
+                android:textColor="@color/os_text_secondary"
+                android:textSize="18sp"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:layout_marginEnd="@dimen/os_spacing_sm" />
+
+            <!-- Manual connect toggle -->
+            <TextView
+                android:id="@+id/btnManualToggle"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/os_control_btn_size"
+                android:gravity="center"
+                android:background="@drawable/bg_btn_ghost"
+                android:text="⚙"
+                android:textColor="@color/os_text_secondary"
+                android:textSize="18sp"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:layout_marginEnd="@dimen/os_spacing_sm" />
+
+            <!-- Stop button -->
+            <TextView
+                android:id="@+id/btnStop"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/os_control_btn_size"
+                android:gravity="center"
+                android:background="@drawable/bg_btn_danger"
+                android:text="⏹"
+                android:textColor="@color/os_live_red"
+                android:textSize="18sp"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:visibility="gone" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- ====== MANUAL CONNECT PANEL — slides up from bottom ====== -->
+    <LinearLayout
+        android:id="@+id/manualContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:background="@drawable/bg_controls_panel"
+        android:padding="@dimen/os_spacing_lg"
+        android:elevation="16dp"
+        android:visibility="gone">
+
+        <!-- Drag handle -->
+        <View
+            android:layout_width="40dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:background="@color/os_border"
+            android:layout_marginBottom="@dimen/os_spacing_lg" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/section_manual"
+            android:textColor="@color/os_accent"
+            android:textSize="@dimen/os_text_caption"
+            android:textStyle="bold"
+            android:letterSpacing="0.1"
+            android:textAllCaps="true"
+            android:layout_marginBottom="@dimen/os_spacing_md" />
+
+        <!-- Connection info -->
+        <TextView
+            android:id="@+id/connectionInfo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/os_text_tertiary"
+            android:textSize="@dimen/os_text_tiny"
+            android:fontFamily="monospace"
+            android:layout_marginBottom="@dimen/os_spacing_md" />
+
+        <EditText
+            android:id="@+id/inputObsHost"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:hint="@string/hint_obs_host"
+            android:textColor="@color/os_text_primary"
+            android:textColorHint="@color/os_text_tertiary"
+            android:textSize="@dimen/os_text_body"
+            android:background="@drawable/bg_card"
+            android:paddingStart="@dimen/os_spacing_md"
+            android:paddingEnd="@dimen/os_spacing_md"
+            android:singleLine="true"
+            android:layout_marginBottom="@dimen/os_spacing_sm" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="@dimen/os_spacing_md">
+
+            <EditText
+                android:id="@+id/inputObsPort"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="44dp"
+                android:hint="@string/hint_obs_port"
+                android:textColor="@color/os_text_primary"
+                android:textColorHint="@color/os_text_tertiary"
+                android:textSize="@dimen/os_text_body"
+                android:inputType="number"
+                android:background="@drawable/bg_card"
+                android:paddingStart="@dimen/os_spacing_md"
+                android:paddingEnd="@dimen/os_spacing_md"
+                android:singleLine="true"
+                android:layout_marginEnd="@dimen/os_spacing_sm" />
+
+            <EditText
+                android:id="@+id/inputLatency"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="44dp"
+                android:hint="@string/hint_latency"
+                android:textColor="@color/os_text_primary"
+                android:textColorHint="@color/os_text_tertiary"
+                android:textSize="@dimen/os_text_body"
+                android:inputType="number"
+                android:background="@drawable/bg_card"
+                android:paddingStart="@dimen/os_spacing_md"
+                android:paddingEnd="@dimen/os_spacing_md"
+                android:singleLine="true" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/btnManualConnect"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:gravity="center"
+            android:background="@drawable/bg_btn_accent"
+            android:text="@string/btn_connect"
+            android:textColor="@color/os_black"
+            android:textSize="@dimen/os_text_body"
+            android:textStyle="bold" />
+    </LinearLayout>
+</FrameLayout>

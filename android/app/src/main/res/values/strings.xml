@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OpenStream</string>
+
+    <!-- Camera controls -->
+    <string name="lens_back_wide">1×</string>
+    <string name="lens_back_ultrawide">0.5×</string>
+    <string name="lens_back_telephoto">2×</string>
+    <string name="lens_front">Front</string>
+
+    <!-- Buttons -->
+    <string name="btn_screen_on">Screen</string>
+    <string name="btn_screen_on_active">Screen ✓</string>
+    <string name="btn_flip_camera">⟲</string>
+    <string name="btn_connect">Connect</string>
+    <string name="btn_stop">⏹ Stop</string>
+
+    <!-- Status -->
+    <string name="status_ready">Ready</string>
+    <string name="status_waiting">Listening · port %1$d</string>
+    <string name="status_streaming">Live → %1$s</string>
+    <string name="status_stopped">Stopped</string>
+
+    <!-- Sections -->
+    <string name="section_connection">Connection</string>
+    <string name="section_manual">Manual connect ▸</string>
+
+    <!-- Hints -->
+    <string name="hint_obs_host">OBS PC IP address</string>
+    <string name="hint_obs_port">Port (9000)</string>
+    <string name="hint_latency">Latency (120)</string>
+
+    <!-- Info -->
+    <string name="info_listener">SRT port %1$d · %2$dx%3$d@%4$d · %5$d Mbps</string>
+
+    <!-- Zoom -->
+    <string name="zoom_label">%1$.1f×</string>
+</resources>

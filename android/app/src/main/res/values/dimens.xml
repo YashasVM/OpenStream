@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="os_corner_lg">16dp</dimen>
+    <dimen name="os_corner_md">12dp</dimen>
+    <dimen name="os_corner_sm">8dp</dimen>
+    <dimen name="os_corner_pill">24dp</dimen>
+    <dimen name="os_corner_circle">100dp</dimen>
+
+    <dimen name="os_spacing_xs">4dp</dimen>
+    <dimen name="os_spacing_sm">8dp</dimen>
+    <dimen name="os_spacing_md">12dp</dimen>
+    <dimen name="os_spacing_lg">16dp</dimen>
+    <dimen name="os_spacing_xl">24dp</dimen>
+    <dimen name="os_spacing_xxl">32dp</dimen>
+
+    <dimen name="os_text_display">22sp</dimen>
+    <dimen name="os_text_title">16sp</dimen>
+    <dimen name="os_text_body">14sp</dimen>
+    <dimen name="os_text_caption">12sp</dimen>
+    <dimen name="os_text_tiny">10sp</dimen>
+
+    <dimen name="os_icon_sm">20dp</dimen>
+    <dimen name="os_icon_md">24dp</dimen>
+    <dimen name="os_icon_lg">32dp</dimen>
+
+    <dimen name="os_control_btn_size">44dp</dimen>
+    <dimen name="os_lens_btn_size">48dp</dimen>
+</resources>

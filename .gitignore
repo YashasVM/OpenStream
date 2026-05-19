@@ -1,3 +1,7 @@
+compact.md
+.agents/
+skills-lock.json
+
 .gradle/
 .idea/
 .kotlin/

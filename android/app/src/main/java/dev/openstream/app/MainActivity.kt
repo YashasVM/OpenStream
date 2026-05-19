@@ -1,22 +1,25 @@
 package dev.openstream.app
 
 import android.Manifest
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
-import android.widget.ArrayAdapter
-import android.widget.Button
+import android.view.WindowManager
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.Spinner
 import android.widget.TextView
 import dev.openstream.app.camera.Camera2Controller
 import dev.openstream.app.camera.CameraLens
@@ -25,30 +28,50 @@ import dev.openstream.app.encoder.MediaCodecVideoEncoder
 import dev.openstream.app.stream.ConnectionTarget
 import dev.openstream.app.stream.StreamConfig
 import dev.openstream.app.stream.SrtStreamClient
-import dev.openstream.app.telemetry.DeviceTelemetry
 import dev.openstream.app.telemetry.TelemetrySampler
 
 class MainActivity : Activity() {
-    private lateinit var preview: SurfaceView
-    private lateinit var status: TextView
-    private lateinit var devicesContainer: LinearLayout
+
+    // ── Views ──
+    private lateinit var cameraPreview: SurfaceView
+    private lateinit var statusText: TextView
+    private lateinit var statusDetail: TextView
+    private lateinit var connectionInfo: TextView
     private lateinit var manualContainer: LinearLayout
-    private lateinit var obsHost: EditText
-    private lateinit var obsPort: EditText
-    private lateinit var latency: EditText
-    private lateinit var lensSelector: Spinner
-    private lateinit var targetUrl: TextView
+    private lateinit var inputObsHost: EditText
+    private lateinit var inputObsPort: EditText
+    private lateinit var inputLatency: EditText
+    private lateinit var lensSelectorRow: LinearLayout
+    private lateinit var liveBadge: View
+    private lateinit var liveDot: View
+    private lateinit var streamInfoChip: TextView
+    private lateinit var zoomLabel: TextView
+    private lateinit var btnKeepScreenOn: TextView
+    private lateinit var btnFlipCamera: TextView
+    private lateinit var btnManualToggle: TextView
+    private lateinit var btnManualConnect: TextView
+    private lateinit var btnStop: TextView
+
+    // ── Core components ──
     private lateinit var camera: Camera2Controller
     private lateinit var encoder: MediaCodecVideoEncoder
     private lateinit var streamClient: SrtStreamClient
     private lateinit var telemetry: TelemetrySampler
     private lateinit var phoneAdvertiser: PhoneDiscoveryAdvertiser
+
     private val streamConfig = StreamConfig.Default1080p30
     private val mainHandler = Handler(Looper.getMainLooper())
     private var activeTargetName: String? = null
     @Volatile private var phoneServerRunning = false
     @Volatile private var phoneConnected = false
     private var listenerThread: Thread? = null
+    private var keepScreenOn = false
+    private var currentLens: CameraLens = CameraLens.Back
+    private var availableLenses: List<CameraLens> = listOf(CameraLens.Back)
+    private lateinit var scaleGestureDetector: ScaleGestureDetector
+    private var zoomHideRunnable: Runnable? = null
+    private var liveDotAnimator: ObjectAnimator? = null
+
     private val statsTicker = object : Runnable {
         override fun run() {
             renderStreamStats()
@@ -58,10 +81,14 @@ class MainActivity : Activity() {
         }
     }
 
+    // ─────────────────────────── Lifecycle ───────────────────────────
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestRuntimePermissions()
-        buildUi()
+        setContentView(R.layout.activity_main)
+        bindViews()
+        setupGestureDetector()
 
         streamClient = SrtStreamClient()
         telemetry = TelemetrySampler(this)
@@ -88,11 +115,13 @@ class MainActivity : Activity() {
         )
         camera = Camera2Controller(
             context = this,
-            previewSurfaceProvider = { preview.holder.surface },
-            lensProvider = { selectedLens() },
+            previewSurfaceProvider = { cameraPreview.holder.surface },
+            lensProvider = { currentLens },
         )
-        preview.holder.addCallback(object : SurfaceHolder.Callback {
+
+        cameraPreview.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
+                initializeLenses()
                 startPreviewIfAllowed()
                 startPhoneServerIfAllowed()
             }
@@ -100,6 +129,8 @@ class MainActivity : Activity() {
             override fun surfaceDestroyed(holder: SurfaceHolder) = stopPhoneServer()
         })
 
+        setupButtons()
+        renderConnectionInfo()
         handlePairingIntent(intent)
     }
 
@@ -113,6 +144,7 @@ class MainActivity : Activity() {
         stopPhoneServer()
         camera.stop()
         phoneAdvertiser.stop()
+        stopLiveDotAnimation()
         super.onStop()
     }
 
@@ -123,6 +155,7 @@ class MainActivity : Activity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 100 && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+            initializeLenses()
             startPreviewIfAllowed()
             startPhoneServerIfAllowed()
         }
@@ -134,101 +167,160 @@ class MainActivity : Activity() {
         handlePairingIntent(intent)
     }
 
-    private fun buildUi() {
-        preview = SurfaceView(this)
-        status = TextView(this).apply {
-            text = "Camera preview is ready. OBS can discover this phone on the same Wi-Fi."
-        }
-        devicesContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        manualContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-        }
-        obsHost = EditText(this).apply {
-            hint = ConnectionTarget.DEFAULT_HOST
-            setSingleLine(true)
-        }
-        obsPort = EditText(this).apply {
-            hint = ConnectionTarget.DEFAULT_PORT.toString()
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            setSingleLine(true)
-        }
-        latency = EditText(this).apply {
-            hint = ConnectionTarget.DEFAULT_LATENCY_MS.toString()
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            setSingleLine(true)
-        }
-        lensSelector = Spinner(this).apply {
-            adapter = ArrayAdapter(
-                this@MainActivity,
-                android.R.layout.simple_spinner_dropdown_item,
-                CameraLens.entries.map { it.displayName },
-            )
-        }
-        targetUrl = TextView(this)
-
-        val manualToggle = Button(this).apply {
-            text = "Manual fallback"
-            setOnClickListener {
-                manualContainer.visibility =
-                    if (manualContainer.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-            }
-        }
-        val manualStart = Button(this).apply {
-            text = "Connect manually"
-            setOnClickListener { startStream(connectionTargetFromManualFields()) }
-        }
-        val stop = Button(this).apply {
-            text = "Stop"
-            setOnClickListener { stopPhoneServer() }
-        }
-
-        manualContainer.addView(TextView(this).apply { text = "OBS PC IP" })
-        manualContainer.addView(obsHost)
-        manualContainer.addView(TextView(this).apply { text = "OBS listener port" })
-        manualContainer.addView(obsPort)
-        manualContainer.addView(TextView(this).apply { text = "Latency ms" })
-        manualContainer.addView(latency)
-        manualContainer.addView(manualStart)
-        renderReadyState()
-
-        setContentView(
-            ScrollView(this).apply {
-                addView(
-                    LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.VERTICAL
-                        addView(
-                            preview,
-                            LinearLayout.LayoutParams(
-                                LinearLayout.LayoutParams.MATCH_PARENT,
-                                resources.displayMetrics.heightPixels / 3,
-                            ),
-                        )
-                        addView(TextView(this@MainActivity).apply { text = "OBS workflow" })
-                        addView(devicesContainer)
-                        addView(TextView(this@MainActivity).apply { text = "Camera" })
-                        addView(lensSelector)
-                        addView(targetUrl)
-                        addView(manualToggle)
-                        addView(manualContainer)
-                        addView(stop)
-                        addView(status)
-                    },
-                )
-            },
-        )
+    override fun onTouchEvent(event: MotionEvent?): Boolean {
+        event?.let { scaleGestureDetector.onTouchEvent(it) }
+        return super.onTouchEvent(event)
     }
 
-    private fun renderReadyState() {
-        devicesContainer.removeAllViews()
-        devicesContainer.addView(TextView(this).apply {
-            text = "Open OBS, add OpenStream Phone, choose this phone, then click Connect."
+    // ─────────────────────────── View binding ───────────────────────────
+
+    private fun bindViews() {
+        cameraPreview = findViewById(R.id.cameraPreview)
+        statusText = findViewById(R.id.statusText)
+        statusDetail = findViewById(R.id.statusDetail)
+        connectionInfo = findViewById(R.id.connectionInfo)
+        manualContainer = findViewById(R.id.manualContainer)
+        inputObsHost = findViewById(R.id.inputObsHost)
+        inputObsPort = findViewById(R.id.inputObsPort)
+        inputLatency = findViewById(R.id.inputLatency)
+        lensSelectorRow = findViewById(R.id.lensSelectorRow)
+        liveBadge = findViewById(R.id.liveBadge)
+        liveDot = findViewById(R.id.liveDot)
+        streamInfoChip = findViewById(R.id.streamInfoChip)
+        zoomLabel = findViewById(R.id.zoomLabel)
+        btnKeepScreenOn = findViewById(R.id.btnKeepScreenOn)
+        btnFlipCamera = findViewById(R.id.btnFlipCamera)
+        btnManualToggle = findViewById(R.id.btnManualToggle)
+        btnManualConnect = findViewById(R.id.btnManualConnect)
+        btnStop = findViewById(R.id.btnStop)
+    }
+
+    private fun setupButtons() {
+        btnKeepScreenOn.setOnClickListener { toggleKeepScreenOn() }
+        btnFlipCamera.setOnClickListener { flipCamera() }
+        btnManualToggle.setOnClickListener {
+            manualContainer.visibility =
+                if (manualContainer.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        }
+        btnManualConnect.setOnClickListener { startStream(connectionTargetFromManualFields()) }
+        btnStop.setOnClickListener { stopPhoneServer() }
+    }
+
+    private fun setupGestureDetector() {
+        scaleGestureDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                val newZoom = camera.scaleZoom(detector.scaleFactor)
+                showZoomLabel(newZoom)
+                return true
+            }
         })
-        devicesContainer.addView(TextView(this).apply {
-            text = "Phone SRT listener: port ${ConnectionTarget.DEFAULT_PORT}, ${streamConfig.width}x${streamConfig.height}@${streamConfig.fps}, ${streamConfig.bitrateMbps} Mbps"
-        })
+
+        // Also handle pinch on the preview surface itself
+        cameraPreview.setOnTouchListener { _, event ->
+            scaleGestureDetector.onTouchEvent(event)
+            true
+        }
+    }
+
+    // ─────────────────────────── Lens switching ───────────────────────────
+
+    private fun initializeLenses() {
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
+        availableLenses = camera.availableLenses()
+        if (currentLens !in availableLenses) {
+            currentLens = availableLenses.firstOrNull { it.isBackFacing } ?: availableLenses.first()
+        }
+        buildLensButtons()
+    }
+
+    private fun buildLensButtons() {
+        lensSelectorRow.removeAllViews()
+        for (lens in availableLenses) {
+            val btn = TextView(this).apply {
+                text = lens.shortLabel
+                textSize = 13f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                val size = resources.getDimensionPixelSize(R.dimen.os_lens_btn_size)
+                layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                    marginEnd = resources.getDimensionPixelSize(R.dimen.os_spacing_sm)
+                }
+                setBackgroundResource(R.drawable.bg_lens_selector)
+                isSelected = (lens == currentLens)
+                setTextColor(
+                    if (isSelected) getColor(R.color.os_black)
+                    else getColor(R.color.os_text_secondary)
+                )
+                setOnClickListener { selectLens(lens) }
+            }
+            lensSelectorRow.addView(btn)
+        }
+    }
+
+    private fun selectLens(lens: CameraLens) {
+        if (lens == currentLens) return
+        currentLens = lens
+        camera.switchLens(lens)
+        // If streaming, re-attach encode surface
+        if (activeTargetName != null) {
+            runCatching {
+                camera.startStreaming(encoder.inputSurface())
+            }
+        }
+        buildLensButtons()
+    }
+
+    private fun flipCamera() {
+        val target = if (currentLens.isFrontFacing) {
+            availableLenses.firstOrNull { it.isBackFacing } ?: return
+        } else {
+            availableLenses.firstOrNull { it.isFrontFacing } ?: return
+        }
+        selectLens(target)
+    }
+
+    // ─────────────────────────── Keep screen on ───────────────────────────
+
+    private fun toggleKeepScreenOn() {
+        keepScreenOn = !keepScreenOn
+        if (keepScreenOn) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            btnKeepScreenOn.text = "☀"
+            btnKeepScreenOn.setTextColor(getColor(R.color.os_accent))
+            btnKeepScreenOn.setBackgroundResource(R.drawable.bg_btn_accent)
+            btnKeepScreenOn.setTextColor(getColor(R.color.os_black))
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            btnKeepScreenOn.text = "☀"
+            btnKeepScreenOn.setTextColor(getColor(R.color.os_text_secondary))
+            btnKeepScreenOn.setBackgroundResource(R.drawable.bg_btn_ghost)
+        }
+    }
+
+    // ─────────────────────────── Zoom ───────────────────────────
+
+    private fun showZoomLabel(zoom: Float) {
+        zoomLabel.text = String.format("%.1f×", zoom)
+        zoomLabel.visibility = View.VISIBLE
+
+        // Auto-hide after 1.5s
+        zoomHideRunnable?.let { mainHandler.removeCallbacks(it) }
+        val hideRunnable = Runnable { zoomLabel.visibility = View.GONE }
+        zoomHideRunnable = hideRunnable
+        mainHandler.postDelayed(hideRunnable, 1_500)
+    }
+
+    // ─────────────────────────── Connection ───────────────────────────
+
+    private fun renderConnectionInfo() {
+        connectionInfo.text = getString(
+            R.string.info_listener,
+            ConnectionTarget.DEFAULT_PORT,
+            streamConfig.width,
+            streamConfig.height,
+            streamConfig.fps,
+            streamConfig.bitrateMbps,
+        )
     }
 
     private fun handlePairingIntent(intent: Intent?) {
@@ -239,12 +331,11 @@ class MainActivity : Activity() {
 
     private fun startStream(target: ConnectionTarget) {
         stopStream(updateStatus = false)
-        val url = target.toSrtCallerUrl()
-        targetUrl.text = url
-        status.text = "Connecting ${selectedLens().displayName} camera to ${target.name}"
+        statusText.text = "Connecting…"
+        statusDetail.text = "${currentLens.displayName} → ${target.name}"
         runCatching {
             streamClient.connect(
-                url = url,
+                url = target.toSrtCallerUrl(),
                 codecMime = encoder.codecName,
                 width = streamConfig.width,
                 height = streamConfig.height,
@@ -255,34 +346,29 @@ class MainActivity : Activity() {
             activeTargetName = target.name
             mainHandler.removeCallbacks(statsTicker)
             mainHandler.post(statsTicker)
-            val sample: DeviceTelemetry = telemetry.sample(
-                streamUrl = url,
-                codec = encoder.codecName,
-                width = streamConfig.width,
-                height = streamConfig.height,
-                fps = streamConfig.fps,
-                bitrate = streamConfig.bitrate,
-            )
-            status.text = "Starting video: ${target.name}, ${sample.codec} ${sample.width}x${sample.height}@${sample.fps}"
+            showLiveState(target.name)
         }.onFailure { error ->
             stopStream()
-            status.text = "Could not start camera feed: ${error.message ?: "unknown error"}"
+            statusText.text = "Connection failed"
+            statusDetail.text = error.message ?: "Unknown error"
         }
     }
 
     private fun startPhoneServerIfAllowed() {
         if (phoneServerRunning) return
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
-        if (!preview.holder.surface.isValid) return
+        if (!cameraPreview.holder.surface.isValid) return
 
         phoneServerRunning = true
         phoneConnected = false
         activeTargetName = null
-        val listenUrl = "srt://0.0.0.0:${ConnectionTarget.DEFAULT_PORT}?mode=listener&latency=${streamConfig.latencyMs}"
-        targetUrl.text = listenUrl
-        status.text = "Ready for OBS. Waiting on port ${ConnectionTarget.DEFAULT_PORT}."
+        statusText.text = getString(R.string.status_ready)
+        statusDetail.text = getString(R.string.status_waiting, ConnectionTarget.DEFAULT_PORT)
+        btnStop.visibility = View.GONE
+
         listenerThread = Thread({
             while (phoneServerRunning) {
+                val listenUrl = "srt://0.0.0.0:${ConnectionTarget.DEFAULT_PORT}?mode=listener&latency=${streamConfig.latencyMs}"
                 runCatching {
                     streamClient.listen(
                         url = listenUrl,
@@ -295,7 +381,7 @@ class MainActivity : Activity() {
                     phoneConnected = true
                     activeTargetName = "OBS"
                     runOnUiThread {
-                        status.text = "OBS connected. Starting camera stream."
+                        showLiveState("OBS")
                         mainHandler.removeCallbacks(statsTicker)
                         mainHandler.post(statsTicker)
                     }
@@ -306,7 +392,8 @@ class MainActivity : Activity() {
                     }
                 }.onFailure { error ->
                     runOnUiThread {
-                        status.text = "Phone listener error: ${error.message ?: "unknown error"}"
+                        statusText.text = "Listener error"
+                        statusDetail.text = error.message ?: "Unknown"
                     }
                     Thread.sleep(750)
                 }
@@ -315,7 +402,9 @@ class MainActivity : Activity() {
                 activeTargetName = null
                 if (phoneServerRunning) {
                     runOnUiThread {
-                        status.text = "Ready for OBS. Waiting on port ${ConnectionTarget.DEFAULT_PORT}."
+                        hideLiveState()
+                        statusText.text = getString(R.string.status_ready)
+                        statusDetail.text = getString(R.string.status_waiting, ConnectionTarget.DEFAULT_PORT)
                     }
                 }
             }
@@ -332,6 +421,8 @@ class MainActivity : Activity() {
         mainHandler.removeCallbacks(statsTicker)
         streamClient.disconnect()
         stopActiveEncoding()
+        hideLiveState()
+        btnStop.visibility = View.GONE
     }
 
     private fun stopStream(updateStatus: Boolean = true) {
@@ -340,42 +431,85 @@ class MainActivity : Activity() {
         phoneConnected = false
         streamClient.disconnect()
         stopActiveEncoding(updateStatus)
+        hideLiveState()
     }
 
     private fun stopActiveEncoding(updateStatus: Boolean = true) {
         camera.stopStreaming()
         encoder.stop()
         if (updateStatus) {
-            status.text = "Streaming stopped. Camera preview remains ready."
+            statusText.text = getString(R.string.status_stopped)
+            statusDetail.text = "Camera preview remains active"
         }
+    }
+
+    // ─────────────────────────── Live state UI ───────────────────────────
+
+    private fun showLiveState(targetName: String) {
+        liveBadge.visibility = View.VISIBLE
+        btnStop.visibility = View.VISIBLE
+        startLiveDotAnimation()
+        statusText.text = getString(R.string.status_streaming, targetName)
+        statusDetail.text = "${streamConfig.width}×${streamConfig.height}@${streamConfig.fps} · ${streamConfig.bitrateMbps} Mbps"
+    }
+
+    private fun hideLiveState() {
+        liveBadge.visibility = View.GONE
+        streamInfoChip.visibility = View.GONE
+        stopLiveDotAnimation()
+    }
+
+    private fun startLiveDotAnimation() {
+        stopLiveDotAnimation()
+        liveDotAnimator = ObjectAnimator.ofFloat(liveDot, "alpha", 1f, 0.3f).apply {
+            duration = 800
+            repeatMode = ValueAnimator.REVERSE
+            repeatCount = ValueAnimator.INFINITE
+            start()
+        }
+    }
+
+    private fun stopLiveDotAnimation() {
+        liveDotAnimator?.cancel()
+        liveDotAnimator = null
     }
 
     private fun renderStreamStats(forceFailure: Boolean = false) {
         val targetName = activeTargetName ?: return
         val stats = streamClient.stats
         val megabits = stats.bytesSent * 8.0 / 1_000_000.0
-        val prefix = if (forceFailure || stats.sendFailures > 0) {
-            "Send issue"
+
+        if (forceFailure || stats.sendFailures > 0) {
+            statusText.text = "Send issue"
+            statusText.setTextColor(getColor(R.color.os_warning))
         } else if (stats.accessUnitsSent == 0L) {
-            "Waiting for encoded frames"
+            statusText.text = "Waiting for frames…"
+            statusText.setTextColor(getColor(R.color.os_text_primary))
         } else {
-            "Live"
+            statusText.text = getString(R.string.status_streaming, targetName)
+            statusText.setTextColor(getColor(R.color.os_text_primary))
         }
-        status.text = String.format(
-            "%s: %s | frames=%d keyframes=%d sent=%.1f Mb stream=%.1fs failures=%d",
-            prefix,
-            targetName,
+
+        streamInfoChip.visibility = View.VISIBLE
+        streamInfoChip.text = String.format(
+            "%d f · %d kf · %.1f Mb",
             stats.accessUnitsSent,
             stats.keyframesSent,
             megabits,
+        )
+        statusDetail.text = String.format(
+            "%.1fs · %d errors · %s",
             stats.secondsSent,
             stats.sendFailures,
+            currentLens.displayName,
         )
     }
 
+    // ─────────────────────────── Utilities ───────────────────────────
+
     private fun startPreviewIfAllowed() {
         if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
-            preview.holder.surface.isValid
+            cameraPreview.holder.surface.isValid
         ) {
             camera.startPreview()
         }
@@ -391,19 +525,15 @@ class MainActivity : Activity() {
     }
 
     private fun connectionTargetFromManualFields(): ConnectionTarget {
-        val host = obsHost.text.toString().ifBlank { obsHost.hint.toString() }.trim()
-        val port = obsPort.text.toString().toIntOrNull() ?: ConnectionTarget.DEFAULT_PORT
-        val latencyMs = latency.text.toString().toIntOrNull() ?: ConnectionTarget.DEFAULT_LATENCY_MS
+        val host = inputObsHost.text.toString().ifBlank { ConnectionTarget.DEFAULT_HOST }.trim()
+        val port = inputObsPort.text.toString().toIntOrNull() ?: ConnectionTarget.DEFAULT_PORT
+        val latencyMs = inputLatency.text.toString().toIntOrNull() ?: ConnectionTarget.DEFAULT_LATENCY_MS
         return ConnectionTarget(
             name = ConnectionTarget.DEFAULT_NAME,
             host = host,
             port = port.coerceIn(1, 65535),
             latencyMs = latencyMs.coerceIn(80, 200),
         )
-    }
-
-    private fun selectedLens(): CameraLens {
-        return if (lensSelector.selectedItemPosition == 1) CameraLens.Front else CameraLens.Back
     }
 
     companion object {
