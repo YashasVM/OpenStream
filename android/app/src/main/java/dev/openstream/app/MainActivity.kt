@@ -64,7 +64,7 @@ class MainActivity : Activity() {
     private lateinit var phoneAdvertiser: PhoneDiscoveryAdvertiser
     private lateinit var controlServer: CameraControlServer
 
-    private val streamConfig = StreamConfig.Default1080p30
+    private val streamConfig = StreamConfig.Default1080p60
     private val mainHandler = Handler(Looper.getMainLooper())
     private var activeTargetName: String? = null
     @Volatile private var phoneServerRunning = false
