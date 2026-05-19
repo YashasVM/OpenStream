@@ -1149,7 +1149,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string srt_url) {
       break;
     }
 
-    // Try to open audio decoder (optional — video-only is fine)
+    // Try to open audio decoder (optional â€” video-only is fine)
     int audio_stream_index = -1;
     CodecContextPtr audio_decoder_ctx;
     open_audio_decoder(format_ctx.get(), &audio_stream_index, &audio_decoder_ctx);
@@ -1324,7 +1324,7 @@ obs_properties_t *openstream_properties(void *) {
     return true;
   });
 
-  // ── Camera remote controls ──
+  // â”€â”€ Camera remote controls â”€â”€
   obs_properties_t *camera_group = obs_properties_create();
 
   obs_properties_add_float_slider(camera_group, "cam_zoom", "Zoom", 1.0, 10.0, 0.1);
@@ -1371,7 +1371,7 @@ obs_properties_t *openstream_properties(void *) {
     if (!ctx) return false;
     auto phone = ctx->phone_discovery.latest();
     if (!phone.has_value()) return false;
-    send_control_command(phone->host, phone->control_port, "/lens", "{\"lens\":\"1×\"}");
+    send_control_command(phone->host, phone->control_port, "/lens", "{\"lens\":\"1Ã—\"}");
     blog(LOG_INFO, "[OpenStream] Switch to back camera");
     return true;
   });
@@ -1394,7 +1394,7 @@ obs_properties_t *openstream_properties(void *) {
 obs_source_info openstream_source_info = {
     .id = "openstream_phone_v5_source",
     .type = OBS_SOURCE_TYPE_INPUT,
-    .output_flags = OBS_SOURCE_ASYNC_VIDEO | OBS_SOURCE_ASYNC_AUDIO,
+    .output_flags = OBS_SOURCE_ASYNC_VIDEO | OBS_SOURCE_AUDIO,
     .get_name = openstream_get_name,
     .create = openstream_create,
     .destroy = openstream_destroy,
@@ -1414,7 +1414,7 @@ bool obs_module_load(void) {
   }
 #endif
   obs_register_source(&openstream_source_info);
-  blog(LOG_INFO, "[OpenStream] OBS plugin loaded: V5 — video + audio + remote controls");
+  blog(LOG_INFO, "[OpenStream] OBS plugin loaded: V5 â€” video + audio + remote controls");
   return true;
 }
 
