@@ -44,6 +44,9 @@ class Camera2Controller(
     private var sensorRect: Rect? = null
     private var supportsZoomRatioKey = false
 
+    // Torch state
+    private var torchEnabled = false
+
     /** Zoom value as a fraction [minZoom, maxZoom]. */
     val zoomRatio: Float get() = currentZoomRatio
     val zoomRange: ClosedFloatingPointRange<Float> get() = minZoomRatio..maxZoomRatio
@@ -147,6 +150,7 @@ class Camera2Controller(
         activeLens = lens
         activeCameraId = newId
         currentZoomRatio = 1.0f
+        torchEnabled = false
 
         closeCamera()
         startPreview()
@@ -195,6 +199,15 @@ class Camera2Controller(
         // Wired in the request builder once remote controls are added.
         require(iso > 0)
         require(exposureTimeNs > 0)
+    }
+
+    /**
+     * Enable or disable the camera torch (flashlight).
+     * Only works on back-facing cameras with flash hardware.
+     */
+    fun setTorch(enabled: Boolean) {
+        torchEnabled = enabled
+        rebuildRepeatingRequest()
     }
 
     // ---- Internal ----
@@ -260,6 +273,7 @@ class Camera2Controller(
                         set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
                         set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
                         applyZoom(this)
+                        applyTorch(this)
                     }.build()
                     captureSession.setRepeatingRequest(request, null, handler)
                 }
@@ -289,7 +303,16 @@ class Camera2Controller(
         }
     }
 
-    private fun updateZoomInSession() {
+    private fun applyTorch(builder: CaptureRequest.Builder) {
+        if (torchEnabled) {
+            builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH)
+        }
+    }
+
+    /**
+     * Rebuild the repeating request with current zoom + torch state.
+     */
+    private fun rebuildRepeatingRequest() {
         val device = camera ?: return
         val currentSession = session ?: return
         val preview = previewSurfaceProvider()
@@ -305,11 +328,16 @@ class Camera2Controller(
                 set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
                 set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
                 applyZoom(this)
+                applyTorch(this)
             }.build()
             currentSession.setRepeatingRequest(request, null, handler)
         }.onFailure { e ->
-            Log.w(TAG, "Failed to update zoom", e)
+            Log.w(TAG, "Failed to rebuild repeating request", e)
         }
+    }
+
+    private fun updateZoomInSession() {
+        rebuildRepeatingRequest()
     }
 
     private fun selectCameraId(lens: CameraLens): String {

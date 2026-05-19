@@ -153,7 +153,23 @@
                 android:layout_height="@dimen/os_control_btn_size"
                 android:gravity="center"
                 android:background="@drawable/bg_btn_ghost"
-                android:text="☀"
+                android:text="STAY"
+                android:textColor="@color/os_text_secondary"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.05"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:layout_marginEnd="@dimen/os_spacing_sm" />
+
+            <!-- Torch toggle -->
+            <TextView
+                android:id="@+id/btnTorch"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/os_control_btn_size"
+                android:gravity="center"
+                android:background="@drawable/bg_btn_ghost"
+                android:text="🔦"
                 android:textColor="@color/os_text_secondary"
                 android:textSize="18sp"
                 android:paddingStart="14dp"
@@ -202,6 +218,18 @@
                 android:paddingEnd="14dp"
                 android:visibility="gone" />
         </LinearLayout>
+
+        <!-- Credit -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Made by @yashas.vm"
+            android:textColor="@color/os_text_tertiary"
+            android:textSize="9sp"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.05"
+            android:layout_marginTop="@dimen/os_spacing_md"
+            android:alpha="0.6" />
     </LinearLayout>
 
     <!-- ====== MANUAL CONNECT PANEL — slides up from bottom ====== -->

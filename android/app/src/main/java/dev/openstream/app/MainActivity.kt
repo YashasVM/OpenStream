@@ -47,6 +47,7 @@ class MainActivity : Activity() {
     private lateinit var streamInfoChip: TextView
     private lateinit var zoomLabel: TextView
     private lateinit var btnKeepScreenOn: TextView
+    private lateinit var btnTorch: TextView
     private lateinit var btnFlipCamera: TextView
     private lateinit var btnManualToggle: TextView
     private lateinit var btnManualConnect: TextView
@@ -66,6 +67,7 @@ class MainActivity : Activity() {
     @Volatile private var phoneConnected = false
     private var listenerThread: Thread? = null
     private var keepScreenOn = false
+    private var torchOn = false
     private var currentLens: CameraLens = CameraLens.Back
     private var availableLenses: List<CameraLens> = listOf(CameraLens.Back)
     private lateinit var scaleGestureDetector: ScaleGestureDetector
@@ -189,6 +191,7 @@ class MainActivity : Activity() {
         streamInfoChip = findViewById(R.id.streamInfoChip)
         zoomLabel = findViewById(R.id.zoomLabel)
         btnKeepScreenOn = findViewById(R.id.btnKeepScreenOn)
+        btnTorch = findViewById(R.id.btnTorch)
         btnFlipCamera = findViewById(R.id.btnFlipCamera)
         btnManualToggle = findViewById(R.id.btnManualToggle)
         btnManualConnect = findViewById(R.id.btnManualConnect)
@@ -197,6 +200,7 @@ class MainActivity : Activity() {
 
     private fun setupButtons() {
         btnKeepScreenOn.setOnClickListener { toggleKeepScreenOn() }
+        btnTorch.setOnClickListener { toggleTorch() }
         btnFlipCamera.setOnClickListener { flipCamera() }
         btnManualToggle.setOnClickListener {
             manualContainer.visibility =
@@ -259,6 +263,12 @@ class MainActivity : Activity() {
 
     private fun selectLens(lens: CameraLens) {
         if (lens == currentLens) return
+        // Turn off torch when switching cameras
+        if (torchOn) {
+            torchOn = false
+            btnTorch.setBackgroundResource(R.drawable.bg_btn_ghost)
+            btnTorch.setTextColor(getColor(R.color.os_text_secondary))
+        }
         currentLens = lens
         camera.switchLens(lens)
         // If streaming, re-attach encode surface
@@ -285,15 +295,30 @@ class MainActivity : Activity() {
         keepScreenOn = !keepScreenOn
         if (keepScreenOn) {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            btnKeepScreenOn.text = "☀"
-            btnKeepScreenOn.setTextColor(getColor(R.color.os_accent))
+            btnKeepScreenOn.text = "STAY ✓"
             btnKeepScreenOn.setBackgroundResource(R.drawable.bg_btn_accent)
             btnKeepScreenOn.setTextColor(getColor(R.color.os_black))
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            btnKeepScreenOn.text = "☀"
+            btnKeepScreenOn.text = "STAY"
             btnKeepScreenOn.setTextColor(getColor(R.color.os_text_secondary))
             btnKeepScreenOn.setBackgroundResource(R.drawable.bg_btn_ghost)
+        }
+    }
+
+    // ─────────────────────────── Torch ───────────────────────────
+
+    private fun toggleTorch() {
+        // Only works on back-facing cameras
+        if (currentLens.isFrontFacing) return
+        torchOn = !torchOn
+        camera.setTorch(torchOn)
+        if (torchOn) {
+            btnTorch.setBackgroundResource(R.drawable.bg_btn_accent)
+            btnTorch.setTextColor(getColor(R.color.os_black))
+        } else {
+            btnTorch.setBackgroundResource(R.drawable.bg_btn_ghost)
+            btnTorch.setTextColor(getColor(R.color.os_text_secondary))
         }
     }
 
