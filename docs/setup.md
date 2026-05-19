@@ -1,89 +1,146 @@
 # OpenStream Setup
 
-## OBS receiver
+## Requirements
 
-Install FFmpeg with SRT enabled. Verify:
+### Android
 
-```powershell
-ffmpeg -protocols
-```
+- Android phone with Camera2 API support
+- Android Studio (for building from source)
+- Same Wi-Fi network as OBS PC
 
-The output should include `srt`.
+### OBS Plugin (Windows)
 
-Normal use does not require the standalone Python receiver. OBS listens directly
-through the `OpenStream Phone` source.
+- OBS Studio (with development headers for building)
+- FFmpeg with SRT protocol support
+- CMake
+- Visual Studio or compatible C++ compiler
 
-## Android app
+---
 
-Open `android/` in Android Studio.
+## Android App
 
-Required permissions:
+### Building
 
-- Camera
-- Network
-- Wi-Fi multicast/broadcast discovery
-- Foreground service
-
-Open the app on the same Wi-Fi network as OBS. Camera preview starts as soon as
-camera permission is granted. Available `OpenStream Phone`
-listeners appear as tappable devices. Tap the OBS device to connect the selected
-phone camera directly; manual IP/port entry is only a fallback for networks that
-block UDP discovery.
-
-The native Android sender packetizes `MediaCodec` H.264/H.265 access units
-as MPEG-TS before sending them to SRT, which lets FFmpeg/ffplay/OBS read the
-phone stream as a normal SRT transport stream. Normal APK builds link the
-bundled Android libsrt static libraries under
-`app/src/main/cpp/third_party/srt`.
+Open `android/` in Android Studio and build normally:
 
 ```powershell
-./gradlew :app:assembleDebug
+cd android
+$env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'
+.\gradlew.bat :app:assembleDebug
 ```
 
-Use `-Popenstream.nonStreamingCiBuild=true` only for CI/source compile checks
-that intentionally build the non-streaming native bridge.
+APK output: `android/app/build/outputs/apk/debug/app-debug.apk`
 
-Recommended first stream settings:
+Normal APK builds link the bundled Android ABI-compatible libsrt static
+libraries for real network sending. Use `-Popenstream.nonStreamingCiBuild=true`
+only for CI source compile checks that intentionally skip streaming support.
 
-- `1920x1080`
-- `30 fps`
-- `12 Mbps`
-- HEVC if available, H.264 fallback
-- SRT latency `120 ms`
+### Permissions
 
-## OBS plugin
+The app requires:
 
-The plugin is in `obs-plugin/`. It registers an `OpenStream Phone` source,
-listens for the Android SRT caller through FFmpeg, advertises itself over LAN
-UDP discovery on port `51515`, decodes the video stream, converts frames to BGRA,
-and submits them to OBS.
+- **Camera** — For accessing phone cameras
+- **Record Audio** — For microphone streaming
+- **Internet** — For SRT network transport
+- **Network/Wi-Fi State** — For connection detection
+- **Wi-Fi Multicast** — For UDP discovery
+- **Foreground Service** — For background streaming
+- **Wake Lock** — For keep-screen-on mode
 
-Configure with paths to your OBS and FFmpeg development installations:
+### Using the App
+
+1. Install the APK on your Android phone.
+2. Grant camera and microphone permissions when prompted.
+3. Camera preview starts immediately.
+4. Available OBS listeners appear automatically via LAN discovery.
+5. Tap an OBS device to start streaming.
+
+Camera controls available in the app:
+
+- **Lens switching** — Tap lens buttons (1×, 0.5×, 2×, Front) to switch cameras
+- **Pinch-to-zoom** — Pinch on the preview to adjust digital zoom
+- **Torch** — Toggle flashlight with the 🔦 button
+- **Keep screen on** — Tap STAY to prevent display timeout
+- **Manual connect** — Tap ⚙ for IP/port entry when discovery is blocked
+
+---
+
+## OBS Plugin
+
+### Building
+
+The plugin is in `obs-plugin/`. Configure with paths to your OBS and FFmpeg
+development installations:
 
 ```powershell
 cmake -S obs-plugin -B build/obs-plugin `
   -DOBS_ROOT="C:/Program Files/obs-studio" `
   -DFFMPEG_ROOT="C:/path/to/ffmpeg-dev"
+
+cmake --build build/obs-plugin --config Release
 ```
 
-The FFmpeg build used by the plugin must include SRT protocol support. Verify
-your runtime FFmpeg with `ffmpeg -protocols`; the output should include `srt`.
+Or use the included build script:
 
-Expected V1 user flow:
+```powershell
+.\build_plugin.bat
+```
 
-1. Add `OpenStream Phone` as an OBS source.
-2. Keep `Start listener` enabled, then click `OK`; the source waits blank.
-3. Keep the default listener port `9000` and latency `120 ms`, or change them if needed.
-4. Open the Android app on the same Wi-Fi network.
-5. Tap the available OBS device.
-6. Direct camera video appears in OBS.
+### Verifying FFmpeg SRT Support
 
-The source also exposes an `openstream://connect?...` fallback URL that can be
-encoded as a QR code if UDP discovery is blocked on the network.
+The FFmpeg build used by the plugin must include SRT protocol support:
 
-## Developer receiver
+```powershell
+ffmpeg -protocols 2>&1 | Select-String "srt"
+```
 
-For receiver smoke tests without OBS, keep using the Python tool:
+The output must include `srt`.
+
+### Installing
+
+Copy the built plugin DLL to your OBS plugins directory:
+
+```
+C:\Program Files\obs-studio\obs-plugins\64bit\
+```
+
+### Using the Plugin
+
+1. Open OBS Studio.
+2. Add a new source → select **OpenStream**.
+3. Keep **Auto-connect discovered phone** enabled.
+4. Configure SRT port (default `9000`) and latency (default `120 ms`).
+5. Click OK — the source waits blank until a phone connects.
+6. Open the Android app on the same Wi-Fi network.
+7. Camera feed appears in OBS automatically.
+
+### Camera Remote Controls
+
+With a phone connected, expand the **Camera Remote Controls** group in
+the source properties:
+
+| Control | Description |
+|---------|-------------|
+| **Zoom slider** | Drag to adjust phone zoom (1.0× – 10.0×). Auto-applies live. |
+| **Torch ON / OFF** | Toggle the phone's flashlight remotely. |
+| **Back Camera** | Switch to rear camera. |
+| **Front Camera** | Switch to front-facing camera. |
+
+### OBS Source Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Auto-connect | `true` | Automatically connect to discovered phone |
+| Device label | `OpenStream` | Display name for the source |
+| Phone SRT port | `9000` | Port for SRT media stream |
+| SRT latency | `120 ms` | Buffer latency (80–200 ms range) |
+| Expected bitrate | `12 Mbps` | Hint for buffer sizing |
+
+---
+
+## Developer Receiver
+
+For receiver smoke tests without OBS, use the Python tool:
 
 ```powershell
 python tools/openstream_receiver.py --port 9000 --latency-ms 120 --ffplay
@@ -91,10 +148,13 @@ python tools/openstream_receiver.py --port 9000 --latency-ms 120 --ffplay
 
 This is a developer/debug path only; it is not part of the normal user workflow.
 
-## Network recommendations
+---
 
-- Use a dedicated 5 GHz or Wi-Fi 6 network.
-- Keep the phone close to the access point during first tests.
-- Disable VPNs and client isolation.
-- Start with one phone before testing multiple devices.
-- Prefer fixed bitrate before enabling adaptive behavior.
+## Network Recommendations
+
+- Use a dedicated **5 GHz** or **Wi-Fi 6** network
+- Keep the phone close to the access point during first tests
+- Disable VPNs and client isolation on your router
+- Start with one phone before testing multiple devices
+- Prefer fixed bitrate before enabling adaptive behavior
+- Ensure both devices are on the **same subnet** with UDP multicast enabled

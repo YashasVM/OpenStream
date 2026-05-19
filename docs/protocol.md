@@ -1,53 +1,182 @@
-# OpenStream Prototype Protocol
+# OpenStream Protocol Specification
 
-## Media stream
+## Overview
+
+OpenStream uses three communication channels between the Android phone and OBS:
+
+1. **Media Stream** — SRT/MPEG-TS for video + audio (phone → OBS)
+2. **Discovery** — UDP multicast/broadcast beacons (bidirectional)
+3. **Control** — HTTP POST for remote camera commands (OBS → phone)
+
+---
+
+## Media Stream
 
 V1 media transport uses SRT from Android caller to Windows listener.
 
-Default caller URL:
+### SRT URLs
 
-```text
-srt://<windows-ip>:9000?mode=caller&latency=120
+Android caller:
+
+```
+srt://<obs-pc-ip>:9000?mode=caller&latency=120
 ```
 
-The Android app sends only the Camera2 camera feed. It does not capture the Android screen, notifications, navigation UI, or microphone for the V1 camera-source milestone.
+OBS listener:
 
-The simplified pairing model is:
-
-```text
-OBS source listens on srt://0.0.0.0:<port>?mode=listener&latency=<latency_ms>
-Android app calls srt://<obs-pc-ip>:<port>?mode=caller&latency=<latency_ms>
+```
+srt://0.0.0.0:9000?mode=listener&latency=120
 ```
 
-Normal setup uses LAN discovery. When the OBS source listener starts, it
-broadcasts a UDP beacon once per second on port `51515`:
+### Container Format
 
-```text
-OPENSTREAM/1 {"type":"dev.openstream.listener","version":1,"name":"OpenStream Phone","instanceId":"...","listenerPort":9000,"latencyMs":120,"bitrateMbps":12,"busy":false}
+The Android app muxes encoded video and audio into **MPEG-TS** before sending
+over SRT. This ensures FFmpeg/OBS can read the phone stream as a standard
+transport stream.
+
+### Video Payload
+
+- Codec: `video/hevc` (preferred) or `video/avc` (fallback)
+- Source: MediaCodec hardware encoder
+- Resolution: 1920×1080 default
+- Frame rate: 60 fps default
+- Bitrate: 20 Mbps default
+- Keyframe interval: 1 second
+- No B-frame dependency in target encoder profile
+
+### Audio Payload
+
+- Codec: AAC
+- Source: MediaCodec audio encoder from device microphone
+- Sample rate: Device default (typically 44100 Hz)
+- Channels: Mono
+- Output: Separate OBS mixer channel for independent volume control
+
+---
+
+## Discovery Protocol
+
+### OBS → Phone (Listener Advertisement)
+
+When the OBS source listener starts, it broadcasts a UDP beacon every 1 second
+on port `51515`:
+
+**Broadcast destinations:**
+- Subnet broadcast addresses (computed from local interfaces)
+- Multicast group `239.255.42.99`
+- Fallback `255.255.255.255`
+
+**Beacon format:**
+
+```
+OPENSTREAM/1 {"type":"dev.openstream.listener","version":1,"name":"OpenStream","instanceId":"...","host":"<obs-ip>","listenerPort":9000,"latencyMs":120,"bitrateMbps":12,"busy":false}
 ```
 
-The Android app uses the packet source IP plus the advertised port and latency
-to generate the SRT caller URL. Users should not need to hand-edit SRT query
-strings during normal setup. If discovery is blocked, the OBS source exposes an
-`openstream://connect?host=<obs-ip>&port=<port>&latency=<latency_ms>&name=...`
-fallback URL for QR/manual pairing.
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | Always `dev.openstream.listener` |
+| `version` | int | Protocol version (currently `1`) |
+| `name` | string | OBS source display name |
+| `instanceId` | string | Unique source instance identifier |
+| `host` | string | OBS machine IP address |
+| `listenerPort` | int | SRT listener port |
+| `latencyMs` | int | Configured SRT latency |
+| `bitrateMbps` | int | Expected stream bitrate |
+| `busy` | bool | Whether the source is already receiving a stream |
 
-The Android app sends encoded video access units produced by `MediaCodec`.
+### Phone → OBS (Phone Advertisement)
 
-Required metadata per video access unit:
+The Android app advertises itself on the same multicast group:
 
-- codec: `video/hevc` or `video/avc`
-- presentation timestamp in microseconds
-- keyframe/config flags from `MediaCodec.BufferInfo`
-- payload bytes
+**Beacon format:**
 
-The first native SRT implementation should packetize access units in MPEG-TS or another FFmpeg-readable container before network send. Raw access-unit writes are only acceptable for a private test receiver.
+```
+OPENSTREAM_PHONE/1 {"type":"dev.openstream.phone","name":"<device-name>","host":"<phone-ip>","listenerPort":9000,"controlPort":9001,"latencyMs":120,"width":1920,"height":1080,"fps":60,"bitrateMbps":20}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | Always `dev.openstream.phone` |
+| `name` | string | Device model name |
+| `host` | string | Phone IP address |
+| `listenerPort` | int | Phone's SRT port |
+| `controlPort` | int | HTTP control server port |
+| `latencyMs` | int | Configured SRT latency |
+| `width` | int | Stream width in pixels |
+| `height` | int | Stream height in pixels |
+| `fps` | int | Stream frame rate |
+| `bitrateMbps` | int | Stream bitrate |
+
+### Fallback Pairing
+
+If discovery is blocked, the OBS source exposes a deep-link URL:
+
+```
+openstream://connect?host=<obs-ip>&port=<port>&latency=<ms>&name=...
+```
+
+This can be encoded as a QR code or entered manually in the Android app.
+
+---
+
+## Control Protocol
+
+The Android app runs a lightweight HTTP server on port `9001` for remote
+camera control from OBS.
+
+### Endpoints
+
+#### Set Zoom
+
+```
+POST /zoom
+Content-Type: application/json
+
+{"value": 2.5}
+```
+
+Sets the digital zoom level. Value range depends on the active camera lens.
+
+#### Toggle Torch
+
+```
+POST /torch
+Content-Type: application/json
+
+{"enabled": true}
+```
+
+Turns the flashlight on (`true`) or off (`false`).
+
+#### Switch Lens
+
+```
+POST /lens
+Content-Type: application/json
+
+{"lens": "1×"}
+```
+
+Switches to the specified camera lens. Known values:
+
+| Value | Camera |
+|-------|--------|
+| `"0.5×"` | Ultra-wide |
+| `"1×"` | Wide (default back camera) |
+| `"2×"` | Telephoto |
+| `"Front"` | Front-facing camera |
+
+Available lenses depend on the device hardware.
+
+### Response
+
+All control endpoints return HTTP `200 OK` on success.
+
+---
 
 ## Telemetry
 
-Telemetry is separate from media. V1 can send it over a local HTTP/WebSocket channel later; the Android app already samples the required fields.
-
-Minimum telemetry payload:
+Telemetry is separate from media. The Android app samples:
 
 ```json
 {
@@ -55,8 +184,8 @@ Minimum telemetry payload:
   "codec": "video/hevc",
   "width": 1920,
   "height": 1080,
-  "fps": 30,
-  "bitrate": 12000000,
+  "fps": 60,
+  "bitrate": 20000000,
   "batteryPercent": 87,
   "wifiRssi": -48,
   "temperatureCelsius": null,
@@ -64,19 +193,5 @@ Minimum telemetry payload:
 }
 ```
 
-## OBS source settings
-
-The OBS source exposes:
-
-- `listener_enabled`
-- `device_name`
-- `listener_port`
-- `srt_url`
-- `phone_target_hint`
-- `pairing_url`
-- `latency_ms`
-- `bitrate_mbps`
-- start/stop listener controls for advanced/debug use
-
-The OBS plugin connects those settings to an FFmpeg/libsrt decode worker and
-submits decoded video frames through OBS video output APIs.
+V1 telemetry is used internally by the app. Future versions may expose it
+over the control HTTP channel or a WebSocket for OBS-side dashboards.
