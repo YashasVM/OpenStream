@@ -31,3 +31,7 @@ local.properties
 *.exe
 
 !android/app/src/main/cpp/third_party/srt/lib/**/*.a
+
+# OBS plugin build artifacts
+obs-plugin/build/
+obs-plugin/deps/
