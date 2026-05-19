@@ -19,21 +19,21 @@
 </div>
 
 > [!IMPORTANT]
-> **🚧 Beta Release** — OpenStream is under active development. You can use it today, but expect rough edges. [Report bugs](https://github.com/YashasVM/OpenStream/issues) to help shape the final release.
+> **🚧 Beta Release** OpenStream is under active development. You can use it today, but expect rough edges. [Report bugs](https://github.com/YashasVM/OpenStream/issues) to help shape the FINAL release.
 
 ## What is OpenStream?
 
-OpenStream turns your Android phone into a **dedicated wireless camera source** for OBS Studio over local Wi-Fi. No screen mirroring, no capture cards, no cables — just your phone's camera feed streamed directly into OBS with hardware-accelerated encoding and sub-200ms latency.
+OpenStream turns your Android phone into a **dedicated wireless camera source** for OBS Studio over local Wi-Fi. No screen mirroring, no capture cards, no cables just your phone's camera feed streamed directly into OBS with hardware-accelerated encoding and sub-200ms latency.
 
 ```
-📱 Phone Camera  →  HEVC/H.264 Encode  →  SRT over Wi-Fi  →  🖥️ OBS Studio
+Phone Camera  →  HEVC/H.264 Encode  →  SRT over Wi-Fi  → OBS Studio
 ```
 
 ---
 
-## ✨ Features
+## Features
 
-### 📱 Android App
+### Android App
 
 | Feature | Details |
 |---|---|
@@ -46,7 +46,7 @@ OpenStream turns your Android phone into a **dedicated wireless camera source** 
 | **Auto-Discovery** | OBS instances on the same network appear automatically — tap to connect |
 | **Manual Connect** | Fallback IP/port entry for networks that block UDP discovery |
 
-### 🖥️ OBS Plugin
+### OBS Plugin
 
 | Feature | Details |
 |---|---|
@@ -60,7 +60,7 @@ OpenStream turns your Android phone into a **dedicated wireless camera source** 
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Set up OBS
 
@@ -93,7 +93,7 @@ Tap the discovered OBS device in the app. Your phone's camera feed appears in OB
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌──────────────────────┐         SRT/MPEG-TS          ┌──────────────────────┐
@@ -129,7 +129,7 @@ Tap the discovered OBS device in the app. Your phone's camera feed appears in OB
 
 ---
 
-## 📂 Repository Layout
+## Repository Layout
 
 ```
 android/                     Android Camera2 + MediaCodec streaming app
@@ -178,7 +178,7 @@ build_plugin.bat             Windows OBS plugin build script
 
 ---
 
-## 🔧 Building
+## Building
 
 ### Android App
 
@@ -218,7 +218,7 @@ Or use the included build script:
 
 ---
 
-## 🧪 Developer Smoke Test
+## Developer Smoke Test
 
 Validate the SRT transport chain without OBS using the Python receiver:
 
@@ -230,7 +230,7 @@ This opens an FFmpeg/ffplay window showing the live phone stream. This is a **de
 
 ---
 
-## 🌐 Network Recommendations
+## Network Recommendations
 
 - Use a dedicated **5 GHz** or **Wi-Fi 6** network
 - Keep the phone close to the access point during first tests
@@ -240,7 +240,7 @@ This opens an FFmpeg/ffplay window showing the live phone stream. This is a **de
 
 ---
 
-## 🗺️ Roadmap
+## Roadmap
 
 - [x] Camera2 hardware-accelerated capture
 - [x] HEVC/H.265 and H.264 encoding with MediaCodec
@@ -260,7 +260,7 @@ This opens an FFmpeg/ffplay window showing the live phone stream. This is a **de
 
 ---
 
-## 📜 License
+## License
 
 OpenStream is intended for **MIT or Apache-2.0** licensing. Final license file will be added before publishing packages or releases.
 
