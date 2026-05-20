@@ -83,9 +83,9 @@ Tap the discovered OBS device in the app. Your phone's camera feed appears in OB
 │  │  OpenStream            │ ← Source waits blank        │
 │  │  "Auto-connect: ON"   │                              │
 │  └───────────────────────┘                              │
-│                                                          │
-│  📱 Phone joins same Wi-Fi                              │
-│  ↓                                                       │
+│                                                         │
+│  Phone joins same Wi-Fi                                 │
+│  ↓                                                      │
 │  Phone discovers OBS → Tap → Camera feed appears        │
 └─────────────────────────────────────────────────────────┘
 ```
