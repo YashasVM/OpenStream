@@ -58,7 +58,6 @@ Phone Camera  →  HEVC/H.264 Encode  →  SRT over Wi-Fi  → OBS Studio
 | **Smooth Zoom Slider** | Live zoom adjustment — auto-applies as you drag |
 | **Hardware Decoding** | FFmpeg-backed H.264/HEVC decoding with YUV color metadata |
 | **Auto-Reconnect** | Automatically reconnects when the phone stream drops |
-| **Made by @yashas.vm** | Credit shown in plugin properties and OBS log |
 
 ---
 
