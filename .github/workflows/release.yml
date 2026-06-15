@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, for example v0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android build packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "cmake;3.22.1" "ndk;27.0.12077973"
+
+      - name: Build APK with native SRT enabled
+        working-directory: android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon :app:assembleDebug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openstream-android-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+  obs-plugin:
+    name: Build OBS plugin
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install OBS Studio
+        shell: powershell
+        run: choco install obs-studio -y --no-progress
+
+      - name: Build plugin package
+        shell: cmd
+        run: |
+          set OPENSTREAM_SKIP_INSTALL=1
+          set OPENSTREAM_PLUGIN_PACKAGE_DIR=%CD%\artifacts
+          call build_plugin.bat
+
+      - name: Upload plugin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openstream-obs-windows-x64
+          path: artifacts/openstream-obs-windows-x64.zip
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    runs-on: ubuntu-latest
+    needs: [android, obs-plugin]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Normalize artifact names
+        run: |
+          cp dist/app-debug.apk dist/openstream-android-debug.apk
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          TAG_NAME="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          gh release create "$TAG_NAME" \
+            dist/openstream-android-debug.apk \
+            dist/openstream-obs-windows-x64.zip \
+            --target "$GITHUB_SHA" \
+            --title "OpenStream ${TAG_NAME}" \
+            --notes-file docs/release-notes-template.md
+

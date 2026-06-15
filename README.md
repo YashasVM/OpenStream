@@ -217,6 +217,11 @@ Or use the included build script:
 .\build_plugin.bat
 ```
 
+### Releases
+
+GitHub Actions builds the Android APK and Windows OBS plugin package. See
+`docs/release.md` for release tagging and local packaging commands.
+
 ---
 
 ## Developer Smoke Test

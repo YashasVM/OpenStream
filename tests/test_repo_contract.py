@@ -147,3 +147,28 @@ def test_docs_keep_python_receiver_as_developer_tool_only() -> None:
     setup = read("docs/setup.md")
     assert "developer/debug path only" in setup
     assert "not part of the normal user workflow" in setup
+
+
+def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
+    android_workflow = read(".github/workflows/android.yml")
+    obs_workflow = read(".github/workflows/obs-plugin-windows.yml")
+    release_workflow = read(".github/workflows/release.yml")
+    release_docs = read("docs/release.md")
+    plugin_builder = read("build_plugin.bat")
+    gradle_properties = read("android/gradle.properties")
+
+    assert ":app:assembleDebug" in android_workflow
+    assert "openstream.nonStreamingCiBuild" not in android_workflow
+    assert "openstream-android-debug-apk" in android_workflow
+    assert "OPENSTREAM_SKIP_INSTALL=1" in obs_workflow
+    assert "OPENSTREAM_PLUGIN_PACKAGE_DIR" in obs_workflow
+    assert "openstream-obs-windows-x64.zip" in obs_workflow
+    assert "gh release create" in release_workflow
+    assert "docs/release-notes-template.md" in release_workflow
+    assert "openstream-android-debug.apk" in release_workflow
+    assert "openstream-obs-windows-x64.zip" in release_workflow
+    assert "Do not pass `-Popenstream.nonStreamingCiBuild=true`" in release_docs
+    assert "OPENSTREAM_SKIP_INSTALL" in plugin_builder
+    assert "OPENSTREAM_PLUGIN_PACKAGE_DIR" in plugin_builder
+    assert "Compress-Archive" in plugin_builder
+    assert "org.gradle.java.home" not in gradle_properties

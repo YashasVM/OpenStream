@@ -86,6 +86,14 @@ Or use the included build script:
 .\build_plugin.bat
 ```
 
+To package the plugin zip without installing it into OBS:
+
+```powershell
+$env:OPENSTREAM_SKIP_INSTALL = "1"
+$env:OPENSTREAM_PLUGIN_PACKAGE_DIR = "$PWD\artifacts"
+.\build_plugin.bat
+```
+
 ### Verifying FFmpeg SRT Support
 
 The FFmpeg build used by the plugin must include SRT protocol support:
@@ -147,6 +155,12 @@ python tools/openstream_receiver.py --port 9000 --latency-ms 120 --ffplay
 ```
 
 This is a developer/debug path only; it is not part of the normal user workflow.
+
+---
+
+## Releases
+
+See `docs/release.md` for GitHub Actions release builds and artifact packaging.
 
 ---
 

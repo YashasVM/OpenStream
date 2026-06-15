@@ -1,0 +1,35 @@
+name: OBS Plugin Windows
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Windows x64 plugin
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install OBS Studio
+        shell: powershell
+        run: choco install obs-studio -y --no-progress
+
+      - name: Build plugin package
+        shell: cmd
+        run: |
+          set OPENSTREAM_SKIP_INSTALL=1
+          set OPENSTREAM_PLUGIN_PACKAGE_DIR=%CD%\artifacts
+          call build_plugin.bat
+
+      - name: Upload plugin package
+        uses: actions/upload-artifact@v4
+        with:
+          name: openstream-obs-windows-x64
+          path: artifacts/openstream-obs-windows-x64.zip
+          if-no-files-found: error
+
