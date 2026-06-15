@@ -23,8 +23,10 @@
 #include <inttypes.h>
 #include <cstdlib>
 #include <cstring>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -39,6 +41,7 @@ extern "C" {
 #include <libavutil/opt.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/pixfmt.h>
+#include <libavutil/samplefmt.h>
 #include <libswscale/swscale.h>
 }
 
@@ -84,7 +87,7 @@ using SwsContextPtr = std::unique_ptr<SwsContext, SwsContextDeleter>;
 
 constexpr int kDiscoveryPort = 51515;
 constexpr int kDefaultListenerPort = 9000;
-constexpr const char *kOpenStreamSourceName = "OpenStream";
+constexpr const char *kOpenStreamSourceName = "OpenStream V6";
 constexpr const char *kDiscoveryMulticastAddress = "239.255.42.99";
 constexpr const char *kPhoneDiscoveryPrefix = "OPENSTREAM_PHONE/1 ";
 
@@ -323,8 +326,32 @@ std::optional<int> json_int_value(const std::string &json, const std::string &ke
   return std::atoi(json.substr(first_digit, end - first_digit).c_str());
 }
 
+std::optional<bool> json_bool_value(const std::string &json, const std::string &key) {
+  const std::string quoted_key = "\"" + key + "\"";
+  const size_t key_pos = json.find(quoted_key);
+  if (key_pos == std::string::npos) {
+    return std::nullopt;
+  }
+  const size_t colon = json.find(':', key_pos + quoted_key.size());
+  if (colon == std::string::npos) {
+    return std::nullopt;
+  }
+  const size_t value_start = json.find_first_not_of(" \t\r\n", colon + 1);
+  if (value_start == std::string::npos) {
+    return std::nullopt;
+  }
+  if (json.compare(value_start, 4, "true") == 0) {
+    return true;
+  }
+  if (json.compare(value_start, 5, "false") == 0) {
+    return false;
+  }
+  return std::nullopt;
+}
+
 struct PhoneDevice {
   std::string name;
+  std::string instance_id;
   std::string host;
   int port = 9000;
   int control_port = 9001;
@@ -333,10 +360,14 @@ struct PhoneDevice {
   int height = 1080;
   int fps = 30;
   int bitrate_mbps = 12;
+  bool busy = false;
+  std::chrono::steady_clock::time_point last_seen = std::chrono::steady_clock::now();
 };
 
 class PhoneDiscoveryReceiver {
  public:
+  static constexpr const char *kAutoPhoneId = "auto";
+
   void start() {
     if (running_.exchange(true)) {
       return;
@@ -351,12 +382,57 @@ class PhoneDiscoveryReceiver {
     }
   }
 
-  std::optional<PhoneDevice> latest() const {
+  std::vector<PhoneDevice> devices() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return latest_;
+    std::vector<PhoneDevice> snapshot;
+    snapshot.reserve(devices_.size());
+    for (const auto &entry : devices_) {
+      snapshot.push_back(entry.second);
+    }
+    std::sort(snapshot.begin(), snapshot.end(), [](const PhoneDevice &lhs, const PhoneDevice &rhs) {
+      if (lhs.busy != rhs.busy) {
+        return !lhs.busy;
+      }
+      if (lhs.name != rhs.name) {
+        return lhs.name < rhs.name;
+      }
+      return lhs.instance_id < rhs.instance_id;
+    });
+    return snapshot;
+  }
+
+  std::optional<PhoneDevice> select(const std::string &selected_id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (selected_id.empty() || selected_id == kAutoPhoneId) {
+      for (const auto &entry : devices_) {
+        if (!entry.second.busy) {
+          return entry.second;
+        }
+      }
+      return std::nullopt;
+    }
+
+    const auto found = devices_.find(selected_id);
+    if (found == devices_.end() || found->second.busy) {
+      return std::nullopt;
+    }
+    return found->second;
   }
 
  private:
+  static constexpr auto kDeviceTtl = std::chrono::seconds(5);
+
+  void pruneExpiredLocked() {
+    const auto cutoff = std::chrono::steady_clock::now() - kDeviceTtl;
+    for (auto it = devices_.begin(); it != devices_.end();) {
+      if (it->second.last_seen < cutoff) {
+        it = devices_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+
   void run() {
     SocketHandle socket = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (socket == kInvalidSocket) {
@@ -419,26 +495,34 @@ class PhoneDiscoveryReceiver {
       inet_ntop(AF_INET, &source.sin_addr, packet_host, sizeof(packet_host));
       PhoneDevice device;
       device.name = json_string_value(json, "name").value_or("Android Phone");
+      device.instance_id = json_string_value(json, "instanceId").value_or("");
       device.host = json_string_value(json, "host").value_or(packet_host);
       if (device.host.empty()) {
         device.host = packet_host;
       }
       device.port = json_int_value(json, "listenerPort").value_or(9000);
+      if (device.instance_id.empty()) {
+        device.instance_id = device.host + ":" + std::to_string(device.port);
+      }
       device.control_port = json_int_value(json, "controlPort").value_or(9001);
       device.latency_ms = json_int_value(json, "latencyMs").value_or(120);
       device.width = json_int_value(json, "width").value_or(1920);
       device.height = json_int_value(json, "height").value_or(1080);
       device.fps = json_int_value(json, "fps").value_or(30);
       device.bitrate_mbps = json_int_value(json, "bitrateMbps").value_or(12);
+      device.busy = json_bool_value(json, "busy").value_or(false);
+      device.last_seen = std::chrono::steady_clock::now();
       {
         std::lock_guard<std::mutex> lock(mutex_);
-        latest_ = device;
+        pruneExpiredLocked();
+        devices_[device.instance_id] = device;
       }
       blog(LOG_INFO,
-           "[OpenStream] Discovered phone %s at %s:%d",
+           "[OpenStream] Discovered phone %s at %s:%d%s",
            device.name.c_str(),
            device.host.c_str(),
-           device.port);
+           device.port,
+           device.busy ? " (busy)" : "");
     }
 
     close_socket(socket);
@@ -447,7 +531,7 @@ class PhoneDiscoveryReceiver {
   std::atomic<bool> running_ = false;
   std::thread worker_;
   mutable std::mutex mutex_;
-  std::optional<PhoneDevice> latest_;
+  std::map<std::string, PhoneDevice> devices_;
 };
 
 class DiscoveryAdvertiser {
@@ -559,6 +643,7 @@ struct OpenStreamSource {
   std::string phone_target_hint;
   std::string pairing_url;
   std::string instance_id;
+  std::string selected_phone_id = PhoneDiscoveryReceiver::kAutoPhoneId;
   int listener_port = 0;
   int latency_ms = 120;
   int bitrate_mbps = 12;
@@ -575,6 +660,8 @@ struct OpenStreamSource {
   int active_latency_ms = 0;
   int active_bitrate_mbps = 0;
   std::string active_device_name;
+  std::string active_selected_phone_id = PhoneDiscoveryReceiver::kAutoPhoneId;
+  std::optional<PhoneDevice> active_phone;
   uint64_t frames_output = 0;
   double last_cam_zoom = 1.0;
 };
@@ -621,7 +708,49 @@ bool send_control_command(const std::string &host, int port,
   recv(sock, response, sizeof(response) - 1, 0);
   close_socket(sock);
 
-  return std::strstr(response, "200 OK") != nullptr;
+  return std::strstr(response, "200 OK") != nullptr &&
+         std::strstr(response, "\"ok\":false") == nullptr;
+}
+
+void set_active_phone(OpenStreamSource *ctx, std::optional<PhoneDevice> phone) {
+  std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+  ctx->active_phone = std::move(phone);
+}
+
+std::optional<PhoneDevice> control_phone(OpenStreamSource *ctx) {
+  {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    if (ctx->active_phone.has_value()) {
+      return ctx->active_phone;
+    }
+    if (!ctx->selected_phone_id.empty() &&
+        ctx->selected_phone_id != PhoneDiscoveryReceiver::kAutoPhoneId) {
+      return ctx->phone_discovery.select(ctx->selected_phone_id);
+    }
+  }
+  return std::nullopt;
+}
+
+std::string phone_label(const PhoneDevice &phone) {
+  std::ostringstream label;
+  label << phone.name << "  " << phone.host << ":" << phone.port << "  "
+        << phone.width << "x" << phone.height << "@" << phone.fps;
+  if (phone.busy) {
+    label << "  busy";
+  }
+  return label.str();
+}
+
+bool reserve_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
+  std::ostringstream body;
+  body << "{\"sourceInstanceId\":\"" << json_escape(ctx->instance_id) << "\"}";
+  return send_control_command(phone.host, phone.control_port, "/reserve", body.str());
+}
+
+void release_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
+  std::ostringstream body;
+  body << "{\"sourceInstanceId\":\"" << json_escape(ctx->instance_id) << "\"}";
+  send_control_command(phone.host, phone.control_port, "/release", body.str());
 }
 
 std::string av_error(int error) {
@@ -688,6 +817,7 @@ void openstream_stop_worker(OpenStreamSource *ctx) {
   if (ctx->worker.joinable()) {
     ctx->worker.join();
   }
+  set_active_phone(ctx, std::nullopt);
 }
 
 bool open_video_decoder(AVFormatContext *format_ctx,
@@ -933,6 +1063,40 @@ bool output_decoded_frame(OpenStreamSource *ctx,
   return true;
 }
 
+audio_format obs_audio_format_for_sample_format(AVSampleFormat sample_format) {
+  switch (sample_format) {
+    case AV_SAMPLE_FMT_U8:
+      return AUDIO_FORMAT_U8BIT;
+    case AV_SAMPLE_FMT_S16:
+      return AUDIO_FORMAT_16BIT;
+    case AV_SAMPLE_FMT_S32:
+      return AUDIO_FORMAT_32BIT;
+    case AV_SAMPLE_FMT_FLT:
+      return AUDIO_FORMAT_FLOAT;
+    case AV_SAMPLE_FMT_U8P:
+      return AUDIO_FORMAT_U8BIT_PLANAR;
+    case AV_SAMPLE_FMT_S16P:
+      return AUDIO_FORMAT_16BIT_PLANAR;
+    case AV_SAMPLE_FMT_S32P:
+      return AUDIO_FORMAT_32BIT_PLANAR;
+    case AV_SAMPLE_FMT_FLTP:
+      return AUDIO_FORMAT_FLOAT_PLANAR;
+    default:
+      return AUDIO_FORMAT_UNKNOWN;
+  }
+}
+
+speaker_layout obs_speaker_layout_for_channels(int channels) {
+  switch (channels) {
+    case 1:
+      return SPEAKERS_MONO;
+    case 2:
+      return SPEAKERS_STEREO;
+    default:
+      return SPEAKERS_UNKNOWN;
+  }
+}
+
 void decode_packets(OpenStreamSource *ctx,
                     AVFormatContext *format_ctx,
                     int video_stream_index,
@@ -1013,44 +1177,28 @@ void decode_packets(OpenStreamSource *ctx,
           break;
         }
 
-        // Output decoded audio to OBS
+        const AVSampleFormat sample_format =
+            static_cast<AVSampleFormat>(audio_frame->format);
+        const audio_format obs_format = obs_audio_format_for_sample_format(sample_format);
+        const int sample_rate =
+            audio_frame->sample_rate > 0 ? audio_frame->sample_rate : audio_decoder_ctx->sample_rate;
+        const int channels =
+            audio_frame->ch_layout.nb_channels > 0
+                ? audio_frame->ch_layout.nb_channels
+                : audio_decoder_ctx->ch_layout.nb_channels;
+        const speaker_layout speakers = obs_speaker_layout_for_channels(channels);
+        if (obs_format == AUDIO_FORMAT_UNKNOWN || speakers == SPEAKERS_UNKNOWN ||
+            sample_rate <= 0 || audio_frame->nb_samples <= 0) {
+          av_frame_unref(audio_frame.get());
+          break;
+        }
+
         struct obs_source_audio obs_audio = {};
-        obs_audio.samples_per_sec = audio_decoder_ctx->sample_rate;
+        obs_audio.samples_per_sec = sample_rate;
         obs_audio.frames = static_cast<uint32_t>(audio_frame->nb_samples);
         obs_audio.timestamp = os_gettime_ns();
-
-        // Determine OBS audio format from FFmpeg sample format
-        switch (audio_decoder_ctx->sample_fmt) {
-          case AV_SAMPLE_FMT_U8:
-          case AV_SAMPLE_FMT_U8P:
-            obs_audio.format = AUDIO_FORMAT_U8BIT;
-            break;
-          case AV_SAMPLE_FMT_S16:
-          case AV_SAMPLE_FMT_S16P:
-            obs_audio.format = AUDIO_FORMAT_16BIT;
-            break;
-          case AV_SAMPLE_FMT_S32:
-          case AV_SAMPLE_FMT_S32P:
-            obs_audio.format = AUDIO_FORMAT_32BIT;
-            break;
-          case AV_SAMPLE_FMT_FLT:
-          case AV_SAMPLE_FMT_FLTP:
-            obs_audio.format = AUDIO_FORMAT_FLOAT;
-            break;
-          default:
-            obs_audio.format = AUDIO_FORMAT_FLOAT;
-            break;
-        }
-
-        // Set speaker layout based on channel count
-        const int channels = audio_decoder_ctx->ch_layout.nb_channels;
-        switch (channels) {
-          case 1: obs_audio.speakers = SPEAKERS_MONO; break;
-          case 2: obs_audio.speakers = SPEAKERS_STEREO; break;
-          default: obs_audio.speakers = SPEAKERS_MONO; break;
-        }
-
-        // Set audio data pointers
+        obs_audio.format = obs_format;
+        obs_audio.speakers = speakers;
         for (int i = 0; i < MAX_AV_PLANES && audio_frame->data[i]; i++) {
           obs_audio.data[i] = audio_frame->data[i];
         }
@@ -1061,7 +1209,7 @@ void decode_packets(OpenStreamSource *ctx,
           blog(LOG_INFO,
                "[OpenStream] Output %" PRIu64 " decoded audio frame(s) (%d Hz, %d ch)",
                audio_frames_output,
-               audio_decoder_ctx->sample_rate,
+               sample_rate,
                channels);
         }
         av_frame_unref(audio_frame.get());
@@ -1072,29 +1220,39 @@ void decode_packets(OpenStreamSource *ctx,
   }
 }
 
-void openstream_worker(OpenStreamSource *ctx, std::string srt_url) {
+void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::string selected_phone_id) {
   avformat_network_init();
 
   while (!ctx->stop_requested.load()) {
+    std::string srt_url = base_srt_url;
+    std::optional<PhoneDevice> reserved_phone;
     if (srt_url == "openstream:auto") {
       std::optional<PhoneDevice> phone;
       while (!ctx->stop_requested.load()) {
-        phone = ctx->phone_discovery.latest();
-        if (phone.has_value()) {
+        phone = ctx->phone_discovery.select(selected_phone_id);
+        if (phone.has_value() && reserve_phone(ctx, *phone)) {
           break;
         }
-        blog(LOG_INFO, "[OpenStream] Waiting for Android phone discovery beacon");
+        if (selected_phone_id.empty() || selected_phone_id == PhoneDiscoveryReceiver::kAutoPhoneId) {
+          blog(LOG_INFO, "[OpenStream] Waiting for available Android phone");
+        } else {
+          blog(LOG_INFO, "[OpenStream] Waiting for selected Android phone");
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
       }
       if (!phone.has_value()) {
         break;
       }
+      reserved_phone = phone;
+      set_active_phone(ctx, phone);
       srt_url = "srt://" + phone->host + ":" + std::to_string(phone->port) +
                 "?mode=caller&latency=" + std::to_string(phone->latency_ms);
       blog(LOG_INFO,
-           "[OpenStream] Connecting to discovered phone %s at %s",
+           "[OpenStream] Connecting source to phone %s at %s",
            phone->name.c_str(),
            srt_url.c_str());
+    } else {
+      set_active_phone(ctx, std::nullopt);
     }
 
     AVFormatContext *raw_format_ctx = avformat_alloc_context();
@@ -1126,6 +1284,10 @@ void openstream_worker(OpenStreamSource *ctx, std::string srt_url) {
         if (raw_format_ctx) {
           avformat_free_context(raw_format_ctx);
         }
+        if (reserved_phone.has_value()) {
+          release_phone(ctx, *reserved_phone);
+        }
+        set_active_phone(ctx, std::nullopt);
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         continue;
       }
@@ -1143,6 +1305,10 @@ void openstream_worker(OpenStreamSource *ctx, std::string srt_url) {
     CodecContextPtr video_decoder_ctx;
     if (!open_video_decoder(format_ctx.get(), &video_stream_index, &video_decoder_ctx)) {
       ctx->phone_connected = false;
+      set_active_phone(ctx, std::nullopt);
+      if (reserved_phone.has_value()) {
+        release_phone(ctx, *reserved_phone);
+      }
       if (!ctx->stop_requested.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         continue;
@@ -1166,6 +1332,10 @@ void openstream_worker(OpenStreamSource *ctx, std::string srt_url) {
 
     decode_packets(ctx, format_ctx.get(), video_stream_index, video_decoder_ctx.get(),
                    audio_stream_index, audio_decoder_ctx.get());
+    if (reserved_phone.has_value()) {
+      release_phone(ctx, *reserved_phone);
+    }
+    set_active_phone(ctx, std::nullopt);
     ctx->phone_connected = false;
     if (!ctx->stop_requested.load()) {
       blog(LOG_INFO, "[OpenStream] Waiting for stream reconnect");
@@ -1174,6 +1344,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string srt_url) {
   }
   ctx->listener_running = false;
   ctx->phone_connected = false;
+  set_active_phone(ctx, std::nullopt);
   blog(LOG_INFO, "[OpenStream] Listener worker exited");
 }
 
@@ -1184,6 +1355,7 @@ void openstream_start_worker(OpenStreamSource *ctx) {
   int bitrate_mbps = 12;
   std::string source_name;
   std::string instance_id;
+  std::string selected_phone_id;
   {
     std::lock_guard<std::mutex> lock(ctx->settings_mutex);
     srt_url = ctx->srt_url;
@@ -1192,6 +1364,9 @@ void openstream_start_worker(OpenStreamSource *ctx) {
     bitrate_mbps = ctx->bitrate_mbps;
     source_name = ctx->device_name.empty() ? kOpenStreamSourceName : ctx->device_name;
     instance_id = ctx->instance_id;
+    selected_phone_id = ctx->selected_phone_id.empty()
+                            ? PhoneDiscoveryReceiver::kAutoPhoneId
+                            : ctx->selected_phone_id;
   }
 
   const bool same_active_config =
@@ -1199,7 +1374,8 @@ void openstream_start_worker(OpenStreamSource *ctx) {
       ctx->active_listener_port == listener_port &&
       ctx->active_latency_ms == latency_ms &&
       ctx->active_bitrate_mbps == bitrate_mbps &&
-      ctx->active_device_name == source_name;
+      ctx->active_device_name == source_name &&
+      ctx->active_selected_phone_id == selected_phone_id;
   if (same_active_config && ctx->listener_running.load() && ctx->worker.joinable() &&
       !ctx->stop_requested.load()) {
     return;
@@ -1212,10 +1388,12 @@ void openstream_start_worker(OpenStreamSource *ctx) {
   ctx->active_latency_ms = latency_ms;
   ctx->active_bitrate_mbps = bitrate_mbps;
   ctx->active_device_name = source_name;
+  ctx->active_selected_phone_id = selected_phone_id;
+  ctx->active_phone.reset();
   ctx->stop_requested = false;
   ctx->listener_running = true;
   ctx->phone_connected = false;
-  ctx->worker = std::thread(openstream_worker, ctx, srt_url);
+  ctx->worker = std::thread(openstream_worker, ctx, srt_url, selected_phone_id);
   (void)listener_port;
   (void)latency_ms;
   (void)bitrate_mbps;
@@ -1238,15 +1416,33 @@ void openstream_update(void *data, obs_data_t *settings) {
     ctx->listener_port = requested_port;
     ctx->latency_ms = static_cast<int>(obs_data_get_int(settings, "latency_ms"));
     ctx->bitrate_mbps = static_cast<int>(obs_data_get_int(settings, "bitrate_mbps"));
+    const char *selected_phone = obs_data_get_string(settings, "selected_phone_id");
+    ctx->selected_phone_id =
+        (selected_phone && selected_phone[0] != '\0') ? selected_phone : PhoneDiscoveryReceiver::kAutoPhoneId;
     ctx->srt_url = "openstream:auto";
     obs_data_set_string(settings, "srt_url", ctx->srt_url.c_str());
-    ctx->phone_target_hint = "Waiting for Android app beacon on UDP 51515";
-    if (const auto phone = ctx->phone_discovery.latest()) {
-      ctx->phone_target_hint = phone->name + "  " + phone->host + ":" + std::to_string(phone->port) +
-                               "  " + std::to_string(phone->width) + "x" +
-                               std::to_string(phone->height) + "@" + std::to_string(phone->fps);
+    const std::vector<PhoneDevice> phones = ctx->phone_discovery.devices();
+    ctx->phone_target_hint = "Waiting for Android phone beacons on UDP 51515";
+    if (ctx->selected_phone_id == PhoneDiscoveryReceiver::kAutoPhoneId) {
+      int available = 0;
+      for (const PhoneDevice &phone : phones) {
+        if (!phone.busy) {
+          ++available;
+        }
+      }
+      if (!phones.empty()) {
+        ctx->phone_target_hint = "Auto slot: " + std::to_string(available) + " available / " +
+                                 std::to_string(phones.size()) + " discovered";
+      }
+    } else {
+      for (const PhoneDevice &phone : phones) {
+        if (phone.instance_id == ctx->selected_phone_id) {
+          ctx->phone_target_hint = phone_label(phone);
+          break;
+        }
+      }
     }
-    ctx->pairing_url = "Open the Android app; OBS will connect to the first discovered phone.";
+    ctx->pairing_url = "Add one OpenStream V6 source per phone, then choose a phone slot below.";
     should_start = ctx->listener_enabled;
   }
   if (should_start) {
@@ -1276,8 +1472,9 @@ void openstream_defaults(obs_data_t *settings) {
   obs_data_set_default_bool(settings, "listener_enabled", true);
   obs_data_set_default_string(settings, "device_name", kOpenStreamSourceName);
   obs_data_set_default_string(settings, "srt_url", "openstream:auto");
+  obs_data_set_default_string(settings, "selected_phone_id", PhoneDiscoveryReceiver::kAutoPhoneId);
   obs_data_set_default_string(settings, "phone_target_hint", "Waiting for Android app beacon on UDP 51515");
-  obs_data_set_default_string(settings, "pairing_url", "Open the Android app; OBS will connect to the first discovered phone.");
+  obs_data_set_default_string(settings, "pairing_url", "Add one OpenStream V6 source per phone, then choose a phone slot.");
   obs_data_set_default_int(settings, "listener_port", kDefaultListenerPort);
   obs_data_set_default_int(settings, "latency_ms", 120);
   obs_data_set_default_int(settings, "bitrate_mbps", 12);
@@ -1288,6 +1485,22 @@ obs_properties_t *openstream_properties(void *data) {
   obs_properties_t *props = obs_properties_create();
   obs_properties_add_bool(props, "listener_enabled", "Auto-connect discovered phone");
   obs_properties_add_text(props, "device_name", "Device label", OBS_TEXT_DEFAULT);
+  obs_property_t *phone_list = obs_properties_add_list(
+      props, "selected_phone_id", "Phone slot", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+  obs_property_list_add_string(phone_list, "Auto: first available phone", PhoneDiscoveryReceiver::kAutoPhoneId);
+  if (auto *ctx = static_cast<OpenStreamSource *>(data)) {
+    bool selected_listed = ctx->selected_phone_id.empty() ||
+                           ctx->selected_phone_id == PhoneDiscoveryReceiver::kAutoPhoneId;
+    for (const PhoneDevice &phone : ctx->phone_discovery.devices()) {
+      obs_property_list_add_string(phone_list, phone_label(phone).c_str(), phone.instance_id.c_str());
+      if (phone.instance_id == ctx->selected_phone_id) {
+        selected_listed = true;
+      }
+    }
+    if (!selected_listed) {
+      obs_property_list_add_string(phone_list, "Selected phone unavailable", ctx->selected_phone_id.c_str());
+    }
+  }
   obs_properties_add_int(props, "listener_port", "Phone SRT port", 1024, 65535, 1);
   obs_properties_add_text(props, "srt_url", "SRT mode", OBS_TEXT_INFO);
   obs_properties_add_text(
@@ -1308,10 +1521,10 @@ obs_properties_t *openstream_properties(void *data) {
       return false;
     }
     openstream_start_worker(ctx);
-    if (const auto phone = ctx->phone_discovery.latest()) {
+    if (const auto phone = ctx->phone_discovery.select(ctx->selected_phone_id)) {
       blog(LOG_INFO, "[OpenStream] Selected Android phone: %s %s:%d", phone->name.c_str(), phone->host.c_str(), phone->port);
     } else {
-      blog(LOG_INFO, "[OpenStream] No Android phone discovered yet");
+      blog(LOG_INFO, "[OpenStream] No available Android phone for this source yet");
     }
     return true;
   });
@@ -1336,7 +1549,7 @@ obs_properties_t *openstream_properties(void *data) {
     // Only send if value actually changed (avoid flooding)
     if (std::abs(zoom - ctx->last_cam_zoom) < 0.05) return false;
     ctx->last_cam_zoom = zoom;
-    auto phone = ctx->phone_discovery.latest();
+    auto phone = control_phone(ctx);
     if (!phone.has_value()) return false;
     std::ostringstream body;
     body << "{\"value\":" << zoom << "}";
@@ -1347,7 +1560,7 @@ obs_properties_t *openstream_properties(void *data) {
   obs_properties_add_button(camera_group, "cam_torch_on", "Torch ON", [](obs_properties_t *, obs_property_t *, void *data) {
     auto *ctx = static_cast<OpenStreamSource *>(data);
     if (!ctx) return false;
-    auto phone = ctx->phone_discovery.latest();
+    auto phone = control_phone(ctx);
     if (!phone.has_value()) return false;
     send_control_command(phone->host, phone->control_port, "/torch", "{\"enabled\":true}");
     blog(LOG_INFO, "[OpenStream] Torch ON");
@@ -1357,7 +1570,7 @@ obs_properties_t *openstream_properties(void *data) {
   obs_properties_add_button(camera_group, "cam_torch_off", "Torch OFF", [](obs_properties_t *, obs_property_t *, void *data) {
     auto *ctx = static_cast<OpenStreamSource *>(data);
     if (!ctx) return false;
-    auto phone = ctx->phone_discovery.latest();
+    auto phone = control_phone(ctx);
     if (!phone.has_value()) return false;
     send_control_command(phone->host, phone->control_port, "/torch", "{\"enabled\":false}");
     blog(LOG_INFO, "[OpenStream] Torch OFF");
@@ -1367,7 +1580,7 @@ obs_properties_t *openstream_properties(void *data) {
   obs_properties_add_button(camera_group, "cam_lens_back", "Back Camera", [](obs_properties_t *, obs_property_t *, void *data) {
     auto *ctx = static_cast<OpenStreamSource *>(data);
     if (!ctx) return false;
-    auto phone = ctx->phone_discovery.latest();
+    auto phone = control_phone(ctx);
     if (!phone.has_value()) return false;
     send_control_command(phone->host, phone->control_port, "/lens", "{\"lens\":\"1×\"}");
     blog(LOG_INFO, "[OpenStream] Switch to back camera");
@@ -1377,7 +1590,7 @@ obs_properties_t *openstream_properties(void *data) {
   obs_properties_add_button(camera_group, "cam_lens_front", "Front Camera", [](obs_properties_t *, obs_property_t *, void *data) {
     auto *ctx = static_cast<OpenStreamSource *>(data);
     if (!ctx) return false;
-    auto phone = ctx->phone_discovery.latest();
+    auto phone = control_phone(ctx);
     if (!phone.has_value()) return false;
     send_control_command(phone->host, phone->control_port, "/lens", "{\"lens\":\"Front\"}");
     blog(LOG_INFO, "[OpenStream] Switch to front camera");
@@ -1393,7 +1606,7 @@ obs_properties_t *openstream_properties(void *data) {
 }
 
 obs_source_info openstream_source_info = {
-    .id = "openstream_phone_v5_source",
+    .id = "openstream_phone_v6_source",
     .type = OBS_SOURCE_TYPE_INPUT,
     .output_flags = OBS_SOURCE_ASYNC_VIDEO | OBS_SOURCE_AUDIO,
     .get_name = openstream_get_name,

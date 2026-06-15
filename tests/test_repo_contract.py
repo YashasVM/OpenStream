@@ -10,7 +10,8 @@ def read(path: str) -> str:
 
 def test_architecture_documents_practical_v1_transport() -> None:
     architecture = read("docs/architecture.md")
-    assert "MediaCodec hardware HEVC/H.264 encode" in architecture
+    assert "MediaCodec hardware HEVC/H.264 video encode" in architecture
+    assert "MediaCodec AAC audio encode" in architecture
     assert "SRT caller" in architecture
     assert "UDP discovery" in architecture
     assert "PTP" in architecture
@@ -24,16 +25,18 @@ def test_android_project_declares_camera_media_codec_srt_discovery_boundaries() 
     assert "Camera2" in app
     assert "MediaCodec" in app
     assert "SrtStreamClient" in app
-    assert "Ready for OBS" in app
+    assert "status_ready" in app
     assert "PhoneDiscoveryAdvertiser" in app
     assert "startPreviewIfAllowed" in app
     assert "startPhoneServerIfAllowed" in app
+    assert "MediaCodecAudioEncoder" in app
     assert "OPENSTREAM_PHONE/1" in discovery
     assert "DISCOVERY_PORT = 51515" in discovery
     assert "dev.openstream.phone" in discovery
     assert "DatagramSocket" in discovery
     assert "CHANGE_WIFI_MULTICAST_STATE" in manifest
-    assert "RECORD_AUDIO" not in app
+    assert "RECORD_AUDIO" in manifest
+    assert "RECORD_AUDIO" in app
 
 
 def test_android_connection_target_builds_srt_caller_url_and_pairing_targets() -> None:
@@ -48,9 +51,9 @@ def test_android_connection_target_builds_srt_caller_url_and_pairing_targets() -
 
 def test_obs_plugin_registers_openstream_source_and_discovery() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
-    assert "openstream_phone_v4_source" in source
+    assert "openstream_phone_v6_source" in source
     assert "obs_register_source" in source
-    assert "OpenStream Phone V4" in source
+    assert "OpenStream" in source
     assert "listener_enabled" in source
     assert "discovery_broadcast_addresses" in source
     assert "kDiscoveryMulticastAddress" in source
@@ -61,6 +64,40 @@ def test_obs_plugin_registers_openstream_source_and_discovery() -> None:
     assert "listener_port" in source
     assert "phone_target_hint" in source
     assert "pairing_url" in source
+
+
+def test_audio_path_uses_adts_aac_and_obs_planar_formats() -> None:
+    native = read("android/app/src/main/cpp/openstream_srt.cpp")
+    source = read("obs-plugin/src/openstream-source.cpp")
+    assert "makeAdtsFrame" in native
+    assert "hasAdtsHeader" in native
+    assert "muxAudioAccessUnit(" in native
+    assert "g_state.audioCodecConfig" in native
+    assert "AUDIO_FORMAT_FLOAT_PLANAR" in source
+    assert "audio_frame->format" in source
+    assert "obs_source_output_audio" in source
+
+
+def test_obs_plugin_routes_multiple_phones_by_selected_slot() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+    assert "selected_phone_id" in source
+    assert "Phone slot" in source
+    assert "kAutoPhoneId" in source
+    assert "std::map<std::string, PhoneDevice> devices_" in source
+    assert "reserve_phone" in source
+    assert "release_phone" in source
+    assert "control_phone(ctx)" in source
+
+
+def test_android_control_server_supports_source_reservations() -> None:
+    control = read("android/app/src/main/java/dev/openstream/app/control/CameraControlServer.kt")
+    app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    assert 'path == "/reserve"' in control
+    assert 'path == "/release"' in control
+    assert "reservationProvider" in control
+    assert "reserveForSource" in app
+    assert "releaseForSource" in app
+    assert "phoneConnected || reservedBy != null" in app
 
 
 def test_camera_controller_supports_preview_before_streaming() -> None:
@@ -97,10 +134,10 @@ def test_protocol_documents_media_and_telemetry_contracts() -> None:
     assert "OPENSTREAM/1" in protocol
     assert "openstream://connect" in protocol
     assert "deviceName" in protocol
-    assert "latency_ms" in protocol
+    assert "latencyMs" in protocol
 
 
 def test_docs_keep_python_receiver_as_developer_tool_only() -> None:
     setup = read("docs/setup.md")
-    assert "Normal use does not require the standalone Python receiver" in setup
     assert "developer/debug path only" in setup
+    assert "not part of the normal user workflow" in setup

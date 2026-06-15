@@ -81,6 +81,7 @@ class MainActivity : Activity() {
     private var activeTargetName: String? = null
     @Volatile private var phoneServerRunning = false
     @Volatile private var phoneConnected = false
+    @Volatile private var reservedBy: String? = null
     private var listenerThread: Thread? = null
     private var keepScreenOn = false
     private var displayOff = false
@@ -117,7 +118,7 @@ class MainActivity : Activity() {
             context = this,
             config = streamConfig,
             port = currentPort,
-            busyProvider = { phoneConnected },
+            busyProvider = { phoneConnected || reservedBy != null },
         )
         encoder = MediaCodecVideoEncoder(
             preference = streamConfig.codecPreference,
@@ -163,6 +164,9 @@ class MainActivity : Activity() {
                     btnTorch.setTextColor(getColor(R.color.os_text_secondary))
                 }
             }},
+            reservationProvider = { reservedBy },
+            onReserve = { sourceInstanceId -> reserveForSource(sourceInstanceId) },
+            onRelease = { sourceInstanceId -> releaseForSource(sourceInstanceId) },
         )
 
         cameraPreview.holder.addCallback(object : SurfaceHolder.Callback {
@@ -506,6 +510,7 @@ class MainActivity : Activity() {
                 }
                 stopActiveEncoding(updateStatus = false)
                 phoneConnected = false
+                reservedBy = null
                 activeTargetName = null
                 if (phoneServerRunning) {
                     runOnUiThread {
@@ -524,6 +529,7 @@ class MainActivity : Activity() {
     private fun stopPhoneServer() {
         phoneServerRunning = false
         phoneConnected = false
+        reservedBy = null
         activeTargetName = null
         mainHandler.removeCallbacks(statsTicker)
         streamClient.disconnect()
@@ -552,6 +558,24 @@ class MainActivity : Activity() {
     }
 
     // ─────────────────────────── Live state UI ───────────────────────────
+
+    @Synchronized
+    private fun reserveForSource(sourceInstanceId: String): Boolean {
+        val currentReservation = reservedBy
+        if (phoneConnected && currentReservation != sourceInstanceId) return false
+        if (currentReservation != null && currentReservation != sourceInstanceId) return false
+        reservedBy = sourceInstanceId
+        return true
+    }
+
+    @Synchronized
+    private fun releaseForSource(sourceInstanceId: String): Boolean {
+        if (reservedBy == sourceInstanceId) {
+            reservedBy = null
+            return true
+        }
+        return reservedBy == null
+    }
 
     private fun showLiveState(targetName: String) {
         liveBadge.visibility = View.VISIBLE

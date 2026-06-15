@@ -130,6 +130,81 @@ std::vector<uint8_t> normalizeAnnexB(const uint8_t *bytes, size_t size) {
   return offset == input.size() ? output : input;
 }
 
+int aacSampleRateIndex(int sampleRate) {
+  switch (sampleRate) {
+    case 96000: return 0;
+    case 88200: return 1;
+    case 64000: return 2;
+    case 48000: return 3;
+    case 44100: return 4;
+    case 32000: return 5;
+    case 24000: return 6;
+    case 22050: return 7;
+    case 16000: return 8;
+    case 12000: return 9;
+    case 11025: return 10;
+    case 8000: return 11;
+    case 7350: return 12;
+    default: return 4;
+  }
+}
+
+struct AacAdtsConfig {
+  int profile = 1;  // AAC LC in ADTS is encoded as audioObjectType - 1.
+  int sampleRateIndex = aacSampleRateIndex(kAudioSampleRate);
+  int channelConfig = kAudioChannelCount;
+};
+
+AacAdtsConfig parseAacConfig(const std::vector<uint8_t> &audioSpecificConfig) {
+  AacAdtsConfig config;
+  if (audioSpecificConfig.size() < 2) {
+    return config;
+  }
+
+  const int audioObjectType = (audioSpecificConfig[0] >> 3) & 0x1f;
+  const int sampleRateIndex =
+      ((audioSpecificConfig[0] & 0x07) << 1) | ((audioSpecificConfig[1] >> 7) & 0x01);
+  const int channelConfig = (audioSpecificConfig[1] >> 3) & 0x0f;
+  if (audioObjectType > 0) {
+    config.profile = std::clamp(audioObjectType - 1, 0, 3);
+  }
+  if (sampleRateIndex >= 0 && sampleRateIndex <= 12) {
+    config.sampleRateIndex = sampleRateIndex;
+  }
+  if (channelConfig > 0 && channelConfig <= 7) {
+    config.channelConfig = channelConfig;
+  }
+  return config;
+}
+
+bool hasAdtsHeader(const std::vector<uint8_t> &accessUnit) {
+  return accessUnit.size() >= 2 && accessUnit[0] == 0xff && (accessUnit[1] & 0xf0) == 0xf0;
+}
+
+std::vector<uint8_t> makeAdtsFrame(const std::vector<uint8_t> &accessUnit,
+                                   const std::vector<uint8_t> &audioSpecificConfig) {
+  if (hasAdtsHeader(accessUnit)) {
+    return accessUnit;
+  }
+
+  const AacAdtsConfig config = parseAacConfig(audioSpecificConfig);
+  const size_t frameLength = accessUnit.size() + 7;
+  std::vector<uint8_t> frame;
+  frame.reserve(frameLength);
+  frame.push_back(0xff);
+  frame.push_back(0xf1);
+  frame.push_back(static_cast<uint8_t>(((config.profile & 0x03) << 6) |
+                                       ((config.sampleRateIndex & 0x0f) << 2) |
+                                       ((config.channelConfig >> 2) & 0x01)));
+  frame.push_back(static_cast<uint8_t>(((config.channelConfig & 0x03) << 6) |
+                                       ((frameLength >> 11u) & 0x03u)));
+  frame.push_back(static_cast<uint8_t>((frameLength >> 3u) & 0xffu));
+  frame.push_back(static_cast<uint8_t>(((frameLength & 0x07u) << 5u) | 0x1fu));
+  frame.push_back(0xfc);
+  frame.insert(frame.end(), accessUnit.begin(), accessUnit.end());
+  return frame;
+}
+
 class MpegTsMuxer {
  public:
   explicit MpegTsMuxer(VideoCodec codec) : codec_(codec) {}
@@ -296,6 +371,7 @@ class MpegTsMuxer {
 
  public:
   std::vector<uint8_t> muxAudioAccessUnit(const std::vector<uint8_t> &accessUnit,
+                                           const std::vector<uint8_t> &audioSpecificConfig,
                                            int64_t presentationTimeUs) {
     std::vector<uint8_t> output;
     // Include tables periodically for audio too
@@ -304,10 +380,12 @@ class MpegTsMuxer {
       writePmt(output);
     }
 
+    const std::vector<uint8_t> adtsFrame = makeAdtsFrame(accessUnit, audioSpecificConfig);
+
     // Build audio PES (stream ID 0xC0 = audio stream 0)
     std::vector<uint8_t> pes;
     const uint64_t pts = pts90k(presentationTimeUs);
-    const size_t pesPayloadLength = accessUnit.size() + 8;
+    const size_t pesPayloadLength = adtsFrame.size() + 8;
     const uint16_t packetLength = pesPayloadLength > 0xffff ? 0 : static_cast<uint16_t>(pesPayloadLength);
     pes.insert(pes.end(), {0x00, 0x00, 0x01, 0xc0});
     append16(pes, packetLength);
@@ -315,7 +393,7 @@ class MpegTsMuxer {
     pes.push_back(0x80);
     pes.push_back(0x05);
     appendPts(pes, 0x02, pts);
-    pes.insert(pes.end(), accessUnit.begin(), accessUnit.end());
+    pes.insert(pes.end(), adtsFrame.begin(), adtsFrame.end());
 
     packetizePayload(output, kAudioPid, pes, true, std::nullopt);
     ++audioPacketIndex_;
@@ -591,6 +669,7 @@ Java_dev_openstream_app_stream_SrtNativeBridge_connect(
   g_state.muxer.emplace(*codec);
   g_state.muxer->reset();
   g_state.codecConfig.clear();
+  g_state.audioCodecConfig.clear();
   g_state.connected = g_state.sender.connect(urlString);
   if (g_state.connected) {
     __android_log_print(ANDROID_LOG_INFO, kTag, "Connected SRT MPEG-TS sender to %s", urlString.c_str());
@@ -624,6 +703,7 @@ Java_dev_openstream_app_stream_SrtNativeBridge_listen(
   g_state.muxer.emplace(*codec);
   g_state.muxer->reset();
   g_state.codecConfig.clear();
+  g_state.audioCodecConfig.clear();
   g_state.connected = g_state.sender.listen(urlString);
   if (g_state.connected) {
     __android_log_print(ANDROID_LOG_INFO, kTag, "Accepted OBS SRT caller at %s", urlString.c_str());
@@ -692,11 +772,12 @@ Java_dev_openstream_app_stream_SrtNativeBridge_sendAudio(
 
   if ((flags & kMediaCodecBufferFlagCodecConfig) != 0) {
     g_state.audioCodecConfig = std::move(bytes);
-    logInfo("Stored audio codec config (ADTS/ASC)");
+    logInfo("Stored audio codec config (ASC)");
     return JNI_TRUE;
   }
 
   const std::vector<uint8_t> ts =
-      g_state.muxer->muxAudioAccessUnit(bytes, static_cast<int64_t>(presentation_time_us));
+      g_state.muxer->muxAudioAccessUnit(
+          bytes, g_state.audioCodecConfig, static_cast<int64_t>(presentation_time_us));
   return g_state.sender.send(ts) ? JNI_TRUE : JNI_FALSE;
 }

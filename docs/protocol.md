@@ -106,6 +106,11 @@ OPENSTREAM_PHONE/1 {"type":"dev.openstream.phone","name":"<device-name>","host":
 | `height` | int | Stream height in pixels |
 | `fps` | int | Stream frame rate |
 | `bitrateMbps` | int | Stream bitrate |
+| `busy` | bool | Whether the phone is already reserved or streaming |
+
+OBS keeps a registry of discovered phones keyed by `instanceId`. Each
+OpenStream source has a `selected_phone_id` setting. `auto` selects the first
+non-busy phone; any other value binds that source to one specific phone.
 
 ### Fallback Pairing
 
@@ -123,6 +128,29 @@ This can be encoded as a QR code or entered manually in the Android app.
 
 The Android app runs a lightweight HTTP server on port `9001` for remote
 camera control from OBS.
+
+### Reserve Phone
+
+```
+POST /reserve
+Content-Type: application/json
+
+{"sourceInstanceId":"openstream-..."}
+```
+
+Marks the phone as reserved before OBS opens the SRT stream. The phone rejects
+reservations from other source instances while reserved or streaming.
+
+### Release Phone
+
+```
+POST /release
+Content-Type: application/json
+
+{"sourceInstanceId":"openstream-..."}
+```
+
+Clears the reservation after disconnect.
 
 ### Endpoints
 

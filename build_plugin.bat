@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 :: ─────────────────────────────────────────────────────────────
-:: OpenStream V5 OBS Plugin Build Script for Windows
+:: OpenStream V6 OBS Plugin Build Script for Windows
 :: ─────────────────────────────────────────────────────────────
 :: Prerequisites: VS2022 BuildTools must be installed
 :: This script auto-downloads the OBS SDK and FFmpeg headers,
@@ -11,7 +11,7 @@ setlocal enabledelayedexpansion
 
 echo.
 echo =====================================================
-echo   OpenStream V5 - OBS Plugin Builder
+echo   OpenStream V6 - OBS Plugin Builder
 echo =====================================================
 echo.
 
@@ -181,7 +181,7 @@ if errorlevel 1 (
 )
 
 :: --- Step 5: Build ---
-echo [5/6] Building OpenStream V5 plugin...
+echo [5/6] Building OpenStream V6 plugin...
 "%CMAKE%" --build "%BUILD_DIR%" --config Release
 
 if errorlevel 1 (
@@ -197,13 +197,13 @@ if exist "%BUILD_DIR%\openstream-obs.dll" (
     copy /Y "%BUILD_DIR%\openstream-obs.dll" "%DEST%\openstream-obs.dll"
     echo.
     echo =====================================================
-    echo   SUCCESS! OpenStream V5 plugin installed.
+    echo   SUCCESS! OpenStream V6 plugin installed.
     echo =====================================================
     echo.
     echo   Plugin: %DEST%\openstream-obs.dll
     echo.
     echo   Restart OBS Studio, then:
-    echo   1. Add source ^> "OpenStream Phone V5"
+    echo   1. Add source ^> "OpenStream V6"
     echo   2. Open the Android app on your phone
     echo   3. Video + Audio will stream automatically
     echo   4. Use "Camera Remote Controls" in source

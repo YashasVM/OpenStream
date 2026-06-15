@@ -18,6 +18,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * - POST /zoom       {"value": 2.5}
  * - POST /torch      {"enabled": true}
  * - POST /lens       {"lens": "Back"}
+ * - POST /reserve    {"sourceInstanceId": "..."}
+ * - POST /release    {"sourceInstanceId": "..."}
  * - GET  /status     Returns current camera state
  */
 class CameraControlServer(
@@ -27,6 +29,9 @@ class CameraControlServer(
     private val currentLensProvider: () -> CameraLens,
     private val onSwitchLens: (CameraLens) -> Unit,
     private val onToggleTorch: (Boolean) -> Unit,
+    private val reservationProvider: () -> String?,
+    private val onReserve: (String) -> Boolean,
+    private val onRelease: (String) -> Boolean,
 ) {
     private val running = AtomicBoolean(false)
     private var serverSocket: ServerSocket? = null
@@ -109,6 +114,8 @@ class CameraControlServer(
                 method == "POST" && path == "/zoom" -> handleZoom(body)
                 method == "POST" && path == "/torch" -> handleTorch(body)
                 method == "POST" && path == "/lens" -> handleLens(body)
+                method == "POST" && path == "/reserve" -> handleReserve(body)
+                method == "POST" && path == "/release" -> handleRelease(body)
                 method == "OPTIONS" -> """{"ok":true}"""
                 else -> {
                     sendResponse(writer, 404, """{"error":"not found"}""")
@@ -150,6 +157,7 @@ class CameraControlServer(
             .put("zoomMax", camera.zoomRange.endInclusive.toDouble())
             .put("currentLens", currentLensProvider().shortLabel)
             .put("availableLenses", lensListProvider().map { it.shortLabel })
+            .put("reservedBy", reservationProvider().orEmpty())
         return json.toString()
     }
 
@@ -175,6 +183,24 @@ class CameraControlServer(
             ?: return """{"error":"lens not found","available":${available.map { "\"${it.shortLabel}\"" }}}"""
         onSwitchLens(target)
         return """{"ok":true,"lens":"${target.shortLabel}"}"""
+    }
+
+    private fun handleReserve(body: String): String {
+        val sourceInstanceId = JSONObject(body).optString("sourceInstanceId").trim()
+        if (sourceInstanceId.isEmpty()) return """{"error":"missing sourceInstanceId"}"""
+        val accepted = onReserve(sourceInstanceId)
+        return if (accepted) {
+            """{"ok":true,"reservedBy":"$sourceInstanceId"}"""
+        } else {
+            """{"ok":false,"busy":true,"reservedBy":"${reservationProvider().orEmpty()}"}"""
+        }
+    }
+
+    private fun handleRelease(body: String): String {
+        val sourceInstanceId = JSONObject(body).optString("sourceInstanceId").trim()
+        if (sourceInstanceId.isEmpty()) return """{"error":"missing sourceInstanceId"}"""
+        val released = onRelease(sourceInstanceId)
+        return """{"ok":$released}"""
     }
 
     companion object {
