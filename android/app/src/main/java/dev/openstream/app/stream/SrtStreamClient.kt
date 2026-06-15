@@ -1,6 +1,7 @@
 package dev.openstream.app.stream
 
 import dev.openstream.app.encoder.EncodedAccessUnit
+import java.util.concurrent.atomic.AtomicLong
 
 data class StreamStats(
     val accessUnitsSent: Long = 0,
@@ -15,20 +16,32 @@ data class StreamStats(
 
 class SrtStreamClient {
     private var connected = false
-    var stats = StreamStats()
-        private set
+    val stats: StreamStats
+        get() = StreamStats(
+            accessUnitsSent = accessUnitsSent.get(),
+            keyframesSent = keyframesSent.get(),
+            bytesSent = bytesSent.get(),
+            sendFailures = sendFailures.get(),
+            lastPresentationTimeUs = lastPresentationTimeUs.get(),
+        )
+
+    private val accessUnitsSent = AtomicLong()
+    private val keyframesSent = AtomicLong()
+    private val bytesSent = AtomicLong()
+    private val sendFailures = AtomicLong()
+    private val lastPresentationTimeUs = AtomicLong()
 
     fun connect(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
         require(url.startsWith("srt://")) { "OpenStream V1 expects an SRT URL" }
         check(SrtNativeBridge.connect(url, codecMime, width, height, fps)) { "Native SRT bridge failed to connect" }
-        stats = StreamStats()
+        resetStats()
         connected = true
     }
 
     fun listen(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
         require(url.startsWith("srt://")) { "OpenStream V2 expects an SRT URL" }
         check(SrtNativeBridge.listen(url, codecMime, width, height, fps)) { "Native SRT bridge failed to listen" }
-        stats = StreamStats()
+        resetStats()
         connected = true
     }
 
@@ -36,15 +49,19 @@ class SrtStreamClient {
         if (!connected) return false
         val sent = SrtNativeBridge.sendVideo(accessUnit.data, accessUnit.presentationTimeUs, accessUnit.flags)
         val isCodecConfig = (accessUnit.flags and BUFFER_FLAG_CODEC_CONFIG) != 0
-        stats = if (sent) {
-            stats.copy(
-                accessUnitsSent = stats.accessUnitsSent + if (isCodecConfig) 0 else 1,
-                keyframesSent = stats.keyframesSent + if ((accessUnit.flags and BUFFER_FLAG_KEY_FRAME) != 0) 1 else 0,
-                bytesSent = stats.bytesSent + if (isCodecConfig) 0 else accessUnit.data.size,
-                lastPresentationTimeUs = maxOf(stats.lastPresentationTimeUs, accessUnit.presentationTimeUs),
-            )
+        if (sent) {
+            if (!isCodecConfig) {
+                accessUnitsSent.incrementAndGet()
+                if ((accessUnit.flags and BUFFER_FLAG_KEY_FRAME) != 0) {
+                    keyframesSent.incrementAndGet()
+                }
+                bytesSent.addAndGet(accessUnit.data.size.toLong())
+                lastPresentationTimeUs.updateAndGet { current ->
+                    maxOf(current, accessUnit.presentationTimeUs)
+                }
+            }
         } else {
-            stats.copy(sendFailures = stats.sendFailures + 1)
+            sendFailures.incrementAndGet()
         }
         return sent
     }
@@ -59,6 +76,14 @@ class SrtStreamClient {
             SrtNativeBridge.disconnect()
         }
         connected = false
+    }
+
+    private fun resetStats() {
+        accessUnitsSent.set(0)
+        keyframesSent.set(0)
+        bytesSent.set(0)
+        sendFailures.set(0)
+        lastPresentationTimeUs.set(0)
     }
 
     companion object {

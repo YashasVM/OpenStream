@@ -111,6 +111,7 @@ std::vector<uint8_t> normalizeAnnexB(const uint8_t *bytes, size_t size) {
   }
 
   std::vector<uint8_t> output;
+  output.reserve(input.size() + 16);
   size_t offset = 0;
   while (offset + 4 <= input.size()) {
     const uint32_t nalSize = (static_cast<uint32_t>(input[offset]) << 24u) |
@@ -213,6 +214,7 @@ class MpegTsMuxer {
                                      int64_t presentationTimeUs,
                                      bool keyFrame) {
     std::vector<uint8_t> output;
+    output.reserve(estimatePacketizedSize(accessUnit.size() + 32) + kTableBytes);
     if (forceTables_ || keyFrame || packetIndex_ % 30 == 0) {
       writePat(output);
       writePmt(output);
@@ -237,6 +239,7 @@ class MpegTsMuxer {
   static constexpr uint16_t kPmtPid = 0x100;
   static constexpr uint16_t kVideoPid = 0x101;
   static constexpr uint16_t kAudioPid = 0x102;
+  static constexpr size_t kTableBytes = 188 * 2;
 
   uint8_t nextContinuity(uint16_t pid) {
     uint8_t &counter = continuity_[pid];
@@ -253,8 +256,13 @@ class MpegTsMuxer {
     return presentationTimeUs <= 0 ? 0 : static_cast<uint64_t>(presentationTimeUs) * 90ull / 1000ull;
   }
 
+  static size_t estimatePacketizedSize(size_t payloadSize) {
+    return ((payloadSize + 183) / 184) * 188;
+  }
+
   void packetizeSection(std::vector<uint8_t> &output, uint16_t pid, const std::vector<uint8_t> &section) {
     std::vector<uint8_t> payload;
+    payload.reserve(section.size() + 1);
     payload.push_back(0x00);
     payload.insert(payload.end(), section.begin(), section.end());
     packetizePayload(output, pid, payload, true, std::nullopt);
@@ -262,6 +270,7 @@ class MpegTsMuxer {
 
   void writePat(std::vector<uint8_t> &output) {
     std::vector<uint8_t> section;
+    section.reserve(17);
     section.push_back(0x00);
     append16(section, 0xb000 | 13);
     append16(section, 0x0001);
@@ -276,6 +285,7 @@ class MpegTsMuxer {
 
   void writePmt(std::vector<uint8_t> &output) {
     std::vector<uint8_t> section;
+    section.reserve(27);
     section.push_back(0x02);
     append16(section, 0xb000 | 23);  // section_length: 23 = 5 + 5 (video) + 5 (audio) + 4 (CRC) + 4 (header)
     append16(section, kProgramNumber);
@@ -301,6 +311,7 @@ class MpegTsMuxer {
     const uint64_t pts = pts90k(presentationTimeUs);
     const size_t pesPayloadLength = accessUnit.size() + 8;
     const uint16_t packetLength = pesPayloadLength > 0xffff ? 0 : static_cast<uint16_t>(pesPayloadLength);
+    pes.reserve(accessUnit.size() + 19);
 
     pes.insert(pes.end(), {0x00, 0x00, 0x01, 0xe0});
     append16(pes, packetLength);
@@ -374,6 +385,7 @@ class MpegTsMuxer {
                                            const std::vector<uint8_t> &audioSpecificConfig,
                                            int64_t presentationTimeUs) {
     std::vector<uint8_t> output;
+    output.reserve(estimatePacketizedSize(accessUnit.size() + 32) + kTableBytes);
     // Include tables periodically for audio too
     if (audioPacketIndex_ % 50 == 0) {
       writePat(output);
@@ -387,6 +399,7 @@ class MpegTsMuxer {
     const uint64_t pts = pts90k(presentationTimeUs);
     const size_t pesPayloadLength = adtsFrame.size() + 8;
     const uint16_t packetLength = pesPayloadLength > 0xffff ? 0 : static_cast<uint16_t>(pesPayloadLength);
+    pes.reserve(adtsFrame.size() + 19);
     pes.insert(pes.end(), {0x00, 0x00, 0x01, 0xc0});
     append16(pes, packetLength);
     pes.push_back(0x80);

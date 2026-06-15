@@ -41,12 +41,16 @@ def test_android_project_declares_camera_media_codec_srt_discovery_boundaries() 
 
 def test_android_connection_target_builds_srt_caller_url_and_pairing_targets() -> None:
     target = read("android/app/src/main/java/dev/openstream/app/stream/ConnectionTarget.kt")
+    stream_client = read("android/app/src/main/java/dev/openstream/app/stream/SrtStreamClient.kt")
     assert "toSrtCallerUrl" in target
     assert "mode=caller" in target
     assert "DEFAULT_PORT = 9000" in target
     assert "fromDiscoveredDevice" in target
     assert "fromPairingUri" in target
     assert "openstream" in target
+    assert "val stats: StreamStats" in stream_client
+    assert "AtomicLong" in stream_client
+    assert "accessUnitsSent.incrementAndGet()" in stream_client
 
 
 def test_obs_plugin_registers_openstream_source_and_discovery() -> None:
@@ -73,6 +77,8 @@ def test_audio_path_uses_adts_aac_and_obs_planar_formats() -> None:
     assert "hasAdtsHeader" in native
     assert "muxAudioAccessUnit(" in native
     assert "g_state.audioCodecConfig" in native
+    assert "output.reserve" in native
+    assert "pes.reserve" in native
     assert "AUDIO_FORMAT_FLOAT_PLANAR" in source
     assert "audio_frame->format" in source
     assert "obs_source_output_audio" in source
