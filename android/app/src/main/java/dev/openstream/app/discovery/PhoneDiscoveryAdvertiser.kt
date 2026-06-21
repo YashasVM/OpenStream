@@ -17,6 +17,7 @@ class PhoneDiscoveryAdvertiser(
     private val config: StreamConfig,
     private val port: Int,
     private val busyProvider: () -> Boolean,
+    private val reservedByProvider: () -> String? = { null },
 ) {
     private val running = AtomicBoolean(false)
     private var worker: Thread? = null
@@ -71,6 +72,7 @@ class PhoneDiscoveryAdvertiser(
             .put("fps", config.fps)
             .put("controlPort", 9001)
             .put("busy", busyProvider())
+            .put("reservedBy", reservedByProvider().orEmpty())
         return "$PREFIX $json"
     }
 
