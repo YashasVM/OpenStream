@@ -29,6 +29,8 @@ import android.widget.TextView
 import dev.openstream.app.camera.Camera2Controller
 import dev.openstream.app.camera.CameraLens
 import dev.openstream.app.control.CameraControlServer
+import dev.openstream.app.discovery.DiscoveredObsDevice
+import dev.openstream.app.discovery.ObsDiscoveryClient
 import dev.openstream.app.discovery.PhoneDiscoveryAdvertiser
 import dev.openstream.app.encoder.MediaCodecAudioEncoder
 import dev.openstream.app.encoder.MediaCodecVideoEncoder
@@ -46,6 +48,7 @@ class MainActivity : Activity() {
     private lateinit var statusDetail: TextView
     private lateinit var connectionInfo: TextView
     private lateinit var manualContainer: LinearLayout
+    private lateinit var obsSlotList: LinearLayout
     private lateinit var inputObsHost: EditText
     private lateinit var inputObsPort: EditText
     private lateinit var inputLatency: EditText
@@ -62,6 +65,7 @@ class MainActivity : Activity() {
     private lateinit var btnManualConnect: TextView
     private lateinit var btnStop: TextView
     private lateinit var screenOffOverlay: View
+    private lateinit var identifyOverlay: TextView
     private lateinit var bottomControls: LinearLayout
     private lateinit var portLabel: TextView
     private lateinit var btnPortUp: TextView
@@ -74,6 +78,7 @@ class MainActivity : Activity() {
     private lateinit var streamClient: SrtStreamClient
     private lateinit var telemetry: TelemetrySampler
     private lateinit var phoneAdvertiser: PhoneDiscoveryAdvertiser
+    private lateinit var obsDiscoveryClient: ObsDiscoveryClient
     private lateinit var controlServer: CameraControlServer
 
     private val streamConfig = StreamConfig.Default1080p60
@@ -82,6 +87,7 @@ class MainActivity : Activity() {
     @Volatile private var phoneServerRunning = false
     @Volatile private var phoneConnected = false
     @Volatile private var reservedBy: String? = null
+    @Volatile private var reservedSlotLabel: String? = null
     private var listenerThread: Thread? = null
     private var keepScreenOn = false
     private var displayOff = false
@@ -93,6 +99,7 @@ class MainActivity : Activity() {
     private var zoomHideRunnable: Runnable? = null
     private var liveDotAnimator: ObjectAnimator? = null
     private var currentPort: Int = ConnectionTarget.DEFAULT_PORT
+    private var releaseReservationRunnable: Runnable? = null
 
     private val statsTicker = object : Runnable {
         override fun run() {
@@ -119,6 +126,11 @@ class MainActivity : Activity() {
             config = streamConfig,
             port = currentPort,
             busyProvider = { phoneConnected || reservedBy != null },
+            reservedByProvider = { reservedBy },
+        )
+        obsDiscoveryClient = ObsDiscoveryClient(
+            context = this,
+            onDevicesChanged = { devices -> renderObsSlots(devices) },
         )
         encoder = MediaCodecVideoEncoder(
             preference = streamConfig.codecPreference,
@@ -165,8 +177,9 @@ class MainActivity : Activity() {
                 }
             }},
             reservationProvider = { reservedBy },
-            onReserve = { sourceInstanceId -> reserveForSource(sourceInstanceId) },
+            onReserve = { sourceInstanceId, slotLabel -> reserveForSource(sourceInstanceId, slotLabel) },
             onRelease = { sourceInstanceId -> releaseForSource(sourceInstanceId) },
+            onIdentify = { label, subtitle -> runOnUiThread { showIdentifyOverlay(label, subtitle) } },
         )
 
         cameraPreview.holder.addCallback(object : SurfaceHolder.Callback {
@@ -191,6 +204,7 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         phoneAdvertiser.start()
+        obsDiscoveryClient.start()
         controlServer.start()
         startPhoneServerIfAllowed()
     }
@@ -198,6 +212,7 @@ class MainActivity : Activity() {
     override fun onStop() {
         stopPhoneServer()
         camera.stop()
+        obsDiscoveryClient.stop()
         phoneAdvertiser.stop()
         controlServer.stop()
         stopLiveDotAnimation()
@@ -237,6 +252,7 @@ class MainActivity : Activity() {
         statusDetail = findViewById(R.id.statusDetail)
         connectionInfo = findViewById(R.id.connectionInfo)
         manualContainer = findViewById(R.id.manualContainer)
+        obsSlotList = findViewById(R.id.obsSlotList)
         inputObsHost = findViewById(R.id.inputObsHost)
         inputObsPort = findViewById(R.id.inputObsPort)
         inputLatency = findViewById(R.id.inputLatency)
@@ -253,6 +269,7 @@ class MainActivity : Activity() {
         btnManualConnect = findViewById(R.id.btnManualConnect)
         btnStop = findViewById(R.id.btnStop)
         screenOffOverlay = findViewById(R.id.screenOffOverlay)
+        identifyOverlay = findViewById(R.id.identifyOverlay)
         bottomControls = findViewById(R.id.bottomControls)
         portLabel = findViewById(R.id.portLabel)
         btnPortUp = findViewById(R.id.btnPortUp)
@@ -431,8 +448,87 @@ class MainActivity : Activity() {
         )
     }
 
+    private fun renderObsSlots(devices: List<DiscoveredObsDevice>) {
+        obsSlotList.removeAllViews()
+        if (devices.isEmpty()) {
+            val empty = TextView(this).apply {
+                text = "Available OBS cameras"
+                textSize = 12f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(getColor(R.color.os_text_tertiary))
+                gravity = Gravity.CENTER
+                alpha = 0.8f
+            }
+            obsSlotList.addView(empty)
+            return
+        }
+
+        val title = TextView(this).apply {
+            text = "Available OBS cameras"
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(getColor(R.color.os_text_secondary))
+            gravity = Gravity.CENTER
+            letterSpacing = 0.08f
+            setPadding(0, 0, 0, resources.getDimensionPixelSize(R.dimen.os_spacing_sm))
+        }
+        obsSlotList.addView(title)
+
+        devices.forEach { device ->
+            val isReservedForThisPhone = reservedBy == device.sourceInstanceId
+            val enabled = !device.busy || isReservedForThisPhone
+            val card = TextView(this).apply {
+                text = "${device.displayLabel} · ${if (enabled) device.availabilityLabel else "Busy"}"
+                textSize = 15f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                setTextColor(
+                    if (enabled) getColor(R.color.os_text_primary)
+                    else getColor(R.color.os_text_tertiary)
+                )
+                setBackgroundResource(R.drawable.bg_card)
+                alpha = if (enabled) 1f else 0.45f
+                isEnabled = enabled
+                minHeight = resources.getDimensionPixelSize(R.dimen.os_control_btn_size)
+                setPadding(
+                    resources.getDimensionPixelSize(R.dimen.os_spacing_md),
+                    resources.getDimensionPixelSize(R.dimen.os_spacing_sm),
+                    resources.getDimensionPixelSize(R.dimen.os_spacing_md),
+                    resources.getDimensionPixelSize(R.dimen.os_spacing_sm),
+                )
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply {
+                    bottomMargin = resources.getDimensionPixelSize(R.dimen.os_spacing_sm)
+                }
+                if (enabled) {
+                    setOnClickListener { reserveForSlot(device) }
+                }
+            }
+            obsSlotList.addView(card)
+        }
+    }
+
+    private fun reserveForSlot(device: DiscoveredObsDevice) {
+        if (device.busy && reservedBy != device.sourceInstanceId) return
+        if (reserveForSource(device.sourceInstanceId, device.displayLabel)) {
+            statusText.text = "Paired to ${device.displayLabel}"
+            statusDetail.text = "Waiting for OBS to go live"
+        }
+    }
+
     private fun handlePairingIntent(intent: Intent?) {
         val uri: Uri = intent?.data ?: return
+        val sourceInstanceId = uri.getQueryParameter("sourceInstanceId")?.trim().orEmpty()
+        if (sourceInstanceId.isNotBlank()) {
+            val slotLabel = uri.getQueryParameter("slotLabel")?.trim().orEmpty()
+            if (reserveForSource(sourceInstanceId, slotLabel)) {
+                statusText.text = "Paired to ${slotLabel.ifBlank { "OBS slot" }}"
+                statusDetail.text = "Waiting for OBS to go live"
+            }
+            return
+        }
         val target = ConnectionTarget.fromPairingUri(uri) ?: return
         startStream(target)
     }
@@ -471,7 +567,7 @@ class MainActivity : Activity() {
         phoneConnected = false
         activeTargetName = null
         statusText.text = getString(R.string.status_ready)
-        statusDetail.text = getString(R.string.status_waiting, currentPort)
+        statusDetail.text = getString(R.string.status_waiting)
         btnStop.visibility = View.GONE
 
         listenerThread = Thread({
@@ -487,9 +583,11 @@ class MainActivity : Activity() {
                     )
                     if (!phoneServerRunning) return@runCatching
                     phoneConnected = true
-                    activeTargetName = "OBS"
+                    cancelReservationRelease()
+                    val liveTargetName = reservedSlotLabel ?: "OBS"
+                    activeTargetName = liveTargetName
                     runOnUiThread {
-                        showLiveState("OBS")
+                        showLiveState(liveTargetName)
                         mainHandler.removeCallbacks(statsTicker)
                         mainHandler.post(statsTicker)
                     }
@@ -510,13 +608,14 @@ class MainActivity : Activity() {
                 }
                 stopActiveEncoding(updateStatus = false)
                 phoneConnected = false
-                reservedBy = null
+                scheduleReservationRelease()
                 activeTargetName = null
                 if (phoneServerRunning) {
                     runOnUiThread {
                         hideLiveState()
                         statusText.text = getString(R.string.status_ready)
-                        statusDetail.text = getString(R.string.status_waiting, currentPort)
+                        statusDetail.text = reservedSlotLabel?.let { "Holding $it for reconnect" }
+                            ?: getString(R.string.status_waiting)
                     }
                 }
             }
@@ -529,7 +628,7 @@ class MainActivity : Activity() {
     private fun stopPhoneServer() {
         phoneServerRunning = false
         phoneConnected = false
-        reservedBy = null
+        clearReservation()
         activeTargetName = null
         mainHandler.removeCallbacks(statsTicker)
         streamClient.disconnect()
@@ -560,21 +659,61 @@ class MainActivity : Activity() {
     // ─────────────────────────── Live state UI ───────────────────────────
 
     @Synchronized
-    private fun reserveForSource(sourceInstanceId: String): Boolean {
+    private fun reserveForSource(sourceInstanceId: String, slotLabel: String = ""): Boolean {
         val currentReservation = reservedBy
         if (phoneConnected && currentReservation != sourceInstanceId) return false
         if (currentReservation != null && currentReservation != sourceInstanceId) return false
+        cancelReservationRelease()
         reservedBy = sourceInstanceId
+        reservedSlotLabel = slotLabel.ifBlank { reservedSlotLabel }
         return true
     }
 
     @Synchronized
     private fun releaseForSource(sourceInstanceId: String): Boolean {
         if (reservedBy == sourceInstanceId) {
-            reservedBy = null
+            clearReservation()
             return true
         }
         return reservedBy == null
+    }
+
+    @Synchronized
+    private fun clearReservation() {
+        cancelReservationRelease()
+        reservedBy = null
+        reservedSlotLabel = null
+    }
+
+    @Synchronized
+    private fun scheduleReservationRelease() {
+        val sourceInstanceId = reservedBy ?: return
+        cancelReservationRelease()
+        releaseReservationRunnable = Runnable {
+            synchronized(this) {
+                if (!phoneConnected && reservedBy == sourceInstanceId) {
+                    reservedBy = null
+                    reservedSlotLabel = null
+                }
+            }
+        }
+        mainHandler.postDelayed(releaseReservationRunnable!!, RECONNECT_RESERVATION_MS)
+    }
+
+    @Synchronized
+    private fun cancelReservationRelease() {
+        releaseReservationRunnable?.let { mainHandler.removeCallbacks(it) }
+        releaseReservationRunnable = null
+    }
+
+    private fun showIdentifyOverlay(label: String, subtitle: String) {
+        val text = if (subtitle.isBlank()) label else "$label\n$subtitle"
+        identifyOverlay.text = text
+        identifyOverlay.visibility = View.VISIBLE
+        identifyOverlay.bringToFront()
+        mainHandler.postDelayed({
+            identifyOverlay.visibility = View.GONE
+        }, IDENTIFY_OVERLAY_MS)
     }
 
     private fun showLiveState(targetName: String) {
@@ -717,7 +856,8 @@ class MainActivity : Activity() {
             context = this,
             config = streamConfig,
             port = currentPort,
-            busyProvider = { phoneConnected },
+            busyProvider = { phoneConnected || reservedBy != null },
+            reservedByProvider = { reservedBy },
         )
         phoneAdvertiser.start()
         startPhoneServerIfAllowed()
@@ -797,6 +937,8 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        private const val RECONNECT_RESERVATION_MS = 45_000L
+        private const val IDENTIFY_OVERLAY_MS = 3_000L
         private val REQUIRED_PERMISSIONS = arrayOf(
             Manifest.permission.CAMERA,
             Manifest.permission.RECORD_AUDIO,
