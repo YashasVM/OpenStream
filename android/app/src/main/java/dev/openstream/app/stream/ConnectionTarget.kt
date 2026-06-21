@@ -19,7 +19,7 @@ data class ConnectionTarget(
 
         fun fromDiscoveredDevice(device: DiscoveredObsDevice): ConnectionTarget {
             return ConnectionTarget(
-                name = device.name,
+                name = device.displayLabel,
                 host = device.host,
                 port = device.port,
                 latencyMs = device.latencyMs,
