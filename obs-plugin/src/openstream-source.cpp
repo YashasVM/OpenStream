@@ -88,7 +88,7 @@ using SwsContextPtr = std::unique_ptr<SwsContext, SwsContextDeleter>;
 constexpr int kDiscoveryPort = 51515;
 constexpr int kDefaultListenerPort = 9000;
 constexpr auto kReconnectReservationWindow = std::chrono::seconds(45);
-constexpr const char *kOpenStreamSourceName = "OpenStream V6";
+constexpr const char *kOpenStreamSourceName = "OpenStream V7";
 constexpr const char *kDiscoveryMulticastAddress = "239.255.42.99";
 constexpr const char *kPhoneDiscoveryPrefix = "OPENSTREAM_PHONE/1 ";
 
@@ -727,6 +727,7 @@ struct OpenStreamSource {
   std::string srt_url;
   std::string device_name;
   std::string phone_target_hint;
+  std::string pairing_hint;
   std::string pairing_url;
   std::string instance_id;
   std::string slot_id;
@@ -1394,9 +1395,11 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
           avformat_free_context(raw_format_ctx);
         }
         if (reserved_phone.has_value()) {
-          release_phone(ctx, *reserved_phone);
+          set_slot_status(ctx, "Reconnecting");
+          set_active_phone(ctx, reserved_phone);
+        } else {
+          set_active_phone(ctx, std::nullopt);
         }
-        set_active_phone(ctx, std::nullopt);
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         continue;
       }
@@ -1415,9 +1418,11 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     CodecContextPtr video_decoder_ctx;
     if (!open_video_decoder(format_ctx.get(), &video_stream_index, &video_decoder_ctx)) {
       ctx->phone_connected = false;
-      set_active_phone(ctx, std::nullopt);
       if (reserved_phone.has_value()) {
-        release_phone(ctx, *reserved_phone);
+        set_slot_status(ctx, "Reconnecting");
+        set_active_phone(ctx, reserved_phone);
+      } else {
+        set_active_phone(ctx, std::nullopt);
       }
       if (!ctx->stop_requested.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -1556,7 +1561,7 @@ void openstream_update(void *data, obs_data_t *settings) {
       ctx->slot_id = ctx->instance_id;
       obs_data_set_string(settings, "slot_id", ctx->slot_id.c_str());
     }
-    ctx->instance_id = ctx->slot_id;
+    obs_data_set_string(settings, "source_instance_id", ctx->instance_id.c_str());
     if (ctx->slot_label.empty()) {
       ctx->slot_label = "CAM A";
       obs_data_set_string(settings, "slot_label", ctx->slot_label.c_str());
@@ -1576,6 +1581,8 @@ void openstream_update(void *data, obs_data_t *settings) {
                                             ctx->slot_id,
                                             ctx->slot_label,
                                             ctx->instance_id);
+    ctx->pairing_hint = "Open OpenStream on your phone and tap " + ctx->slot_label +
+                        ". Deep link / QR pairing is available in Advanced.";
     const std::vector<PhoneDevice> phones = ctx->phone_discovery.devices();
     ctx->phone_target_hint = "Connect a phone to " + ctx->slot_label;
     if (ctx->selected_phone_id == PhoneDiscoveryReceiver::kAutoPhoneId) {
@@ -1599,6 +1606,7 @@ void openstream_update(void *data, obs_data_t *settings) {
     }
     obs_data_set_string(settings, "slot_status", ctx->slot_status.c_str());
     obs_data_set_string(settings, "phone_target_hint", ctx->phone_target_hint.c_str());
+    obs_data_set_string(settings, "pairing_hint", ctx->pairing_hint.c_str());
     obs_data_set_string(settings, "pairing_url", ctx->pairing_url.c_str());
     should_start = ctx->listener_enabled;
   }
@@ -1612,17 +1620,21 @@ void openstream_update(void *data, obs_data_t *settings) {
 void *openstream_create(obs_data_t *settings, obs_source_t *source) {
   auto *ctx = new OpenStreamSource();
   ctx->source = source;
-  ctx->instance_id = make_instance_id(source);
+  const char *saved_source_instance_id = obs_data_get_string(settings, "source_instance_id");
+  ctx->instance_id =
+      (saved_source_instance_id && saved_source_instance_id[0] != '\0')
+          ? saved_source_instance_id
+          : make_instance_id(source);
   const char *saved_slot_id = obs_data_get_string(settings, "slot_id");
   const char *saved_slot_label = obs_data_get_string(settings, "slot_label");
   ctx->slot_id = (saved_slot_id && saved_slot_id[0] != '\0') ? saved_slot_id : ctx->instance_id;
-  ctx->instance_id = ctx->slot_id;
   {
     std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
     ctx->slot_label =
         (saved_slot_label && saved_slot_label[0] != '\0') ? saved_slot_label : next_available_slot_label_locked();
     g_source_slots[ctx] = ctx->slot_label;
   }
+  obs_data_set_string(settings, "source_instance_id", ctx->instance_id.c_str());
   obs_data_set_string(settings, "slot_id", ctx->slot_id.c_str());
   obs_data_set_string(settings, "slot_label", ctx->slot_label.c_str());
   ctx->phone_discovery.start();
@@ -1645,12 +1657,15 @@ void openstream_defaults(obs_data_t *settings) {
   obs_data_set_default_bool(settings, "listener_enabled", true);
   obs_data_set_default_string(settings, "device_name", "Close-up");
   obs_data_set_default_string(settings, "slot_id", "");
+  obs_data_set_default_string(settings, "source_instance_id", "");
   obs_data_set_default_string(settings, "slot_label", "");
   obs_data_set_default_string(settings, "slot_status", "Empty Slot");
   obs_data_set_default_string(settings, "srt_url", "openstream:auto");
   obs_data_set_default_string(settings, "selected_phone_id", PhoneDiscoveryReceiver::kAutoPhoneId);
   obs_data_set_default_string(settings, "phone_target_hint", "Connect a phone to CAM A");
+  obs_data_set_default_string(settings, "pairing_hint", "Open OpenStream on your phone and tap CAM A.");
   obs_data_set_default_string(settings, "pairing_url", "openstream://connect");
+  obs_data_set_default_bool(settings, "show_advanced", false);
   obs_data_set_default_int(settings, "listener_port", kDefaultListenerPort);
   obs_data_set_default_int(settings, "latency_ms", 120);
   obs_data_set_default_int(settings, "bitrate_mbps", 12);
@@ -1673,8 +1688,8 @@ obs_properties_t *openstream_properties(void *data) {
       OBS_TEXT_INFO);
   obs_properties_add_text(
       props,
-      "pairing_url",
-      "QR / deep-link pairing",
+      "pairing_hint",
+      "Pairing",
       OBS_TEXT_INFO);
   obs_property_t *phone_list = obs_properties_add_list(
       props, "selected_phone_id", "Discovered phones", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
@@ -1723,12 +1738,14 @@ obs_properties_t *openstream_properties(void *data) {
   // ── Camera remote controls ──
   obs_properties_t *advanced_group = obs_properties_create();
   obs_properties_add_bool(advanced_group, "listener_enabled", "Enable this camera slot");
+  obs_properties_add_text(advanced_group, "source_instance_id", "Source instance ID", OBS_TEXT_INFO);
   obs_properties_add_text(advanced_group, "slot_id", "Slot ID", OBS_TEXT_INFO);
   obs_properties_add_int(advanced_group, "listener_port", "Phone SRT port", 1024, 65535, 1);
   obs_properties_add_text(advanced_group, "srt_url", "SRT mode", OBS_TEXT_INFO);
+  obs_properties_add_text(advanced_group, "pairing_url", "Deep-link pairing URL", OBS_TEXT_INFO);
   obs_properties_add_int_slider(advanced_group, "latency_ms", "SRT latency (ms)", 80, 200, 10);
   obs_properties_add_int_slider(advanced_group, "bitrate_mbps", "Expected bitrate (Mbps)", 8, 35, 1);
-  obs_properties_add_group(props, "advanced", "Advanced", OBS_GROUP_NORMAL, advanced_group);
+  obs_properties_add_group(props, "show_advanced", "Advanced", OBS_GROUP_CHECKABLE, advanced_group);
 
   obs_properties_t *camera_group = obs_properties_create();
 
@@ -1813,7 +1830,7 @@ obs_properties_t *openstream_properties(void *data) {
 }
 
 obs_source_info openstream_source_info = {
-    .id = "openstream_phone_v6_source",
+    .id = "openstream_phone_v7_source",
     .type = OBS_SOURCE_TYPE_INPUT,
     .output_flags = OBS_SOURCE_ASYNC_VIDEO | OBS_SOURCE_AUDIO,
     .get_name = openstream_get_name,
@@ -1835,7 +1852,7 @@ bool obs_module_load(void) {
   }
 #endif
   obs_register_source(&openstream_source_info);
-  blog(LOG_INFO, "[OpenStream] OBS plugin loaded — video + audio + remote controls (Made by @yashas.vm)");
+  blog(LOG_INFO, "[OpenStream] OBS plugin loaded: V7 — video + audio + remote controls (Made by @yashas.vm)");
   return true;
 }
 
