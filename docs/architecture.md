@@ -26,7 +26,7 @@ The discovery flow:
 
 1. OBS plugin broadcasts UDP beacon every 1 second on port `51515` (multicast `239.255.42.99` + subnet broadcast).
 2. Android app listens for beacons and displays discovered OBS instances.
-3. User taps an OBS device → Android constructs `srt://<obs-ip>:<port>?mode=caller&latency=<ms>`.
+3. User taps an OBS device -> Android constructs `srt://<obs-ip>:<port>?mode=caller&latency=<ms>`.
 4. Android MPEG-TS stream begins.
 5. OBS plugin uses FFmpeg to open the SRT input, decode video and audio, and output frames.
 
@@ -63,15 +63,15 @@ transport can be tested without blocking the reliable product path.
 - Default SRT port: `9000`.
 - Default control port: `9001`.
 - Default latency: `120 ms`.
-- Valid latency tuning range: `80–200 ms`.
+- Valid latency tuning range: `80-200 ms`.
 
 ## Encoding Defaults
 
 - Preferred video codec: HEVC/H.265.
 - Fallback video codec: AVC/H.264.
 - Audio codec: AAC.
-- Default resolution: `1920×1080`.
-- Fallback resolution: `1280×720`.
+- Default resolution: `1920x1080`.
+- Fallback resolution: `1280x720`.
 - Default frame rate: `60 fps`.
 - Bitrate presets: `8`, `12`, `20`, `35 Mbps`.
 - Keyframe interval: `1 second`.
@@ -81,9 +81,9 @@ transport can be tested without blocking the reliable product path.
 The OBS plugin handles three pixel format paths to minimize unnecessary
 conversions:
 
-1. **I420 (YUV420P)** — Zero-copy pass-through with proper color matrix.
-2. **NV12** — Zero-copy pass-through with proper color matrix.
-3. **BGRA fallback** — swscale conversion for non-standard decoder output.
+1. **I420 (YUV420P)** - Zero-copy pass-through with proper color matrix.
+2. **NV12** - Zero-copy pass-through with proper color matrix.
+3. **BGRA fallback** - swscale conversion for non-standard decoder output.
 
 Color metadata (BT.601/BT.709/BT.2020, full/limited range, HDR TRC) is
 extracted from FFmpeg frame properties and forwarded to OBS.

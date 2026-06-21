@@ -4,9 +4,9 @@
 
 OpenStream uses three communication channels between the Android phone and OBS:
 
-1. **Media Stream** — SRT/MPEG-TS for video + audio (phone → OBS)
-2. **Discovery** — UDP multicast/broadcast beacons (bidirectional)
-3. **Control** — HTTP POST for remote camera commands (OBS → phone)
+1. **Media Stream** - SRT/MPEG-TS for video + audio (phone -> OBS)
+2. **Discovery** - UDP multicast/broadcast beacons (bidirectional)
+3. **Control** - HTTP POST for remote camera commands (OBS -> phone)
 
 ---
 
@@ -38,7 +38,7 @@ transport stream.
 
 - Codec: `video/hevc` (preferred) or `video/avc` (fallback)
 - Source: MediaCodec hardware encoder
-- Resolution: 1920×1080 default
+- Resolution: 1920x1080 default
 - Frame rate: 60 fps default
 - Bitrate: 20 Mbps default
 - Keyframe interval: 1 second
@@ -56,7 +56,7 @@ transport stream.
 
 ## Discovery Protocol
 
-### OBS → Phone (Listener Advertisement)
+### OBS -> Phone (Listener Advertisement)
 
 When the OBS source listener starts, it broadcasts a UDP beacon every 1 second
 on port `51515`:
@@ -69,7 +69,7 @@ on port `51515`:
 **Beacon format:**
 
 ```
-OPENSTREAM/1 {"type":"dev.openstream.listener","version":1,"name":"OpenStream","instanceId":"...","host":"<obs-ip>","listenerPort":9000,"latencyMs":120,"bitrateMbps":12,"busy":false}
+OPENSTREAM/1 {"type":"dev.openstream.listener","version":1,"name":"OpenStream","instanceId":"...","sourceInstanceId":"...","slotId":"...","slotLabel":"CAM A","pairingUrl":"openstream://connect?...","host":"<obs-ip>","listenerPort":9000,"latencyMs":120,"bitrateMbps":12,"busy":false}
 ```
 
 | Field | Type | Description |
@@ -78,26 +78,32 @@ OPENSTREAM/1 {"type":"dev.openstream.listener","version":1,"name":"OpenStream","
 | `version` | int | Protocol version (currently `1`) |
 | `name` | string | OBS source display name |
 | `instanceId` | string | Unique source instance identifier |
+| `sourceInstanceId` | string | Stable OBS source instance used for reservations |
+| `slotId` | string | OBS camera slot identifier |
+| `slotLabel` | string | Human-readable camera slot label, such as `CAM A` |
+| `pairingUrl` | string | Deep-link URL for QR/manual pairing |
 | `host` | string | OBS machine IP address |
 | `listenerPort` | int | SRT listener port |
 | `latencyMs` | int | Configured SRT latency |
 | `bitrateMbps` | int | Expected stream bitrate |
 | `busy` | bool | Whether the source is already receiving a stream |
 
-### Phone → OBS (Phone Advertisement)
+### Phone -> OBS (Phone Advertisement)
 
 The Android app advertises itself on the same multicast group:
 
 **Beacon format:**
 
 ```
-OPENSTREAM_PHONE/1 {"type":"dev.openstream.phone","name":"<device-name>","host":"<phone-ip>","listenerPort":9000,"controlPort":9001,"latencyMs":120,"width":1920,"height":1080,"fps":60,"bitrateMbps":20}
+OPENSTREAM_PHONE/1 {"type":"dev.openstream.phone","version":1,"name":"<device-name>","instanceId":"...","host":"<phone-ip>","listenerPort":9000,"controlPort":9001,"latencyMs":120,"width":1920,"height":1080,"fps":60,"bitrateMbps":20,"busy":false,"reservedBy":""}
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `type` | string | Always `dev.openstream.phone` |
+| `version` | int | Protocol version (currently `1`) |
 | `name` | string | Device model name |
+| `instanceId` | string | Unique phone advertisement identifier |
 | `host` | string | Phone IP address |
 | `listenerPort` | int | Phone's SRT port |
 | `controlPort` | int | HTTP control server port |
@@ -107,6 +113,7 @@ OPENSTREAM_PHONE/1 {"type":"dev.openstream.phone","name":"<device-name>","host":
 | `fps` | int | Stream frame rate |
 | `bitrateMbps` | int | Stream bitrate |
 | `busy` | bool | Whether the phone is already reserved or streaming |
+| `reservedBy` | string | OBS source instance that currently owns the reservation, or empty |
 
 OBS keeps a registry of discovered phones keyed by `instanceId`. Each
 OpenStream source has a `selected_phone_id` setting. `auto` selects the first
@@ -117,7 +124,7 @@ non-busy phone; any other value binds that source to one specific phone.
 If discovery is blocked, the OBS source exposes a deep-link URL:
 
 ```
-openstream://connect?host=<obs-ip>&port=<port>&latency=<ms>&name=...
+openstream://connect?slotId=<slot-id>&slotLabel=<slot-label>&sourceInstanceId=<source-id>&host=<obs-ip>&port=<port>&latency=<ms>&name=...
 ```
 
 This can be encoded as a QR code or entered manually in the Android app.
