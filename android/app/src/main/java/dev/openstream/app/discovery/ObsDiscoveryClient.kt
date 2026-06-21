@@ -160,6 +160,10 @@ object ObsDiscoveryProtocol {
             latencyMs = json.optInt("latencyMs", 120).coerceIn(20, 2000),
             bitrateMbps = json.optInt("bitrateMbps", 12).coerceIn(1, 200),
             instanceId = json.optString("instanceId", "$packetHost:$port"),
+            sourceInstanceId = json.optString("sourceInstanceId", json.optString("instanceId", "$packetHost:$port")),
+            slotId = json.optString("slotId", json.optString("instanceId", "$packetHost:$port")),
+            slotLabel = json.optString("slotLabel", json.optString("name", "CAM A")).ifBlank { "CAM A" },
+            pairingUrl = json.optString("pairingUrl", ""),
             lastSeenMs = nowMs,
             busy = json.optBoolean("busy", false),
         )
