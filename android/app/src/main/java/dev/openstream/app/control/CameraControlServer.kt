@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * - POST /lens       {"lens": "Back"}
  * - POST /reserve    {"sourceInstanceId": "..."}
  * - POST /release    {"sourceInstanceId": "..."}
+ * - POST /identify   {"label": "CAM B", "subtitle": "Close-up"}
  * - GET  /status     Returns current camera state
  */
 class CameraControlServer(
@@ -30,8 +31,9 @@ class CameraControlServer(
     private val onSwitchLens: (CameraLens) -> Unit,
     private val onToggleTorch: (Boolean) -> Unit,
     private val reservationProvider: () -> String?,
-    private val onReserve: (String) -> Boolean,
+    private val onReserve: (String, String) -> Boolean,
     private val onRelease: (String) -> Boolean,
+    private val onIdentify: (String, String) -> Unit,
 ) {
     private val running = AtomicBoolean(false)
     private var serverSocket: ServerSocket? = null
@@ -116,6 +118,7 @@ class CameraControlServer(
                 method == "POST" && path == "/lens" -> handleLens(body)
                 method == "POST" && path == "/reserve" -> handleReserve(body)
                 method == "POST" && path == "/release" -> handleRelease(body)
+                method == "POST" && path == "/identify" -> handleIdentify(body)
                 method == "OPTIONS" -> """{"ok":true}"""
                 else -> {
                     sendResponse(writer, 404, """{"error":"not found"}""")
@@ -186,13 +189,22 @@ class CameraControlServer(
     }
 
     private fun handleReserve(body: String): String {
-        val sourceInstanceId = JSONObject(body).optString("sourceInstanceId").trim()
+        val json = JSONObject(body)
+        val sourceInstanceId = json.optString("sourceInstanceId").trim()
         if (sourceInstanceId.isEmpty()) return """{"error":"missing sourceInstanceId"}"""
-        val accepted = onReserve(sourceInstanceId)
+        val slotLabel = json.optString("slotLabel", "")
+        val accepted = onReserve(sourceInstanceId, slotLabel)
         return if (accepted) {
-            """{"ok":true,"reservedBy":"$sourceInstanceId"}"""
+            JSONObject()
+                .put("ok", true)
+                .put("reservedBy", sourceInstanceId)
+                .toString()
         } else {
-            """{"ok":false,"busy":true,"reservedBy":"${reservationProvider().orEmpty()}"}"""
+            JSONObject()
+                .put("ok", false)
+                .put("busy", true)
+                .put("reservedBy", reservationProvider().orEmpty())
+                .toString()
         }
     }
 
@@ -201,6 +213,14 @@ class CameraControlServer(
         if (sourceInstanceId.isEmpty()) return """{"error":"missing sourceInstanceId"}"""
         val released = onRelease(sourceInstanceId)
         return """{"ok":$released}"""
+    }
+
+    private fun handleIdentify(body: String): String {
+        val json = JSONObject(body)
+        val label = json.optString("label", "CAM").ifBlank { "CAM" }
+        val subtitle = json.optString("subtitle", "")
+        onIdentify(label, subtitle)
+        return """{"ok":true}"""
     }
 
     companion object {
