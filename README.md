@@ -35,10 +35,10 @@ Need the non-technical walkthrough with screenshots? Start with [`docs/set-up.md
 
 ## What is OpenStream?
 
-OpenStream sends your Android phone camera directly into OBS Studio over local Wi-Fi. It uses Camera2, MediaCodec video/audio encoding, MPEG-TS muxing, SRT transport, LAN discovery, and a native OBS source plugin.
+OpenStream sends your Android phone camera directly into OBS Studio over local Wi-Fi. It uses Camera2, MediaCodec video/audio encoding, MPEG-TS muxing, SRT transport, two-way LAN discovery, source-slot pairing, and a native OBS source plugin.
 
 ```text
-Phone camera -> HEVC/H.264 + AAC -> SRT over Wi-Fi -> OpenStream source in OBS
+Phone camera -> HEVC/H.264 + AAC -> SRT over Wi-Fi -> OpenStream camera slot in OBS
 ```
 
 ---
@@ -56,17 +56,17 @@ Download and run `openstream-obs-plugin-installer-windows-x64.exe` on the Window
 > [!NOTE]
 > If you prefer manual installation, download `openstream-obs-windows-x64.zip`, extract it, and run `install-openstream-plugin.bat` as administrator.
 
-### 3. Add the Source in OBS
+### 3. Add Camera Slots in OBS
 
-In OBS, click `+` in Sources, choose `OpenStream`, keep auto-connect enabled, and press OK. The source waits for a phone.
+In OBS, click `+` in Sources, choose `OpenStream V7`, keep the camera slot enabled, and press OK. Each source gets a slot such as `CAM A` or `CAM B`, so multi-phone setups can stay organized.
 
-### 4. Connect the Phone
+### 4. Pair the Phone
 
-Open the OpenStream Android app on the same Wi-Fi network as the PC. Tap the discovered OBS device. The camera feed should appear in OBS within a few seconds.
+Open the OpenStream Android app on the same Wi-Fi network as the PC. Tap an available OBS camera slot from the phone, or choose a discovered phone from the OBS source properties. The camera feed should appear in OBS within a few seconds.
 
 ### 5. Stream
 
-Use OBS as usual. Phone audio appears as a separate OBS mixer channel, and camera controls are available from the OpenStream source properties.
+Use OBS as usual. Phone audio appears as a separate OBS mixer channel, camera controls are available from the OpenStream source properties, and the selected phone is held for quick reconnects if Wi-Fi drops briefly.
 
 > [!TIP]
 > Use a 5 GHz or Wi-Fi 6 network, keep both devices on the same subnet, and disable VPNs or router client isolation during first setup.
@@ -95,20 +95,42 @@ Use OBS as usual. Phone audio appears as a separate OBS mixer channel, and camer
 | **Audio Streaming** | Sends microphone audio with the video stream as AAC. |
 | **Multi-Lens Switching** | Supports rear, ultrawide, telephoto, and front cameras when available. |
 | **Pinch-to-Zoom** | Smooth digital zoom with a live zoom indicator. |
+| **Screen-Off Streaming Mode** | Dims the phone to a black overlay while keeping capture and streaming active. |
 | **Torch and Screen Controls** | Keeps the phone awake and can toggle torch while streaming. |
-| **Auto-Discovery** | Finds OpenStream OBS listeners on the same LAN. |
+| **OBS Slot Picker** | Shows available OBS camera slots on the phone and blocks busy slots from accidental reuse. |
+| **Auto-Discovery** | Finds OpenStream OBS listeners on the same LAN and advertises the phone back to OBS. |
 | **Manual Connect** | Supports manual IP and port entry when discovery is blocked. |
+| **Live Stream Telemetry** | Shows frames, keyframes, transferred megabits, errors, and active lens while streaming. |
+| **Identify Overlay** | Displays a large slot label on the phone when triggered from OBS. |
+| **Reconnect Hold** | Keeps a reserved OBS slot for `45` seconds after a disconnect to make brief Wi-Fi drops less disruptive. |
 
 ### OBS Plugin
 
 | Feature | Details |
 |---|---|
-| **Native OBS Source** | Adds an `OpenStream` source type inside OBS Studio. |
+| **Native OBS Source** | Adds an `OpenStream V7` source type inside OBS Studio. |
 | **One-Click Installer** | Windows installer copies the plugin into the OBS plugin folder. |
+| **Camera Slots** | Gives each source a stable slot label such as `CAM A`, `CAM B`, or a custom slot name. |
+| **Phone Discovery** | Lists discovered Android phones and can let the phone choose the OBS slot. |
 | **Auto-Connect** | Listens for the Android app and connects without typing IP addresses. |
+| **Deep-Link Pairing URL** | Exposes an `openstream://connect` pairing URL with slot, port, latency, and source identity. |
 | **Separate Audio Mixer** | Phone microphone audio gets its own OBS mixer channel. |
-| **Remote Controls** | Adjust zoom, torch, and camera selection from source properties. |
-| **Reconnect Handling** | Reconnects when the phone stream drops or restarts. |
+| **Remote Controls** | Adjust zoom, torch, back/front camera, and identify overlay from source properties. |
+| **Reconnect Handling** | Reserves and releases phones per source so streams recover into the same OBS slot. |
+
+---
+
+## UX Flow
+
+| Moment | Experience |
+|---|---|
+| **First launch** | The phone opens directly to the camera preview, requests camera/microphone permissions, and waits for OBS. |
+| **OBS setup** | Add one `OpenStream V7` source per camera angle, then name slots for the production layout. |
+| **Pairing** | The phone lists available OBS slots; OBS can also select a discovered phone or show a pairing URL. |
+| **Going live** | A `LIVE` badge, zoom chip, stream stats, and status text make the active connection visible at a glance. |
+| **Multi-camera work** | Busy and reserved slots prevent two phones from fighting over the same source. |
+| **On-set checks** | Use `Identify Camera` in OBS to flash the slot label on the physical phone. |
+| **Battery and heat** | Use `DISPLAY` for a black screen-off overlay or `STAY` to keep the phone awake. |
 
 ---
 
