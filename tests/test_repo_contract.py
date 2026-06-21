@@ -55,7 +55,7 @@ def test_android_connection_target_builds_srt_caller_url_and_pairing_targets() -
 
 def test_obs_plugin_registers_openstream_source_and_discovery() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
-    assert "openstream_phone_v6_source" in source
+    assert "openstream_phone_v7_source" in source
     assert "obs_register_source" in source
     assert "OpenStream" in source
     assert "listener_enabled" in source
@@ -100,11 +100,13 @@ def test_obs_sources_are_named_camera_slots_with_advanced_transport() -> None:
     assert "cam_label_for_index" in source
     assert '"CAM "' in source
     assert "next_available_slot_label_locked" in source
+    assert "source_instance_id" in source
     assert "slot_id" in source
     assert "slot_label" in source
     assert "slot_status" in source
     assert "Connect a phone to " in source
-    assert "OBS_GROUP_NORMAL, advanced_group" in source
+    assert "pairing_hint" in source
+    assert "OBS_GROUP_CHECKABLE, advanced_group" in source
     assert "listener_port" in source
     assert "SRT latency (ms)" in source
 
@@ -127,6 +129,8 @@ def test_slot_reservation_allows_owned_busy_phone_and_reconnect_hold() -> None:
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
     advertiser = read("android/app/src/main/java/dev/openstream/app/discovery/PhoneDiscoveryAdvertiser.kt")
     assert "reserved_by == source_instance_id" in source
+    assert "set_slot_status(ctx, \"Reconnecting\")" in source
+    assert "set_active_phone(ctx, reserved_phone)" in source
     assert '"reservedBy"' in advertiser
     assert "RECONNECT_RESERVATION_MS = 45_000L" in app
     assert "Holding $it for reconnect" in app
@@ -147,9 +151,12 @@ def test_android_discovery_ui_parses_and_displays_obs_slots() -> None:
     assert "ObsDiscoveryClient(" in app
     assert "renderObsSlots" in app
     assert "reserveForSlot" in app
+    assert "slotAvailabilityLabel" in app
     assert "device.busy && reservedBy != device.sourceInstanceId" in app
+    assert "compareBy<DiscoveredObsDevice> { it.displayLabel }" in discovery
     assert "Available OBS cameras" in app
     assert "obsSlotList" in layout
+    assert 'android:text="ADV"' in layout
 
 
 def test_identify_camera_control_round_trip_exists() -> None:
