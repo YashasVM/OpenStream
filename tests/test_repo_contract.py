@@ -87,12 +87,82 @@ def test_audio_path_uses_adts_aac_and_obs_planar_formats() -> None:
 def test_obs_plugin_routes_multiple_phones_by_selected_slot() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
     assert "selected_phone_id" in source
-    assert "Phone slot" in source
+    assert "Discovered phones" in source
     assert "kAutoPhoneId" in source
     assert "std::map<std::string, PhoneDevice> devices_" in source
     assert "reserve_phone" in source
     assert "release_phone" in source
     assert "control_phone(ctx)" in source
+
+
+def test_obs_sources_are_named_camera_slots_with_advanced_transport() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+    assert "cam_label_for_index" in source
+    assert '"CAM "' in source
+    assert "next_available_slot_label_locked" in source
+    assert "slot_id" in source
+    assert "slot_label" in source
+    assert "slot_status" in source
+    assert "Connect a phone to " in source
+    assert "OBS_GROUP_NORMAL, advanced_group" in source
+    assert "listener_port" in source
+    assert "SRT latency (ms)" in source
+
+
+def test_obs_discovery_beacons_advertise_slots_not_raw_listener_only() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+    assert "sourceInstanceId" in source
+    assert "slotId" in source
+    assert "slotLabel" in source
+    assert "pairingUrl" in source
+    assert "listenerPort" in source
+    assert "latencyMs" in source
+    assert "busy" in source
+    assert "ctx->discovery.start" in source
+    assert "&ctx->slot_busy" in source
+
+
+def test_slot_reservation_allows_owned_busy_phone_and_reconnect_hold() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+    app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    advertiser = read("android/app/src/main/java/dev/openstream/app/discovery/PhoneDiscoveryAdvertiser.kt")
+    assert "reserved_by == source_instance_id" in source
+    assert '"reservedBy"' in advertiser
+    assert "RECONNECT_RESERVATION_MS = 45_000L" in app
+    assert "Holding $it for reconnect" in app
+    assert "scheduleReservationRelease" in app
+    assert "cancelReservationRelease" in app
+
+
+def test_android_discovery_ui_parses_and_displays_obs_slots() -> None:
+    device = read("android/app/src/main/java/dev/openstream/app/discovery/DiscoveredObsDevice.kt")
+    discovery = read("android/app/src/main/java/dev/openstream/app/discovery/ObsDiscoveryClient.kt")
+    app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    layout = read("android/app/src/main/res/layout/activity_main.xml")
+    assert "val sourceInstanceId" in device
+    assert "val slotId" in device
+    assert "val slotLabel" in device
+    assert "val pairingUrl" in device
+    assert 'json.optString("slotLabel"' in discovery
+    assert "ObsDiscoveryClient(" in app
+    assert "renderObsSlots" in app
+    assert "reserveForSlot" in app
+    assert "device.busy && reservedBy != device.sourceInstanceId" in app
+    assert "Available OBS cameras" in app
+    assert "obsSlotList" in layout
+
+
+def test_identify_camera_control_round_trip_exists() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+    control = read("android/app/src/main/java/dev/openstream/app/control/CameraControlServer.kt")
+    app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    layout = read("android/app/src/main/res/layout/activity_main.xml")
+    assert "Identify Camera" in source
+    assert '"/identify"' in source
+    assert 'path == "/identify"' in control
+    assert "handleIdentify" in control
+    assert "showIdentifyOverlay" in app
+    assert "identifyOverlay" in layout
 
 
 def test_android_control_server_supports_source_reservations() -> None:
@@ -139,7 +209,12 @@ def test_protocol_documents_media_and_telemetry_contracts() -> None:
     assert "MPEG-TS" in protocol
     assert "OPENSTREAM/1" in protocol
     assert "openstream://connect" in protocol
+    assert "sourceInstanceId" in protocol
+    assert "slotId" in protocol
+    assert "slotLabel" in protocol
+    assert "pairingUrl" in protocol
     assert "deviceName" in protocol
+    assert "reservedBy" in protocol
     assert "latencyMs" in protocol
 
 
@@ -160,15 +235,32 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert ":app:assembleDebug" in android_workflow
     assert "openstream.nonStreamingCiBuild" not in android_workflow
     assert "openstream-android-debug-apk" in android_workflow
+    assert ":app:assembleRelease" in release_workflow
+    assert "OPENSTREAM_RELEASE_KEYSTORE_BASE64" in release_workflow
+    assert "OPENSTREAM_VERSION_NAME" in release_workflow
+    assert "OPENSTREAM_VERSION_CODE" in release_workflow
     assert "OPENSTREAM_SKIP_INSTALL=1" in obs_workflow
     assert "OPENSTREAM_PLUGIN_PACKAGE_DIR" in obs_workflow
     assert "openstream-obs-windows-x64.zip" in obs_workflow
     assert "gh release create" in release_workflow
     assert "docs/release-notes-template.md" in release_workflow
-    assert "openstream-android-debug.apk" in release_workflow
+    assert "openstream-android.apk" in release_workflow
+    assert "openstream-android-debug.apk" not in release_workflow
     assert "openstream-obs-windows-x64.zip" in release_workflow
     assert "Do not pass `-Popenstream.nonStreamingCiBuild=true`" in release_docs
+    assert "Android Signing Secrets" in release_docs
     assert "OPENSTREAM_SKIP_INSTALL" in plugin_builder
     assert "OPENSTREAM_PLUGIN_PACKAGE_DIR" in plugin_builder
     assert "Compress-Archive" in plugin_builder
     assert "org.gradle.java.home" not in gradle_properties
+
+
+def test_release_build_fails_without_signing_and_keystores_are_ignored() -> None:
+    app_gradle = read("android/app/build.gradle.kts")
+    gitignore = read(".gitignore")
+
+    assert "Release builds require OPENSTREAM_RELEASE_KEYSTORE" in app_gradle
+    assert "openstream.versionName" in app_gradle
+    assert "openstream.versionCode" in app_gradle
+    assert "*.keystore" in gitignore
+    assert "*.jks" in gitignore
