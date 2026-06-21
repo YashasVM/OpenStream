@@ -22,6 +22,8 @@ __pycache__/
 .pytest_cache/
 
 local.properties
+*.keystore
+*.jks
 
 *.apk
 *.aab
