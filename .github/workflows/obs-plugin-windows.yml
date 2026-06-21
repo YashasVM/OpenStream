@@ -26,10 +26,28 @@ jobs:
           set OPENSTREAM_PLUGIN_PACKAGE_DIR=%CD%\artifacts
           call build_plugin.bat
 
-      - name: Upload plugin package
+      - name: Install Inno Setup
+        shell: powershell
+        run: choco install innosetup -y --no-progress
+
+      - name: Build plugin installer
+        shell: powershell
+        env:
+          OPENSTREAM_VERSION: ci
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "tools\installer\openstream-obs-plugin.iss" `
+            "/DPluginDll=$PWD\obs-plugin\build\openstream-obs.dll" `
+            "/DOutputDir=$PWD\artifacts" `
+            "/DOutputBaseFilename=openstream-obs-plugin-installer-windows-x64" `
+            "/DOpenStreamVersion=$env:OPENSTREAM_VERSION"
+
+      - name: Upload plugin package and installer
         uses: actions/upload-artifact@v4
         with:
           name: openstream-obs-windows-x64
-          path: artifacts/openstream-obs-windows-x64.zip
+          path: |
+            artifacts/openstream-obs-windows-x64.zip
+            artifacts/openstream-obs-plugin-installer-windows-x64.exe
           if-no-files-found: error
 

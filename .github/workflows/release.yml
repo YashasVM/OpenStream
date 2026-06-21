@@ -67,11 +67,32 @@ jobs:
           set OPENSTREAM_PLUGIN_PACKAGE_DIR=%CD%\artifacts
           call build_plugin.bat
 
+      - name: Install Inno Setup
+        shell: powershell
+        run: choco install innosetup -y --no-progress
+
+      - name: Build plugin installer
+        shell: powershell
+        env:
+          OPENSTREAM_VERSION: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if (-not $env:OPENSTREAM_VERSION) {
+            $env:OPENSTREAM_VERSION = "manual"
+          }
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "tools\installer\openstream-obs-plugin.iss" `
+            "/DPluginDll=$PWD\obs-plugin\build\openstream-obs.dll" `
+            "/DOutputDir=$PWD\artifacts" `
+            "/DOutputBaseFilename=openstream-obs-plugin-installer-windows-x64" `
+            "/DOpenStreamVersion=$env:OPENSTREAM_VERSION"
+
       - name: Upload plugin artifact
         uses: actions/upload-artifact@v4
         with:
           name: openstream-obs-windows-x64
-          path: artifacts/openstream-obs-windows-x64.zip
+          path: |
+            artifacts/openstream-obs-windows-x64.zip
+            artifacts/openstream-obs-plugin-installer-windows-x64.exe
           if-no-files-found: error
 
   publish:
@@ -101,6 +122,7 @@ jobs:
           TAG_NAME="${INPUT_TAG:-${GITHUB_REF_NAME}}"
           gh release create "$TAG_NAME" \
             dist/openstream-android-debug.apk \
+            dist/openstream-obs-plugin-installer-windows-x64.exe \
             dist/openstream-obs-windows-x64.zip \
             --target "$GITHUB_SHA" \
             --title "OpenStream ${TAG_NAME}" \

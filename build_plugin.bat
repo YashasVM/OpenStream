@@ -17,8 +17,11 @@ set "DEPS_DIR=%PLUGIN_DIR%\deps"
 set "OBS_SDK_DIR=%DEPS_DIR%\obs-sdk"
 set "FFMPEG_DIR=%DEPS_DIR%\ffmpeg"
 set "OBS_INSTALL=C:\Program Files\obs-studio"
-set "OBS_SDK_URL=https://github.com/obsproject/obs-studio/releases/download/31.0.0/OBS-Studio-31.0.0-SDK-Windows-x64.zip"
-set "OBS_SDK_ZIP=%DEPS_DIR%\obs-sdk.zip"
+set "OBS_SDK_URL=https://github.com/obsproject/obs-studio/releases/download/32.1.2/OBS-Studio-32.1.2-Sources.tar.gz"
+set "OBS_SDK_ZIP=%DEPS_DIR%\obs-source.tar.gz"
+set "FFMPEG_HEADERS_URL=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-lgpl-shared-7.1.zip"
+set "FFMPEG_HEADERS_ZIP=%DEPS_DIR%\ffmpeg-headers.zip"
+set "FFMPEG_HEADERS_DIR=%DEPS_DIR%\ffmpeg-headers"
 set "OBS_BIN="
 set "PACKAGE_DIR="
 set "CMAKE_EXE=cmake"
@@ -74,30 +77,24 @@ if errorlevel 1 (
 
 if not exist "%DEPS_DIR%" mkdir "%DEPS_DIR%"
 
-if not exist "%OBS_SDK_DIR%\include\obs-module.h" (
-    echo [2/6] Downloading OBS SDK...
+if not exist "%OBS_SDK_DIR%\libobs\obs-module.h" (
+    echo [2/6] Downloading OBS source headers...
     if not exist "%OBS_SDK_ZIP%" (
         curl -L --retry 3 -o "%OBS_SDK_ZIP%" "%OBS_SDK_URL%"
         if errorlevel 1 (
-            echo ERROR: Failed to download OBS SDK.
+            echo ERROR: Failed to download OBS source headers.
             echo Download manually from: %OBS_SDK_URL%
             echo Then extract it to: %OBS_SDK_DIR%
             exit /b 1
         )
     )
 
-    echo [2/6] Extracting OBS SDK...
+    echo [2/6] Extracting OBS source headers...
     if not exist "%OBS_SDK_DIR%" mkdir "%OBS_SDK_DIR%"
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '%OBS_SDK_ZIP%' -DestinationPath '%OBS_SDK_DIR%' -Force"
+    tar -xzf "%OBS_SDK_ZIP%" -C "%OBS_SDK_DIR%" --strip-components=1
     if errorlevel 1 exit /b 1
-
-    for /d %%D in ("%OBS_SDK_DIR%\*") do (
-        if exist "%%D\include\obs-module.h" (
-            xcopy /E /Y /I "%%D\*" "%OBS_SDK_DIR%\" >nul
-        )
-    )
 ) else (
-    echo [2/6] OBS SDK already present, skipping download.
+    echo [2/6] OBS source headers already present, skipping download.
 )
 
 echo [3/6] Setting up FFmpeg import libraries...
@@ -105,9 +102,27 @@ if not exist "%FFMPEG_DIR%" mkdir "%FFMPEG_DIR%"
 if not exist "%FFMPEG_DIR%\include" mkdir "%FFMPEG_DIR%\include"
 if not exist "%FFMPEG_DIR%\lib" mkdir "%FFMPEG_DIR%\lib"
 
-if exist "%OBS_SDK_DIR%\include\libavcodec" (
-    xcopy /E /Y /I "%OBS_SDK_DIR%\include\libav*" "%FFMPEG_DIR%\include\" >nul 2>&1
-    xcopy /E /Y /I "%OBS_SDK_DIR%\include\libsw*" "%FFMPEG_DIR%\include\" >nul 2>&1
+if not exist "%FFMPEG_DIR%\include\libavcodec\avcodec.h" (
+    echo   Downloading FFmpeg headers...
+    if not exist "%FFMPEG_HEADERS_ZIP%" (
+        curl -L --retry 3 -o "%FFMPEG_HEADERS_ZIP%" "%FFMPEG_HEADERS_URL%"
+        if errorlevel 1 (
+            echo ERROR: Failed to download FFmpeg headers.
+            echo Download manually from: %FFMPEG_HEADERS_URL%
+            exit /b 1
+        )
+    )
+
+    if exist "%FFMPEG_HEADERS_DIR%" rmdir /S /Q "%FFMPEG_HEADERS_DIR%"
+    mkdir "%FFMPEG_HEADERS_DIR%"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '%FFMPEG_HEADERS_ZIP%' -DestinationPath '%FFMPEG_HEADERS_DIR%' -Force"
+    if errorlevel 1 exit /b 1
+
+    for /d %%D in ("%FFMPEG_HEADERS_DIR%\ffmpeg-*") do (
+        if exist "%%D\include\libavcodec\avcodec.h" (
+            xcopy /E /Y /I "%%D\include\*" "%FFMPEG_DIR%\include\" >nul
+        )
+    )
 )
 
 for %%F in (avcodec avformat avutil swscale) do (
@@ -118,7 +133,7 @@ for %%F in (avcodec avformat avutil swscale) do (
                 dumpbin /exports "%%D" > "%DEPS_DIR%\%%F_exports.txt" 2>nul
                 echo LIBRARY %%~nxD> "%DEPS_DIR%\%%F.def"
                 echo EXPORTS>> "%DEPS_DIR%\%%F.def"
-                for /f "skip=19 tokens=4" %%E in (%DEPS_DIR%\%%F_exports.txt) do (
+                for /f "usebackq skip=19 tokens=4" %%E in ("%DEPS_DIR%\%%F_exports.txt") do (
                     if not "%%E"=="" echo %%E>> "%DEPS_DIR%\%%F.def"
                 )
                 lib /def:"%DEPS_DIR%\%%F.def" /out:"%FFMPEG_DIR%\lib\%%F.lib" /machine:x64 >nul 2>&1
@@ -137,7 +152,7 @@ if not exist "%FFMPEG_DIR%\lib\obs.lib" (
         dumpbin /exports "%OBS_BIN%\obs.dll" > "%DEPS_DIR%\obs_exports.txt" 2>nul
         echo LIBRARY obs.dll> "%DEPS_DIR%\obs.def"
         echo EXPORTS>> "%DEPS_DIR%\obs.def"
-        for /f "skip=19 tokens=4" %%E in (%DEPS_DIR%\obs_exports.txt) do (
+        for /f "usebackq skip=19 tokens=4" %%E in ("%DEPS_DIR%\obs_exports.txt") do (
             if not "%%E"=="" echo %%E>> "%DEPS_DIR%\obs.def"
         )
         lib /def:"%DEPS_DIR%\obs.def" /out:"%FFMPEG_DIR%\lib\obs.lib" /machine:x64 >nul 2>&1
@@ -149,7 +164,7 @@ if exist "%BUILD_DIR%" rmdir /S /Q "%BUILD_DIR%"
 mkdir "%BUILD_DIR%"
 
 set "OBS_ROOT=%OBS_SDK_DIR%"
-if not exist "%OBS_SDK_DIR%\include\obs-module.h" set "OBS_ROOT=%OBS_INSTALL%"
+if not exist "%OBS_SDK_DIR%\libobs\obs-module.h" set "OBS_ROOT=%OBS_INSTALL%"
 
 "%CMAKE_EXE%" -S "%PLUGIN_DIR%" -B "%BUILD_DIR%" ^
     -G "NMake Makefiles" ^
@@ -177,7 +192,13 @@ if not exist "%BUILD_DIR%\openstream-obs.dll" (
 if defined PACKAGE_DIR (
     echo [6/6] Packaging plugin artifact...
     if not exist "%PACKAGE_DIR%" mkdir "%PACKAGE_DIR%"
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path '%BUILD_DIR%\openstream-obs.dll' -DestinationPath '%PACKAGE_DIR%\openstream-obs-windows-x64.zip' -Force"
+    set "STAGE_DIR=%PACKAGE_DIR%\openstream-obs-windows-x64"
+    if exist "!STAGE_DIR!" rmdir /S /Q "!STAGE_DIR!"
+    mkdir "!STAGE_DIR!"
+    copy /Y "%BUILD_DIR%\openstream-obs.dll" "!STAGE_DIR!\openstream-obs.dll" >nul
+    copy /Y "%SCRIPT_DIR%tools\installer\Install-OpenStreamPlugin.ps1" "!STAGE_DIR!\Install-OpenStreamPlugin.ps1" >nul
+    copy /Y "%SCRIPT_DIR%tools\installer\install-openstream-plugin.bat" "!STAGE_DIR!\install-openstream-plugin.bat" >nul
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path '!STAGE_DIR!\*' -DestinationPath '%PACKAGE_DIR%\openstream-obs-windows-x64.zip' -Force"
     if errorlevel 1 exit /b 1
 ) else (
     echo [6/6] Packaging skipped.
@@ -192,6 +213,7 @@ if /I "%OPENSTREAM_SKIP_INSTALL%"=="1" (
 
 echo Installing plugin to OBS...
 set "DEST=%OBS_INSTALL%\obs-plugins\64bit"
+if not exist "%DEST%" mkdir "%DEST%"
 copy /Y "%BUILD_DIR%\openstream-obs.dll" "%DEST%\openstream-obs.dll"
 if errorlevel 1 (
     echo ERROR: Failed to copy plugin to %DEST%.

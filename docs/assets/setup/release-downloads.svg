@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+  <title id="title">OpenStream release downloads screenshot</title>
+  <desc id="desc">A screenshot-style release page highlighting the Android APK, Windows installer, and manual plugin zip.</desc>
+  <rect width="960" height="540" fill="#0f172a"/>
+  <rect x="56" y="44" width="848" height="452" rx="10" fill="#ffffff"/>
+  <rect x="56" y="44" width="848" height="64" rx="10" fill="#111827"/>
+  <circle cx="88" cy="76" r="7" fill="#ef4444"/>
+  <circle cx="112" cy="76" r="7" fill="#f59e0b"/>
+  <circle cx="136" cy="76" r="7" fill="#10b981"/>
+  <text x="176" y="82" font-family="Segoe UI, Arial, sans-serif" font-size="18" fill="#f8fafc">github.com/YashasVM/OpenStream/releases</text>
+  <text x="96" y="152" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="700" fill="#111827">OpenStream v0.1.1-beta</text>
+  <text x="96" y="188" font-family="Segoe UI, Arial, sans-serif" font-size="16" fill="#475569">Download these three files from Assets.</text>
+  <rect x="96" y="224" width="768" height="58" rx="8" fill="#ecfeff" stroke="#06b6d4"/>
+  <text x="124" y="259" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700" fill="#155e75">openstream-android-debug.apk</text>
+  <text x="650" y="259" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#0f766e">Android phone</text>
+  <rect x="96" y="302" width="768" height="58" rx="8" fill="#ecfdf5" stroke="#10b981"/>
+  <text x="124" y="337" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700" fill="#065f46">openstream-obs-plugin-installer-windows-x64.exe</text>
+  <text x="650" y="337" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#047857">Recommended</text>
+  <rect x="96" y="380" width="768" height="58" rx="8" fill="#f8fafc" stroke="#94a3b8"/>
+  <text x="124" y="415" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700" fill="#334155">openstream-obs-windows-x64.zip</text>
+  <text x="650" y="415" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#475569">Manual fallback</text>
+</svg>
