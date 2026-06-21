@@ -25,9 +25,9 @@
 
 | Need | Download |
 |---|---|
-| Android app | [`openstream-android-debug.apk`](https://github.com/YashasVM/OpenStream/releases/download/v0.1.1-beta/openstream-android-debug.apk) |
-| OBS plugin installer for Windows | [`openstream-obs-plugin-installer-windows-x64.exe`](https://github.com/YashasVM/OpenStream/releases/download/v0.1.1-beta/openstream-obs-plugin-installer-windows-x64.exe) |
-| Manual OBS plugin zip | [`openstream-obs-windows-x64.zip`](https://github.com/YashasVM/OpenStream/releases/download/v0.1.1-beta/openstream-obs-windows-x64.zip) |
+| Android app | [`openstream-android.apk`](https://github.com/YashasVM/OpenStream/releases/latest/download/openstream-android.apk) |
+| OBS plugin installer for Windows | [`openstream-obs-plugin-installer-windows-x64.exe`](https://github.com/YashasVM/OpenStream/releases/latest/download/openstream-obs-plugin-installer-windows-x64.exe) |
+| Manual OBS plugin zip | [`openstream-obs-windows-x64.zip`](https://github.com/YashasVM/OpenStream/releases/latest/download/openstream-obs-windows-x64.zip) |
 
 Need the non-technical walkthrough with screenshots? Start with [`docs/set-up.md`](docs/set-up.md).
 
@@ -70,6 +70,17 @@ Use OBS as usual. Phone audio appears as a separate OBS mixer channel, and camer
 
 > [!TIP]
 > Use a 5 GHz or Wi-Fi 6 network, keep both devices on the same subnet, and disable VPNs or router client isolation during first setup.
+
+---
+
+## Compatibility & Limits
+
+| Area | Current support |
+|---|---|
+| **Phone OS** | Android 10+ with Camera2 and hardware MediaCodec support. |
+| **OBS host** | Windows x64 with OBS Studio and FFmpeg SRT support. |
+| **Network** | Same LAN/subnet; guest Wi-Fi, VPNs, and client isolation can block discovery. |
+| **Release maturity** | Beta. Expect device-specific camera quirks and Wi-Fi-dependent latency. |
 
 ---
 
@@ -141,13 +152,15 @@ Discovery uses UDP port `51515`. Camera remote controls use the phone HTTP contr
 
 ### Android App
 
+Development build:
+
 ```powershell
 cd android
 $env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'
 .\gradlew.bat :app:assembleDebug
 ```
 
-APK output:
+Debug APK output:
 
 ```text
 android/app/build/outputs/apk/debug/app-debug.apk
@@ -155,6 +168,16 @@ android/app/build/outputs/apk/debug/app-debug.apk
 
 > [!NOTE]
 > Normal APK builds link bundled libsrt static libraries for real network streaming. Use `-Popenstream.nonStreamingCiBuild=true` only for intentional source-compile checks.
+
+Signed release build:
+
+```powershell
+$env:OPENSTREAM_RELEASE_KEYSTORE = "$PWD\openstream-release.keystore"
+$env:OPENSTREAM_RELEASE_STORE_PASSWORD = "<store-password>"
+$env:OPENSTREAM_RELEASE_KEY_ALIAS = "<key-alias>"
+$env:OPENSTREAM_RELEASE_KEY_PASSWORD = "<key-password>"
+.\gradlew.bat :app:assembleRelease
+```
 
 ### OBS Plugin
 
@@ -182,7 +205,7 @@ GitHub Actions publishes:
 
 | Asset | Purpose |
 |---|---|
-| `openstream-android-debug.apk` | Android app install package |
+| `openstream-android.apk` | Signed Android app install package |
 | `openstream-obs-plugin-installer-windows-x64.exe` | Recommended Windows OBS plugin installer |
 | `openstream-obs-windows-x64.zip` | Manual OBS plugin package |
 
