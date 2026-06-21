@@ -282,11 +282,13 @@
                 android:layout_height="@dimen/os_control_btn_size"
                 android:gravity="center"
                 android:background="@drawable/bg_btn_ghost"
-                android:text="🔦"
+                android:text="LIGHT"
                 android:textColor="@color/os_text_secondary"
-                android:textSize="18sp"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.03"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
                 android:layout_marginEnd="@dimen/os_spacing_sm" />
 
             <!-- Flip camera button -->
@@ -310,11 +312,13 @@
                 android:layout_height="@dimen/os_control_btn_size"
                 android:gravity="center"
                 android:background="@drawable/bg_btn_ghost"
-                android:text="⚙"
+                android:text="ADV"
                 android:textColor="@color/os_text_secondary"
-                android:textSize="18sp"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.03"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
                 android:layout_marginEnd="@dimen/os_spacing_sm" />
 
             <!-- Stop button -->
@@ -324,11 +328,13 @@
                 android:layout_height="@dimen/os_control_btn_size"
                 android:gravity="center"
                 android:background="@drawable/bg_btn_danger"
-                android:text="⏹"
+                android:text="STOP"
                 android:textColor="@color/os_live_red"
-                android:textSize="18sp"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.03"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
                 android:visibility="gone" />
         </LinearLayout>
 

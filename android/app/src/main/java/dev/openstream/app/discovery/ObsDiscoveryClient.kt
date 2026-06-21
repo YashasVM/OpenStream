@@ -124,7 +124,10 @@ class ObsDiscoveryClient(
 
     private fun publishDevices() {
         val snapshot = synchronized(devices) {
-            devices.values.sortedWith(compareBy<DiscoveredObsDevice> { it.busy }.thenBy { it.name }).toList()
+            devices.values.sortedWith(
+                compareBy<DiscoveredObsDevice> { it.displayLabel }
+                    .thenBy { it.sourceInstanceId }
+            ).toList()
         }
         mainHandler.post {
             onDevicesChanged(snapshot)

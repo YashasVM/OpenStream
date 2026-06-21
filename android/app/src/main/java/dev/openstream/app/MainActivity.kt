@@ -284,6 +284,8 @@ class MainActivity : Activity() {
         btnManualToggle.setOnClickListener {
             manualContainer.visibility =
                 if (manualContainer.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            btnManualToggle.text =
+                if (manualContainer.visibility == View.VISIBLE) "ADV ON" else "ADV"
         }
         btnManualConnect.setOnClickListener { startStream(connectionTargetFromManualFields()) }
         btnStop.setOnClickListener { stopPhoneServer() }
@@ -452,7 +454,7 @@ class MainActivity : Activity() {
         obsSlotList.removeAllViews()
         if (devices.isEmpty()) {
             val empty = TextView(this).apply {
-                text = "Available OBS cameras"
+                text = "Available OBS cameras\nNo OBS camera slots found"
                 textSize = 12f
                 typeface = Typeface.DEFAULT_BOLD
                 setTextColor(getColor(R.color.os_text_tertiary))
@@ -478,7 +480,7 @@ class MainActivity : Activity() {
             val isReservedForThisPhone = reservedBy == device.sourceInstanceId
             val enabled = !device.busy || isReservedForThisPhone
             val card = TextView(this).apply {
-                text = "${device.displayLabel} · ${if (enabled) device.availabilityLabel else "Busy"}"
+                text = "${device.displayLabel} \u00B7 ${slotAvailabilityLabel(device, isReservedForThisPhone)}"
                 textSize = 15f
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
@@ -515,6 +517,18 @@ class MainActivity : Activity() {
         if (reserveForSource(device.sourceInstanceId, device.displayLabel)) {
             statusText.text = "Paired to ${device.displayLabel}"
             statusDetail.text = "Waiting for OBS to go live"
+        }
+    }
+
+    private fun slotAvailabilityLabel(
+        device: DiscoveredObsDevice,
+        reservedForThisPhone: Boolean,
+    ): String {
+        return when {
+            reservedForThisPhone && phoneConnected -> "Live"
+            reservedForThisPhone -> "Reserved"
+            device.busy -> "Busy"
+            else -> "Available"
         }
     }
 

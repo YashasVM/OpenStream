@@ -11,9 +11,9 @@
     <!-- Buttons -->
     <string name="btn_screen_on">Screen</string>
     <string name="btn_screen_on_active">Screen ✓</string>
-    <string name="btn_flip_camera">⟲</string>
+    <string name="btn_flip_camera">FLIP</string>
     <string name="btn_connect">Connect</string>
-    <string name="btn_stop">⏹ Stop</string>
+    <string name="btn_stop">STOP</string>
 
     <!-- Status -->
     <string name="status_ready">Ready</string>
@@ -23,7 +23,7 @@
 
     <!-- Sections -->
     <string name="section_connection">Connection</string>
-    <string name="section_manual">Advanced connect</string>
+    <string name="section_manual">Advanced</string>
 
     <!-- Hints -->
     <string name="hint_obs_host">OBS PC IP address</string>
