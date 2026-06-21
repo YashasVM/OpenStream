@@ -17,13 +17,13 @@
 
     <!-- Status -->
     <string name="status_ready">Ready</string>
-    <string name="status_waiting">Listening · port %1$d</string>
+    <string name="status_waiting">Choose an OBS camera slot</string>
     <string name="status_streaming">Live → %1$s</string>
     <string name="status_stopped">Stopped</string>
 
     <!-- Sections -->
     <string name="section_connection">Connection</string>
-    <string name="section_manual">Manual connect ▸</string>
+    <string name="section_manual">Advanced connect</string>
 
     <!-- Hints -->
     <string name="hint_obs_host">OBS PC IP address</string>
