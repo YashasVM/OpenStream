@@ -6,7 +6,7 @@ This beta release includes direct install downloads for the Android app and Wind
 
 | File | Use |
 |---|---|
-| `openstream-android-debug.apk` | Install this on your Android phone. |
+| `openstream-android.apk` | Install this on your Android phone. |
 | `openstream-obs-plugin-installer-windows-x64.exe` | Recommended Windows installer for the OBS plugin. |
 | `openstream-obs-windows-x64.zip` | Manual plugin package with DLL and install scripts. |
 

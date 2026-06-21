@@ -26,9 +26,9 @@ Open the latest OpenStream release and download:
 
 | File | Install on | Use |
 |---|---|---|
-| [`openstream-android-debug.apk`](https://github.com/YashasVM/OpenStream/releases/download/v0.1.1-beta/openstream-android-debug.apk) | Android phone | Installs the camera app. |
-| [`openstream-obs-plugin-installer-windows-x64.exe`](https://github.com/YashasVM/OpenStream/releases/download/v0.1.1-beta/openstream-obs-plugin-installer-windows-x64.exe) | Windows PC | Installs the OBS plugin automatically. |
-| [`openstream-obs-windows-x64.zip`](https://github.com/YashasVM/OpenStream/releases/download/v0.1.1-beta/openstream-obs-windows-x64.zip) | Windows PC | Manual fallback package. |
+| [`openstream-android.apk`](https://github.com/YashasVM/OpenStream/releases/latest/download/openstream-android.apk) | Android phone | Installs the camera app. |
+| [`openstream-obs-plugin-installer-windows-x64.exe`](https://github.com/YashasVM/OpenStream/releases/latest/download/openstream-obs-plugin-installer-windows-x64.exe) | Windows PC | Installs the OBS plugin automatically. |
+| [`openstream-obs-windows-x64.zip`](https://github.com/YashasVM/OpenStream/releases/latest/download/openstream-obs-windows-x64.zip) | Windows PC | Manual fallback package. |
 
 ![Release downloads screenshot](assets/setup/release-downloads.svg)
 
@@ -39,7 +39,7 @@ Open the latest OpenStream release and download:
 
 ## 2. Install the Android App
 
-1. Move `openstream-android-debug.apk` to your Android phone.
+1. Move `openstream-android.apk` to your Android phone.
 2. Open the APK from your Downloads app or file manager.
 3. If Android blocks the install, allow installs from that app when prompted.
 4. Open `OpenStream`.
