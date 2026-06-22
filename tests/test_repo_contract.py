@@ -55,7 +55,7 @@ def test_android_connection_target_builds_srt_caller_url_and_pairing_targets() -
 
 def test_obs_plugin_registers_openstream_source_and_discovery() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
-    assert "openstream_phone_v7_source" in source
+    assert "openstream_phone_v8_source" in source
     assert "obs_register_source" in source
     assert "OpenStream" in source
     assert "listener_enabled" in source
@@ -104,7 +104,7 @@ def test_obs_sources_are_named_camera_slots_with_advanced_transport() -> None:
     assert "slot_id" in source
     assert "slot_label" in source
     assert "slot_status" in source
-    assert "Connect a phone to " in source
+    assert "Waiting for a phone to choose " in source
     assert "pairing_hint" in source
     assert "OBS_GROUP_CHECKABLE, advanced_group" in source
     assert "listener_port" in source
@@ -164,7 +164,7 @@ def test_identify_camera_control_round_trip_exists() -> None:
     control = read("android/app/src/main/java/dev/openstream/app/control/CameraControlServer.kt")
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
     layout = read("android/app/src/main/res/layout/activity_main.xml")
-    assert "Identify Camera" in source
+    assert "Show Slot Label on Phone" in source
     assert '"/identify"' in source
     assert 'path == "/identify"' in control
     assert "handleIdentify" in control

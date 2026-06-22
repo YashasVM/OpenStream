@@ -58,7 +58,7 @@ Download and run `openstream-obs-plugin-installer-windows-x64.exe` on the Window
 
 ### 3. Add Camera Slots in OBS
 
-In OBS, click `+` in Sources, choose `OpenStream V7`, keep the camera slot enabled, and press OK. Each source gets a slot such as `CAM A` or `CAM B`, so multi-phone setups can stay organized.
+In OBS, click `+` in Sources, choose `OpenStream V8`, keep the camera slot enabled, and press OK. Each source gets a slot such as `CAM A` or `CAM B`, so multi-phone setups can stay organized.
 
 ### 4. Pair the Phone
 
@@ -108,7 +108,7 @@ Use OBS as usual. Phone audio appears as a separate OBS mixer channel, camera co
 
 | Feature | Details |
 |---|---|
-| **Native OBS Source** | Adds an `OpenStream V7` source type inside OBS Studio. |
+| **Native OBS Source** | Adds an `OpenStream V8` source type inside OBS Studio. |
 | **One-Click Installer** | Windows installer copies the plugin into the OBS plugin folder. |
 | **Camera Slots** | Gives each source a stable slot label such as `CAM A`, `CAM B`, or a custom slot name. |
 | **Phone Discovery** | Lists discovered Android phones and can let the phone choose the OBS slot. |
@@ -125,7 +125,7 @@ Use OBS as usual. Phone audio appears as a separate OBS mixer channel, camera co
 | Moment | Experience |
 |---|---|
 | **First launch** | The phone opens directly to the camera preview, requests camera/microphone permissions, and waits for OBS. |
-| **OBS setup** | Add one `OpenStream V7` source per camera angle, then name slots for the production layout. |
+| **OBS setup** | Add one `OpenStream V8` source per camera angle, then name slots for the production layout. |
 | **Pairing** | The phone lists available OBS slots; OBS can also select a discovered phone or show a pairing URL. |
 | **Going live** | A `LIVE` badge, zoom chip, stream stats, and status text make the active connection visible at a glance. |
 | **Multi-camera work** | Busy and reserved slots prevent two phones from fighting over the same source. |
