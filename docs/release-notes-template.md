@@ -19,6 +19,9 @@ OpenStream V2 is focused on making the Android-to-OBS setup easier to understand
 | `openstream-obs-plugin-installer-windows-x64.exe` | Recommended Windows installer for the OBS plugin. |
 | `openstream-obs-windows-x64.zip` | Manual plugin package with DLL and install scripts. |
 
+> [!NOTE]
+> The Android APK is signed with the release key when repository signing secrets are configured. Preview builds may be debug-signed.
+
 ## Install
 
 1. Install the APK on your Android phone.

@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   android:
-    name: Build signed Android APK
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
@@ -35,17 +35,33 @@ jobs:
       - name: Install Android build packages
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "cmake;3.22.1" "ndk;27.0.12077973"
 
+      - name: Check Android signing inputs
+        id: signing
+        env:
+          OPENSTREAM_RELEASE_KEYSTORE_BASE64: ${{ secrets.OPENSTREAM_RELEASE_KEYSTORE_BASE64 }}
+          OPENSTREAM_RELEASE_STORE_PASSWORD: ${{ secrets.OPENSTREAM_RELEASE_STORE_PASSWORD }}
+          OPENSTREAM_RELEASE_KEY_ALIAS: ${{ secrets.OPENSTREAM_RELEASE_KEY_ALIAS }}
+          OPENSTREAM_RELEASE_KEY_PASSWORD: ${{ secrets.OPENSTREAM_RELEASE_KEY_PASSWORD }}
+        run: |
+          if [ -n "$OPENSTREAM_RELEASE_KEYSTORE_BASE64" ] &&
+             [ -n "$OPENSTREAM_RELEASE_STORE_PASSWORD" ] &&
+             [ -n "$OPENSTREAM_RELEASE_KEY_ALIAS" ] &&
+             [ -n "$OPENSTREAM_RELEASE_KEY_PASSWORD" ]; then
+            echo "has_signing=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_signing=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Android release signing secrets are incomplete; publishing debug-signed beta APK."
+          fi
+
       - name: Decode Android signing key
+        if: steps.signing.outputs.has_signing == 'true'
         env:
           OPENSTREAM_RELEASE_KEYSTORE_BASE64: ${{ secrets.OPENSTREAM_RELEASE_KEYSTORE_BASE64 }}
         run: |
-          if [ -z "$OPENSTREAM_RELEASE_KEYSTORE_BASE64" ]; then
-            echo "::error::Missing OPENSTREAM_RELEASE_KEYSTORE_BASE64 secret. Releases must publish a signed APK."
-            exit 1
-          fi
           printf '%s' "$OPENSTREAM_RELEASE_KEYSTORE_BASE64" | base64 --decode > android/app/openstream-release.keystore
 
       - name: Build signed release APK with native SRT enabled
+        if: steps.signing.outputs.has_signing == 'true'
         working-directory: android
         env:
           OPENSTREAM_RELEASE_KEYSTORE: ${{ github.workspace }}/android/app/openstream-release.keystore
@@ -55,20 +71,37 @@ jobs:
           OPENSTREAM_VERSION_NAME: ${{ inputs.tag || github.ref_name }}
           OPENSTREAM_VERSION_CODE: ${{ github.run_number }}
         run: |
-          for name in OPENSTREAM_RELEASE_STORE_PASSWORD OPENSTREAM_RELEASE_KEY_ALIAS OPENSTREAM_RELEASE_KEY_PASSWORD; do
-            if [ -z "${!name}" ]; then
-              echo "::error::Missing ${name} secret. Releases must publish a signed APK."
-              exit 1
-            fi
-          done
           chmod +x ./gradlew
           ./gradlew --no-daemon :app:assembleRelease
+
+      - name: Build debug-signed beta APK with native SRT enabled
+        if: steps.signing.outputs.has_signing != 'true'
+        working-directory: android
+        env:
+          OPENSTREAM_VERSION_NAME: ${{ inputs.tag || github.ref_name }}
+          OPENSTREAM_VERSION_CODE: ${{ github.run_number }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon :app:assembleDebug
+
+      - name: Normalize Android APK artifact
+        run: |
+          mkdir -p dist
+          if [ -f android/app/build/outputs/apk/release/app-release.apk ]; then
+            cp android/app/build/outputs/apk/release/app-release.apk dist/openstream-android.apk
+            printf 'signed-release\n' > dist/android-signing.txt
+          else
+            cp android/app/build/outputs/apk/debug/app-debug.apk dist/openstream-android.apk
+            printf 'debug-signed-beta\n' > dist/android-signing.txt
+          fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: openstream-android-release-apk
-          path: android/app/build/outputs/apk/release/app-release.apk
+          name: openstream-android-apk
+          path: |
+            dist/openstream-android.apk
+            dist/android-signing.txt
           if-no-files-found: error
 
   obs-plugin:
@@ -133,9 +166,11 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Normalize artifact names
+      - name: Verify release assets
         run: |
-          cp dist/app-release.apk dist/openstream-android.apk
+          test -f dist/openstream-android.apk
+          test -f dist/openstream-obs-plugin-installer-windows-x64.exe
+          test -f dist/openstream-obs-windows-x64.zip
 
       - name: Create release
         env:

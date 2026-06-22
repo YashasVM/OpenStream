@@ -247,6 +247,7 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "openstream.nonStreamingCiBuild" not in android_workflow
     assert "openstream-android-debug-apk" in android_workflow
     assert ":app:assembleRelease" in release_workflow
+    assert ":app:assembleDebug" in release_workflow
     assert "OPENSTREAM_RELEASE_KEYSTORE_BASE64" in release_workflow
     assert "OPENSTREAM_VERSION_NAME" in release_workflow
     assert "OPENSTREAM_VERSION_CODE" in release_workflow
@@ -256,9 +257,9 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "gh release create" in release_workflow
     assert "docs/release-notes-template.md" in release_workflow
     assert "openstream-android.apk" in release_workflow
-    assert "openstream-android-debug.apk" not in release_workflow
+    assert "debug-signed-beta" in release_workflow
     assert "openstream-obs-windows-x64.zip" in release_workflow
-    assert "Do not pass `-Popenstream.nonStreamingCiBuild=true`" in release_docs
+    assert "debug-signed beta APK" in release_docs
     assert "Android Signing Secrets" in release_docs
     assert "OPENSTREAM_SKIP_INSTALL" in plugin_builder
     assert "OPENSTREAM_PLUGIN_PACKAGE_DIR" in plugin_builder

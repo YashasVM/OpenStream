@@ -131,7 +131,7 @@ def test_pairing_url_acceptance_contract_clamps_network_values() -> None:
     assert parse_pairing_url("https://example.test") is None
 
 
-def test_release_workflow_requires_signed_android_release_apk() -> None:
+def test_release_workflow_prefers_signed_android_apk_with_debug_fallback() -> None:
     release_workflow = read(".github/workflows/release.yml")
 
     assert "OPENSTREAM_RELEASE_KEYSTORE_BASE64" in release_workflow
@@ -139,7 +139,6 @@ def test_release_workflow_requires_signed_android_release_apk() -> None:
     assert "OPENSTREAM_RELEASE_KEY_ALIAS" in release_workflow
     assert "OPENSTREAM_RELEASE_KEY_PASSWORD" in release_workflow
     assert ":app:assembleRelease" in release_workflow
-    assert "app/build/outputs/apk/release/app-release.apk" in release_workflow
+    assert ":app:assembleDebug" in release_workflow
+    assert "debug-signed-beta" in release_workflow
     assert "dist/openstream-android.apk" in release_workflow
-    assert "openstream-android-debug.apk" not in release_workflow
-    assert ":app:assembleDebug" not in release_workflow

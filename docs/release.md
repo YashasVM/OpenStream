@@ -33,9 +33,11 @@ You can also run the `Release` workflow manually from GitHub Actions and provide
 
 The Android job passes the release tag into Gradle as the APK `versionName` and uses the GitHub run number as `versionCode`, so the installed app version should match the release being published.
 
+If Android signing secrets are configured, the workflow publishes a signed release APK. If they are missing, it publishes a debug-signed beta APK so preview releases can still ship with the OBS plugin assets.
+
 ### Android Signing Secrets
 
-Tagged releases require a signed Android APK. Configure these GitHub Actions secrets before publishing:
+Configure these GitHub Actions secrets when you want GitHub releases to publish a signed Android APK:
 
 | Secret | Purpose |
 |---|---|
@@ -76,7 +78,7 @@ $env:OPENSTREAM_OBS_INSTALL = "D:\Apps\obs-studio"
 
 ## Local Android Build
 
-Android release validation should use the real streaming build:
+Android release validation should use the real streaming build. Signed release validation requires a keystore:
 
 ```powershell
 cd android
@@ -87,14 +89,14 @@ $env:OPENSTREAM_RELEASE_KEY_PASSWORD = "<key-password>"
 .\gradlew.bat :app:assembleRelease
 ```
 
-Do not pass `-Popenstream.nonStreamingCiBuild=true` for release artifacts.
+Do not pass `-Popenstream.nonStreamingCiBuild=true` for release artifacts. If signing secrets are unavailable, validate the debug-signed fallback with `:app:assembleDebug` instead.
 
 ## Release Checklist
 
 - Confirm the README links point to the release tag being published.
 - Confirm the setup guide links to the same APK, installer EXE, and plugin zip.
 - Confirm OBS lists `OpenStream V8` and can still load saved `openstream_phone_v7_source` scenes.
-- Confirm the Android APK is signed and installable on a clean phone.
+- Confirm the Android APK is installable on a clean phone. Prefer signed release APKs for public releases; debug-signed beta APKs are acceptable for preview tags.
 - Confirm the GitHub release assets are attached, not only source-code archives.
 - Confirm the repository website is set to `https://openstream.pages.dev`.
 - Confirm the release notes link users to [`docs/set-up.md`](set-up.md).
