@@ -1,6 +1,6 @@
 # OpenStream Set-Up Guide
 
-This guide is the slower, screenshot-led path for installing OpenStream on an Android phone and a Windows OBS Studio PC.
+This guide is the slower, screenshot-led path for installing OpenStream V2 on an Android phone and a Windows OBS Studio PC.
 
 For the fast technical version, use the [README quick start](../README.md#quick-start).
 
@@ -13,7 +13,7 @@ For the fast technical version, use the [README quick start](../README.md#quick-
 | Android phone | Android 10 or newer is recommended. The phone must support Camera2. |
 | Windows PC | OBS Studio installed on Windows x64. |
 | Same network | Phone and PC must be on the same Wi-Fi or LAN subnet. |
-| Release files | APK for the phone, installer EXE for the OBS plugin. |
+| Release files | V2 APK for the phone, installer EXE for the OBS plugin. |
 
 > [!TIP]
 > If discovery does not work, temporarily disable VPNs, guest Wi-Fi, and router client isolation.
@@ -22,7 +22,7 @@ For the fast technical version, use the [README quick start](../README.md#quick-
 
 ## 1. Download the Release Files
 
-Open the latest OpenStream release and download:
+Open the latest OpenStream V2 release and download:
 
 | File | Install on | Use |
 |---|---|---|
@@ -66,6 +66,21 @@ The installer copies `openstream-obs.dll` into:
 C:\Program Files\obs-studio\obs-plugins\64bit\
 ```
 
+> [!IMPORTANT]
+> Close OBS before installing or replacing the plugin. Windows can keep the old DLL loaded while OBS is open.
+
+### Upgrading from an Older OpenStream Plugin
+
+OpenStream V2 appears in OBS as `OpenStream V8`. Existing scene sources created with `OpenStream V7` are still supported, but the saved source names may remain `OpenStream V7` until you rename them in OBS.
+
+If OBS still shows an older OpenStream source after installing V2, check these plugin locations and remove or replace stale copies:
+
+```text
+C:\Program Files\obs-studio\obs-plugins\64bit\openstream-obs.dll
+C:\ProgramData\obs-studio\plugins\openstream-obs\bin\64bit\openstream-obs.dll
+%APPDATA%\obs-studio\plugins\openstream-obs\bin\64bit\openstream-obs.dll
+```
+
 ### Manual Plugin Install
 
 Use this only if the installer EXE is blocked or you want to inspect the files first.
@@ -88,15 +103,15 @@ openstream-obs.dll -> C:\Program Files\obs-studio\obs-plugins\64bit\openstream-o
 
 1. Open OBS Studio.
 2. In `Sources`, click `+`.
-3. Choose `OpenStream`.
-4. Keep auto-connect enabled.
-5. Leave the default SRT port as `9000`.
-6. Leave latency at `120 ms` for the first test.
+3. Choose `OpenStream V8`.
+4. In `1. Camera Slot`, keep `Let the phone choose this slot` selected for the first test.
+5. Rename `OBS slot name` if you want a production label such as `Main CAM` or `Desk CAM`.
+6. Leave `3. Network & Pairing (Advanced)` collapsed unless discovery fails.
 7. Click OK.
 
 ![OBS source screenshot](assets/setup/obs-source.svg)
 
-The source can stay blank until a phone connects.
+The source can stay blank until a phone connects. That is normal.
 
 ---
 
@@ -105,7 +120,7 @@ The source can stay blank until a phone connects.
 1. Put the phone and PC on the same Wi-Fi network.
 2. Open OpenStream on the phone.
 3. Wait for the OBS device to appear.
-4. Tap the discovered OBS device.
+4. Tap the discovered OBS slot, such as `CAM A`, `Main CAM`, or `Backup cam`.
 5. The phone camera should appear in OBS.
 
 ![Android connect screenshot](assets/setup/android-connect.svg)
@@ -116,7 +131,7 @@ If the phone does not find OBS, use manual connect:
 |---|---|
 | OBS PC IP address | Your PC's LAN IP, for example `192.168.1.25` |
 | SRT port | `9000` |
-| Latency | `120` |
+| Latency | `120 ms` |
 
 ---
 
@@ -126,9 +141,11 @@ In OBS:
 
 1. Look for the OpenStream audio channel in the mixer.
 2. Open the OpenStream source properties.
-3. Try the zoom slider.
-4. Try torch on/off if the selected phone camera supports it.
-5. Switch front/back camera from the source properties or phone UI.
+3. Use `2. Live Camera Controls`.
+4. Try the zoom slider.
+5. Try torch on/off if the selected phone camera supports it.
+6. Switch rear/front camera from the source properties or phone UI.
+7. Use `Show Slot Label on Phone` to confirm which physical phone belongs to the OBS source.
 
 ---
 
@@ -138,7 +155,8 @@ In OBS:
 |---|---|
 | Installer cannot find OBS | Re-run it and choose the folder that contains `bin\64bit\obs64.exe`. |
 | Windows blocks the EXE | Use `More info` then `Run anyway`, or use the manual zip install. |
-| OpenStream source is missing in OBS | Confirm `openstream-obs.dll` is in `C:\Program Files\obs-studio\obs-plugins\64bit\`, then restart OBS. |
+| OpenStream V8 is missing in OBS | Confirm `openstream-obs.dll` is in one of the plugin folders above, remove stale older copies, then restart OBS. |
+| Old OpenStream source is still visible | OBS may be loading an older all-users DLL from `C:\ProgramData\obs-studio\plugins\openstream-obs\bin\64bit\`. Replace it with the V2 DLL or remove it. |
 | Phone cannot see OBS | Put both devices on the same Wi-Fi, disable VPNs, and check guest/client isolation. |
 | Camera stays blank | Start with port `9000`, latency `120 ms`, and one phone only. |
 | Audio is missing | Grant microphone permission on Android and check the OBS mixer channel. |
