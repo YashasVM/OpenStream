@@ -90,6 +90,8 @@ def test_obs_plugin_routes_multiple_phones_by_selected_slot() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
     assert "selected_phone_id" in source
     assert "Discovered phones" in source
+    assert "Refresh Phones" in source
+    assert "refresh_devices" in source
     assert "kAutoPhoneId" in source
     assert "std::map<std::string, PhoneDevice> devices_" in source
     assert "reserve_phone" in source

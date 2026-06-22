@@ -1739,6 +1739,20 @@ obs_properties_t *openstream_properties(void *data) {
       obs_property_list_add_string(phone_list, "Selected phone unavailable", ctx->selected_phone_id.c_str());
     }
   }
+  obs_property_t *refresh_button =
+      obs_properties_add_button(slot_group, "refresh_devices", "Refresh Phones", [](obs_properties_t *, obs_property_t *, void *data) {
+    auto *ctx = static_cast<OpenStreamSource *>(data);
+    if (ctx) {
+      blog(LOG_INFO,
+           "[OpenStream] Refreshing discovered phones for %s",
+           ctx->slot_label.c_str());
+    }
+    return true;
+  });
+  obs_property_set_long_description(
+      refresh_button,
+      "Refreshes the discovered phone list without closing this properties window.");
+
   obs_property_t *connect_button =
       obs_properties_add_button(slot_group, "connect", "Start / Retry Connection", [](obs_properties_t *, obs_property_t *, void *data) {
     auto *ctx = static_cast<OpenStreamSource *>(data);

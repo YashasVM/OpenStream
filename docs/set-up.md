@@ -106,8 +106,9 @@ openstream-obs.dll -> C:\Program Files\obs-studio\obs-plugins\64bit\openstream-o
 3. Choose `OpenStream V8`.
 4. In `1. Camera Slot`, keep `Let the phone choose this slot` selected for the first test.
 5. Rename `OBS slot name` if you want a production label such as `Main CAM` or `Desk CAM`.
-6. Leave `3. Network & Pairing (Advanced)` collapsed unless discovery fails.
-7. Click OK.
+6. Use `Refresh Phones` if your Android device appears after the properties window is already open.
+7. Leave `3. Network & Pairing (Advanced)` collapsed unless discovery fails.
+8. Click OK.
 
 ![OBS source screenshot](assets/setup/obs-source.svg)
 
