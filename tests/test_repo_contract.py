@@ -56,6 +56,8 @@ def test_android_connection_target_builds_srt_caller_url_and_pairing_targets() -
 def test_obs_plugin_registers_openstream_source_and_discovery() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
     assert "openstream_phone_v8_source" in source
+    assert "openstream_phone_v7_source" in source
+    assert "openstream_legacy_source_info" in source
     assert "obs_register_source" in source
     assert "OpenStream" in source
     assert "listener_enabled" in source

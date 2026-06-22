@@ -1894,6 +1894,18 @@ obs_source_info openstream_source_info = {
     .get_properties = openstream_properties,
     .update = openstream_update,
 };
+
+obs_source_info openstream_legacy_source_info = {
+    .id = "openstream_phone_v7_source",
+    .type = OBS_SOURCE_TYPE_INPUT,
+    .output_flags = OBS_SOURCE_ASYNC_VIDEO | OBS_SOURCE_AUDIO,
+    .get_name = openstream_get_name,
+    .create = openstream_create,
+    .destroy = openstream_destroy,
+    .get_defaults = openstream_defaults,
+    .get_properties = openstream_properties,
+    .update = openstream_update,
+};
 }  // namespace
 
 bool obs_module_load(void) {
@@ -1906,6 +1918,7 @@ bool obs_module_load(void) {
   }
 #endif
   obs_register_source(&openstream_source_info);
+  obs_register_source(&openstream_legacy_source_info);
   blog(LOG_INFO, "[OpenStream] OBS plugin loaded: V8 — video + audio + remote controls (Made by @yashas.vm)");
   return true;
 }
