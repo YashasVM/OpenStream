@@ -264,6 +264,15 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "org.gradle.java.home" not in gradle_properties
 
 
+def test_manual_obs_installer_replaces_known_plugin_copies() -> None:
+    installer = read("tools/installer/Install-OpenStreamPlugin.ps1")
+
+    assert "Get-OpenStreamPluginTargets" in installer
+    assert "ProgramData" in installer
+    assert "APPDATA" in installer
+    assert "OpenStream V8" in installer
+
+
 def test_release_build_fails_without_signing_and_keystores_are_ignored() -> None:
     app_gradle = read("android/app/build.gradle.kts")
     gitignore = read(".gitignore")
