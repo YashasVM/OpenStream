@@ -12,11 +12,11 @@ OpenStream releases should give users direct installable assets instead of makin
 
 ## Automated Release
 
-Create and push a version tag:
+Create and push a version tag. The V2 beta release uses `v2.0.0-beta`:
 
 ```powershell
-git tag vX.Y.Z-beta
-git push origin vX.Y.Z-beta
+git tag v2.0.0-beta
+git push origin v2.0.0-beta
 ```
 
 The `Release` workflow builds:
@@ -29,7 +29,7 @@ The `Release` workflow builds:
 
 The publish job downloads the build artifacts, normalizes the APK name, and runs `gh release create` with the three user-facing files.
 
-You can also run the `Release` workflow manually from GitHub Actions and provide a tag such as `vX.Y.Z-beta`.
+You can also run the `Release` workflow manually from GitHub Actions and provide a tag such as `v2.0.0-beta`.
 
 The Android job passes the release tag into Gradle as the APK `versionName` and uses the GitHub run number as `versionCode`, so the installed app version should match the release being published.
 
@@ -93,6 +93,7 @@ Do not pass `-Popenstream.nonStreamingCiBuild=true` for release artifacts.
 
 - Confirm the README links point to the release tag being published.
 - Confirm the setup guide links to the same APK, installer EXE, and plugin zip.
+- Confirm OBS lists `OpenStream V8` and can still load saved `openstream_phone_v7_source` scenes.
 - Confirm the Android APK is signed and installable on a clean phone.
 - Confirm the GitHub release assets are attached, not only source-code archives.
 - Confirm the repository website is set to `https://openstream.pages.dev`.
