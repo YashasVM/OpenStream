@@ -4,6 +4,7 @@ import android.Manifest
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
@@ -192,6 +193,7 @@ class MainActivity : Activity() {
         setupNavBarInsets()
         renderConnectionInfo()
         handlePairingIntent(intent)
+        showVersionInstalledDialogOnce()
         mainHandler.postDelayed({ appUpdater.checkForUpdates() }, UPDATE_CHECK_DELAY_MS)
     }
 
@@ -849,6 +851,35 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun showVersionInstalledDialogOnce() {
+        val packageInfo = packageManager.getPackageInfo(packageName, 0)
+        val versionName = packageInfo.versionName ?: "2"
+        val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            packageInfo.longVersionCode
+        } else {
+            @Suppress("DEPRECATION")
+            packageInfo.versionCode.toLong()
+        }
+        val dialogKey = "$versionName-$versionCode"
+        val prefs = getSharedPreferences(APP_PREFS_NAME, MODE_PRIVATE)
+        if (prefs.getString(PREF_LAST_VERSION_DIALOG, "") == dialogKey) return
+
+        AlertDialog.Builder(this)
+            .setTitle("OpenStream V2 is installed")
+            .setMessage("You are running the new V2 APK. Future beta updates can now be checked from inside the app.")
+            .setPositiveButton("OK") { _, _ ->
+                prefs.edit()
+                    .putString(PREF_LAST_VERSION_DIALOG, dialogKey)
+                    .apply()
+            }
+            .setOnCancelListener {
+                prefs.edit()
+                    .putString(PREF_LAST_VERSION_DIALOG, dialogKey)
+                    .apply()
+            }
+            .show()
+    }
+
     private fun connectionTargetFromManualFields(): ConnectionTarget {
         val host = inputObsHost.text.toString().ifBlank { ConnectionTarget.DEFAULT_HOST }.trim()
         val port = inputObsPort.text.toString().toIntOrNull() ?: ConnectionTarget.DEFAULT_PORT
@@ -994,6 +1025,8 @@ class MainActivity : Activity() {
         private const val RECONNECT_RESERVATION_MS = 45_000L
         private const val IDENTIFY_OVERLAY_MS = 3_000L
         private const val UPDATE_CHECK_DELAY_MS = 2_500L
+        private const val APP_PREFS_NAME = "openstream_app"
+        private const val PREF_LAST_VERSION_DIALOG = "last_version_dialog"
         private val REQUIRED_PERMISSIONS = arrayOf(
             Manifest.permission.CAMERA,
             Manifest.permission.RECORD_AUDIO,
