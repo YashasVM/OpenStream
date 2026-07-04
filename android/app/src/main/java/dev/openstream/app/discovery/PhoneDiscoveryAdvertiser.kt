@@ -3,6 +3,7 @@ package dev.openstream.app.discovery
 import android.content.Context
 import android.net.wifi.WifiManager
 import android.os.Build
+import dev.openstream.app.encoder.advertisedMimeType
 import dev.openstream.app.stream.StreamConfig
 import org.json.JSONObject
 import java.net.DatagramPacket
@@ -66,7 +67,7 @@ class PhoneDiscoveryAdvertiser(
             .put("listenerPort", port)
             .put("latencyMs", config.latencyMs)
             .put("bitrateMbps", config.bitrateMbps)
-            .put("codec", "video/avc")
+            .put("codec", config.codecPreference.advertisedMimeType())
             .put("width", config.width)
             .put("height", config.height)
             .put("fps", config.fps)

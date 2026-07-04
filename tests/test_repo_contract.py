@@ -30,10 +30,14 @@ def test_android_project_declares_camera_media_codec_srt_discovery_boundaries() 
     assert "startPreviewIfAllowed" in app
     assert "startPhoneServerIfAllowed" in app
     assert "MediaCodecAudioEncoder" in app
+    stream_config = read("android/app/src/main/java/dev/openstream/app/stream/StreamConfig.kt")
+    assert "PreferHevc" in stream_config
+    assert "50_000_000" in stream_config
     assert "OPENSTREAM_PHONE/1" in discovery
     assert "DISCOVERY_PORT = 51515" in discovery
     assert "dev.openstream.phone" in discovery
     assert "DatagramSocket" in discovery
+    assert "advertisedMimeType()" in discovery
     assert "CHANGE_WIFI_MULTICAST_STATE" in manifest
     assert "RECORD_AUDIO" in manifest
     assert "RECORD_AUDIO" in app
@@ -95,6 +99,7 @@ def test_obs_plugin_routes_multiple_phones_by_selected_slot() -> None:
     assert "kAutoPhoneId" in source
     assert "std::map<std::string, PhoneDevice> devices_" in source
     assert "reserve_phone" in source
+    assert '"bitrateMbps\\":" << ctx->bitrate_mbps' in source
     assert "release_phone" in source
     assert "control_phone(ctx)" in source
 
@@ -113,6 +118,8 @@ def test_obs_sources_are_named_camera_slots_with_advanced_transport() -> None:
     assert "OBS_GROUP_CHECKABLE, advanced_group" in source
     assert "listener_port" in source
     assert "SRT latency (ms)" in source
+    assert '"bitrate_mbps", 50' in source
+    assert '"bitrate_mbps", "Expected bitrate (Mbps)", 8, 120, 1' in source
 
 
 def test_obs_discovery_beacons_advertise_slots_not_raw_listener_only() -> None:
@@ -185,6 +192,10 @@ def test_android_control_server_supports_source_reservations() -> None:
     assert "reserveForSource" in app
     assert "releaseForSource" in app
     assert "phoneConnected || reservedBy != null" in app
+    assert "private var activeStreamBitrate" in app
+    assert "useStreamBitrate(bitrateMbps)" in app
+    assert "reserveForSource(device.sourceInstanceId, device.displayLabel, device.bitrateMbps)" in app
+    assert "val bitrateMbps = if (json.has(\"bitrateMbps\"))" in control
 
 
 def test_camera_controller_supports_preview_before_streaming() -> None:

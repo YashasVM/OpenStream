@@ -7,6 +7,7 @@ OpenStream releases should give users direct installable assets instead of makin
 | Asset | Audience | Purpose |
 |---|---|---|
 | `openstream-android.apk` | Android users | Signed install package for the OpenStream camera app. |
+| `openstream-android-update.json` | Android app updater | Version metadata used by the in-app update prompt. |
 | `openstream-obs-plugin-installer-windows-x64.exe` | Windows OBS users | Recommended one-click OBS plugin installer. |
 | `openstream-obs-windows-x64.zip` | Technical users | Manual plugin package with DLL and install scripts. |
 
@@ -23,11 +24,11 @@ The `Release` workflow builds:
 
 | Job | Output |
 |---|---|
-| Android APK | `openstream-android.apk` |
+| Android APK | `openstream-android.apk`, `openstream-android-update.json` |
 | OBS plugin package | `openstream-obs-windows-x64.zip` |
 | OBS plugin installer | `openstream-obs-plugin-installer-windows-x64.exe` |
 
-The publish job downloads the build artifacts, normalizes the APK name, and runs `gh release create` with the three user-facing files.
+The publish job downloads the build artifacts, normalizes the APK name, writes Android update metadata, and runs `gh release create` with the release files.
 
 You can also run the `Release` workflow manually from GitHub Actions and provide a tag such as `v2.0.0-beta`.
 

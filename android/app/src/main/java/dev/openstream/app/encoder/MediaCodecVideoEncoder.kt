@@ -16,6 +16,13 @@ enum class CodecPreference {
     ForceAvc,
 }
 
+fun CodecPreference.advertisedMimeType(): String {
+    return when (this) {
+        CodecPreference.PreferHevc -> MediaFormat.MIMETYPE_VIDEO_HEVC
+        CodecPreference.ForceAvc -> MediaFormat.MIMETYPE_VIDEO_AVC
+    }
+}
+
 data class EncodedAccessUnit(
     val data: ByteArray,
     val presentationTimeUs: Long,
@@ -55,6 +62,7 @@ class MediaCodecVideoEncoder(
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, keyframeIntervalSeconds)
+            setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 setInteger(MediaFormat.KEY_LATENCY, 0)
             }

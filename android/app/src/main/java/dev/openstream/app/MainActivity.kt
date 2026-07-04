@@ -38,6 +38,7 @@ import dev.openstream.app.stream.ConnectionTarget
 import dev.openstream.app.stream.StreamConfig
 import dev.openstream.app.stream.SrtStreamClient
 import dev.openstream.app.telemetry.TelemetrySampler
+import dev.openstream.app.update.AppUpdater
 
 class MainActivity : Activity() {
 
@@ -80,6 +81,7 @@ class MainActivity : Activity() {
     private lateinit var phoneAdvertiser: PhoneDiscoveryAdvertiser
     private lateinit var obsDiscoveryClient: ObsDiscoveryClient
     private lateinit var controlServer: CameraControlServer
+    private lateinit var appUpdater: AppUpdater
 
     private val streamConfig = StreamConfig.Default1080p60
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -100,6 +102,7 @@ class MainActivity : Activity() {
     private var liveDotAnimator: ObjectAnimator? = null
     private var currentPort: Int = ConnectionTarget.DEFAULT_PORT
     private var releaseReservationRunnable: Runnable? = null
+    private var activeStreamBitrate: Int = streamConfig.bitrate
 
     private val statsTicker = object : Runnable {
         override fun run() {
@@ -121,6 +124,8 @@ class MainActivity : Activity() {
 
         streamClient = SrtStreamClient()
         telemetry = TelemetrySampler(this)
+        appUpdater = AppUpdater(this)
+        appUpdater.register()
         phoneAdvertiser = PhoneDiscoveryAdvertiser(
             context = this,
             config = streamConfig,
@@ -132,21 +137,7 @@ class MainActivity : Activity() {
             context = this,
             onDevicesChanged = { devices -> renderObsSlots(devices) },
         )
-        encoder = MediaCodecVideoEncoder(
-            preference = streamConfig.codecPreference,
-            width = streamConfig.width,
-            height = streamConfig.height,
-            fps = streamConfig.fps,
-            bitrate = streamConfig.bitrate,
-            keyframeIntervalSeconds = streamConfig.keyframeIntervalSeconds,
-            onEncodedAccessUnit = { accessUnit ->
-                val sent = streamClient.sendVideoAccessUnit(accessUnit)
-                if (!sent) {
-                    phoneConnected = false
-                    runOnUiThread { renderStreamStats(forceFailure = true) }
-                }
-            },
-        )
+        encoder = createVideoEncoder(activeStreamBitrate)
         audioEncoder = MediaCodecAudioEncoder(
             sampleRate = 44100,
             channelCount = 1,
@@ -177,7 +168,9 @@ class MainActivity : Activity() {
                 }
             }},
             reservationProvider = { reservedBy },
-            onReserve = { sourceInstanceId, slotLabel -> reserveForSource(sourceInstanceId, slotLabel) },
+            onReserve = { sourceInstanceId, slotLabel, bitrateMbps ->
+                reserveForSource(sourceInstanceId, slotLabel, bitrateMbps)
+            },
             onRelease = { sourceInstanceId -> releaseForSource(sourceInstanceId) },
             onIdentify = { label, subtitle -> runOnUiThread { showIdentifyOverlay(label, subtitle) } },
         )
@@ -199,6 +192,7 @@ class MainActivity : Activity() {
         setupNavBarInsets()
         renderConnectionInfo()
         handlePairingIntent(intent)
+        mainHandler.postDelayed({ appUpdater.checkForUpdates() }, UPDATE_CHECK_DELAY_MS)
     }
 
     override fun onStart() {
@@ -209,6 +203,11 @@ class MainActivity : Activity() {
         startPhoneServerIfAllowed()
     }
 
+    override fun onResume() {
+        super.onResume()
+        appUpdater.resumePendingInstallIfAllowed()
+    }
+
     override fun onStop() {
         stopPhoneServer()
         camera.stop()
@@ -217,6 +216,11 @@ class MainActivity : Activity() {
         controlServer.stop()
         stopLiveDotAnimation()
         super.onStop()
+    }
+
+    override fun onDestroy() {
+        appUpdater.unregister()
+        super.onDestroy()
     }
 
     override fun onRequestPermissionsResult(
@@ -297,6 +301,35 @@ class MainActivity : Activity() {
 
         // Tap the screen-off overlay to re-enable display
         screenOffOverlay.setOnClickListener { toggleDisplayOff() }
+    }
+
+    private fun createVideoEncoder(bitrate: Int): MediaCodecVideoEncoder {
+        return MediaCodecVideoEncoder(
+            preference = streamConfig.codecPreference,
+            width = streamConfig.width,
+            height = streamConfig.height,
+            fps = streamConfig.fps,
+            bitrate = bitrate,
+            keyframeIntervalSeconds = streamConfig.keyframeIntervalSeconds,
+            onEncodedAccessUnit = { accessUnit ->
+                val sent = streamClient.sendVideoAccessUnit(accessUnit)
+                if (!sent) {
+                    phoneConnected = false
+                    runOnUiThread { renderStreamStats(forceFailure = true) }
+                }
+            },
+        )
+    }
+
+    private fun useStreamBitrate(bitrateMbps: Int?) {
+        val nextBitrate = (bitrateMbps ?: streamConfig.bitrateMbps)
+            .coerceIn(1, 200) * 1_000_000
+        if (activeStreamBitrate == nextBitrate) return
+        activeStreamBitrate = nextBitrate
+        if (activeTargetName == null) {
+            encoder.stop()
+            encoder = createVideoEncoder(activeStreamBitrate)
+        }
     }
 
     private fun setupGestureDetector() {
@@ -514,7 +547,7 @@ class MainActivity : Activity() {
 
     private fun reserveForSlot(device: DiscoveredObsDevice) {
         if (device.busy && reservedBy != device.sourceInstanceId) return
-        if (reserveForSource(device.sourceInstanceId, device.displayLabel)) {
+        if (reserveForSource(device.sourceInstanceId, device.displayLabel, device.bitrateMbps)) {
             statusText.text = "Paired to ${device.displayLabel}"
             statusDetail.text = "Waiting for OBS to go live"
         }
@@ -537,7 +570,8 @@ class MainActivity : Activity() {
         val sourceInstanceId = uri.getQueryParameter("sourceInstanceId")?.trim().orEmpty()
         if (sourceInstanceId.isNotBlank()) {
             val slotLabel = uri.getQueryParameter("slotLabel")?.trim().orEmpty()
-            if (reserveForSource(sourceInstanceId, slotLabel)) {
+            val bitrateMbps = uri.getQueryParameter("bitrateMbps")?.toIntOrNull()?.coerceIn(1, 200)
+            if (reserveForSource(sourceInstanceId, slotLabel, bitrateMbps)) {
                 statusText.text = "Paired to ${slotLabel.ifBlank { "OBS slot" }}"
                 statusDetail.text = "Waiting for OBS to go live"
             }
@@ -549,6 +583,7 @@ class MainActivity : Activity() {
 
     private fun startStream(target: ConnectionTarget) {
         stopStream(updateStatus = false)
+        useStreamBitrate(target.bitrateMbps)
         statusText.text = "Connecting…"
         statusDetail.text = "${currentLens.displayName} → ${target.name}"
         runCatching {
@@ -673,11 +708,16 @@ class MainActivity : Activity() {
     // ─────────────────────────── Live state UI ───────────────────────────
 
     @Synchronized
-    private fun reserveForSource(sourceInstanceId: String, slotLabel: String = ""): Boolean {
+    private fun reserveForSource(
+        sourceInstanceId: String,
+        slotLabel: String = "",
+        bitrateMbps: Int? = null,
+    ): Boolean {
         val currentReservation = reservedBy
         if (phoneConnected && currentReservation != sourceInstanceId) return false
         if (currentReservation != null && currentReservation != sourceInstanceId) return false
         cancelReservationRelease()
+        useStreamBitrate(bitrateMbps)
         reservedBy = sourceInstanceId
         reservedSlotLabel = slotLabel.ifBlank { reservedSlotLabel }
         return true
@@ -735,7 +775,7 @@ class MainActivity : Activity() {
         btnStop.visibility = View.VISIBLE
         startLiveDotAnimation()
         statusText.text = getString(R.string.status_streaming, targetName)
-        statusDetail.text = "${streamConfig.width}×${streamConfig.height}@${streamConfig.fps} · ${streamConfig.bitrateMbps} Mbps"
+        statusDetail.text = "${streamConfig.width}×${streamConfig.height}@${streamConfig.fps} · ${activeStreamBitrate / 1_000_000} Mbps"
     }
 
     private fun hideLiveState() {
@@ -953,6 +993,7 @@ class MainActivity : Activity() {
     companion object {
         private const val RECONNECT_RESERVATION_MS = 45_000L
         private const val IDENTIFY_OVERLAY_MS = 3_000L
+        private const val UPDATE_CHECK_DELAY_MS = 2_500L
         private val REQUIRED_PERMISSIONS = arrayOf(
             Manifest.permission.CAMERA,
             Manifest.permission.RECORD_AUDIO,

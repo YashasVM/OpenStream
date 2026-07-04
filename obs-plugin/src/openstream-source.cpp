@@ -194,6 +194,7 @@ std::string next_available_slot_label_locked() {
 std::string pairing_url_for_slot(const std::string &host,
                                  int listener_port,
                                  int latency_ms,
+                                 int bitrate_mbps,
                                  const std::string &slot_id,
                                  const std::string &slot_label,
                                  const std::string &source_instance_id) {
@@ -205,6 +206,7 @@ std::string pairing_url_for_slot(const std::string &host,
       << "&host=" << url_query_escape(host)
       << "&port=" << listener_port
       << "&latency=" << latency_ms
+      << "&bitrateMbps=" << bitrate_mbps
       << "&name=" << url_query_escape(slot_label);
   return url.str();
 }
@@ -428,7 +430,7 @@ struct PhoneDevice {
   int width = 1920;
   int height = 1080;
   int fps = 30;
-  int bitrate_mbps = 12;
+  int bitrate_mbps = 50;
   bool busy = false;
   std::string reserved_by;
   std::chrono::steady_clock::time_point last_seen = std::chrono::steady_clock::now();
@@ -713,7 +715,7 @@ class DiscoveryAdvertiser {
   std::thread worker_;
   int listener_port_ = 9000;
   int latency_ms_ = 120;
-  int bitrate_mbps_ = 12;
+  int bitrate_mbps_ = 50;
   std::string source_name_ = kOpenStreamSourceName;
   std::string instance_id_;
   std::string slot_id_;
@@ -736,7 +738,7 @@ struct OpenStreamSource {
   std::string selected_phone_id = PhoneDiscoveryReceiver::kAutoPhoneId;
   int listener_port = 0;
   int latency_ms = 120;
-  int bitrate_mbps = 12;
+  int bitrate_mbps = 50;
   bool listener_enabled = true;
   std::atomic<bool> listener_running = false;
   std::atomic<bool> phone_connected = false;
@@ -846,7 +848,8 @@ bool reserve_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
   std::ostringstream body;
   body << "{\"sourceInstanceId\":\"" << json_escape(ctx->instance_id) << "\","
        << "\"slotId\":\"" << json_escape(ctx->slot_id) << "\","
-       << "\"slotLabel\":\"" << json_escape(ctx->slot_label) << "\"}";
+       << "\"slotLabel\":\"" << json_escape(ctx->slot_label) << "\","
+       << "\"bitrateMbps\":" << ctx->bitrate_mbps << "}";
   return send_control_command(phone.host, phone.control_port, "/reserve", body.str());
 }
 
@@ -1471,7 +1474,7 @@ void openstream_start_worker(OpenStreamSource *ctx) {
   std::string srt_url;
   int listener_port = kDefaultListenerPort;
   int latency_ms = 120;
-  int bitrate_mbps = 12;
+  int bitrate_mbps = 50;
   std::string source_name;
   std::string instance_id;
   std::string slot_id;
@@ -1578,6 +1581,7 @@ void openstream_update(void *data, obs_data_t *settings) {
     ctx->pairing_url = pairing_url_for_slot(first_pairing_host(),
                                             ctx->listener_port,
                                             ctx->latency_ms,
+                                            ctx->bitrate_mbps,
                                             ctx->slot_id,
                                             ctx->slot_label,
                                             ctx->instance_id);
@@ -1668,7 +1672,7 @@ void openstream_defaults(obs_data_t *settings) {
   obs_data_set_default_bool(settings, "show_advanced", false);
   obs_data_set_default_int(settings, "listener_port", kDefaultListenerPort);
   obs_data_set_default_int(settings, "latency_ms", 120);
-  obs_data_set_default_int(settings, "bitrate_mbps", 12);
+  obs_data_set_default_int(settings, "bitrate_mbps", 50);
   obs_data_set_default_double(settings, "cam_zoom", 1.0);
 }
 
@@ -1809,7 +1813,7 @@ obs_properties_t *openstream_properties(void *data) {
   obs_property_int_set_suffix(latency, " ms");
   obs_property_set_long_description(latency, "Higher values are more stable on Wi-Fi; lower values reduce delay.");
   obs_property_t *bitrate =
-      obs_properties_add_int_slider(advanced_group, "bitrate_mbps", "Expected bitrate (Mbps)", 8, 35, 1);
+      obs_properties_add_int_slider(advanced_group, "bitrate_mbps", "Expected bitrate (Mbps)", 8, 120, 1);
   obs_property_int_set_suffix(bitrate, " Mbps");
   obs_property_set_long_description(bitrate, "Used in discovery so the phone can tune stream quality for this slot.");
   obs_properties_add_group(props, "show_advanced", "3. Network & Pairing (Advanced)", OBS_GROUP_CHECKABLE, advanced_group);

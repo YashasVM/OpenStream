@@ -94,6 +94,12 @@ jobs:
             cp android/app/build/outputs/apk/debug/app-debug.apk dist/openstream-android.apk
             printf 'debug-signed-beta\n' > dist/android-signing.txt
           fi
+          VERSION_NAME="${{ inputs.tag || github.ref_name }}"
+          VERSION_NAME="${VERSION_NAME#v}"
+          printf '{\n  "versionName": "%s",\n  "versionCode": %s,\n  "apkAsset": "openstream-android.apk"\n}\n' \
+            "$VERSION_NAME" \
+            "${{ github.run_number }}" \
+            > dist/openstream-android-update.json
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -102,6 +108,7 @@ jobs:
           path: |
             dist/openstream-android.apk
             dist/android-signing.txt
+            dist/openstream-android-update.json
           if-no-files-found: error
 
   obs-plugin:
@@ -169,6 +176,7 @@ jobs:
       - name: Verify release assets
         run: |
           test -f dist/openstream-android.apk
+          test -f dist/openstream-android-update.json
           test -f dist/openstream-obs-plugin-installer-windows-x64.exe
           test -f dist/openstream-obs-windows-x64.zip
 
@@ -180,6 +188,7 @@ jobs:
           TAG_NAME="${INPUT_TAG:-${GITHUB_REF_NAME}}"
           gh release create "$TAG_NAME" \
             dist/openstream-android.apk \
+            dist/openstream-android-update.json \
             dist/openstream-obs-plugin-installer-windows-x64.exe \
             dist/openstream-obs-windows-x64.zip \
             --target "$GITHUB_SHA" \

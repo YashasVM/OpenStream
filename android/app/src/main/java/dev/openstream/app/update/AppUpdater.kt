@@ -1,0 +1,282 @@
+package dev.openstream.app.update
+
+import android.app.Activity
+import android.app.AlertDialog
+import android.app.DownloadManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
+import android.util.Log
+import android.widget.Toast
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.Executors
+
+class AppUpdater(
+    private val activity: Activity,
+) {
+    private val executor = Executors.newSingleThreadExecutor()
+    private val downloadManager = activity.getSystemService(DownloadManager::class.java)
+    private var pendingDownloadId: Long = NO_DOWNLOAD
+    private var registered = false
+
+    private val downloadReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
+            val completedId = intent.getLongExtra(
+                DownloadManager.EXTRA_DOWNLOAD_ID,
+                NO_DOWNLOAD,
+            )
+            if (completedId != pendingDownloadId) return
+            installDownloadedApk()
+        }
+    }
+
+    fun register() {
+        if (registered) return
+        val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            activity.registerReceiver(downloadReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            activity.registerReceiver(downloadReceiver, filter)
+        }
+        registered = true
+    }
+
+    fun unregister() {
+        if (!registered) return
+        runCatching { activity.unregisterReceiver(downloadReceiver) }
+        registered = false
+    }
+
+    fun checkForUpdates(showAlreadyCurrent: Boolean = false) {
+        executor.execute {
+            val result = runCatching { fetchLatestRelease() }
+            activity.runOnUiThread {
+                result
+                    .onSuccess { release ->
+                        if (release.isNewerThan(currentVersionName(), currentVersionCode())) {
+                            showUpdateAvailable(release)
+                        } else if (showAlreadyCurrent) {
+                            Toast.makeText(activity, "OpenStream is up to date", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    .onFailure { error ->
+                        Log.w(TAG, "Update check failed", error)
+                        if (showAlreadyCurrent) {
+                            Toast.makeText(activity, "Could not check for updates", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+            }
+        }
+    }
+
+    fun resumePendingInstallIfAllowed() {
+        if (pendingDownloadId == NO_DOWNLOAD) return
+        if (canRequestPackageInstall()) {
+            installDownloadedApk()
+        }
+    }
+
+    private fun fetchLatestRelease(): ReleaseUpdate {
+        val json = fetchJson(RELEASE_API_URL)
+        val assets = json.getJSONArray("assets")
+        var apkUrl: String? = null
+        var metadataUrl: String? = null
+        for (i in 0 until assets.length()) {
+            val asset = assets.getJSONObject(i)
+            when (asset.optString("name")) {
+                ANDROID_APK_ASSET -> apkUrl = asset.optString("browser_download_url")
+                ANDROID_UPDATE_METADATA_ASSET -> metadataUrl = asset.optString("browser_download_url")
+            }
+        }
+
+        val metadata = metadataUrl
+            ?.let { runCatching { fetchJson(it) }.getOrNull() }
+        return ReleaseUpdate(
+            tagName = json.optString("tag_name"),
+            name = json.optString("name"),
+            versionCode = metadata?.optLong("versionCode")?.takeIf { it > 0 },
+            apkUrl = apkUrl ?: error("Release asset $ANDROID_APK_ASSET was not found"),
+        )
+    }
+
+    private fun fetchJson(url: String): JSONObject {
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 10_000
+            readTimeout = 10_000
+            setRequestProperty("Accept", "application/vnd.github+json")
+            setRequestProperty("User-Agent", "OpenStream-Android-Updater")
+        }
+
+        connection.inputStream.bufferedReader().use { reader ->
+            return JSONObject(reader.readText())
+        }
+    }
+
+    private fun showUpdateAvailable(release: ReleaseUpdate) {
+        AlertDialog.Builder(activity)
+            .setTitle("OpenStream update available")
+            .setMessage("Version ${release.displayVersion} is ready. Download and install it now?")
+            .setPositiveButton("Update") { _, _ -> downloadApk(release) }
+            .setNegativeButton("Later", null)
+            .show()
+    }
+
+    private fun downloadApk(release: ReleaseUpdate) {
+        val request = DownloadManager.Request(Uri.parse(release.apkUrl))
+            .setTitle("OpenStream ${release.displayVersion}")
+            .setDescription("Downloading OpenStream update")
+            .setMimeType(APK_MIME_TYPE)
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setDestinationInExternalFilesDir(
+                activity,
+                Environment.DIRECTORY_DOWNLOADS,
+                "openstream-${release.displayVersion}.apk",
+            )
+            .setAllowedOverMetered(true)
+            .setAllowedOverRoaming(false)
+
+        pendingDownloadId = downloadManager.enqueue(request)
+        Toast.makeText(activity, "Downloading update", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun installDownloadedApk() {
+        if (!isSuccessfulDownload()) {
+            Toast.makeText(activity, "Update download failed", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        if (!canRequestPackageInstall()) {
+            showInstallPermissionPrompt()
+            return
+        }
+
+        val apkUri = downloadManager.getUriForDownloadedFile(pendingDownloadId)
+        if (apkUri == null) {
+            Toast.makeText(activity, "Downloaded APK was not found", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val installIntent = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(apkUri, APK_MIME_TYPE)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        activity.startActivity(installIntent)
+    }
+
+    private fun isSuccessfulDownload(): Boolean {
+        val query = DownloadManager.Query().setFilterById(pendingDownloadId)
+        downloadManager.query(query)?.use { cursor ->
+            if (!cursor.moveToFirst()) return false
+            val statusColumn = cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)
+            return cursor.getInt(statusColumn) == DownloadManager.STATUS_SUCCESSFUL
+        }
+        return false
+    }
+
+    private fun showInstallPermissionPrompt() {
+        AlertDialog.Builder(activity)
+            .setTitle("Allow OpenStream installs")
+            .setMessage("Android needs permission for OpenStream to open its downloaded APK update.")
+            .setPositiveButton("Open Settings") { _, _ ->
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:${activity.packageName}"),
+                )
+                activity.startActivity(intent)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun canRequestPackageInstall(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+            activity.packageManager.canRequestPackageInstalls()
+    }
+
+    private fun currentVersionName(): String {
+        val packageInfo = activity.packageManager.getPackageInfo(activity.packageName, 0)
+        return packageInfo.versionName ?: "0.0.0"
+    }
+
+    private fun currentVersionCode(): Long {
+        val packageInfo = activity.packageManager.getPackageInfo(activity.packageName, 0)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            packageInfo.longVersionCode
+        } else {
+            @Suppress("DEPRECATION")
+            packageInfo.versionCode.toLong()
+        }
+    }
+
+    private data class ReleaseUpdate(
+        val tagName: String,
+        val name: String,
+        val versionCode: Long?,
+        val apkUrl: String,
+    ) {
+        val displayVersion: String = tagName.ifBlank { name }.removePrefix("v")
+
+        fun isNewerThan(currentVersion: String, currentVersionCode: Long): Boolean {
+            versionCode?.let { latestCode ->
+                return latestCode > currentVersionCode
+            }
+            return compareVersions(displayVersion, currentVersion.removePrefix("v")) > 0
+        }
+    }
+
+    companion object {
+        private const val TAG = "OpenStreamUpdater"
+        private const val NO_DOWNLOAD = -1L
+        private const val RELEASE_API_URL = "https://api.github.com/repos/YashasVM/OpenStream/releases/latest"
+        private const val ANDROID_APK_ASSET = "openstream-android.apk"
+        private const val ANDROID_UPDATE_METADATA_ASSET = "openstream-android-update.json"
+        private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
+
+        private fun compareVersions(candidate: String, current: String): Int {
+            val candidateParts = VersionParts.parse(candidate)
+            val currentParts = VersionParts.parse(current)
+            for (i in 0 until maxOf(candidateParts.numbers.size, currentParts.numbers.size)) {
+                val candidateNumber = candidateParts.numbers.getOrElse(i) { 0 }
+                val currentNumber = currentParts.numbers.getOrElse(i) { 0 }
+                if (candidateNumber != currentNumber) {
+                    return candidateNumber.compareTo(currentNumber)
+                }
+            }
+            if (candidateParts.preRelease == currentParts.preRelease) return 0
+            if (candidateParts.preRelease == null) return 1
+            if (currentParts.preRelease == null) return -1
+            return candidateParts.preRelease.compareTo(currentParts.preRelease)
+        }
+
+        private data class VersionParts(
+            val numbers: List<Int>,
+            val preRelease: String?,
+        ) {
+            companion object {
+                fun parse(version: String): VersionParts {
+                    val cleaned = version.trim().removePrefix("v")
+                    val baseAndPreRelease = cleaned.split("-", limit = 2)
+                    val numbers = baseAndPreRelease
+                        .firstOrNull()
+                        .orEmpty()
+                        .split(".")
+                        .mapNotNull { it.toIntOrNull() }
+                    return VersionParts(
+                        numbers = numbers,
+                        preRelease = baseAndPreRelease.getOrNull(1),
+                    )
+                }
+            }
+        }
+    }
+}

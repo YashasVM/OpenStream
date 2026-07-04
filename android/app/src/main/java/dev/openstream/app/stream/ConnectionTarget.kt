@@ -8,6 +8,7 @@ data class ConnectionTarget(
     val host: String,
     val port: Int,
     val latencyMs: Int,
+    val bitrateMbps: Int? = null,
 ) {
     fun toSrtCallerUrl(): String = "srt://$host:$port?mode=caller&latency=$latencyMs"
 
@@ -23,6 +24,7 @@ data class ConnectionTarget(
                 host = device.host,
                 port = device.port,
                 latencyMs = device.latencyMs,
+                bitrateMbps = device.bitrateMbps,
             )
         }
 
@@ -32,12 +34,14 @@ data class ConnectionTarget(
             if (host.isBlank()) return null
             val port = uri.getQueryParameter("port")?.toIntOrNull()?.coerceIn(1, 65535) ?: DEFAULT_PORT
             val latencyMs = uri.getQueryParameter("latency")?.toIntOrNull()?.coerceIn(80, 200) ?: DEFAULT_LATENCY_MS
+            val bitrateMbps = uri.getQueryParameter("bitrateMbps")?.toIntOrNull()?.coerceIn(1, 200)
             val name = uri.getQueryParameter("name")?.ifBlank { DEFAULT_NAME } ?: DEFAULT_NAME
             return ConnectionTarget(
                 name = name,
                 host = host,
                 port = port,
                 latencyMs = latencyMs,
+                bitrateMbps = bitrateMbps,
             )
         }
     }

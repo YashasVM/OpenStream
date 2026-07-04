@@ -19,20 +19,20 @@ data class StreamConfig(
             width = 1920,
             height = 1080,
             fps = 60,
-            bitrate = 20_000_000,
+            bitrate = 50_000_000,
             keyframeIntervalSeconds = 1,
             latencyMs = 120,
-            codecPreference = CodecPreference.ForceAvc,
+            codecPreference = CodecPreference.PreferHevc,
         )
 
         val Fallback720p60 = StreamConfig(
             width = 1280,
             height = 720,
             fps = 60,
-            bitrate = 12_000_000,
+            bitrate = 25_000_000,
             keyframeIntervalSeconds = 1,
             latencyMs = 120,
-            codecPreference = CodecPreference.ForceAvc,
+            codecPreference = CodecPreference.PreferHevc,
         )
     }
 }

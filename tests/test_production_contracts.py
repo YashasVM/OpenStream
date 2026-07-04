@@ -81,7 +81,7 @@ def test_obs_slot_beacon_acceptance_contract() -> None:
         'OPENSTREAM/1 {"type":"dev.openstream.listener","version":1,'
         '"name":"OpenStream","instanceId":"obs-main","sourceInstanceId":"source-a",'
         '"slotId":"slot-a","slotLabel":"CAM A","host":"","listenerPort":9000,'
-        '"latencyMs":120,"bitrateMbps":20,"busy":false,'
+        '"latencyMs":120,"bitrateMbps":50,"busy":false,'
         '"pairingUrl":"openstream://connect?host=192.168.1.10&port=9000"}'
     )
 
@@ -92,7 +92,7 @@ def test_obs_slot_beacon_acceptance_contract() -> None:
         "host": "192.168.1.10",
         "port": 9000,
         "latencyMs": 120,
-        "bitrateMbps": 20,
+        "bitrateMbps": 50,
         "instanceId": "obs-main",
         "sourceInstanceId": "source-a",
         "slotId": "slot-a",

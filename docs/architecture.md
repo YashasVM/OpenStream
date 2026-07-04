@@ -73,7 +73,7 @@ transport can be tested without blocking the reliable product path.
 - Default resolution: `1920x1080`.
 - Fallback resolution: `1280x720`.
 - Default frame rate: `60 fps`.
-- Bitrate presets: `8`, `12`, `20`, `35 Mbps`.
+- Bitrate presets: `8-120 Mbps`; the default high-quality path uses `50 Mbps`.
 - Keyframe interval: `1 second`.
 
 ## Video Output Path

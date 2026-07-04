@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * - POST /zoom       {"value": 2.5}
  * - POST /torch      {"enabled": true}
  * - POST /lens       {"lens": "Back"}
- * - POST /reserve    {"sourceInstanceId": "..."}
+ * - POST /reserve    {"sourceInstanceId": "...", "bitrateMbps": 50}
  * - POST /release    {"sourceInstanceId": "..."}
  * - POST /identify   {"label": "CAM B", "subtitle": "Close-up"}
  * - GET  /status     Returns current camera state
@@ -31,7 +31,7 @@ class CameraControlServer(
     private val onSwitchLens: (CameraLens) -> Unit,
     private val onToggleTorch: (Boolean) -> Unit,
     private val reservationProvider: () -> String?,
-    private val onReserve: (String, String) -> Boolean,
+    private val onReserve: (String, String, Int?) -> Boolean,
     private val onRelease: (String) -> Boolean,
     private val onIdentify: (String, String) -> Unit,
 ) {
@@ -193,7 +193,8 @@ class CameraControlServer(
         val sourceInstanceId = json.optString("sourceInstanceId").trim()
         if (sourceInstanceId.isEmpty()) return """{"error":"missing sourceInstanceId"}"""
         val slotLabel = json.optString("slotLabel", "")
-        val accepted = onReserve(sourceInstanceId, slotLabel)
+        val bitrateMbps = if (json.has("bitrateMbps")) json.optInt("bitrateMbps").coerceIn(1, 200) else null
+        val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)
         return if (accepted) {
             JSONObject()
                 .put("ok", true)
