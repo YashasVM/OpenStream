@@ -237,7 +237,7 @@ class AppUpdater(
     companion object {
         private const val TAG = "OpenStreamUpdater"
         private const val NO_DOWNLOAD = -1L
-        private const val RELEASE_API_URL = "https://api.github.com/repos/YashasVM/OpenStream/releases/latest"
+        private const val RELEASE_API_URL = "https://api.github.com/repos/YashasVM/OpenStream/releases/tags/android-latest"
         private const val ANDROID_APK_ASSET = "openstream-android.apk"
         private const val ANDROID_UPDATE_METADATA_ASSET = "openstream-android-update.json"
         private const val APK_MIME_TYPE = "application/vnd.android.package-archive"

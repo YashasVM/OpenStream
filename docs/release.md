@@ -32,9 +32,19 @@ The publish job downloads the build artifacts, normalizes the APK name, writes A
 
 You can also run the `Release` workflow manually from GitHub Actions and provide a tag such as `v2.0.0-beta`.
 
-The Android job passes the release tag into Gradle as the APK `versionName` and uses the GitHub run number as `versionCode`, so the installed app version should match the release being published.
+The Android job passes the release tag into Gradle as the APK `versionName` and uses the release commit timestamp as `versionCode`, so update ordering stays monotonic across the full release and Android auto-update workflows.
 
 If Android signing secrets are configured, the workflow publishes a signed release APK. If they are missing, it publishes a debug-signed beta APK so preview releases can still ship with the OBS plugin assets.
+
+## Automatic Android Updates After PR Merge
+
+The `Android APK` workflow also runs on every push to `main`, which is what happens after a pull request is merged. That workflow builds `openstream-android.apk`, writes `openstream-android-update.json`, and publishes a GitHub Release tagged `android-latest`.
+
+Newer Android app builds check the dedicated `android-latest` release for those assets, so a merged PR can become an in-app update without manually pushing a version tag. The workflow creates that Android-only release with `--latest=false` so public `/releases/latest/download/...` links still point to the full release that includes the Windows OBS installer and zip.
+
+For already-installed app versions that still check GitHub's public latest release, the same workflow also refreshes `openstream-android.apk` and `openstream-android-update.json` on the current public latest release without replacing its Windows assets.
+
+Configure the Android signing secrets below if users have installed a release-signed APK; otherwise Android will reject a debug-signed fallback update over a release-signed install.
 
 ### Android Signing Secrets
 

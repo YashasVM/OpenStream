@@ -50,6 +50,25 @@ Phone camera -> HEVC/H.264 + AAC -> SRT over Wi-Fi -> OpenStream camera slot in 
 | **Pairing clarity** | OBS and Android both describe slots as production camera positions instead of raw listener ports. |
 | **Release polish** | Version defaults, release notes, and setup docs are aligned around the V2 beta release. |
 
+### OpenStream vs DroidCam
+
+DroidCam is a mature phone-as-webcam product with Wi-Fi, USB, desktop webcam clients, and an OBS plugin. OpenStream is a beta open-source alternative focused on local OBS camera slots, SRT transport, high-bitrate video, and a repo-controlled release/update path.
+
+| Feature | OpenStream | DroidCam / DroidCam OBS |
+|---|---|---|
+| **Project model** | Open-source repo with Android app, native OBS plugin, CI builds, and public release assets. | Commercial app/client/plugin from Dev47Apps with free SD usage and paid HD/pro features. |
+| **Primary workflow** | Turn Android phones into dedicated OBS camera sources over local Wi-Fi. | Use a phone as a webcam for video calls or as an OBS camera source. |
+| **OBS integration** | Native `OpenStream V8` source with camera slots, discovery, pairing URLs, and live controls. | Direct DroidCam OBS plugin; no separate desktop client needed for OBS use. |
+| **Transport** | SRT over LAN with MPEG-TS carrying HEVC/H.264 video and AAC audio. | Wi-Fi and USB transfer options; DroidCam OBS advertises hardware-accelerated video. |
+| **Video target** | `1080p60` default with high local bitrate and HEVC preference. | Standard-definition free mode; HD/Full-HD/4K options depend on DroidCam mode and pro upgrade. |
+| **Audio path** | AAC microphone audio into a separate OBS mixer channel, tuned for `48 kHz` live production. | Sound capture is supported, including webcam-style audio paths. |
+| **Multi-camera setup** | Source slots such as `CAM A` and `CAM B` reserve phones and recover reconnects into the same OBS source. | DroidCam OBS supports adding multiple devices as OBS sources. |
+| **Remote camera controls** | OBS source properties can control zoom, torch, lens switching, and phone identification overlay. | Pro features include manual camera controls and PC remote controls. |
+| **Release updates** | GitHub Releases provide `openstream-android.apk` and updater metadata for in-app update prompts. | Updates are delivered through DroidCam's app/client/plugin distribution channels. |
+| **Best fit** | Builders and streamers who want an inspectable, hackable OBS-first camera pipeline. | Users who want a polished cross-app webcam product with mature USB and desktop-client options. |
+
+Sources: [DroidCam official site](https://droidcam.app/), [DroidCam OBS plugin](https://droidcam.app/obs/), and [DroidCam OBS usage notes](https://droidcam.app/obs/usage/).
+
 ---
 
 ## Quick Start

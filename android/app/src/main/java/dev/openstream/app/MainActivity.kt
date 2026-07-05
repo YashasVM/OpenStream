@@ -140,9 +140,9 @@ class MainActivity : Activity() {
         )
         encoder = createVideoEncoder(activeStreamBitrate)
         audioEncoder = MediaCodecAudioEncoder(
-            sampleRate = 44100,
-            channelCount = 1,
-            bitrate = 128_000,
+            sampleRate = streamConfig.audioSampleRate,
+            channelCount = streamConfig.audioChannelCount,
+            bitrate = streamConfig.audioBitrate,
             onEncodedAccessUnit = { accessUnit ->
                 streamClient.sendAudioAccessUnit(accessUnit)
             },
@@ -597,6 +597,9 @@ class MainActivity : Activity() {
                 fps = streamConfig.fps,
             )
             encoder.start()
+            runCatching { audioEncoder.start() }.onFailure { e ->
+                Log.w("OpenStream", "Audio encoder start failed", e)
+            }
             camera.startStreaming(encoder.inputSurface())
             activeTargetName = target.name
             mainHandler.removeCallbacks(statsTicker)

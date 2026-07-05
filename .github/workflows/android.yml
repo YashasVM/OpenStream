@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build debug APK
@@ -27,16 +30,167 @@ jobs:
       - name: Install Android build packages
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "cmake;3.22.1" "ndk;27.0.12077973"
 
-      - name: Build APK with native SRT enabled
+      - name: Compute Android version metadata
+        id: version
+        run: |
+          echo "code=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
+
+      - name: Build debug-signed APK with native SRT enabled
         working-directory: android
+        env:
+          OPENSTREAM_VERSION_NAME: 2.0.0-beta.${{ steps.version.outputs.code }}
+          OPENSTREAM_VERSION_CODE: ${{ steps.version.outputs.code }}
         run: |
           chmod +x ./gradlew
           ./gradlew --no-daemon :app:assembleDebug
+
+      - name: Normalize Android build assets
+        run: |
+          mkdir -p dist
+          cp android/app/build/outputs/apk/debug/app-debug.apk dist/openstream-android.apk
+          printf 'debug-signed-beta\n' > dist/android-signing.txt
+          printf '{\n  "versionName": "2.0.0-beta.%s",\n  "versionCode": %s,\n  "apkAsset": "openstream-android.apk"\n}\n' \
+            "${{ steps.version.outputs.code }}" \
+            "${{ steps.version.outputs.code }}" \
+            > dist/openstream-android-update.json
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: openstream-android-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            dist/openstream-android.apk
+            dist/android-signing.txt
+            dist/openstream-android-update.json
           if-no-files-found: error
 
+  publish-android-update:
+    name: Publish Android update
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    concurrency:
+      group: android-latest-publish
+      cancel-in-progress: false
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android build packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "cmake;3.22.1" "ndk;27.0.12077973"
+
+      - name: Compute Android version metadata
+        id: version
+        run: |
+          echo "code=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
+
+      - name: Check Android signing inputs
+        id: signing
+        env:
+          OPENSTREAM_RELEASE_KEYSTORE_BASE64: ${{ secrets.OPENSTREAM_RELEASE_KEYSTORE_BASE64 }}
+          OPENSTREAM_RELEASE_STORE_PASSWORD: ${{ secrets.OPENSTREAM_RELEASE_STORE_PASSWORD }}
+          OPENSTREAM_RELEASE_KEY_ALIAS: ${{ secrets.OPENSTREAM_RELEASE_KEY_ALIAS }}
+          OPENSTREAM_RELEASE_KEY_PASSWORD: ${{ secrets.OPENSTREAM_RELEASE_KEY_PASSWORD }}
+        run: |
+          if [ -n "$OPENSTREAM_RELEASE_KEYSTORE_BASE64" ] &&
+             [ -n "$OPENSTREAM_RELEASE_STORE_PASSWORD" ] &&
+             [ -n "$OPENSTREAM_RELEASE_KEY_ALIAS" ] &&
+             [ -n "$OPENSTREAM_RELEASE_KEY_PASSWORD" ]; then
+            echo "has_signing=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_signing=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Android release signing secrets are incomplete; publishing debug-signed beta APK."
+          fi
+
+      - name: Decode Android signing key
+        if: steps.signing.outputs.has_signing == 'true'
+        env:
+          OPENSTREAM_RELEASE_KEYSTORE_BASE64: ${{ secrets.OPENSTREAM_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          printf '%s' "$OPENSTREAM_RELEASE_KEYSTORE_BASE64" | base64 --decode > android/app/openstream-release.keystore
+
+      - name: Build signed APK with native SRT enabled
+        if: steps.signing.outputs.has_signing == 'true'
+        working-directory: android
+        env:
+          OPENSTREAM_RELEASE_KEYSTORE: ${{ github.workspace }}/android/app/openstream-release.keystore
+          OPENSTREAM_RELEASE_STORE_PASSWORD: ${{ secrets.OPENSTREAM_RELEASE_STORE_PASSWORD }}
+          OPENSTREAM_RELEASE_KEY_ALIAS: ${{ secrets.OPENSTREAM_RELEASE_KEY_ALIAS }}
+          OPENSTREAM_RELEASE_KEY_PASSWORD: ${{ secrets.OPENSTREAM_RELEASE_KEY_PASSWORD }}
+          OPENSTREAM_VERSION_NAME: 2.0.0-beta.${{ steps.version.outputs.code }}
+          OPENSTREAM_VERSION_CODE: ${{ steps.version.outputs.code }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon :app:assembleRelease
+
+      - name: Build debug-signed APK with native SRT enabled
+        if: steps.signing.outputs.has_signing != 'true'
+        working-directory: android
+        env:
+          OPENSTREAM_VERSION_NAME: 2.0.0-beta.${{ steps.version.outputs.code }}
+          OPENSTREAM_VERSION_CODE: ${{ steps.version.outputs.code }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon :app:assembleDebug
+
+      - name: Normalize Android update assets
+        env:
+          HAS_SIGNING: ${{ steps.signing.outputs.has_signing }}
+        run: |
+          mkdir -p dist
+          if [ "$HAS_SIGNING" = "true" ]; then
+            cp android/app/build/outputs/apk/release/app-release.apk dist/openstream-android.apk
+            printf 'signed-release\n' > dist/android-signing.txt
+          else
+            cp android/app/build/outputs/apk/debug/app-debug.apk dist/openstream-android.apk
+            printf 'debug-signed-beta\n' > dist/android-signing.txt
+          fi
+          printf '{\n  "versionName": "2.0.0-beta.%s",\n  "versionCode": %s,\n  "apkAsset": "openstream-android.apk"\n}\n' \
+            "${{ steps.version.outputs.code }}" \
+            "${{ steps.version.outputs.code }}" \
+            > dist/openstream-android-update.json
+
+      - name: Publish Android update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: android-latest
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              dist/openstream-android.apk \
+              dist/openstream-android-update.json \
+              --clobber
+            gh release edit "$RELEASE_TAG" \
+              --target "$GITHUB_SHA" \
+              --title "OpenStream Android 2.0.0-beta.${{ steps.version.outputs.code }}" \
+              --notes "Automated Android update from main after PR merge." \
+              --latest=false
+          else
+            gh release create "$RELEASE_TAG" \
+              dist/openstream-android.apk \
+              dist/openstream-android-update.json \
+              --target "$GITHUB_SHA" \
+              --title "OpenStream Android 2.0.0-beta.${{ steps.version.outputs.code }}" \
+              --notes "Automated Android update from main after PR merge." \
+              --latest=false
+          fi
+          LATEST_TAG="$(gh release view --json tagName -q .tagName 2>/dev/null || true)"
+          if [ -n "$LATEST_TAG" ] && [ "$LATEST_TAG" != "$RELEASE_TAG" ]; then
+            gh release upload "$LATEST_TAG" \
+              dist/openstream-android.apk \
+              dist/openstream-android-update.json \
+              --clobber
+          fi

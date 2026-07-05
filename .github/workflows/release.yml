@@ -35,6 +35,11 @@ jobs:
       - name: Install Android build packages
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "cmake;3.22.1" "ndk;27.0.12077973"
 
+      - name: Compute Android version metadata
+        id: version
+        run: |
+          echo "code=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
+
       - name: Check Android signing inputs
         id: signing
         env:
@@ -69,7 +74,7 @@ jobs:
           OPENSTREAM_RELEASE_KEY_ALIAS: ${{ secrets.OPENSTREAM_RELEASE_KEY_ALIAS }}
           OPENSTREAM_RELEASE_KEY_PASSWORD: ${{ secrets.OPENSTREAM_RELEASE_KEY_PASSWORD }}
           OPENSTREAM_VERSION_NAME: ${{ inputs.tag || github.ref_name }}
-          OPENSTREAM_VERSION_CODE: ${{ github.run_number }}
+          OPENSTREAM_VERSION_CODE: ${{ steps.version.outputs.code }}
         run: |
           chmod +x ./gradlew
           ./gradlew --no-daemon :app:assembleRelease
@@ -79,7 +84,7 @@ jobs:
         working-directory: android
         env:
           OPENSTREAM_VERSION_NAME: ${{ inputs.tag || github.ref_name }}
-          OPENSTREAM_VERSION_CODE: ${{ github.run_number }}
+          OPENSTREAM_VERSION_CODE: ${{ steps.version.outputs.code }}
         run: |
           chmod +x ./gradlew
           ./gradlew --no-daemon :app:assembleDebug
@@ -98,7 +103,7 @@ jobs:
           VERSION_NAME="${VERSION_NAME#v}"
           printf '{\n  "versionName": "%s",\n  "versionCode": %s,\n  "apkAsset": "openstream-android.apk"\n}\n' \
             "$VERSION_NAME" \
-            "${{ github.run_number }}" \
+            "${{ steps.version.outputs.code }}" \
             > dist/openstream-android-update.json
 
       - name: Upload APK artifact
