@@ -168,12 +168,20 @@
         </LinearLayout>
 
         <!-- OBS Slot List (populated programmatically) -->
-        <LinearLayout
-            android:id="@+id/obsSlotList"
+        <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:layout_marginBottom="@dimen/os_spacing_md" />
+            android:scrollbars="none"
+            android:clipToPadding="false"
+            android:layout_marginBottom="@dimen/os_spacing_md">
+
+            <LinearLayout
+                android:id="@+id/obsSlotList"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical" />
+        </HorizontalScrollView>
 
         <!-- Lens Selector Row -->
         <LinearLayout

@@ -21,7 +21,7 @@ val openStreamVersionName = providers.gradleProperty("openstream.versionName")
     .map { it.removePrefix("v") }
 val openStreamVersionCode = providers.gradleProperty("openstream.versionCode")
     .orElse(providers.environmentVariable("OPENSTREAM_VERSION_CODE"))
-    .orElse("20")
+    .orElse("21")
     .map { it.toInt() }
 
 android {

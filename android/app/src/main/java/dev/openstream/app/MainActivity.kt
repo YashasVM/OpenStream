@@ -102,6 +102,7 @@ class MainActivity : Activity() {
     private var liveDotAnimator: ObjectAnimator? = null
     private var currentPort: Int = ConnectionTarget.DEFAULT_PORT
     private var releaseReservationRunnable: Runnable? = null
+    private var currentDevices: List<DiscoveredObsDevice> = emptyList()
     private var activeStreamBitrate: Int = streamConfig.bitrate
 
     private val statsTicker = object : Runnable {
@@ -135,13 +136,16 @@ class MainActivity : Activity() {
         )
         obsDiscoveryClient = ObsDiscoveryClient(
             context = this,
-            onDevicesChanged = { devices -> renderObsSlots(devices) },
+            onDevicesChanged = { devices ->
+                currentDevices = devices
+                renderObsSlots(devices)
+            },
         )
         encoder = createVideoEncoder(activeStreamBitrate)
         audioEncoder = MediaCodecAudioEncoder(
-            sampleRate = streamConfig.audioSampleRate,
-            channelCount = streamConfig.audioChannelCount,
-            bitrate = streamConfig.audioBitrate,
+            sampleRate = 44100,
+            channelCount = 1,
+            bitrate = 128_000,
             onEncodedAccessUnit = { accessUnit ->
                 streamClient.sendAudioAccessUnit(accessUnit)
             },
@@ -509,7 +513,7 @@ class MainActivity : Activity() {
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             setTextColor(getColor(R.color.os_text_secondary))
             letterSpacing = 0.1f
-            setPadding(0, 0, 0, resources.getDimensionPixelSize(R.dimen.os_spacing_sm))
+            setPadding(0, 0, resources.getDimensionPixelSize(R.dimen.os_spacing_md), 0)
         }
         obsSlotList.addView(title)
 
@@ -518,28 +522,33 @@ class MainActivity : Activity() {
             val enabled = !device.busy || isReservedForThisPhone
             val card = TextView(this).apply {
                 text = "${device.displayLabel} · ${slotAvailabilityLabel(device, isReservedForThisPhone)}"
-                textSize = 14f
+                textSize = 12f
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 gravity = Gravity.CENTER
                 setTextColor(
-                    if (enabled) getColor(R.color.os_text_primary)
+                    if (isReservedForThisPhone && phoneConnected) getColor(R.color.os_black)
+                    else if (enabled) getColor(R.color.os_text_primary)
                     else getColor(R.color.os_text_tertiary)
                 )
-                setBackgroundResource(R.drawable.bg_card)
+                setBackgroundResource(
+                    if (isReservedForThisPhone && phoneConnected) R.drawable.bg_minimal_pill_active
+                    else if (isReservedForThisPhone) R.drawable.bg_minimal_pill
+                    else R.drawable.bg_minimal_pill
+                )
                 alpha = if (enabled) 1f else 0.45f
                 isEnabled = enabled
                 minHeight = resources.getDimensionPixelSize(R.dimen.os_control_btn_size)
                 setPadding(
                     resources.getDimensionPixelSize(R.dimen.os_spacing_lg),
-                    resources.getDimensionPixelSize(R.dimen.os_spacing_md),
+                    0,
                     resources.getDimensionPixelSize(R.dimen.os_spacing_lg),
-                    resources.getDimensionPixelSize(R.dimen.os_spacing_md),
+                    0,
                 )
                 layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
+                    resources.getDimensionPixelSize(R.dimen.os_control_btn_size),
                 ).apply {
-                    bottomMargin = resources.getDimensionPixelSize(R.dimen.os_spacing_sm)
+                    marginEnd = resources.getDimensionPixelSize(R.dimen.os_spacing_sm)
                 }
                 if (enabled) {
                     setOnClickListener { reserveForSlot(device) }
@@ -554,6 +563,7 @@ class MainActivity : Activity() {
         if (reserveForSource(device.sourceInstanceId, device.displayLabel, device.bitrateMbps)) {
             statusText.text = "Paired to ${device.displayLabel}"
             statusDetail.text = "Waiting for OBS to go live"
+            renderObsSlots(currentDevices)
         }
     }
 
@@ -599,9 +609,6 @@ class MainActivity : Activity() {
                 fps = streamConfig.fps,
             )
             encoder.start()
-            runCatching { audioEncoder.start() }.onFailure { e ->
-                Log.w("OpenStream", "Audio encoder start failed", e)
-            }
             camera.startStreaming(encoder.inputSurface())
             activeTargetName = target.name
             mainHandler.removeCallbacks(statsTicker)
@@ -648,9 +655,6 @@ class MainActivity : Activity() {
                         mainHandler.post(statsTicker)
                     }
                     encoder.start()
-                    runCatching { audioEncoder.start() }.onFailure { e ->
-                        Log.w("OpenStream", "Audio encoder start failed", e)
-                    }
                     camera.startStreaming(encoder.inputSurface())
                     while (phoneServerRunning && phoneConnected) {
                         Thread.sleep(250)
@@ -722,7 +726,6 @@ class MainActivity : Activity() {
     ): Boolean {
         val currentReservation = reservedBy
         if (phoneConnected && currentReservation != sourceInstanceId) return false
-        if (currentReservation != null && currentReservation != sourceInstanceId) return false
         cancelReservationRelease()
         useStreamBitrate(bitrateMbps)
         reservedBy = sourceInstanceId
