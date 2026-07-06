@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstring>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <utility>
@@ -27,7 +28,7 @@ namespace {
 constexpr const char *kTag = "OpenStreamSRT";
 constexpr int kMediaCodecBufferFlagKeyFrame = 1;
 constexpr int kMediaCodecBufferFlagCodecConfig = 2;
-constexpr int kAudioSampleRate = 44100;
+constexpr int kAudioSampleRate = 48000;
 constexpr int kAudioChannelCount = 1;
 
 void logInfo(const char *message) {
@@ -474,21 +475,24 @@ class NativeSender {
       return false;
     }
 
-    socket_ = srt_create_socket();
-    if (socket_ == SRT_INVALID_SOCK) {
+    const SRTSOCKET socket = srt_create_socket();
+    if (socket == SRT_INVALID_SOCK) {
       logError("Could not create SRT socket");
       return false;
     }
+    setSocket(socket);
 
     int yes = 1;
     int transportType = SRTT_LIVE;
     int payloadSize = 188 * 7;
-    srt_setsockopt(socket_, 0, SRTO_TRANSTYPE, &transportType, sizeof transportType);
-    srt_setsockopt(socket_, 0, SRTO_SENDER, &yes, sizeof yes);
-    srt_setsockopt(socket_, 0, SRTO_PAYLOADSIZE, &payloadSize, sizeof payloadSize);
+    int sendTimeoutMs = 500;
+    srt_setsockopt(socket, 0, SRTO_TRANSTYPE, &transportType, sizeof transportType);
+    srt_setsockopt(socket, 0, SRTO_SENDER, &yes, sizeof yes);
+    srt_setsockopt(socket, 0, SRTO_PAYLOADSIZE, &payloadSize, sizeof payloadSize);
+    srt_setsockopt(socket, 0, SRTO_SNDTIMEO, &sendTimeoutMs, sizeof sendTimeoutMs);
     const int latency = parsed->latencyMs;
-    srt_setsockopt(socket_, 0, SRTO_LATENCY, &latency, sizeof latency);
-    srt_setsockopt(socket_, 0, SRTO_PEERLATENCY, &latency, sizeof latency);
+    srt_setsockopt(socket, 0, SRTO_LATENCY, &latency, sizeof latency);
+    srt_setsockopt(socket, 0, SRTO_PEERLATENCY, &latency, sizeof latency);
 
     addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
@@ -496,14 +500,13 @@ class NativeSender {
     addrinfo *result = nullptr;
     if (getaddrinfo(parsed->host.c_str(), parsed->port.c_str(), &hints, &result) != 0) {
       logError("Could not resolve SRT host");
-      srt_close(socket_);
-      socket_ = SRT_INVALID_SOCK;
+      closeSocket(socket);
       return false;
     }
 
     bool connected = false;
     for (addrinfo *candidate = result; candidate != nullptr; candidate = candidate->ai_next) {
-      if (srt_connect(socket_, candidate->ai_addr, static_cast<int>(candidate->ai_addrlen)) == 0) {
+      if (srt_connect(socket, candidate->ai_addr, static_cast<int>(candidate->ai_addrlen)) == 0) {
         connected = true;
         break;
       }
@@ -512,8 +515,7 @@ class NativeSender {
 
     if (!connected) {
       __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT connect failed: %s", srt_getlasterror_str());
-      srt_close(socket_);
-      socket_ = SRT_INVALID_SOCK;
+      closeSocket(socket);
       return false;
     }
 
@@ -539,34 +541,37 @@ class NativeSender {
       return false;
     }
 
-    listener_socket_ = srt_create_socket();
-    if (listener_socket_ == SRT_INVALID_SOCK) {
+    const SRTSOCKET listenerSocket = srt_create_socket();
+    if (listenerSocket == SRT_INVALID_SOCK) {
       logError("Could not create SRT listener socket");
       return false;
     }
+    setListenerSocket(listenerSocket);
 
     int yes = 1;
     int transportType = SRTT_LIVE;
     int payloadSize = 188 * 7;
+    int sendTimeoutMs = 500;
     const int latency = parsed->latencyMs;
-    srt_setsockopt(listener_socket_, 0, SRTO_TRANSTYPE, &transportType, sizeof transportType);
-    srt_setsockopt(listener_socket_, 0, SRTO_SENDER, &yes, sizeof yes);
-    srt_setsockopt(listener_socket_, 0, SRTO_REUSEADDR, &yes, sizeof yes);
-    srt_setsockopt(listener_socket_, 0, SRTO_PAYLOADSIZE, &payloadSize, sizeof payloadSize);
-    srt_setsockopt(listener_socket_, 0, SRTO_LATENCY, &latency, sizeof latency);
-    srt_setsockopt(listener_socket_, 0, SRTO_PEERLATENCY, &latency, sizeof latency);
+    srt_setsockopt(listenerSocket, 0, SRTO_TRANSTYPE, &transportType, sizeof transportType);
+    srt_setsockopt(listenerSocket, 0, SRTO_SENDER, &yes, sizeof yes);
+    srt_setsockopt(listenerSocket, 0, SRTO_REUSEADDR, &yes, sizeof yes);
+    srt_setsockopt(listenerSocket, 0, SRTO_PAYLOADSIZE, &payloadSize, sizeof payloadSize);
+    srt_setsockopt(listenerSocket, 0, SRTO_SNDTIMEO, &sendTimeoutMs, sizeof sendTimeoutMs);
+    srt_setsockopt(listenerSocket, 0, SRTO_LATENCY, &latency, sizeof latency);
+    srt_setsockopt(listenerSocket, 0, SRTO_PEERLATENCY, &latency, sizeof latency);
 
     sockaddr_in address{};
     address.sin_family = AF_INET;
     address.sin_port = htons(static_cast<uint16_t>(std::atoi(parsed->port.c_str())));
     address.sin_addr.s_addr = INADDR_ANY;
 
-    if (srt_bind(listener_socket_, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == SRT_ERROR) {
+    if (srt_bind(listenerSocket, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == SRT_ERROR) {
       __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT bind failed: %s", srt_getlasterror_str());
       disconnect();
       return false;
     }
-    if (srt_listen(listener_socket_, 1) == SRT_ERROR) {
+    if (srt_listen(listenerSocket, 1) == SRT_ERROR) {
       __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT listen failed: %s", srt_getlasterror_str());
       disconnect();
       return false;
@@ -575,14 +580,15 @@ class NativeSender {
     sockaddr_storage peer{};
     int peer_len = sizeof(peer);
     __android_log_print(ANDROID_LOG_INFO, kTag, "Waiting for OBS caller on SRT port %s", parsed->port.c_str());
-    socket_ = srt_accept(listener_socket_, reinterpret_cast<sockaddr *>(&peer), &peer_len);
-    srt_close(listener_socket_);
-    listener_socket_ = SRT_INVALID_SOCK;
-    if (socket_ == SRT_INVALID_SOCK) {
+    const SRTSOCKET acceptedSocket = srt_accept(listenerSocket, reinterpret_cast<sockaddr *>(&peer), &peer_len);
+    closeListenerSocket(listenerSocket);
+    if (acceptedSocket == SRT_INVALID_SOCK) {
       __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT accept failed: %s", srt_getlasterror_str());
       disconnect();
       return false;
     }
+    srt_setsockopt(acceptedSocket, 0, SRTO_SNDTIMEO, &sendTimeoutMs, sizeof sendTimeoutMs);
+    setSocket(acceptedSocket);
     logInfo("OBS connected to Android SRT listener");
     return true;
 #else
@@ -594,14 +600,15 @@ class NativeSender {
 
   bool send(const std::vector<uint8_t> &bytes) {
 #if OPENSTREAM_HAVE_LIBSRT
-    if (socket_ == SRT_INVALID_SOCK) {
+    const SRTSOCKET socket = currentSocket();
+    if (socket == SRT_INVALID_SOCK) {
       return false;
     }
     constexpr size_t kChunkSize = 188 * 7;
     size_t offset = 0;
     while (offset < bytes.size()) {
       const size_t chunk = std::min(kChunkSize, bytes.size() - offset);
-      const int sent = srt_sendmsg(socket_,
+      const int sent = srt_sendmsg(socket,
                                    reinterpret_cast<const char *>(bytes.data() + offset),
                                    static_cast<int>(chunk),
                                    -1,
@@ -625,13 +632,13 @@ class NativeSender {
 
   void disconnect() {
 #if OPENSTREAM_HAVE_LIBSRT
-    if (listener_socket_ != SRT_INVALID_SOCK) {
-      srt_close(listener_socket_);
-      listener_socket_ = SRT_INVALID_SOCK;
+    const SRTSOCKET listenerSocket = takeListenerSocket();
+    const SRTSOCKET socket = takeSocket();
+    if (listenerSocket != SRT_INVALID_SOCK) {
+      srt_close(listenerSocket);
     }
-    if (socket_ != SRT_INVALID_SOCK) {
-      srt_close(socket_);
-      socket_ = SRT_INVALID_SOCK;
+    if (socket != SRT_INVALID_SOCK) {
+      srt_close(socket);
     }
     srt_cleanup();
 #endif
@@ -639,6 +646,52 @@ class NativeSender {
 
  private:
 #if OPENSTREAM_HAVE_LIBSRT
+  SRTSOCKET currentSocket() const {
+    std::lock_guard<std::mutex> lock(socketMutex_);
+    return socket_;
+  }
+
+  void setSocket(SRTSOCKET socket) {
+    std::lock_guard<std::mutex> lock(socketMutex_);
+    socket_ = socket;
+  }
+
+  SRTSOCKET takeSocket() {
+    std::lock_guard<std::mutex> lock(socketMutex_);
+    const SRTSOCKET socket = socket_;
+    socket_ = SRT_INVALID_SOCK;
+    return socket;
+  }
+
+  void closeSocket(SRTSOCKET socket) {
+    (void)socket;
+    const SRTSOCKET current = takeSocket();
+    if (current != SRT_INVALID_SOCK) {
+      srt_close(current);
+    }
+  }
+
+  void setListenerSocket(SRTSOCKET socket) {
+    std::lock_guard<std::mutex> lock(socketMutex_);
+    listener_socket_ = socket;
+  }
+
+  SRTSOCKET takeListenerSocket() {
+    std::lock_guard<std::mutex> lock(socketMutex_);
+    const SRTSOCKET socket = listener_socket_;
+    listener_socket_ = SRT_INVALID_SOCK;
+    return socket;
+  }
+
+  void closeListenerSocket(SRTSOCKET socket) {
+    (void)socket;
+    const SRTSOCKET current = takeListenerSocket();
+    if (current != SRT_INVALID_SOCK) {
+      srt_close(current);
+    }
+  }
+
+  mutable std::mutex socketMutex_;
   SRTSOCKET socket_ = SRT_INVALID_SOCK;
   SRTSOCKET listener_socket_ = SRT_INVALID_SOCK;
 #endif
@@ -649,6 +702,7 @@ struct StreamState {
   std::optional<MpegTsMuxer> muxer;
   std::vector<uint8_t> codecConfig;
   std::vector<uint8_t> audioCodecConfig;
+  std::mutex mediaMutex;
   bool connected = false;
 };
 
@@ -679,15 +733,23 @@ Java_dev_openstream_app_stream_SrtNativeBridge_connect(
   }
 
   g_state.sender.disconnect();
-  g_state.muxer.emplace(*codec);
-  g_state.muxer->reset();
-  g_state.codecConfig.clear();
-  g_state.audioCodecConfig.clear();
-  g_state.connected = g_state.sender.connect(urlString);
-  if (g_state.connected) {
+  {
+    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
+    g_state.muxer.emplace(*codec);
+    g_state.muxer->reset();
+    g_state.codecConfig.clear();
+    g_state.audioCodecConfig.clear();
+    g_state.connected = false;
+  }
+  const bool connected = g_state.sender.connect(urlString);
+  {
+    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
+    g_state.connected = connected;
+  }
+  if (connected) {
     __android_log_print(ANDROID_LOG_INFO, kTag, "Connected SRT MPEG-TS sender to %s", urlString.c_str());
   }
-  return g_state.connected ? JNI_TRUE : JNI_FALSE;
+  return connected ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
@@ -713,15 +775,23 @@ Java_dev_openstream_app_stream_SrtNativeBridge_listen(
   }
 
   g_state.sender.disconnect();
-  g_state.muxer.emplace(*codec);
-  g_state.muxer->reset();
-  g_state.codecConfig.clear();
-  g_state.audioCodecConfig.clear();
-  g_state.connected = g_state.sender.listen(urlString);
-  if (g_state.connected) {
+  {
+    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
+    g_state.muxer.emplace(*codec);
+    g_state.muxer->reset();
+    g_state.codecConfig.clear();
+    g_state.audioCodecConfig.clear();
+    g_state.connected = false;
+  }
+  const bool connected = g_state.sender.listen(urlString);
+  {
+    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
+    g_state.connected = connected;
+  }
+  if (connected) {
     __android_log_print(ANDROID_LOG_INFO, kTag, "Accepted OBS SRT caller at %s", urlString.c_str());
   }
-  return g_state.connected ? JNI_TRUE : JNI_FALSE;
+  return connected ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
@@ -731,40 +801,46 @@ Java_dev_openstream_app_stream_SrtNativeBridge_sendVideo(
     jbyteArray data,
     jlong presentation_time_us,
     jint flags) {
-  if (!g_state.connected || !g_state.muxer) {
-    return JNI_FALSE;
-  }
-
   const jsize size = env->GetArrayLength(data);
   std::vector<uint8_t> bytes(static_cast<size_t>(size));
   env->GetByteArrayRegion(data, 0, size, reinterpret_cast<jbyte *>(bytes.data()));
 
-  std::vector<uint8_t> annexB = normalizeAnnexB(bytes.data(), bytes.size());
-  if ((flags & kMediaCodecBufferFlagCodecConfig) != 0) {
-    g_state.codecConfig = std::move(annexB);
-    logInfo("Stored codec config for keyframe pre-roll");
-    return JNI_TRUE;
-  }
+  std::vector<uint8_t> ts;
+  {
+    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
+    if (!g_state.connected || !g_state.muxer) {
+      return JNI_FALSE;
+    }
 
-  const bool keyFrame = (flags & kMediaCodecBufferFlagKeyFrame) != 0;
-  if (keyFrame && !g_state.codecConfig.empty()) {
-    std::vector<uint8_t> withConfig = g_state.codecConfig;
-    withConfig.insert(withConfig.end(), annexB.begin(), annexB.end());
-    annexB = std::move(withConfig);
-  }
+    std::vector<uint8_t> annexB = normalizeAnnexB(bytes.data(), bytes.size());
+    if ((flags & kMediaCodecBufferFlagCodecConfig) != 0) {
+      g_state.codecConfig = std::move(annexB);
+      logInfo("Stored codec config for keyframe pre-roll");
+      return JNI_TRUE;
+    }
 
-  const std::vector<uint8_t> ts =
-      g_state.muxer->muxAccessUnit(annexB, static_cast<int64_t>(presentation_time_us), keyFrame);
+    const bool keyFrame = (flags & kMediaCodecBufferFlagKeyFrame) != 0;
+    if (keyFrame && !g_state.codecConfig.empty()) {
+      std::vector<uint8_t> withConfig = g_state.codecConfig;
+      withConfig.insert(withConfig.end(), annexB.begin(), annexB.end());
+      annexB = std::move(withConfig);
+    }
+
+    ts = g_state.muxer->muxAccessUnit(annexB, static_cast<int64_t>(presentation_time_us), keyFrame);
+  }
   return g_state.sender.send(ts) ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_dev_openstream_app_stream_SrtNativeBridge_disconnect(JNIEnv *, jobject) {
+  {
+    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
+    g_state.muxer.reset();
+    g_state.codecConfig.clear();
+    g_state.audioCodecConfig.clear();
+    g_state.connected = false;
+  }
   g_state.sender.disconnect();
-  g_state.muxer.reset();
-  g_state.codecConfig.clear();
-  g_state.audioCodecConfig.clear();
-  g_state.connected = false;
   logInfo("SRT bridge disconnected");
 }
 
@@ -775,22 +851,25 @@ Java_dev_openstream_app_stream_SrtNativeBridge_sendAudio(
     jbyteArray data,
     jlong presentation_time_us,
     jint flags) {
-  if (!g_state.connected || !g_state.muxer) {
-    return JNI_FALSE;
-  }
-
   const jsize size = env->GetArrayLength(data);
   std::vector<uint8_t> bytes(static_cast<size_t>(size));
   env->GetByteArrayRegion(data, 0, size, reinterpret_cast<jbyte *>(bytes.data()));
 
-  if ((flags & kMediaCodecBufferFlagCodecConfig) != 0) {
-    g_state.audioCodecConfig = std::move(bytes);
-    logInfo("Stored audio codec config (ASC)");
-    return JNI_TRUE;
-  }
+  std::vector<uint8_t> ts;
+  {
+    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
+    if (!g_state.connected || !g_state.muxer) {
+      return JNI_FALSE;
+    }
 
-  const std::vector<uint8_t> ts =
-      g_state.muxer->muxAudioAccessUnit(
-          bytes, g_state.audioCodecConfig, static_cast<int64_t>(presentation_time_us));
+    if ((flags & kMediaCodecBufferFlagCodecConfig) != 0) {
+      g_state.audioCodecConfig = std::move(bytes);
+      logInfo("Stored audio codec config (ASC)");
+      return JNI_TRUE;
+    }
+
+    ts = g_state.muxer->muxAudioAccessUnit(
+        bytes, g_state.audioCodecConfig, static_cast<int64_t>(presentation_time_us));
+  }
   return g_state.sender.send(ts) ? JNI_TRUE : JNI_FALSE;
 }

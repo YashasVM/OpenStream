@@ -9,6 +9,9 @@ data class StreamConfig(
     val bitrate: Int,
     val keyframeIntervalSeconds: Int,
     val latencyMs: Int,
+    val audioSampleRate: Int,
+    val audioChannelCount: Int,
+    val audioBitrate: Int,
     val codecPreference: CodecPreference,
 ) {
     val bitrateMbps: Int
@@ -22,6 +25,9 @@ data class StreamConfig(
             bitrate = 50_000_000,
             keyframeIntervalSeconds = 1,
             latencyMs = 120,
+            audioSampleRate = 48_000,
+            audioChannelCount = 1,
+            audioBitrate = 192_000,
             codecPreference = CodecPreference.PreferHevc,
         )
 
@@ -32,6 +38,9 @@ data class StreamConfig(
             bitrate = 25_000_000,
             keyframeIntervalSeconds = 1,
             latencyMs = 120,
+            audioSampleRate = 48_000,
+            audioChannelCount = 1,
+            audioBitrate = 192_000,
             codecPreference = CodecPreference.PreferHevc,
         )
     }

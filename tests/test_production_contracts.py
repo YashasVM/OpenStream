@@ -142,3 +142,35 @@ def test_release_workflow_prefers_signed_android_apk_with_debug_fallback() -> No
     assert ":app:assembleDebug" in release_workflow
     assert "debug-signed-beta" in release_workflow
     assert "dist/openstream-android.apk" in release_workflow
+
+
+def test_android_auto_update_release_does_not_replace_public_latest_release() -> None:
+    android_workflow = read(".github/workflows/android.yml")
+    release_workflow = read(".github/workflows/release.yml")
+    updater = read("android/app/src/main/java/dev/openstream/app/update/AppUpdater.kt")
+    release_docs = read("docs/release.md")
+
+    assert "RELEASE_TAG: android-latest" in android_workflow
+    assert "--latest=false" in android_workflow
+    assert "concurrency:" in android_workflow
+    assert "android-latest-publish" in android_workflow
+    assert "gh release upload \"$LATEST_TAG\"" in android_workflow
+    assert "gh release delete \"$RELEASE_TAG\"" not in android_workflow
+    assert "git log -1 --format=%ct" in android_workflow
+    assert "git log -1 --format=%ct" in release_workflow
+    assert "releases/tags/android-latest" in updater
+    assert "/releases/latest/download/" in read("README.md")
+    assert "Windows OBS installer and zip" in release_docs
+
+
+def test_android_pr_builds_do_not_receive_signing_secrets_or_write_token() -> None:
+    android_workflow = read(".github/workflows/android.yml")
+    build_job_text = android_workflow.split("  build:", 1)[1].split("  publish-android-update:", 1)[0]
+    publish_job_text = android_workflow.split("  publish-android-update:", 1)[1]
+
+    assert "permissions:\n  contents: read" in android_workflow
+    assert "if: github.event_name == 'push' && github.ref == 'refs/heads/main'" in publish_job_text
+    assert "permissions:\n      contents: write" in publish_job_text
+    assert "OPENSTREAM_RELEASE_KEYSTORE_BASE64" not in build_job_text
+    assert "OPENSTREAM_RELEASE_STORE_PASSWORD" not in build_job_text
+    assert "contents: write" not in build_job_text
