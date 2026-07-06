@@ -1,55 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- OpenStream — Neo-Brutalist Dark palette
-         Deep indigo-black base, high-saturation accent pops,
-         hard black borders, flat offset shadows.
-         Derived from Neubrutalism design tokens. -->
+    <!-- OpenStream — Minimalist Glass Palette
+         Deep blacks, pure whites, and transparent overlays. -->
 
-    <!-- ── Surfaces ── -->
+    <!-- ── Core ── -->
     <color name="os_black">#FF000000</color>
-    <color name="os_background">#FF0A0A0F</color>
-    <color name="os_surface">#FF141419</color>
-    <color name="os_surface_elevated">#FF1C1C24</color>
-    <color name="os_card">#FF1E1E28</color>
-
-    <!-- ── Borders & Structure ── -->
-    <color name="os_border">#FF3A3A4A</color>
-    <color name="os_border_hard">#FFFFFFFF</color>
-    <color name="os_shadow">#FF000000</color>
-
-    <!-- ── Primary Accent: Cyber amber/orange — the signature punch ── -->
-    <color name="os_accent">#FFFFAB00</color>
-    <color name="os_accent_dim">#FFFF8F00</color>
-    <color name="os_accent_surface">#26FFAB00</color>
+    <color name="os_background">#FF111111</color>
+    <color name="os_white">#FFFFFFFF</color>
+    <color name="os_transparent">#00000000</color>
+    
+    <!-- ── Accents ── -->
+    <color name="os_accent">#FFFFFFFF</color> <!-- Monochromatic accent -->
+    <color name="os_accent_dim">#B3FFFFFF</color>
     <color name="os_accent_on">#FF000000</color>
 
-    <!-- ── Secondary Accent: Off-white for secondary actions ── -->
-    <color name="os_secondary">#FFF0F0F5</color>
-    <color name="os_secondary_dim">#FFD0D0D8</color>
-    <color name="os_secondary_on">#FF000000</color>
+    <!-- ── Glassmorphism Surfaces ── -->
+    <color name="os_glass_surface">#26FFFFFF</color> <!-- 15% White -->
+    <color name="os_glass_border">#33FFFFFF</color>  <!-- 20% White -->
+    <color name="os_glass_surface_dark">#40000000</color> <!-- 25% Black -->
+    
+    <!-- ── Status Colors ── -->
+    <color name="os_live_red">#FFFF3B30</color>
+    <color name="os_success">#FF34C759</color>
+    <color name="os_warning">#FFFFCC00</color>
+    <color name="os_destructive">#FFFF3B30</color>
 
-    <!-- ── Signal colors ── -->
-    <color name="os_live_red">#FFFF1744</color>
-    <color name="os_live_red_dim">#66FF1744</color>
-    <color name="os_warning">#FFFFAB00</color>
-    <color name="os_success">#FF00E676</color>
-    <color name="os_destructive">#FFEF4444</color>
-
-    <!-- ── Text hierarchy ── -->
-    <color name="os_text_primary">#FFF0F0F5</color>
-    <color name="os_text_secondary">#FF8A8A9A</color>
-    <color name="os_text_tertiary">#FF55556A</color>
+    <!-- ── Text ── -->
+    <color name="os_text_primary">#FFFFFFFF</color>
+    <color name="os_text_secondary">#99FFFFFF</color> <!-- 60% White -->
+    <color name="os_text_tertiary">#4DFFFFFF</color>  <!-- 30% White -->
 
     <!-- ── Overlays ── -->
-    <color name="os_overlay_dark">#E6000000</color>
-    <color name="os_overlay_medium">#99000000</color>
-    <color name="os_scrim_top">#CC000000</color>
-    <color name="os_scrim_bottom">#F2000000</color>
-
-    <!-- ── Status bar ── -->
-    <color name="os_status_bar">#FF000000</color>
-
-    <!-- ── Utility ── -->
-    <color name="os_transparent">#00000000</color>
-    <color name="os_white">#FFFFFFFF</color>
+    <color name="os_overlay_dark">#B3000000</color>
+    <color name="os_scrim_top">#80000000</color>
+    <color name="os_scrim_bottom">#CC000000</color>
 </resources>

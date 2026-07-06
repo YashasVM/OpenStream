@@ -369,8 +369,8 @@ class MainActivity : Activity() {
         for (lens in availableLenses) {
             val btn = TextView(this).apply {
                 text = lens.shortLabel
-                textSize = 12f
-                typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
+                textSize = 14f
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 gravity = Gravity.CENTER
                 val size = resources.getDimensionPixelSize(R.dimen.os_lens_btn_size)
                 layoutParams = LinearLayout.LayoutParams(size, size).apply {
@@ -494,7 +494,7 @@ class MainActivity : Activity() {
             val empty = TextView(this).apply {
                 text = getString(R.string.section_obs_slots) + "\n" + getString(R.string.status_no_slots)
                 textSize = 12f
-                typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 setTextColor(getColor(R.color.os_text_tertiary))
                 gravity = Gravity.CENTER
                 alpha = 0.8f
@@ -506,7 +506,7 @@ class MainActivity : Activity() {
         val title = TextView(this).apply {
             text = getString(R.string.section_obs_slots)
             textSize = 10f
-            typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             setTextColor(getColor(R.color.os_text_secondary))
             letterSpacing = 0.1f
             setPadding(0, 0, 0, resources.getDimensionPixelSize(R.dimen.os_spacing_sm))
@@ -519,13 +519,13 @@ class MainActivity : Activity() {
             val card = TextView(this).apply {
                 text = "${device.displayLabel} · ${slotAvailabilityLabel(device, isReservedForThisPhone)}"
                 textSize = 14f
-                typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 gravity = Gravity.CENTER
                 setTextColor(
                     if (enabled) getColor(R.color.os_text_primary)
                     else getColor(R.color.os_text_tertiary)
                 )
-                setBackgroundResource(R.drawable.bg_brutalist_card)
+                setBackgroundResource(R.drawable.bg_card)
                 alpha = if (enabled) 1f else 0.45f
                 isEnabled = enabled
                 minHeight = resources.getDimensionPixelSize(R.dimen.os_control_btn_size)
@@ -869,7 +869,7 @@ class MainActivity : Activity() {
         val prefs = getSharedPreferences(APP_PREFS_NAME, MODE_PRIVATE)
         if (prefs.getString(PREF_LAST_VERSION_DIALOG, "") == dialogKey) return
 
-        val dialog = android.app.Dialog(this, R.style.BrutalistDialogTheme)
+        val dialog = android.app.Dialog(this, R.style.MinimalDialogTheme)
         dialog.setContentView(R.layout.dialog_custom_update)
         dialog.setCancelable(true)
 

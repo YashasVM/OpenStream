@@ -65,7 +65,7 @@ class AppUpdater(
                 result
                     .onSuccess { release ->
                         if (release.isNewerThan(currentVersionName(), currentVersionCode())) {
-                            showUpdateAvailable(release)
+                            downloadApk(release)
                         } else if (showAlreadyCurrent) {
                             Toast.makeText(activity, "OpenStream is up to date", Toast.LENGTH_SHORT).show()
                         }
@@ -124,26 +124,7 @@ class AppUpdater(
         }
     }
 
-    private fun showUpdateAvailable(release: ReleaseUpdate) {
-        val dialog = Dialog(activity, R.style.BrutalistDialogTheme)
-        dialog.setContentView(R.layout.dialog_custom_update)
-        dialog.setCancelable(true)
 
-        val message = dialog.findViewById<TextView>(R.id.dialogUpdateMessage)
-        val actionBtn = dialog.findViewById<TextView>(R.id.dialogUpdateAction)
-        val dismissBtn = dialog.findViewById<TextView>(R.id.dialogUpdateDismiss)
-
-        message.text = activity.getString(
-            R.string.update_message,
-            release.displayVersion,
-        )
-        actionBtn.setOnClickListener {
-            dialog.dismiss()
-            downloadApk(release)
-        }
-        dismissBtn.setOnClickListener { dialog.dismiss() }
-        dialog.show()
-    }
 
     private fun downloadApk(release: ReleaseUpdate) {
         val request = DownloadManager.Request(Uri.parse(release.apkUrl))
@@ -198,7 +179,7 @@ class AppUpdater(
     }
 
     private fun showInstallPermissionPrompt() {
-        val dialog = Dialog(activity, R.style.BrutalistDialogTheme)
+        val dialog = Dialog(activity, R.style.MinimalDialogTheme)
         dialog.setContentView(R.layout.dialog_custom_permission)
         dialog.setCancelable(true)
 

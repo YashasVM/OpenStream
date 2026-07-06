@@ -1,27 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- OpenStream — Neo-Brutalist split-screen layout.
-     Top: camera preview (weight-based, fills available space).
-     Bottom: solid dark control panel with brutalist cards and buttons. -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- OpenStream — Minimalist UI.
+     Full screen camera preview with floating glassmorphic controls. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="@color/os_background">
+    android:background="@color/os_black">
 
-    <!-- ====== CAMERA PREVIEW — top section, fills remaining height ====== -->
+    <!-- ====== BACKGROUND CAMERA PREVIEW ====== -->
     <FrameLayout
         android:id="@+id/previewContainer"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:background="@color/os_black">
+        android:layout_height="match_parent">
 
         <SurfaceView
             android:id="@+id/cameraPreview"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:layout_gravity="center" />
-
+            
         <!-- SCREEN-OFF OVERLAY -->
         <View
             android:id="@+id/screenOffOverlay"
@@ -31,7 +27,7 @@
             android:visibility="gone"
             android:clickable="true"
             android:focusable="true" />
-
+            
         <!-- IDENTIFY OVERLAY -->
         <TextView
             android:id="@+id/identifyOverlay"
@@ -39,125 +35,113 @@
             android:layout_height="match_parent"
             android:background="@color/os_overlay_dark"
             android:gravity="center"
-            android:textColor="@color/os_accent"
+            android:textColor="@color/os_text_primary"
             android:textSize="54sp"
-            android:textStyle="bold"
-            android:fontFamily="sans-serif-black"
+            android:fontFamily="sans-serif-light"
             android:lineSpacingExtra="10dp"
             android:visibility="gone" />
-
-        <!-- TOP OVERLAY — LIVE badge + stream info + zoom (floats over preview) -->
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_gravity="top"
-            android:background="@drawable/scrim_top"
-            android:paddingStart="@dimen/os_spacing_lg"
-            android:paddingEnd="@dimen/os_spacing_lg"
-            android:paddingTop="44dp"
-            android:paddingBottom="@dimen/os_spacing_md">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-
-                <!-- LIVE badge -->
-                <LinearLayout
-                    android:id="@+id/liveBadge"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:background="@drawable/bg_chip"
-                    android:paddingStart="10dp"
-                    android:paddingEnd="12dp"
-                    android:paddingTop="6dp"
-                    android:paddingBottom="6dp"
-                    android:visibility="gone">
-
-                    <View
-                        android:id="@+id/liveDot"
-                        android:layout_width="8dp"
-                        android:layout_height="8dp"
-                        android:background="@drawable/live_dot" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="LIVE"
-                        android:textColor="@color/os_live_red"
-                        android:textSize="@dimen/os_text_caption"
-                        android:textStyle="bold"
-                        android:fontFamily="sans-serif-black"
-                        android:letterSpacing="0.15"
-                        android:layout_marginStart="6dp" />
-                </LinearLayout>
-
-                <!-- Stream info chip -->
-                <TextView
-                    android:id="@+id/streamInfoChip"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/bg_chip"
-                    android:paddingStart="10dp"
-                    android:paddingEnd="10dp"
-                    android:paddingTop="6dp"
-                    android:paddingBottom="6dp"
-                    android:textColor="@color/os_text_secondary"
-                    android:textSize="@dimen/os_text_tiny"
-                    android:fontFamily="monospace"
-                    android:layout_marginStart="@dimen/os_spacing_sm"
-                    android:visibility="gone" />
-
-                <View
-                    android:layout_width="0dp"
-                    android:layout_height="0dp"
-                    android:layout_weight="1" />
-
-                <!-- Zoom label -->
-                <TextView
-                    android:id="@+id/zoomLabel"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/bg_chip"
-                    android:paddingStart="12dp"
-                    android:paddingEnd="12dp"
-                    android:paddingTop="6dp"
-                    android:paddingBottom="6dp"
-                    android:textColor="@color/os_accent"
-                    android:textSize="@dimen/os_text_body"
-                    android:fontFamily="monospace"
-                    android:textStyle="bold"
-                    android:visibility="gone" />
-            </LinearLayout>
-        </FrameLayout>
     </FrameLayout>
 
-    <!-- ====== BOTTOM CONTROL PANEL — solid dark brutalist surface ====== -->
+    <!-- ====== TOP OVERLAY (Status) ====== -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:background="@drawable/scrim_top"
+        android:paddingStart="@dimen/os_spacing_lg"
+        android:paddingEnd="@dimen/os_spacing_lg"
+        android:paddingTop="56dp"
+        android:paddingBottom="32dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <!-- LIVE badge -->
+            <LinearLayout
+                android:id="@+id/liveBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_minimal_pill"
+                android:paddingStart="12dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:visibility="gone">
+
+                <View
+                    android:id="@+id/liveDot"
+                    android:layout_width="8dp"
+                    android:layout_height="8dp"
+                    android:background="@drawable/live_dot" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="LIVE"
+                    android:textColor="@color/os_live_red"
+                    android:textSize="12sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:layout_marginStart="8dp" />
+            </LinearLayout>
+
+            <!-- Stream info chip -->
+            <TextView
+                android:id="@+id/streamInfoChip"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_minimal_pill"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:textColor="@color/os_text_secondary"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginStart="@dimen/os_spacing_sm"
+                android:visibility="gone" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <!-- Zoom label -->
+            <TextView
+                android:id="@+id/zoomLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_minimal_pill"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:textColor="@color/os_text_primary"
+                android:textSize="14sp"
+                android:fontFamily="sans-serif-medium"
+                android:visibility="gone" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- ====== BOTTOM CONTROLS ====== -->
     <LinearLayout
         android:id="@+id/bottomControls"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
         android:orientation="vertical"
-        android:background="@color/os_background"
+        android:background="@drawable/scrim_bottom"
         android:paddingStart="@dimen/os_spacing_lg"
         android:paddingEnd="@dimen/os_spacing_lg"
-        android:paddingTop="@dimen/os_spacing_lg"
+        android:paddingTop="32dp"
         android:paddingBottom="@dimen/os_spacing_xl"
         android:fitsSystemWindows="true">
 
-        <!-- Top border line — brutalist separator between preview and controls -->
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="3dp"
-            android:background="@color/os_border_hard"
-            android:layout_marginStart="-16dp"
-            android:layout_marginEnd="-16dp"
-            android:layout_marginBottom="@dimen/os_spacing_lg" />
-
-        <!-- Status block -->
+        <!-- Status Block -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -170,19 +154,17 @@
                 android:layout_height="wrap_content"
                 android:text="@string/status_ready"
                 android:textColor="@color/os_text_primary"
-                android:textSize="@dimen/os_text_headline"
-                android:textStyle="bold"
-                android:fontFamily="sans-serif-black"
-                android:letterSpacing="0.03"
-                android:layout_marginBottom="2dp" />
+                android:textSize="20sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginBottom="4dp" />
 
             <TextView
                 android:id="@+id/statusDetail"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textColor="@color/os_text_tertiary"
-                android:textSize="@dimen/os_text_tiny"
-                android:fontFamily="monospace" />
+                android:textColor="@color/os_text_secondary"
+                android:textSize="14sp"
+                android:fontFamily="sans-serif" />
         </LinearLayout>
 
         <!-- OBS Slot List (populated programmatically) -->
@@ -193,288 +175,130 @@
             android:orientation="vertical"
             android:layout_marginBottom="@dimen/os_spacing_md" />
 
-        <!-- PORT SELECTOR ROW (hidden by default) -->
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="@dimen/os_spacing_md"
-            android:visibility="gone">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="PORT"
-                android:textColor="@color/os_text_tertiary"
-                android:textSize="10sp"
-                android:textStyle="bold"
-                android:fontFamily="monospace"
-                android:letterSpacing="0.1"
-                android:layout_marginEnd="@dimen/os_spacing_sm" />
-
-            <TextView
-                android:id="@+id/btnPortDown"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:gravity="center"
-                android:background="@drawable/bg_brutalist_btn_ghost"
-                android:text="−"
-                android:textColor="@color/os_text_secondary"
-                android:textSize="16sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/portLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="9000"
-                android:textColor="@color/os_accent"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:fontFamily="monospace"
-                android:minWidth="56dp"
-                android:gravity="center"
-                android:paddingStart="@dimen/os_spacing_sm"
-                android:paddingEnd="@dimen/os_spacing_sm" />
-
-            <TextView
-                android:id="@+id/btnPortUp"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:gravity="center"
-                android:background="@drawable/bg_brutalist_btn_ghost"
-                android:text="+"
-                android:textColor="@color/os_text_secondary"
-                android:textSize="16sp"
-                android:textStyle="bold" />
-        </LinearLayout>
-
-        <!-- Lens selector row -->
+        <!-- Lens Selector Row -->
         <LinearLayout
             android:id="@+id/lensSelectorRow"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginBottom="@dimen/os_spacing_md">
-            <!-- Lens buttons are added programmatically -->
+            android:layout_marginBottom="@dimen/os_spacing_lg">
+            <!-- Lens buttons added programmatically -->
         </LinearLayout>
 
-        <!-- Utility buttons row — brutalist grid -->
+        <!-- Utility Button Row -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical">
 
-            <!-- Screen off toggle -->
+            <!-- Screen off -->
             <TextView
                 android:id="@+id/btnScreenOff"
                 android:layout_width="0dp"
                 android:layout_weight="1"
                 android:layout_height="@dimen/os_control_btn_height"
                 android:gravity="center"
-                android:background="@drawable/bg_brutalist_btn_ghost"
-                android:text="DISPLAY"
+                android:background="@drawable/bg_minimal_pill"
+                android:text="Screen"
                 android:textColor="@color/os_text_primary"
-                android:textSize="10sp"
-                android:textStyle="bold"
-                android:fontFamily="sans-serif-black"
-                android:letterSpacing="0.03"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
                 android:layout_marginEnd="@dimen/os_spacing_xs" />
 
-            <!-- Keep screen on toggle -->
+            <!-- Stay -->
             <TextView
                 android:id="@+id/btnKeepScreenOn"
                 android:layout_width="0dp"
                 android:layout_weight="1"
                 android:layout_height="@dimen/os_control_btn_height"
                 android:gravity="center"
-                android:background="@drawable/bg_brutalist_btn_ghost"
-                android:text="STAY"
+                android:background="@drawable/bg_minimal_pill"
+                android:text="Stay"
                 android:textColor="@color/os_text_primary"
-                android:textSize="10sp"
-                android:textStyle="bold"
-                android:fontFamily="sans-serif-black"
-                android:letterSpacing="0.03"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
                 android:layout_marginEnd="@dimen/os_spacing_xs" />
 
-            <!-- Torch toggle -->
+            <!-- Torch -->
             <TextView
                 android:id="@+id/btnTorch"
                 android:layout_width="0dp"
                 android:layout_weight="1"
                 android:layout_height="@dimen/os_control_btn_height"
                 android:gravity="center"
-                android:background="@drawable/bg_brutalist_btn_ghost"
-                android:text="LIGHT"
+                android:background="@drawable/bg_minimal_pill"
+                android:text="Torch"
                 android:textColor="@color/os_text_primary"
-                android:textSize="10sp"
-                android:textStyle="bold"
-                android:fontFamily="sans-serif-black"
-                android:letterSpacing="0.03"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
                 android:layout_marginEnd="@dimen/os_spacing_xs" />
 
-            <!-- Flip camera button -->
+            <!-- Flip -->
             <TextView
                 android:id="@+id/btnFlipCamera"
                 android:layout_width="0dp"
                 android:layout_weight="1"
                 android:layout_height="@dimen/os_control_btn_height"
                 android:gravity="center"
-                android:background="@drawable/bg_brutalist_btn_ghost"
-                android:text="@string/btn_flip_camera"
+                android:background="@drawable/bg_minimal_pill"
+                android:text="Flip"
                 android:textColor="@color/os_text_primary"
-                android:textSize="10sp"
-                android:textStyle="bold"
-                android:fontFamily="sans-serif-black"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
                 android:layout_marginEnd="@dimen/os_spacing_xs" />
 
-            <!-- Settings button (replaces ADV toggle) -->
+            <!-- Settings -->
             <TextView
                 android:id="@+id/btnSettings"
                 android:layout_width="0dp"
                 android:layout_weight="1"
                 android:layout_height="@dimen/os_control_btn_height"
                 android:gravity="center"
-                android:background="@drawable/bg_brutalist_btn_ghost"
-                android:text="@string/btn_settings"
+                android:background="@drawable/bg_minimal_pill"
+                android:text="Config"
                 android:textColor="@color/os_text_primary"
-                android:textSize="9sp"
-                android:textStyle="bold"
-                android:fontFamily="sans-serif-black"
-                android:letterSpacing="0.03"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
                 android:layout_marginEnd="@dimen/os_spacing_xs" />
 
-            <!-- Stop button -->
+            <!-- Stop -->
             <TextView
                 android:id="@+id/btnStop"
                 android:layout_width="0dp"
                 android:layout_weight="1"
                 android:layout_height="@dimen/os_control_btn_height"
                 android:gravity="center"
-                android:background="@drawable/bg_brutalist_btn_danger"
-                android:text="STOP"
-                android:textColor="@color/os_white"
-                android:textSize="10sp"
-                android:textStyle="bold"
-                android:fontFamily="sans-serif-black"
-                android:letterSpacing="0.03"
+                android:background="@drawable/bg_minimal_btn_danger"
+                android:text="Stop"
+                android:textColor="@color/os_text_primary"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
                 android:visibility="gone" />
         </LinearLayout>
-
-        <!-- Credit -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
-            android:text="Made by @yashas.vm"
-            android:textColor="@color/os_text_tertiary"
-            android:textSize="9sp"
-            android:fontFamily="monospace"
-            android:letterSpacing="0.05"
-            android:layout_marginTop="@dimen/os_spacing_md"
-            android:alpha="0.6" />
     </LinearLayout>
 
-    <!-- ====== MANUAL CONNECT PANEL — hidden, used only if Settings not available ====== -->
+    <!-- ====== PORT SELECTOR ROW & MANUAL (Hidden but required for binding) ====== -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:visibility="gone">
+        <TextView android:id="@+id/btnPortDown" android:layout_width="1dp" android:layout_height="1dp" />
+        <TextView android:id="@+id/portLabel" android:layout_width="1dp" android:layout_height="1dp" />
+        <TextView android:id="@+id/btnPortUp" android:layout_width="1dp" android:layout_height="1dp" />
+    </LinearLayout>
+
     <LinearLayout
         android:id="@+id/manualContainer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:background="@color/os_background"
-        android:padding="@dimen/os_spacing_lg"
-        android:visibility="gone"
-        android:fitsSystemWindows="true">
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/section_manual"
-            android:textColor="@color/os_accent"
-            android:textSize="@dimen/os_text_caption"
-            android:textStyle="bold"
-            android:fontFamily="sans-serif-black"
-            android:letterSpacing="0.1"
-            android:textAllCaps="true"
-            android:layout_marginBottom="@dimen/os_spacing_md" />
-
-        <TextView
-            android:id="@+id/connectionInfo"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="@color/os_text_tertiary"
-            android:textSize="@dimen/os_text_tiny"
-            android:fontFamily="monospace"
-            android:layout_marginBottom="@dimen/os_spacing_md" />
-
-        <EditText
-            android:id="@+id/inputObsHost"
-            android:layout_width="match_parent"
-            android:layout_height="@dimen/os_input_height"
-            android:hint="@string/hint_obs_host"
-            android:textColor="@color/os_text_primary"
-            android:textColorHint="@color/os_text_tertiary"
-            android:textSize="@dimen/os_text_body"
-            android:fontFamily="monospace"
-            android:background="@drawable/bg_brutalist_input"
-            android:paddingStart="@dimen/os_spacing_md"
-            android:paddingEnd="@dimen/os_spacing_md"
-            android:singleLine="true"
-            android:layout_marginBottom="@dimen/os_spacing_sm" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginBottom="@dimen/os_spacing_md">
-
-            <EditText
-                android:id="@+id/inputObsPort"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="@dimen/os_input_height"
-                android:hint="@string/hint_obs_port"
-                android:textColor="@color/os_text_primary"
-                android:textColorHint="@color/os_text_tertiary"
-                android:textSize="@dimen/os_text_body"
-                android:fontFamily="monospace"
-                android:inputType="number"
-                android:background="@drawable/bg_brutalist_input"
-                android:paddingStart="@dimen/os_spacing_md"
-                android:paddingEnd="@dimen/os_spacing_md"
-                android:singleLine="true"
-                android:layout_marginEnd="@dimen/os_spacing_sm" />
-
-            <EditText
-                android:id="@+id/inputLatency"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="@dimen/os_input_height"
-                android:hint="@string/hint_latency"
-                android:textColor="@color/os_text_primary"
-                android:textColorHint="@color/os_text_tertiary"
-                android:textSize="@dimen/os_text_body"
-                android:fontFamily="monospace"
-                android:inputType="number"
-                android:background="@drawable/bg_brutalist_input"
-                android:paddingStart="@dimen/os_spacing_md"
-                android:paddingEnd="@dimen/os_spacing_md"
-                android:singleLine="true" />
-        </LinearLayout>
-
-        <TextView
-            android:id="@+id/btnManualConnect"
-            android:layout_width="match_parent"
-            android:layout_height="@dimen/os_input_height"
-            android:gravity="center"
-            android:background="@drawable/bg_brutalist_btn_primary"
-            android:text="@string/btn_connect"
-            android:textColor="@color/os_accent_on"
-            android:textSize="@dimen/os_text_body"
-            android:textStyle="bold"
-            android:fontFamily="sans-serif-black" />
+        android:visibility="gone">
+        <TextView android:id="@+id/connectionInfo" android:layout_width="1dp" android:layout_height="1dp" />
+        <EditText android:id="@+id/inputObsHost" android:layout_width="1dp" android:layout_height="1dp" />
+        <EditText android:id="@+id/inputObsPort" android:layout_width="1dp" android:layout_height="1dp" />
+        <EditText android:id="@+id/inputLatency" android:layout_width="1dp" android:layout_height="1dp" />
+        <TextView android:id="@+id/btnManualConnect" android:layout_width="1dp" android:layout_height="1dp" />
     </LinearLayout>
-</LinearLayout>
+</FrameLayout>

@@ -1,23 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Selected state -->
-    <item android:state_selected="true">
-        <shape android:shape="rectangle">
-            <solid android:color="#FFFFAB00" />
-            <stroke
-                android:width="2dp"
-                android:color="#FF000000" />
-            <corners android:radius="4dp" />
-        </shape>
-    </item>
-    <!-- Default state -->
-    <item>
-        <shape android:shape="rectangle">
-            <solid android:color="#FF1E1E28" />
-            <stroke
-                android:width="2dp"
-                android:color="#FFFFFFFF" />
-            <corners android:radius="4dp" />
-        </shape>
-    </item>
+    <item android:drawable="@drawable/bg_minimal_pill_active" android:state_selected="true" />
+    <item android:drawable="@drawable/bg_minimal_pill" />
 </selector>
