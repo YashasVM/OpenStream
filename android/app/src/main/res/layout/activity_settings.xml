@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FF0A0A0F"
+    android:fillViewport="true"
+    android:fitsSystemWindows="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp"
+        android:paddingTop="56dp">
+
+        <!-- Page title -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="SETTINGS"
+            android:textColor="#FFF0F0F5"
+            android:textSize="26sp"
+            android:textStyle="bold"
+            android:fontFamily="sans-serif-black"
+            android:letterSpacing="0.05"
+            android:layout_marginBottom="32dp" />
+
+        <!-- OBS Host label -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="OBS HOST"
+            android:textColor="#FF8A8A9A"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.1"
+            android:layout_marginBottom="6dp" />
+
+        <EditText
+            android:id="@+id/settingsObsHost"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:hint="@string/hint_obs_host"
+            android:textColor="#FFF0F0F5"
+            android:textColorHint="#FF55556A"
+            android:textSize="14sp"
+            android:fontFamily="monospace"
+            android:background="@drawable/bg_brutalist_input"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:singleLine="true"
+            android:layout_marginBottom="16dp" />
+
+        <!-- OBS Port label -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="OBS PORT"
+            android:textColor="#FF8A8A9A"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.1"
+            android:layout_marginBottom="6dp" />
+
+        <EditText
+            android:id="@+id/settingsObsPort"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:hint="@string/hint_obs_port"
+            android:textColor="#FFF0F0F5"
+            android:textColorHint="#FF55556A"
+            android:textSize="14sp"
+            android:fontFamily="monospace"
+            android:inputType="number"
+            android:background="@drawable/bg_brutalist_input"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:singleLine="true"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Latency label -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="LATENCY (ms)"
+            android:textColor="#FF8A8A9A"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.1"
+            android:layout_marginBottom="6dp" />
+
+        <EditText
+            android:id="@+id/settingsLatency"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:hint="@string/hint_latency"
+            android:textColor="#FFF0F0F5"
+            android:textColorHint="#FF55556A"
+            android:textSize="14sp"
+            android:fontFamily="monospace"
+            android:inputType="number"
+            android:background="@drawable/bg_brutalist_input"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:singleLine="true"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Listening Port label -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="LISTENING PORT"
+            android:textColor="#FF8A8A9A"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.1"
+            android:layout_marginBottom="6dp" />
+
+        <EditText
+            android:id="@+id/settingsListeningPort"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:hint="@string/hint_listening_port"
+            android:textColor="#FFF0F0F5"
+            android:textColorHint="#FF55556A"
+            android:textSize="14sp"
+            android:fontFamily="monospace"
+            android:inputType="number"
+            android:background="@drawable/bg_brutalist_input"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:singleLine="true"
+            android:layout_marginBottom="24dp" />
+
+        <!-- Divider -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="2dp"
+            android:background="#FF3A3A4A"
+            android:layout_marginBottom="24dp" />
+
+        <!-- Check for Updates button -->
+        <TextView
+            android:id="@+id/btnCheckUpdates"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center"
+            android:background="@drawable/bg_brutalist_btn_ghost"
+            android:text="@string/settings_check_updates"
+            android:textColor="#FFF0F0F5"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:fontFamily="sans-serif-black"
+            android:letterSpacing="0.08"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Save button -->
+        <TextView
+            android:id="@+id/btnSaveSettings"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:gravity="center"
+            android:background="@drawable/bg_brutalist_btn_primary"
+            android:text="@string/btn_save"
+            android:textColor="#FF000000"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:fontFamily="sans-serif-black"
+            android:letterSpacing="0.05"
+            android:layout_marginBottom="12dp" />
+
+        <!-- Back button -->
+        <TextView
+            android:id="@+id/btnBackSettings"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:gravity="center"
+            android:background="@drawable/bg_brutalist_btn_secondary"
+            android:text="@string/btn_back"
+            android:textColor="#FF000000"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:fontFamily="sans-serif-black"
+            android:letterSpacing="0.05"
+            android:layout_marginBottom="24dp" />
+
+        <!-- Version info -->
+        <TextView
+            android:id="@+id/settingsVersionInfo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:textColor="#FF55556A"
+            android:textSize="10sp"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.05" />
+
+    </LinearLayout>
+</ScrollView>

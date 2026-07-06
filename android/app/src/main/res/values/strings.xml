@@ -12,27 +12,53 @@
     <string name="btn_screen_on">Screen</string>
     <string name="btn_screen_on_active">Screen ✓</string>
     <string name="btn_flip_camera">FLIP</string>
-    <string name="btn_connect">Connect</string>
+    <string name="btn_connect">CONNECT</string>
     <string name="btn_stop">STOP</string>
+    <string name="btn_settings">SETTINGS</string>
+    <string name="btn_save">SAVE CHANGES</string>
+    <string name="btn_back">BACK</string>
 
     <!-- Status -->
-    <string name="status_ready">Ready</string>
+    <string name="status_ready">READY</string>
     <string name="status_waiting">Choose an OBS camera slot</string>
-    <string name="status_streaming">Live → %1$s</string>
-    <string name="status_stopped">Stopped</string>
+    <string name="status_streaming">LIVE → %1$s</string>
+    <string name="status_stopped">STOPPED</string>
+    <string name="status_no_slots">NO OBS CAMERA SLOTS FOUND</string>
 
     <!-- Sections -->
-    <string name="section_connection">Connection</string>
-    <string name="section_manual">Advanced</string>
+    <string name="section_connection">CONNECTION</string>
+    <string name="section_manual">ADVANCED</string>
+    <string name="section_settings">SETTINGS</string>
+    <string name="section_obs_slots">OBS CAMERAS</string>
 
     <!-- Hints -->
     <string name="hint_obs_host">OBS PC IP address</string>
     <string name="hint_obs_port">Port (9000)</string>
     <string name="hint_latency">Latency (120)</string>
+    <string name="hint_listening_port">Listening port</string>
 
     <!-- Info -->
     <string name="info_listener">SRT port %1$d · %2$dx%3$d@%4$d · %5$d Mbps</string>
 
     <!-- Zoom -->
     <string name="zoom_label">%1$.1f×</string>
+
+    <!-- Update dialog -->
+    <string name="update_title">UPDATE AVAILABLE</string>
+    <string name="update_message">Version %1$s is ready.\nDownload and install it now?</string>
+    <string name="update_action">UPDATE NOW</string>
+    <string name="update_dismiss">LATER</string>
+
+    <!-- Permission dialog -->
+    <string name="permission_title">INSTALL PERMISSION</string>
+    <string name="permission_message">OpenStream needs permission to install its downloaded APK update.</string>
+    <string name="permission_action">OPEN SETTINGS</string>
+    <string name="permission_dismiss">CANCEL</string>
+
+    <!-- Settings labels -->
+    <string name="settings_obs_host">OBS HOST</string>
+    <string name="settings_obs_port">OBS PORT</string>
+    <string name="settings_latency">LATENCY (ms)</string>
+    <string name="settings_listening_port">LISTENING PORT</string>
+    <string name="settings_check_updates">CHECK FOR UPDATES</string>
 </resources>

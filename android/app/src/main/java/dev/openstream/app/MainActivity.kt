@@ -4,7 +4,6 @@ import android.Manifest
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
@@ -63,7 +62,7 @@ class MainActivity : Activity() {
     private lateinit var btnScreenOff: TextView
     private lateinit var btnTorch: TextView
     private lateinit var btnFlipCamera: TextView
-    private lateinit var btnManualToggle: TextView
+    private lateinit var btnSettings: TextView
     private lateinit var btnManualConnect: TextView
     private lateinit var btnStop: TextView
     private lateinit var screenOffOverlay: View
@@ -208,6 +207,12 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         appUpdater.resumePendingInstallIfAllowed()
+        // Reload listening port from settings if it changed
+        val settingsPrefs = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
+        val savedPort = settingsPrefs.getInt(SettingsActivity.KEY_LISTENING_PORT, currentPort)
+        if (savedPort != currentPort && savedPort in 1024..65535) {
+            changePort(savedPort)
+        }
     }
 
     override fun onStop() {
@@ -271,7 +276,7 @@ class MainActivity : Activity() {
         btnScreenOff = findViewById(R.id.btnScreenOff)
         btnTorch = findViewById(R.id.btnTorch)
         btnFlipCamera = findViewById(R.id.btnFlipCamera)
-        btnManualToggle = findViewById(R.id.btnManualToggle)
+        btnSettings = findViewById(R.id.btnSettings)
         btnManualConnect = findViewById(R.id.btnManualConnect)
         btnStop = findViewById(R.id.btnStop)
         screenOffOverlay = findViewById(R.id.screenOffOverlay)
@@ -287,11 +292,9 @@ class MainActivity : Activity() {
         btnScreenOff.setOnClickListener { toggleDisplayOff() }
         btnTorch.setOnClickListener { toggleTorch() }
         btnFlipCamera.setOnClickListener { flipCamera() }
-        btnManualToggle.setOnClickListener {
-            manualContainer.visibility =
-                if (manualContainer.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-            btnManualToggle.text =
-                if (manualContainer.visibility == View.VISIBLE) "ADV ON" else "ADV"
+        btnSettings.setOnClickListener {
+            val intent = Intent(this, SettingsActivity::class.java)
+            startActivity(intent)
         }
         btnManualConnect.setOnClickListener { startStream(connectionTargetFromManualFields()) }
         btnStop.setOnClickListener { stopPhoneServer() }
@@ -366,8 +369,8 @@ class MainActivity : Activity() {
         for (lens in availableLenses) {
             val btn = TextView(this).apply {
                 text = lens.shortLabel
-                textSize = 13f
-                typeface = Typeface.DEFAULT_BOLD
+                textSize = 12f
+                typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
                 gravity = Gravity.CENTER
                 val size = resources.getDimensionPixelSize(R.dimen.os_lens_btn_size)
                 layoutParams = LinearLayout.LayoutParams(size, size).apply {
@@ -489,9 +492,9 @@ class MainActivity : Activity() {
         obsSlotList.removeAllViews()
         if (devices.isEmpty()) {
             val empty = TextView(this).apply {
-                text = "Available OBS cameras\nNo OBS camera slots found"
+                text = getString(R.string.section_obs_slots) + "\n" + getString(R.string.status_no_slots)
                 textSize = 12f
-                typeface = Typeface.DEFAULT_BOLD
+                typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
                 setTextColor(getColor(R.color.os_text_tertiary))
                 gravity = Gravity.CENTER
                 alpha = 0.8f
@@ -501,12 +504,11 @@ class MainActivity : Activity() {
         }
 
         val title = TextView(this).apply {
-            text = "Available OBS cameras"
-            textSize = 12f
-            typeface = Typeface.DEFAULT_BOLD
+            text = getString(R.string.section_obs_slots)
+            textSize = 10f
+            typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
             setTextColor(getColor(R.color.os_text_secondary))
-            gravity = Gravity.CENTER
-            letterSpacing = 0.08f
+            letterSpacing = 0.1f
             setPadding(0, 0, 0, resources.getDimensionPixelSize(R.dimen.os_spacing_sm))
         }
         obsSlotList.addView(title)
@@ -515,23 +517,23 @@ class MainActivity : Activity() {
             val isReservedForThisPhone = reservedBy == device.sourceInstanceId
             val enabled = !device.busy || isReservedForThisPhone
             val card = TextView(this).apply {
-                text = "${device.displayLabel} \u00B7 ${slotAvailabilityLabel(device, isReservedForThisPhone)}"
-                textSize = 15f
-                typeface = Typeface.DEFAULT_BOLD
+                text = "${device.displayLabel} · ${slotAvailabilityLabel(device, isReservedForThisPhone)}"
+                textSize = 14f
+                typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
                 gravity = Gravity.CENTER
                 setTextColor(
                     if (enabled) getColor(R.color.os_text_primary)
                     else getColor(R.color.os_text_tertiary)
                 )
-                setBackgroundResource(R.drawable.bg_card)
+                setBackgroundResource(R.drawable.bg_brutalist_card)
                 alpha = if (enabled) 1f else 0.45f
                 isEnabled = enabled
                 minHeight = resources.getDimensionPixelSize(R.dimen.os_control_btn_size)
                 setPadding(
+                    resources.getDimensionPixelSize(R.dimen.os_spacing_lg),
                     resources.getDimensionPixelSize(R.dimen.os_spacing_md),
-                    resources.getDimensionPixelSize(R.dimen.os_spacing_sm),
+                    resources.getDimensionPixelSize(R.dimen.os_spacing_lg),
                     resources.getDimensionPixelSize(R.dimen.os_spacing_md),
-                    resources.getDimensionPixelSize(R.dimen.os_spacing_sm),
                 )
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -867,31 +869,54 @@ class MainActivity : Activity() {
         val prefs = getSharedPreferences(APP_PREFS_NAME, MODE_PRIVATE)
         if (prefs.getString(PREF_LAST_VERSION_DIALOG, "") == dialogKey) return
 
-        AlertDialog.Builder(this)
-            .setTitle("OpenStream V2 is installed")
-            .setMessage("You are running the new V2 APK. Future beta updates can now be checked from inside the app.")
-            .setPositiveButton("OK") { _, _ ->
-                prefs.edit()
-                    .putString(PREF_LAST_VERSION_DIALOG, dialogKey)
-                    .apply()
-            }
-            .setOnCancelListener {
-                prefs.edit()
-                    .putString(PREF_LAST_VERSION_DIALOG, dialogKey)
-                    .apply()
-            }
-            .show()
+        val dialog = android.app.Dialog(this, R.style.BrutalistDialogTheme)
+        dialog.setContentView(R.layout.dialog_custom_update)
+        dialog.setCancelable(true)
+
+        val message = dialog.findViewById<TextView>(R.id.dialogUpdateMessage)
+        val actionBtn = dialog.findViewById<TextView>(R.id.dialogUpdateAction)
+        val dismissBtn = dialog.findViewById<TextView>(R.id.dialogUpdateDismiss)
+
+        message.text = "You are running OpenStream v$versionName.\nFuture updates can be checked from Settings."
+        actionBtn.text = "GOT IT"
+        dismissBtn.visibility = View.GONE
+
+        actionBtn.setOnClickListener {
+            prefs.edit()
+                .putString(PREF_LAST_VERSION_DIALOG, dialogKey)
+                .apply()
+            dialog.dismiss()
+        }
+        dialog.setOnCancelListener {
+            prefs.edit()
+                .putString(PREF_LAST_VERSION_DIALOG, dialogKey)
+                .apply()
+        }
+        dialog.show()
     }
 
     private fun connectionTargetFromManualFields(): ConnectionTarget {
-        val host = inputObsHost.text.toString().ifBlank { ConnectionTarget.DEFAULT_HOST }.trim()
-        val port = inputObsPort.text.toString().toIntOrNull() ?: ConnectionTarget.DEFAULT_PORT
-        val latencyMs = inputLatency.text.toString().toIntOrNull() ?: ConnectionTarget.DEFAULT_LATENCY_MS
+        // Try loading from SharedPreferences first (set via SettingsActivity),
+        // fall back to inline fields if settings are empty.
+        val settingsPrefs = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
+        val settingsHost = settingsPrefs.getString(SettingsActivity.KEY_OBS_HOST, "")?.trim().orEmpty()
+        val settingsPort = settingsPrefs.getInt(SettingsActivity.KEY_OBS_PORT, 0)
+        val settingsLatency = settingsPrefs.getInt(SettingsActivity.KEY_LATENCY, 0)
+
+        val host = settingsHost.ifBlank {
+            inputObsHost.text.toString().ifBlank { ConnectionTarget.DEFAULT_HOST }.trim()
+        }
+        val port = if (settingsPort > 0) settingsPort else {
+            inputObsPort.text.toString().toIntOrNull() ?: ConnectionTarget.DEFAULT_PORT
+        }
+        val latencyMs = if (settingsLatency > 0) settingsLatency else {
+            inputLatency.text.toString().toIntOrNull() ?: ConnectionTarget.DEFAULT_LATENCY_MS
+        }
         return ConnectionTarget(
             name = ConnectionTarget.DEFAULT_NAME,
             host = host,
             port = port.coerceIn(1, 65535),
-            latencyMs = latencyMs.coerceIn(80, 200),
+            latencyMs = latencyMs.coerceIn(80, 2000),
         )
     }
 
@@ -1003,25 +1028,8 @@ class MainActivity : Activity() {
             )
             insets
         }
-        // Also apply to manual container
-        manualContainer.setOnApplyWindowInsetsListener { view, insets ->
-            val navBarHeight = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                insets.getInsets(WindowInsets.Type.systemBars()).bottom
-            } else {
-                @Suppress("DEPRECATION")
-                insets.systemWindowInsetBottom
-            }
-            view.setPadding(
-                view.paddingLeft,
-                view.paddingTop,
-                view.paddingRight,
-                resources.getDimensionPixelSize(R.dimen.os_spacing_lg) + navBarHeight,
-            )
-            insets
-        }
         // Request insets
         bottomControls.requestApplyInsets()
-        manualContainer.requestApplyInsets()
     }
 
     companion object {
