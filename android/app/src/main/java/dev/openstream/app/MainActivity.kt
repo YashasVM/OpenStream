@@ -615,6 +615,9 @@ class MainActivity : Activity() {
                 fps = streamConfig.fps,
             )
             encoder.start()
+            runCatching { audioEncoder.start() }.onFailure { e ->
+                Log.w("OpenStream", "Audio encoder start failed", e)
+            }
             camera.startStreaming(encoder.inputSurface())
             activeTargetName = target.name
             mainHandler.removeCallbacks(statsTicker)
@@ -661,6 +664,9 @@ class MainActivity : Activity() {
                         mainHandler.post(statsTicker)
                     }
                     encoder.start()
+                    runCatching { audioEncoder.start() }.onFailure { e ->
+                        Log.w("OpenStream", "Audio encoder start failed", e)
+                    }
                     camera.startStreaming(encoder.inputSurface())
                     while (phoneServerRunning && phoneConnected) {
                         Thread.sleep(250)
