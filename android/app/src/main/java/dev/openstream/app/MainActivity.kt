@@ -560,6 +560,12 @@ class MainActivity : Activity() {
 
     private fun reserveForSlot(device: DiscoveredObsDevice) {
         if (device.busy && reservedBy != device.sourceInstanceId) return
+        
+        // If connected to someone else and user explicitly taps a new slot, disconnect the old stream
+        if (phoneConnected && reservedBy != device.sourceInstanceId) {
+            stopStream(updateStatus = false)
+        }
+
         if (reserveForSource(device.sourceInstanceId, device.displayLabel, device.bitrateMbps)) {
             statusText.text = "Paired to ${device.displayLabel}"
             statusDetail.text = "Waiting for OBS to go live"

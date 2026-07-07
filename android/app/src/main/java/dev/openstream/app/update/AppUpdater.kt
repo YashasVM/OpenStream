@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.Settings
 import android.util.Log
+import android.view.View
 import android.widget.TextView
 import android.widget.Toast
 import dev.openstream.app.R
@@ -65,7 +66,7 @@ class AppUpdater(
                 result
                     .onSuccess { release ->
                         if (release.isNewerThan(currentVersionName(), currentVersionCode())) {
-                            downloadApk(release)
+                            showUpdatePrompt(release)
                         } else if (showAlreadyCurrent) {
                             Toast.makeText(activity, "OpenStream is up to date", Toast.LENGTH_SHORT).show()
                         }
@@ -142,6 +143,30 @@ class AppUpdater(
 
         pendingDownloadId = downloadManager.enqueue(request)
         Toast.makeText(activity, "Downloading update", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showUpdatePrompt(release: ReleaseUpdate) {
+        val dialog = Dialog(activity, R.style.MinimalDialogTheme)
+        dialog.setContentView(R.layout.dialog_custom_update)
+        dialog.setCancelable(true)
+
+        val message = dialog.findViewById<TextView>(R.id.dialogUpdateMessage)
+        val actionBtn = dialog.findViewById<TextView>(R.id.dialogUpdateAction)
+        val dismissBtn = dialog.findViewById<TextView>(R.id.dialogUpdateDismiss)
+
+        message.text = "A new update (${release.displayVersion}) is available. Would you like to install it?"
+        actionBtn.text = "Install"
+        dismissBtn.text = "Later"
+        dismissBtn.visibility = View.VISIBLE
+
+        actionBtn.setOnClickListener {
+            dialog.dismiss()
+            downloadApk(release)
+        }
+        dismissBtn.setOnClickListener {
+            dialog.dismiss()
+        }
+        dialog.show()
     }
 
     private fun installDownloadedApk() {
