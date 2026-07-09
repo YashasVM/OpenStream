@@ -16,6 +16,7 @@ import android.widget.Toast
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 import java.util.concurrent.Executors
 
 class AppUpdater(
@@ -24,6 +25,7 @@ class AppUpdater(
     private val executor = Executors.newSingleThreadExecutor()
     private val downloadManager = activity.getSystemService(DownloadManager::class.java)
     private var pendingDownloadId: Long = NO_DOWNLOAD
+    private var pendingRelease: ReleaseUpdate? = null
     private var registered = false
 
     private val downloadReceiver = object : BroadcastReceiver() {
@@ -54,6 +56,12 @@ class AppUpdater(
         if (!registered) return
         runCatching { activity.unregisterReceiver(downloadReceiver) }
         registered = false
+    }
+
+    /** Stop outstanding update work when the owning activity is destroyed. */
+    fun dispose() {
+        unregister()
+        executor.shutdownNow()
     }
 
     fun checkForUpdates(showAlreadyCurrent: Boolean = false) {
@@ -105,6 +113,10 @@ class AppUpdater(
             name = json.optString("name"),
             versionCode = metadata?.optLong("versionCode")?.takeIf { it > 0 },
             apkUrl = apkUrl ?: error("Release asset $ANDROID_APK_ASSET was not found"),
+            apkSha256 = metadata?.optString("apkSha256")
+                ?.lowercase()
+                ?.takeIf { it.matches(SHA256_HEX) }
+                ?: error("Release metadata did not contain a valid APK SHA-256 digest"),
         )
     }
 
@@ -145,6 +157,7 @@ class AppUpdater(
             .setAllowedOverMetered(true)
             .setAllowedOverRoaming(false)
 
+        pendingRelease = release
         pendingDownloadId = downloadManager.enqueue(request)
         Toast.makeText(activity, "Downloading update", Toast.LENGTH_SHORT).show()
     }
@@ -152,6 +165,13 @@ class AppUpdater(
     private fun installDownloadedApk() {
         if (!isSuccessfulDownload()) {
             Toast.makeText(activity, "Update download failed", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        if (!hasExpectedApkDigest()) {
+            Toast.makeText(activity, "Update verification failed", Toast.LENGTH_LONG).show()
+            pendingDownloadId = NO_DOWNLOAD
+            pendingRelease = null
             return
         }
 
@@ -181,6 +201,24 @@ class AppUpdater(
             return cursor.getInt(statusColumn) == DownloadManager.STATUS_SUCCESSFUL
         }
         return false
+    }
+
+    private fun hasExpectedApkDigest(): Boolean {
+        val expected = pendingRelease?.apkSha256 ?: return false
+        val apkUri = downloadManager.getUriForDownloadedFile(pendingDownloadId) ?: return false
+        val actual = runCatching {
+            activity.contentResolver.openInputStream(apkUri)?.use { input ->
+                val digest = MessageDigest.getInstance("SHA-256")
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    digest.update(buffer, 0, read)
+                }
+                digest.digest().joinToString("") { byte -> "%02x".format(byte) }
+            }
+        }.getOrNull()
+        return actual != null && actual.equals(expected, ignoreCase = true)
     }
 
     private fun showInstallPermissionPrompt() {
@@ -223,6 +261,7 @@ class AppUpdater(
         val name: String,
         val versionCode: Long?,
         val apkUrl: String,
+        val apkSha256: String,
     ) {
         val displayVersion: String = tagName.ifBlank { name }.removePrefix("v")
 
@@ -241,6 +280,7 @@ class AppUpdater(
         private const val ANDROID_APK_ASSET = "openstream-android.apk"
         private const val ANDROID_UPDATE_METADATA_ASSET = "openstream-android-update.json"
         private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
+        private val SHA256_HEX = Regex("^[0-9a-f]{64}$")
 
         private fun compareVersions(candidate: String, current: String): Int {
             val candidateParts = VersionParts.parse(candidate)

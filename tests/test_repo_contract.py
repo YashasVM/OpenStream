@@ -167,7 +167,7 @@ def test_android_discovery_ui_parses_and_displays_obs_slots() -> None:
     assert "compareBy<DiscoveredObsDevice> { it.displayLabel }" in discovery
     assert "Available OBS cameras" in app
     assert "obsSlotList" in layout
-    assert 'android:text="ADV"' in layout
+    assert 'android:text="@string/btn_advanced"' in layout
 
 
 def test_identify_camera_control_round_trip_exists() -> None:
@@ -196,6 +196,21 @@ def test_android_control_server_supports_source_reservations() -> None:
     assert "useStreamBitrate(bitrateMbps)" in app
     assert "reserveForSource(device.sourceInstanceId, device.displayLabel, device.bitrateMbps)" in app
     assert "val bitrateMbps = if (json.has(\"bitrateMbps\"))" in control
+
+
+def test_camera_control_requires_pairing_token_and_bounds_requests() -> None:
+    control = read("android/app/src/main/java/dev/openstream/app/control/CameraControlServer.kt")
+    app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    source = read("obs-plugin/src/openstream-source.cpp")
+
+    assert "X-OpenStream-Token" in control
+    assert "MessageDigest.isEqual" in control
+    assert "MAX_BODY_BYTES" in control
+    assert "sendResponse(writer, 401" in control
+    assert "controlAuthToken" in app
+    assert "controlToken" in source
+    assert "X-OpenStream-Token:" in source
+    assert "generate_control_token" in source
 
 
 def test_camera_controller_supports_preview_before_streaming() -> None:
@@ -246,7 +261,7 @@ def test_docs_keep_python_receiver_as_developer_tool_only() -> None:
     assert "not part of the normal user workflow" in setup
 
 
-def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
+def test_release_workflows_require_signed_public_apks_and_run_tests() -> None:
     android_workflow = read(".github/workflows/android.yml")
     obs_workflow = read(".github/workflows/obs-plugin-windows.yml")
     release_workflow = read(".github/workflows/release.yml")
@@ -258,7 +273,7 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "openstream.nonStreamingCiBuild" not in android_workflow
     assert "openstream-android-debug-apk" in android_workflow
     assert ":app:assembleRelease" in release_workflow
-    assert ":app:assembleDebug" in release_workflow
+    assert ":app:assembleDebug" not in release_workflow
     assert "OPENSTREAM_RELEASE_KEYSTORE_BASE64" in release_workflow
     assert "OPENSTREAM_VERSION_NAME" in release_workflow
     assert "OPENSTREAM_VERSION_CODE" in release_workflow
@@ -268,9 +283,14 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "gh release create" in release_workflow
     assert "docs/release-notes-template.md" in release_workflow
     assert "openstream-android.apk" in release_workflow
-    assert "debug-signed-beta" in release_workflow
+    assert "debug-signed-beta" not in release_workflow
+    assert "Public releases require all Android signing secrets" in release_workflow
+    assert "Automatic updates require all Android signing secrets" in android_workflow
+    assert "python -m pytest -q" in android_workflow
+    assert "apkSha256" in release_workflow
+    assert "openstream-android.apk.sha256" in release_workflow
     assert "openstream-obs-windows-x64.zip" in release_workflow
-    assert "debug-signed beta APK" in release_docs
+    assert "never uploaded to a public release or update channel" in release_docs
     assert "Android Signing Secrets" in release_docs
     assert "OPENSTREAM_SKIP_INSTALL" in plugin_builder
     assert "OPENSTREAM_PLUGIN_PACKAGE_DIR" in plugin_builder

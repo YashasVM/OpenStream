@@ -27,6 +27,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <random>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -197,18 +198,42 @@ std::string pairing_url_for_slot(const std::string &host,
                                  int bitrate_mbps,
                                  const std::string &slot_id,
                                  const std::string &slot_label,
-                                 const std::string &source_instance_id) {
+                                 const std::string &source_instance_id,
+                                 const std::string &control_token) {
   std::ostringstream url;
   url << "openstream://connect"
       << "?slotId=" << url_query_escape(slot_id)
       << "&slotLabel=" << url_query_escape(slot_label)
       << "&sourceInstanceId=" << url_query_escape(source_instance_id)
+      << "&controlToken=" << url_query_escape(control_token)
       << "&host=" << url_query_escape(host)
       << "&port=" << listener_port
       << "&latency=" << latency_ms
       << "&bitrateMbps=" << bitrate_mbps
       << "&name=" << url_query_escape(slot_label);
   return url.str();
+}
+
+std::string generate_control_token() {
+  // std::random_device uses the platform cryptographic provider on supported
+  // OBS targets. Keep this token source-local and persist it in OBS settings.
+  std::random_device random;
+  static constexpr char kHex[] = "0123456789abcdef";
+  std::string token;
+  token.reserve(64);
+  for (size_t index = 0; index < 32; ++index) {
+    const unsigned int value = random() & 0xffU;
+    token += kHex[(value >> 4) & 0x0fU];
+    token += kHex[value & 0x0fU];
+  }
+  return token;
+}
+
+bool is_control_token(const std::string &token) {
+  return token.size() == 64 && std::all_of(token.begin(), token.end(), [](unsigned char ch) {
+    return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') ||
+           (ch >= 'A' && ch <= 'F');
+  });
 }
 
 std::vector<std::string> local_ipv4_addresses() {
@@ -731,6 +756,7 @@ struct OpenStreamSource {
   std::string phone_target_hint;
   std::string pairing_hint;
   std::string pairing_url;
+  std::string control_token;
   std::string instance_id;
   std::string slot_id;
   std::string slot_label = "CAM A";
@@ -768,7 +794,9 @@ void set_slot_status(OpenStreamSource *ctx, std::string status) {
 
 // Simple HTTP POST helper for camera controls
 bool send_control_command(const std::string &host, int port,
-                          const std::string &path, const std::string &body) {
+                          const std::string &path, const std::string &body,
+                          const std::string &control_token) {
+  if (!is_control_token(control_token) || port < 1 || port > 65535) return false;
   SocketHandle sock = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (sock == kInvalidSocket) return false;
 
@@ -797,19 +825,34 @@ bool send_control_command(const std::string &host, int port,
   request << "POST " << path << " HTTP/1.1\r\n"
           << "Host: " << host << ":" << port << "\r\n"
           << "Content-Type: application/json\r\n"
+          << "X-OpenStream-Token: " << control_token << "\r\n"
           << "Content-Length: " << body.size() << "\r\n"
           << "Connection: close\r\n"
           << "\r\n"
           << body;
   const std::string req = request.str();
-  send(sock, req.c_str(), static_cast<int>(req.size()), 0);
+  size_t sent = 0;
+  while (sent < req.size()) {
+    const int result = send(sock, req.data() + sent, static_cast<int>(req.size() - sent), 0);
+    if (result <= 0) {
+      close_socket(sock);
+      return false;
+    }
+    sent += static_cast<size_t>(result);
+  }
 
-  char response[1024] = {};
-  recv(sock, response, sizeof(response) - 1, 0);
+  std::string response;
+  char buffer[512];
+  while (response.size() < 8192) {
+    const int received = recv(sock, buffer, sizeof(buffer), 0);
+    if (received <= 0) break;
+    response.append(buffer, static_cast<size_t>(received));
+    if (response.find("\r\n\r\n") != std::string::npos) break;
+  }
   close_socket(sock);
 
-  return std::strstr(response, "200 OK") != nullptr &&
-         std::strstr(response, "\"ok\":false") == nullptr;
+  return response.rfind("HTTP/1.1 200 ", 0) == 0 &&
+         response.find("\"ok\":false") == std::string::npos;
 }
 
 void set_active_phone(OpenStreamSource *ctx, std::optional<PhoneDevice> phone) {
@@ -850,13 +893,13 @@ bool reserve_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
        << "\"slotId\":\"" << json_escape(ctx->slot_id) << "\","
        << "\"slotLabel\":\"" << json_escape(ctx->slot_label) << "\","
        << "\"bitrateMbps\":" << ctx->bitrate_mbps << "}";
-  return send_control_command(phone.host, phone.control_port, "/reserve", body.str());
+  return send_control_command(phone.host, phone.control_port, "/reserve", body.str(), ctx->control_token);
 }
 
 void release_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
   std::ostringstream body;
   body << "{\"sourceInstanceId\":\"" << json_escape(ctx->instance_id) << "\"}";
-  send_control_command(phone.host, phone.control_port, "/release", body.str());
+  send_control_command(phone.host, phone.control_port, "/release", body.str(), ctx->control_token);
 }
 
 std::string av_error(int error) {
@@ -1578,13 +1621,19 @@ void openstream_update(void *data, obs_data_t *settings) {
         (selected_phone && selected_phone[0] != '\0') ? selected_phone : PhoneDiscoveryReceiver::kAutoPhoneId;
     ctx->srt_url = "openstream:auto";
     obs_data_set_string(settings, "srt_url", ctx->srt_url.c_str());
+    const char *saved_control_token = obs_data_get_string(settings, "control_token");
+    ctx->control_token = (saved_control_token && is_control_token(saved_control_token))
+                             ? saved_control_token
+                             : generate_control_token();
+    obs_data_set_string(settings, "control_token", ctx->control_token.c_str());
     ctx->pairing_url = pairing_url_for_slot(first_pairing_host(),
                                             ctx->listener_port,
                                             ctx->latency_ms,
                                             ctx->bitrate_mbps,
                                             ctx->slot_id,
                                             ctx->slot_label,
-                                            ctx->instance_id);
+                                            ctx->instance_id,
+                                            ctx->control_token);
     ctx->pairing_hint = "Open OpenStream on your phone, choose " + ctx->slot_label +
                         ", and keep both devices on the same Wi-Fi. Pairing URL is in Advanced.";
     const std::vector<PhoneDevice> phones = ctx->phone_discovery.devices();
@@ -1669,6 +1718,7 @@ void openstream_defaults(obs_data_t *settings) {
   obs_data_set_default_string(settings, "phone_target_hint", "Waiting for a phone to choose CAM A");
   obs_data_set_default_string(settings, "pairing_hint", "Open OpenStream on your phone, choose CAM A, and keep both devices on the same Wi-Fi.");
   obs_data_set_default_string(settings, "pairing_url", "openstream://connect");
+  obs_data_set_default_string(settings, "control_token", "");
   obs_data_set_default_bool(settings, "show_advanced", false);
   obs_data_set_default_int(settings, "listener_port", kDefaultListenerPort);
   obs_data_set_default_int(settings, "latency_ms", 120);
@@ -1833,7 +1883,7 @@ obs_properties_t *openstream_properties(void *data) {
     if (!phone.has_value()) return false;
     std::ostringstream body;
     body << "{\"value\":" << zoom << "}";
-    send_control_command(phone->host, phone->control_port, "/zoom", body.str());
+    send_control_command(phone->host, phone->control_port, "/zoom", body.str(), ctx->control_token);
     return false;
   }, static_cast<OpenStreamSource *>(data));
 
@@ -1842,7 +1892,7 @@ obs_properties_t *openstream_properties(void *data) {
     if (!ctx) return false;
     auto phone = control_phone(ctx);
     if (!phone.has_value()) return false;
-    send_control_command(phone->host, phone->control_port, "/torch", "{\"enabled\":true}");
+    send_control_command(phone->host, phone->control_port, "/torch", "{\"enabled\":true}", ctx->control_token);
     blog(LOG_INFO, "[OpenStream] Torch ON");
     return true;
   });
@@ -1852,7 +1902,7 @@ obs_properties_t *openstream_properties(void *data) {
     if (!ctx) return false;
     auto phone = control_phone(ctx);
     if (!phone.has_value()) return false;
-    send_control_command(phone->host, phone->control_port, "/torch", "{\"enabled\":false}");
+    send_control_command(phone->host, phone->control_port, "/torch", "{\"enabled\":false}", ctx->control_token);
     blog(LOG_INFO, "[OpenStream] Torch OFF");
     return true;
   });
@@ -1862,7 +1912,7 @@ obs_properties_t *openstream_properties(void *data) {
     if (!ctx) return false;
     auto phone = control_phone(ctx);
     if (!phone.has_value()) return false;
-    send_control_command(phone->host, phone->control_port, "/lens", "{\"lens\":\"1×\"}");
+    send_control_command(phone->host, phone->control_port, "/lens", "{\"lens\":\"1×\"}", ctx->control_token);
     blog(LOG_INFO, "[OpenStream] Switch to back camera");
     return true;
   });
@@ -1872,7 +1922,7 @@ obs_properties_t *openstream_properties(void *data) {
     if (!ctx) return false;
     auto phone = control_phone(ctx);
     if (!phone.has_value()) return false;
-    send_control_command(phone->host, phone->control_port, "/lens", "{\"lens\":\"Front\"}");
+    send_control_command(phone->host, phone->control_port, "/lens", "{\"lens\":\"Front\"}", ctx->control_token);
     blog(LOG_INFO, "[OpenStream] Switch to front camera");
     return true;
   });
@@ -1885,7 +1935,7 @@ obs_properties_t *openstream_properties(void *data) {
     std::ostringstream body;
     body << "{\"label\":\"" << json_escape(ctx->slot_label) << "\","
          << "\"subtitle\":\"" << json_escape(ctx->device_name) << "\"}";
-    const bool sent = send_control_command(phone->host, phone->control_port, "/identify", body.str());
+    const bool sent = send_control_command(phone->host, phone->control_port, "/identify", body.str(), ctx->control_token);
     blog(LOG_INFO,
          "[OpenStream] Identify %s%s",
          ctx->slot_label.c_str(),

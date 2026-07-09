@@ -20,7 +20,7 @@ OpenStream V2 is focused on making the Android-to-OBS setup easier to understand
 | `openstream-obs-windows-x64.zip` | Manual plugin package with DLL and install scripts. |
 
 > [!NOTE]
-> The Android APK is signed with the release key when repository signing secrets are configured. Preview builds may be debug-signed.
+> The Android APK is release-signed. Debug builds are CI-only and are never published as release or update assets.
 
 ## Install
 

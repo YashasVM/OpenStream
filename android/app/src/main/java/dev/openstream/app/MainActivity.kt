@@ -26,6 +26,7 @@ import android.view.WindowManager
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.Button
 import android.widget.TextView
 import dev.openstream.app.camera.Camera2Controller
 import dev.openstream.app.camera.CameraLens
@@ -59,19 +60,19 @@ class MainActivity : Activity() {
     private lateinit var liveDot: View
     private lateinit var streamInfoChip: TextView
     private lateinit var zoomLabel: TextView
-    private lateinit var btnKeepScreenOn: TextView
-    private lateinit var btnScreenOff: TextView
-    private lateinit var btnTorch: TextView
-    private lateinit var btnFlipCamera: TextView
-    private lateinit var btnManualToggle: TextView
-    private lateinit var btnManualConnect: TextView
-    private lateinit var btnStop: TextView
+    private lateinit var btnKeepScreenOn: Button
+    private lateinit var btnScreenOff: Button
+    private lateinit var btnTorch: Button
+    private lateinit var btnFlipCamera: Button
+    private lateinit var btnManualToggle: Button
+    private lateinit var btnManualConnect: Button
+    private lateinit var btnStop: Button
     private lateinit var screenOffOverlay: View
     private lateinit var identifyOverlay: TextView
     private lateinit var bottomControls: LinearLayout
     private lateinit var portLabel: TextView
-    private lateinit var btnPortUp: TextView
-    private lateinit var btnPortDown: TextView
+    private lateinit var btnPortUp: Button
+    private lateinit var btnPortDown: Button
 
     // ── Core components ──
     private lateinit var camera: Camera2Controller
@@ -91,6 +92,7 @@ class MainActivity : Activity() {
     @Volatile private var phoneConnected = false
     @Volatile private var reservedBy: String? = null
     @Volatile private var reservedSlotLabel: String? = null
+    @Volatile private var controlAuthToken: String? = null
     private var listenerThread: Thread? = null
     private var keepScreenOn = false
     private var displayOff = false
@@ -153,6 +155,7 @@ class MainActivity : Activity() {
             lensProvider = { currentLens },
         )
         controlServer = CameraControlServer(
+            authTokenProvider = { controlAuthToken },
             cameraProvider = { camera },
             lensListProvider = { availableLenses },
             currentLensProvider = { currentLens },
@@ -221,7 +224,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        appUpdater.unregister()
+        appUpdater.dispose()
         super.onDestroy()
     }
 
@@ -288,13 +291,20 @@ class MainActivity : Activity() {
         btnTorch.setOnClickListener { toggleTorch() }
         btnFlipCamera.setOnClickListener { flipCamera() }
         btnManualToggle.setOnClickListener {
-            manualContainer.visibility =
-                if (manualContainer.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-            btnManualToggle.text =
-                if (manualContainer.visibility == View.VISIBLE) "ADV ON" else "ADV"
+            val isOpening = manualContainer.visibility != View.VISIBLE
+            manualContainer.visibility = if (isOpening) View.VISIBLE else View.GONE
+            btnManualToggle.text = getString(
+                if (isOpening) R.string.btn_advanced_close else R.string.btn_advanced,
+            )
+            btnManualToggle.contentDescription = getString(
+                if (isOpening) R.string.desc_advanced_close else R.string.desc_advanced,
+            )
+            manualContainer.announceForAccessibility(
+                getString(if (isOpening) R.string.advanced_opened else R.string.advanced_closed),
+            )
         }
         btnManualConnect.setOnClickListener { startStream(connectionTargetFromManualFields()) }
-        btnStop.setOnClickListener { stopPhoneServer() }
+        btnStop.setOnClickListener { confirmStopStream() }
 
         // Port selector buttons
         portLabel.text = currentPort.toString()
@@ -443,6 +453,15 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun confirmStopStream() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.stop_stream_title)
+            .setMessage(R.string.stop_stream_message)
+            .setNegativeButton(R.string.action_cancel, null)
+            .setPositiveButton(R.string.action_stop) { _, _ -> stopPhoneServer() }
+            .show()
+    }
+
     // ─────────────────────────── Torch ───────────────────────────
 
     private fun toggleTorch() {
@@ -549,6 +568,13 @@ class MainActivity : Activity() {
 
     private fun reserveForSlot(device: DiscoveredObsDevice) {
         if (device.busy && reservedBy != device.sourceInstanceId) return
+        val token = Uri.parse(device.pairingUrl).getQueryParameter("controlToken")?.trim()
+        if (!CameraControlServer.isValidAuthToken(token.orEmpty())) {
+            statusText.text = "Pairing update required"
+            statusDetail.text = "Open this slot's pairing link from OBS to enable authenticated controls."
+            return
+        }
+        controlAuthToken = token
         if (reserveForSource(device.sourceInstanceId, device.displayLabel, device.bitrateMbps)) {
             statusText.text = "Paired to ${device.displayLabel}"
             statusDetail.text = "Waiting for OBS to go live"
@@ -571,6 +597,13 @@ class MainActivity : Activity() {
         val uri: Uri = intent?.data ?: return
         val sourceInstanceId = uri.getQueryParameter("sourceInstanceId")?.trim().orEmpty()
         if (sourceInstanceId.isNotBlank()) {
+            val token = uri.getQueryParameter("controlToken")?.trim()
+            if (!CameraControlServer.isValidAuthToken(token.orEmpty())) {
+                statusText.text = "Pairing link is invalid"
+                statusDetail.text = "Update the OBS OpenStream source and scan a new pairing link."
+                return
+            }
+            controlAuthToken = token
             val slotLabel = uri.getQueryParameter("slotLabel")?.trim().orEmpty()
             val bitrateMbps = uri.getQueryParameter("bitrateMbps")?.toIntOrNull()?.coerceIn(1, 200)
             if (reserveForSource(sourceInstanceId, slotLabel, bitrateMbps)) {

@@ -20,8 +20,8 @@
 
     <!-- Text hierarchy -->
     <color name="os_text_primary">#FFEAEAF0</color>
-    <color name="os_text_secondary">#FF7C7C90</color>
-    <color name="os_text_tertiary">#FF50506A</color>
+    <color name="os_text_secondary">#FFB4B4C4</color>
+    <color name="os_text_tertiary">#FF9292A6</color>
 
     <!-- Overlays -->
     <color name="os_overlay_dark">#CC080810</color>

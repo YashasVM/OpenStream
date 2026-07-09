@@ -23,6 +23,7 @@
     <dimen name="os_icon_md">24dp</dimen>
     <dimen name="os_icon_lg">32dp</dimen>
 
-    <dimen name="os_control_btn_size">44dp</dimen>
+    <!-- Minimum recommended touch target for camera controls. -->
+    <dimen name="os_control_btn_size">48dp</dimen>
     <dimen name="os_lens_btn_size">48dp</dimen>
 </resources>

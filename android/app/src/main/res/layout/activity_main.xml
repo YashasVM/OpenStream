@@ -26,7 +26,8 @@
         android:background="#FF000000"
         android:visibility="gone"
         android:clickable="true"
-        android:focusable="true" />
+        android:focusable="true"
+        android:contentDescription="@string/desc_restore_display" />
 
     <TextView
         android:id="@+id/identifyOverlay"
@@ -149,6 +150,7 @@
             android:textColor="@color/os_text_primary"
             android:textSize="@dimen/os_text_title"
             android:textStyle="bold"
+            android:accessibilityLiveRegion="polite"
             android:layout_marginBottom="2dp" />
 
         <TextView
@@ -188,16 +190,17 @@
                 android:letterSpacing="0.1"
                 android:layout_marginEnd="@dimen/os_spacing_sm" />
 
-            <TextView
+            <Button
                 android:id="@+id/btnPortDown"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:gravity="center"
                 android:background="@drawable/bg_btn_ghost"
                 android:text="−"
                 android:textColor="@color/os_text_secondary"
                 android:textSize="16sp"
-                android:textStyle="bold" />
+                android:textStyle="bold"
+                android:contentDescription="@string/desc_port_down" />
 
             <TextView
                 android:id="@+id/portLabel"
@@ -213,16 +216,17 @@
                 android:paddingStart="@dimen/os_spacing_sm"
                 android:paddingEnd="@dimen/os_spacing_sm" />
 
-            <TextView
+            <Button
                 android:id="@+id/btnPortUp"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:gravity="center"
                 android:background="@drawable/bg_btn_ghost"
                 android:text="+"
                 android:textColor="@color/os_text_secondary"
                 android:textSize="16sp"
-                android:textStyle="bold" />
+                android:textStyle="bold"
+                android:contentDescription="@string/desc_port_up" />
         </LinearLayout>
 
         <!-- Lens selector row -->
@@ -244,7 +248,7 @@
             android:gravity="center_vertical">
 
             <!-- Screen off toggle (dims display, keeps streaming) -->
-            <TextView
+            <Button
                 android:id="@+id/btnScreenOff"
                 android:layout_width="wrap_content"
                 android:layout_height="@dimen/os_control_btn_size"
@@ -257,10 +261,11 @@
                 android:letterSpacing="0.03"
                 android:paddingStart="10dp"
                 android:paddingEnd="10dp"
-                android:layout_marginEnd="@dimen/os_spacing_sm" />
+                android:layout_marginEnd="@dimen/os_spacing_sm"
+                android:contentDescription="@string/desc_display_off" />
 
             <!-- Keep screen on toggle -->
-            <TextView
+            <Button
                 android:id="@+id/btnKeepScreenOn"
                 android:layout_width="wrap_content"
                 android:layout_height="@dimen/os_control_btn_size"
@@ -273,10 +278,11 @@
                 android:letterSpacing="0.05"
                 android:paddingStart="12dp"
                 android:paddingEnd="12dp"
-                android:layout_marginEnd="@dimen/os_spacing_sm" />
+                android:layout_marginEnd="@dimen/os_spacing_sm"
+                android:contentDescription="@string/desc_keep_screen_on" />
 
             <!-- Torch toggle -->
-            <TextView
+            <Button
                 android:id="@+id/btnTorch"
                 android:layout_width="wrap_content"
                 android:layout_height="@dimen/os_control_btn_size"
@@ -289,10 +295,11 @@
                 android:letterSpacing="0.03"
                 android:paddingStart="10dp"
                 android:paddingEnd="10dp"
-                android:layout_marginEnd="@dimen/os_spacing_sm" />
+                android:layout_marginEnd="@dimen/os_spacing_sm"
+                android:contentDescription="@string/desc_torch" />
 
             <!-- Flip camera button -->
-            <TextView
+            <Button
                 android:id="@+id/btnFlipCamera"
                 android:layout_width="wrap_content"
                 android:layout_height="@dimen/os_control_btn_size"
@@ -303,26 +310,28 @@
                 android:textSize="18sp"
                 android:paddingStart="14dp"
                 android:paddingEnd="14dp"
-                android:layout_marginEnd="@dimen/os_spacing_sm" />
+                android:layout_marginEnd="@dimen/os_spacing_sm"
+                android:contentDescription="@string/desc_flip_camera" />
 
             <!-- Manual connect toggle -->
-            <TextView
+            <Button
                 android:id="@+id/btnManualToggle"
                 android:layout_width="wrap_content"
                 android:layout_height="@dimen/os_control_btn_size"
                 android:gravity="center"
                 android:background="@drawable/bg_btn_ghost"
-                android:text="ADV"
+                android:text="@string/btn_advanced"
                 android:textColor="@color/os_text_secondary"
                 android:textSize="10sp"
                 android:textStyle="bold"
                 android:letterSpacing="0.03"
                 android:paddingStart="10dp"
                 android:paddingEnd="10dp"
-                android:layout_marginEnd="@dimen/os_spacing_sm" />
+                android:layout_marginEnd="@dimen/os_spacing_sm"
+                android:contentDescription="@string/desc_advanced" />
 
             <!-- Stop button -->
-            <TextView
+            <Button
                 android:id="@+id/btnStop"
                 android:layout_width="wrap_content"
                 android:layout_height="@dimen/os_control_btn_size"
@@ -335,7 +344,8 @@
                 android:letterSpacing="0.03"
                 android:paddingStart="10dp"
                 android:paddingEnd="10dp"
-                android:visibility="gone" />
+                android:visibility="gone"
+                android:contentDescription="@string/desc_stop" />
         </LinearLayout>
 
         <!-- Credit -->
@@ -393,10 +403,20 @@
             android:fontFamily="monospace"
             android:layout_marginBottom="@dimen/os_spacing_md" />
 
+        <TextView
+            android:id="@+id/labelObsHost"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/label_obs_host"
+            android:textColor="@color/os_text_secondary"
+            android:textSize="@dimen/os_text_caption"
+            android:layout_marginBottom="4dp"
+            android:labelFor="@id/inputObsHost" />
+
         <EditText
             android:id="@+id/inputObsHost"
             android:layout_width="match_parent"
-            android:layout_height="44dp"
+            android:layout_height="48dp"
             android:hint="@string/hint_obs_host"
             android:textColor="@color/os_text_primary"
             android:textColorHint="@color/os_text_tertiary"
@@ -413,11 +433,27 @@
             android:orientation="horizontal"
             android:layout_marginBottom="@dimen/os_spacing_md">
 
-            <EditText
-                android:id="@+id/inputObsPort"
+            <LinearLayout
                 android:layout_width="0dp"
+                android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_height="44dp"
+                android:orientation="vertical"
+                android:layout_marginEnd="@dimen/os_spacing_sm">
+
+                <TextView
+                    android:id="@+id/labelObsPort"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/label_obs_port"
+                    android:textColor="@color/os_text_secondary"
+                    android:textSize="@dimen/os_text_caption"
+                    android:layout_marginBottom="4dp"
+                    android:labelFor="@id/inputObsPort" />
+
+                <EditText
+                android:id="@+id/inputObsPort"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
                 android:hint="@string/hint_obs_port"
                 android:textColor="@color/os_text_primary"
                 android:textColorHint="@color/os_text_tertiary"
@@ -426,14 +462,29 @@
                 android:background="@drawable/bg_card"
                 android:paddingStart="@dimen/os_spacing_md"
                 android:paddingEnd="@dimen/os_spacing_md"
-                android:singleLine="true"
-                android:layout_marginEnd="@dimen/os_spacing_sm" />
+                android:singleLine="true" />
+            </LinearLayout>
 
-            <EditText
-                android:id="@+id/inputLatency"
+            <LinearLayout
                 android:layout_width="0dp"
+                android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_height="44dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/labelLatency"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/label_latency"
+                    android:textColor="@color/os_text_secondary"
+                    android:textSize="@dimen/os_text_caption"
+                    android:layout_marginBottom="4dp"
+                    android:labelFor="@id/inputLatency" />
+
+                <EditText
+                android:id="@+id/inputLatency"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
                 android:hint="@string/hint_latency"
                 android:textColor="@color/os_text_primary"
                 android:textColorHint="@color/os_text_tertiary"
@@ -443,12 +494,13 @@
                 android:paddingStart="@dimen/os_spacing_md"
                 android:paddingEnd="@dimen/os_spacing_md"
                 android:singleLine="true" />
+            </LinearLayout>
         </LinearLayout>
 
-        <TextView
+        <Button
             android:id="@+id/btnManualConnect"
             android:layout_width="match_parent"
-            android:layout_height="44dp"
+            android:layout_height="48dp"
             android:gravity="center"
             android:background="@drawable/bg_btn_accent"
             android:text="@string/btn_connect"

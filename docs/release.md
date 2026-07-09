@@ -34,17 +34,15 @@ You can also run the `Release` workflow manually from GitHub Actions and provide
 
 The Android job passes the release tag into Gradle as the APK `versionName` and uses the release commit timestamp as `versionCode`, so update ordering stays monotonic across the full release and Android auto-update workflows.
 
-If Android signing secrets are configured, the workflow publishes a signed release APK. If they are missing, it publishes a debug-signed beta APK so preview releases can still ship with the OBS plugin assets.
+Every public release requires all four Android signing secrets and publishes a release-signed APK. The workflow fails before building if any signing input is missing. Debug APKs remain CI artifacts only; they are never uploaded to a public release or update channel.
 
 ## Automatic Android Updates After PR Merge
 
-The `Android APK` workflow also runs on every push to `main`, which is what happens after a pull request is merged. That workflow builds `openstream-android.apk`, writes `openstream-android-update.json`, and publishes a GitHub Release tagged `android-latest`.
+The `Android APK` workflow runs the repository test suite for every push and pull request. On pushes to `main`, it additionally builds a release-signed `openstream-android.apk`, writes update metadata with its SHA-256 digest, and publishes a GitHub Release tagged `android-latest`.
 
 Newer Android app builds check the dedicated `android-latest` release for those assets, so a merged PR can become an in-app update without manually pushing a version tag. The workflow creates that Android-only release with `--latest=false` so public `/releases/latest/download/...` links still point to the full release that includes the Windows OBS installer and zip.
 
-For already-installed app versions that still check GitHub's public latest release, the same workflow also refreshes `openstream-android.apk` and `openstream-android-update.json` on the current public latest release without replacing its Windows assets.
-
-Configure the Android signing secrets below if users have installed a release-signed APK; otherwise Android will reject a debug-signed fallback update over a release-signed install.
+The automatic-update workflow never modifies the public full-release assets. Apps should use the dedicated `android-latest` metadata and verify the published SHA-256 digest before installation.
 
 ### Android Signing Secrets
 
@@ -100,14 +98,14 @@ $env:OPENSTREAM_RELEASE_KEY_PASSWORD = "<key-password>"
 .\gradlew.bat :app:assembleRelease
 ```
 
-Do not pass `-Popenstream.nonStreamingCiBuild=true` for release artifacts. If signing secrets are unavailable, validate the debug-signed fallback with `:app:assembleDebug` instead.
+Do not pass `-Popenstream.nonStreamingCiBuild=true` for release artifacts. If signing secrets are unavailable, use `:app:assembleDebug` only for local or CI validation; do not distribute that APK.
 
 ## Release Checklist
 
 - Confirm the README links point to the release tag being published.
 - Confirm the setup guide links to the same APK, installer EXE, and plugin zip.
 - Confirm OBS lists `OpenStream V8` and can still load saved `openstream_phone_v7_source` scenes.
-- Confirm the Android APK is installable on a clean phone. Prefer signed release APKs for public releases; debug-signed beta APKs are acceptable for preview tags.
+- Confirm the Android APK is installable on a clean phone and signed with the configured release key. Public releases and update channels must never contain debug-signed APKs.
 - Confirm the GitHub release assets are attached, not only source-code archives.
 - Confirm the repository website is set to `https://openstream.pages.dev`.
 - Confirm the release notes link users to [`docs/set-up.md`](set-up.md).

@@ -14,6 +14,27 @@
     <string name="btn_flip_camera">FLIP</string>
     <string name="btn_connect">Connect</string>
     <string name="btn_stop">STOP</string>
+    <string name="btn_advanced">Advanced</string>
+    <string name="btn_advanced_close">Close advanced</string>
+    <string name="desc_display_off">Dim the display while continuing to stream</string>
+    <string name="desc_keep_screen_on">Keep this screen awake</string>
+    <string name="desc_torch">Toggle camera light</string>
+    <string name="desc_flip_camera">Switch between front and rear cameras</string>
+    <string name="desc_advanced">Open advanced connection settings</string>
+    <string name="desc_advanced_close">Close advanced connection settings</string>
+    <string name="desc_stop">Stop the current stream</string>
+    <string name="desc_restore_display">Display is dimmed. Tap to restore it.</string>
+    <string name="desc_port_down">Use a lower listening port</string>
+    <string name="desc_port_up">Use a higher listening port</string>
+    <string name="label_obs_host">OBS computer address</string>
+    <string name="label_obs_port">SRT port</string>
+    <string name="label_latency">Latency (ms)</string>
+    <string name="advanced_opened">Advanced connection settings opened</string>
+    <string name="advanced_closed">Advanced connection settings closed</string>
+    <string name="stop_stream_title">Stop stream?</string>
+    <string name="stop_stream_message">This disconnects OpenStream from OBS and stops the camera stream.</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_stop">Stop stream</string>
 
     <!-- Status -->
     <string name="status_ready">Ready</string>

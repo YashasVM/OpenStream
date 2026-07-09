@@ -12,20 +12,30 @@ OpenStream uses three communication channels between the Android phone and OBS:
 
 ## Media Stream
 
-V1 media transport uses SRT from Android caller to Windows listener.
+The default camera-slot flow uses SRT from the OBS source (caller) to the
+Android phone (listener). This lets OBS choose a reserved phone and reconnect
+to the same camera slot. Manual pairing may also use the legacy Android-caller
+flow when a pairing URL provides an OBS listener.
 
 ### SRT URLs
 
-Android caller:
+Default OBS caller:
 
 ```
-srt://<obs-pc-ip>:9000?mode=caller&latency=120
+srt://<phone-ip>:9000?mode=caller&latency=120
 ```
 
-OBS listener:
+Default Android listener:
 
 ```
 srt://0.0.0.0:9000?mode=listener&latency=120
+```
+
+Legacy manual pairing remains supported:
+
+```text
+Android caller: srt://<obs-pc-ip>:9000?mode=caller&latency=120
+OBS listener:   srt://0.0.0.0:9000?mode=listener&latency=120
 ```
 
 ### Container Format
@@ -124,7 +134,7 @@ non-busy phone; any other value binds that source to one specific phone.
 If discovery is blocked, the OBS source exposes a deep-link URL:
 
 ```
-openstream://connect?slotId=<slot-id>&slotLabel=<slot-label>&sourceInstanceId=<source-id>&host=<obs-ip>&port=<port>&latency=<ms>&name=...
+openstream://connect?slotId=<slot-id>&slotLabel=<slot-label>&sourceInstanceId=<source-id>&controlToken=<64-hex-token>&host=<obs-ip>&port=<port>&latency=<ms>&name=...
 ```
 
 This can be encoded as a QR code or entered manually in the Android app.
@@ -133,8 +143,21 @@ This can be encoded as a QR code or entered manually in the Android app.
 
 ## Control Protocol
 
-The Android app runs a lightweight HTTP server on port `9001` for remote
-camera control from OBS.
+The Android app runs an authenticated HTTP server on port `9001` for remote
+camera control from OBS. OBS creates a 256-bit token per source and includes
+it in that source's pairing URL. After the phone opens the link (or selects
+the advertised slot), the app retains the token in memory for the current
+session. Every request, including `GET /status`, must include it:
+
+```text
+X-OpenStream-Token: <controlToken>
+```
+
+The token is a local-network capability, not a replacement for transport
+encryption: pairing and discovery must be performed only on a trusted LAN.
+Requests without a valid token receive `401 Unauthorized`; request headers
+and bodies are size-limited, and the server does not provide browser CORS
+access.
 
 ### Reserve Phone
 
