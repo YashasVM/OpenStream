@@ -1,13 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_selected="true">
-        <shape android:shape="oval">
-            <solid android:color="@color/os_accent" />
-        </shape>
-    </item>
-    <item>
-        <shape android:shape="oval">
-            <solid android:color="#33FFFFFF" />
-        </shape>
-    </item>
+    <item android:drawable="@drawable/bg_minimal_pill_active" android:state_selected="true" />
+    <item android:drawable="@drawable/bg_minimal_pill" />
 </selector>

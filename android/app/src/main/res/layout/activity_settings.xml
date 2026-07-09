@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/os_background"
+    android:fillViewport="true"
+    android:fitsSystemWindows="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp"
+        android:paddingTop="56dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Settings"
+            android:textColor="@color/os_text_primary"
+            android:textSize="32sp"
+            android:fontFamily="sans-serif-medium"
+            android:layout_marginBottom="40dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="OBS Host"
+            android:textColor="@color/os_text_secondary"
+            android:textSize="14sp"
+            android:layout_marginBottom="8dp" />
+
+        <EditText
+            android:id="@+id/settingsObsHost"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:hint="@string/hint_obs_host"
+            android:textColor="@color/os_text_primary"
+            android:textColorHint="@color/os_text_tertiary"
+            android:textSize="16sp"
+            android:background="@drawable/bg_minimal_input"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:singleLine="true"
+            android:layout_marginBottom="24dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="OBS Port"
+            android:textColor="@color/os_text_secondary"
+            android:textSize="14sp"
+            android:layout_marginBottom="8dp" />
+
+        <EditText
+            android:id="@+id/settingsObsPort"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:hint="@string/hint_obs_port"
+            android:textColor="@color/os_text_primary"
+            android:textColorHint="@color/os_text_tertiary"
+            android:textSize="16sp"
+            android:inputType="number"
+            android:background="@drawable/bg_minimal_input"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:singleLine="true"
+            android:layout_marginBottom="24dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Latency (ms)"
+            android:textColor="@color/os_text_secondary"
+            android:textSize="14sp"
+            android:layout_marginBottom="8dp" />
+
+        <EditText
+            android:id="@+id/settingsLatency"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:hint="@string/hint_latency"
+            android:textColor="@color/os_text_primary"
+            android:textColorHint="@color/os_text_tertiary"
+            android:textSize="16sp"
+            android:inputType="number"
+            android:background="@drawable/bg_minimal_input"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:singleLine="true"
+            android:layout_marginBottom="24dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Listening Port"
+            android:textColor="@color/os_text_secondary"
+            android:textSize="14sp"
+            android:layout_marginBottom="8dp" />
+
+        <EditText
+            android:id="@+id/settingsListeningPort"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:hint="@string/hint_listening_port"
+            android:textColor="@color/os_text_primary"
+            android:textColorHint="@color/os_text_tertiary"
+            android:textSize="16sp"
+            android:inputType="number"
+            android:background="@drawable/bg_minimal_input"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:singleLine="true"
+            android:layout_marginBottom="40dp" />
+
+        <!-- Check for Updates button -->
+        <TextView
+            android:id="@+id/btnCheckUpdates"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:gravity="center"
+            android:background="@drawable/bg_minimal_btn_ghost"
+            android:text="Check for Updates"
+            android:textColor="@color/os_text_primary"
+            android:textSize="16sp"
+            android:fontFamily="sans-serif-medium"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Save button -->
+        <TextView
+            android:id="@+id/btnSaveSettings"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:gravity="center"
+            android:background="@drawable/bg_minimal_btn"
+            android:text="Save Settings"
+            android:textColor="@color/os_black"
+            android:textSize="16sp"
+            android:fontFamily="sans-serif-medium"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Back button -->
+        <TextView
+            android:id="@+id/btnBackSettings"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:gravity="center"
+            android:background="@drawable/bg_minimal_btn_ghost"
+            android:text="Back"
+            android:textColor="@color/os_text_primary"
+            android:textSize="16sp"
+            android:fontFamily="sans-serif-medium"
+            android:layout_marginBottom="32dp" />
+
+        <TextView
+            android:id="@+id/settingsVersionInfo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:textColor="@color/os_text_tertiary"
+            android:textSize="12sp"
+            android:fontFamily="sans-serif"
+            android:layout_marginBottom="16dp" />
+
+    </LinearLayout>
+</ScrollView>

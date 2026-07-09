@@ -41,5 +41,10 @@
                     android:scheme="openstream" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize" />
     </application>
 </manifest>

@@ -1,7 +1,7 @@
 package dev.openstream.app.update
 
 import android.app.Activity
-import android.app.AlertDialog
+import android.app.Dialog
 import android.app.DownloadManager
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -12,7 +12,10 @@ import android.os.Build
 import android.os.Environment
 import android.provider.Settings
 import android.util.Log
+import android.view.View
+import android.widget.TextView
 import android.widget.Toast
+import dev.openstream.app.R
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -71,7 +74,7 @@ class AppUpdater(
                 result
                     .onSuccess { release ->
                         if (release.isNewerThan(currentVersionName(), currentVersionCode())) {
-                            showUpdateAvailable(release)
+                            showUpdatePrompt(release)
                         } else if (showAlreadyCurrent) {
                             Toast.makeText(activity, "OpenStream is up to date", Toast.LENGTH_SHORT).show()
                         }
@@ -134,14 +137,7 @@ class AppUpdater(
         }
     }
 
-    private fun showUpdateAvailable(release: ReleaseUpdate) {
-        AlertDialog.Builder(activity)
-            .setTitle("OpenStream update available")
-            .setMessage("Version ${release.displayVersion} is ready. Download and install it now?")
-            .setPositiveButton("Update") { _, _ -> downloadApk(release) }
-            .setNegativeButton("Later", null)
-            .show()
-    }
+
 
     private fun downloadApk(release: ReleaseUpdate) {
         val request = DownloadManager.Request(Uri.parse(release.apkUrl))
@@ -160,6 +156,30 @@ class AppUpdater(
         pendingRelease = release
         pendingDownloadId = downloadManager.enqueue(request)
         Toast.makeText(activity, "Downloading update", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showUpdatePrompt(release: ReleaseUpdate) {
+        val dialog = Dialog(activity, R.style.MinimalDialogTheme)
+        dialog.setContentView(R.layout.dialog_custom_update)
+        dialog.setCancelable(true)
+
+        val message = dialog.findViewById<TextView>(R.id.dialogUpdateMessage)
+        val actionBtn = dialog.findViewById<TextView>(R.id.dialogUpdateAction)
+        val dismissBtn = dialog.findViewById<TextView>(R.id.dialogUpdateDismiss)
+
+        message.text = "A new update (${release.displayVersion}) is available. Would you like to install it?"
+        actionBtn.text = "Install"
+        dismissBtn.text = "Later"
+        dismissBtn.visibility = View.VISIBLE
+
+        actionBtn.setOnClickListener {
+            dialog.dismiss()
+            downloadApk(release)
+        }
+        dismissBtn.setOnClickListener {
+            dialog.dismiss()
+        }
+        dialog.show()
     }
 
     private fun installDownloadedApk() {
@@ -222,18 +242,23 @@ class AppUpdater(
     }
 
     private fun showInstallPermissionPrompt() {
-        AlertDialog.Builder(activity)
-            .setTitle("Allow OpenStream installs")
-            .setMessage("Android needs permission for OpenStream to open its downloaded APK update.")
-            .setPositiveButton("Open Settings") { _, _ ->
-                val intent = Intent(
-                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                    Uri.parse("package:${activity.packageName}"),
-                )
-                activity.startActivity(intent)
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+        val dialog = Dialog(activity, R.style.MinimalDialogTheme)
+        dialog.setContentView(R.layout.dialog_custom_permission)
+        dialog.setCancelable(true)
+
+        val actionBtn = dialog.findViewById<TextView>(R.id.dialogPermissionAction)
+        val dismissBtn = dialog.findViewById<TextView>(R.id.dialogPermissionDismiss)
+
+        actionBtn.setOnClickListener {
+            dialog.dismiss()
+            val intent = Intent(
+                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:${activity.packageName}"),
+            )
+            activity.startActivity(intent)
+        }
+        dismissBtn.setOnClickListener { dialog.dismiss() }
+        dialog.show()
     }
 
     private fun canRequestPackageInstall(): Boolean {

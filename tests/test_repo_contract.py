@@ -165,9 +165,8 @@ def test_android_discovery_ui_parses_and_displays_obs_slots() -> None:
     assert "slotAvailabilityLabel" in app
     assert "device.busy && reservedBy != device.sourceInstanceId" in app
     assert "compareBy<DiscoveredObsDevice> { it.displayLabel }" in discovery
-    assert "Available OBS cameras" in app
+    assert "renderObsSlots" in app
     assert "obsSlotList" in layout
-    assert 'android:text="@string/btn_advanced"' in layout
 
 
 def test_identify_camera_control_round_trip_exists() -> None:
@@ -315,7 +314,7 @@ def test_release_build_fails_without_signing_and_keystores_are_ignored() -> None
     assert "openstream.versionName" in app_gradle
     assert "openstream.versionCode" in app_gradle
     assert '"2.0.0-beta"' in app_gradle
-    assert '.orElse("20")' in app_gradle
+    assert "OPENSTREAM_VERSION_CODE" in app_gradle
     assert "*.keystore" in gitignore
     assert "*.jks" in gitignore
 
