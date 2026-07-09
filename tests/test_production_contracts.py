@@ -172,10 +172,21 @@ def test_android_updater_requires_a_release_digest_before_installing() -> None:
     release_docs = read("docs/release.md")
 
     assert 'optString("apkSha256")' in updater
-    assert "hasExpectedApkDigest()" in updater
+    assert "hasExpectedApkDigest(downloadId, release.apkSha256)" in updater
     assert "MessageDigest.getInstance(\"SHA-256\")" in updater
     assert "Update verification failed" in updater
     assert "verify the published SHA-256 digest" in release_docs
+
+
+def test_android_updater_hashes_apks_off_the_ui_thread_and_ignores_disposed_work() -> None:
+    updater = read("android/app/src/main/java/dev/openstream/app/update/AppUpdater.kt")
+
+    assert "submitUpdateWork {\n            val verified = hasExpectedApkDigest" in updater
+    assert "runWhenActivityIsActive" in updater
+    assert "private var verifyingDownloadId" in updater
+    assert "private val disposed = AtomicBoolean(false)" in updater
+    assert "catch (_: RejectedExecutionException)" in updater
+    assert "if (disposed.get() || activity.isFinishing || activity.isDestroyed)" in updater
 
 
 def test_ci_executes_pytest_for_pushes_and_pull_requests() -> None:
@@ -184,6 +195,25 @@ def test_ci_executes_pytest_for_pushes_and_pull_requests() -> None:
     assert "name: Run repository tests" in android_workflow
     assert "actions/setup-python@v5" in android_workflow
     assert "python -m pytest -q" in android_workflow
+    test_job = android_workflow.split("  test:", 1)[1].split("  build:", 1)[0]
+    assert "persist-credentials: false" in test_job
+
+
+def test_release_workflow_uses_environment_for_shell_consumed_versions() -> None:
+    release_workflow = read(".github/workflows/release.yml")
+
+    assert "RELEASE_VERSION_NAME: ${{ inputs.tag || github.ref_name }}" in release_workflow
+    assert "RELEASE_VERSION_CODE: ${{ steps.version.outputs.code }}" in release_workflow
+    assert 'VERSION_NAME="$RELEASE_VERSION_NAME"' in release_workflow
+    assert '"$RELEASE_VERSION_CODE"' in release_workflow
+
+
+def test_obs_control_client_reads_a_complete_response_before_interpreting_it() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+
+    assert "while (response.size() < 8192)" in source
+    assert 'if (response.find("\\r\\n\\r\\n") != std::string::npos) break;' not in source
+    assert 'response.find("\\\"ok\\\":false")' in source
 
 
 def test_android_pr_builds_do_not_receive_signing_secrets_or_write_token() -> None:

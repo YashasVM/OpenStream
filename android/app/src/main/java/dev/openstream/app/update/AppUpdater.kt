@@ -20,7 +20,9 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 
 class AppUpdater(
     private val activity: Activity,
@@ -30,6 +32,8 @@ class AppUpdater(
     private var pendingDownloadId: Long = NO_DOWNLOAD
     private var pendingRelease: ReleaseUpdate? = null
     private var registered = false
+    private var verifyingDownloadId: Long = NO_DOWNLOAD
+    private val disposed = AtomicBoolean(false)
 
     private val downloadReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -44,7 +48,7 @@ class AppUpdater(
     }
 
     fun register() {
-        if (registered) return
+        if (disposed.get() || registered) return
         val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             activity.registerReceiver(downloadReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -63,14 +67,16 @@ class AppUpdater(
 
     /** Stop outstanding update work when the owning activity is destroyed. */
     fun dispose() {
+        if (!disposed.compareAndSet(false, true)) return
         unregister()
         executor.shutdownNow()
     }
 
     fun checkForUpdates(showAlreadyCurrent: Boolean = false) {
-        executor.execute {
+        if (disposed.get()) return
+        submitUpdateWork {
             val result = runCatching { fetchLatestRelease() }
-            activity.runOnUiThread {
+            runWhenActivityIsActive {
                 result
                     .onSuccess { release ->
                         if (release.isNewerThan(currentVersionName(), currentVersionCode())) {
@@ -90,7 +96,7 @@ class AppUpdater(
     }
 
     fun resumePendingInstallIfAllowed() {
-        if (pendingDownloadId == NO_DOWNLOAD) return
+        if (disposed.get() || pendingDownloadId == NO_DOWNLOAD) return
         if (canRequestPackageInstall()) {
             installDownloadedApk()
         }
@@ -140,6 +146,7 @@ class AppUpdater(
 
 
     private fun downloadApk(release: ReleaseUpdate) {
+        if (disposed.get()) return
         val request = DownloadManager.Request(Uri.parse(release.apkUrl))
             .setTitle("OpenStream ${release.displayVersion}")
             .setDescription("Downloading OpenStream update")
@@ -188,19 +195,36 @@ class AppUpdater(
             return
         }
 
-        if (!hasExpectedApkDigest()) {
-            Toast.makeText(activity, "Update verification failed", Toast.LENGTH_LONG).show()
-            pendingDownloadId = NO_DOWNLOAD
-            pendingRelease = null
+        val downloadId = pendingDownloadId
+        val release = pendingRelease ?: run {
+            showVerificationFailure(downloadId)
             return
         }
+        if (verifyingDownloadId == downloadId) return
+        verifyingDownloadId = downloadId
 
+        submitUpdateWork {
+            val verified = hasExpectedApkDigest(downloadId, release.apkSha256)
+            runWhenActivityIsActive {
+                if (verifyingDownloadId != downloadId) return@runWhenActivityIsActive
+                verifyingDownloadId = NO_DOWNLOAD
+                if (pendingDownloadId != downloadId) return@runWhenActivityIsActive
+                if (!verified) {
+                    showVerificationFailure(downloadId)
+                    return@runWhenActivityIsActive
+                }
+                requestPackageInstall(downloadId)
+            }
+        }
+    }
+
+    private fun requestPackageInstall(downloadId: Long) {
         if (!canRequestPackageInstall()) {
             showInstallPermissionPrompt()
             return
         }
 
-        val apkUri = downloadManager.getUriForDownloadedFile(pendingDownloadId)
+        val apkUri = downloadManager.getUriForDownloadedFile(downloadId)
         if (apkUri == null) {
             Toast.makeText(activity, "Downloaded APK was not found", Toast.LENGTH_LONG).show()
             return
@@ -213,6 +237,14 @@ class AppUpdater(
         activity.startActivity(installIntent)
     }
 
+    private fun showVerificationFailure(downloadId: Long) {
+        Toast.makeText(activity, "Update verification failed", Toast.LENGTH_LONG).show()
+        if (pendingDownloadId == downloadId) {
+            pendingDownloadId = NO_DOWNLOAD
+            pendingRelease = null
+        }
+    }
+
     private fun isSuccessfulDownload(): Boolean {
         val query = DownloadManager.Query().setFilterById(pendingDownloadId)
         downloadManager.query(query)?.use { cursor ->
@@ -223,9 +255,8 @@ class AppUpdater(
         return false
     }
 
-    private fun hasExpectedApkDigest(): Boolean {
-        val expected = pendingRelease?.apkSha256 ?: return false
-        val apkUri = downloadManager.getUriForDownloadedFile(pendingDownloadId) ?: return false
+    private fun hasExpectedApkDigest(downloadId: Long, expected: String): Boolean {
+        val apkUri = downloadManager.getUriForDownloadedFile(downloadId) ?: return false
         val actual = runCatching {
             activity.contentResolver.openInputStream(apkUri)?.use { input ->
                 val digest = MessageDigest.getInstance("SHA-256")
@@ -239,6 +270,22 @@ class AppUpdater(
             }
         }.getOrNull()
         return actual != null && actual.equals(expected, ignoreCase = true)
+    }
+
+    private fun submitUpdateWork(work: () -> Unit) {
+        if (disposed.get()) return
+        try {
+            executor.execute(work)
+        } catch (_: RejectedExecutionException) {
+            // dispose() may race a delayed UI callback or broadcast receiver.
+        }
+    }
+
+    private fun runWhenActivityIsActive(action: () -> Unit) {
+        activity.runOnUiThread {
+            if (disposed.get() || activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+            action()
+        }
     }
 
     private fun showInstallPermissionPrompt() {

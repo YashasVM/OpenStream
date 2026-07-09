@@ -847,7 +847,6 @@ bool send_control_command(const std::string &host, int port,
     const int received = recv(sock, buffer, sizeof(buffer), 0);
     if (received <= 0) break;
     response.append(buffer, static_cast<size_t>(received));
-    if (response.find("\r\n\r\n") != std::string::npos) break;
   }
   close_socket(sock);
 

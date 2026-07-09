@@ -21,13 +21,13 @@ flow when a pairing URL provides an OBS listener.
 
 Default OBS caller:
 
-```
+```text
 srt://<phone-ip>:9000?mode=caller&latency=120
 ```
 
 Default Android listener:
 
-```
+```text
 srt://0.0.0.0:9000?mode=listener&latency=120
 ```
 
@@ -78,7 +78,7 @@ on port `51515`:
 
 **Beacon format:**
 
-```
+```text
 OPENSTREAM/1 {"type":"dev.openstream.listener","version":1,"name":"OpenStream","instanceId":"...","sourceInstanceId":"...","slotId":"...","slotLabel":"CAM A","pairingUrl":"openstream://connect?...","host":"<obs-ip>","listenerPort":9000,"latencyMs":120,"bitrateMbps":50,"busy":false}
 ```
 
@@ -104,7 +104,7 @@ The Android app advertises itself on the same multicast group:
 
 **Beacon format:**
 
-```
+```text
 OPENSTREAM_PHONE/1 {"type":"dev.openstream.phone","version":1,"name":"<device-name>","instanceId":"...","host":"<phone-ip>","listenerPort":9000,"controlPort":9001,"latencyMs":120,"codec":"video/hevc","width":1920,"height":1080,"fps":60,"bitrateMbps":50,"busy":false,"reservedBy":""}
 ```
 
@@ -133,7 +133,7 @@ non-busy phone; any other value binds that source to one specific phone.
 
 If discovery is blocked, the OBS source exposes a deep-link URL:
 
-```
+```text
 openstream://connect?slotId=<slot-id>&slotLabel=<slot-label>&sourceInstanceId=<source-id>&controlToken=<64-hex-token>&host=<obs-ip>&port=<port>&latency=<ms>&name=...
 ```
 
@@ -161,7 +161,7 @@ access.
 
 ### Reserve Phone
 
-```
+```text
 POST /reserve
 Content-Type: application/json
 
@@ -173,7 +173,7 @@ reservations from other source instances while reserved or streaming.
 
 ### Release Phone
 
-```
+```text
 POST /release
 Content-Type: application/json
 
@@ -186,7 +186,7 @@ Clears the reservation after disconnect.
 
 #### Set Zoom
 
-```
+```text
 POST /zoom
 Content-Type: application/json
 
@@ -197,7 +197,7 @@ Sets the digital zoom level. Value range depends on the active camera lens.
 
 #### Toggle Torch
 
-```
+```text
 POST /torch
 Content-Type: application/json
 
@@ -208,7 +208,7 @@ Turns the flashlight on (`true`) or off (`false`).
 
 #### Switch Lens
 
-```
+```text
 POST /lens
 Content-Type: application/json
 

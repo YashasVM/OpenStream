@@ -75,16 +75,19 @@ jobs:
           ./gradlew --no-daemon :app:assembleRelease
 
       - name: Normalize Android APK artifact
+        env:
+          RELEASE_VERSION_NAME: ${{ inputs.tag || github.ref_name }}
+          RELEASE_VERSION_CODE: ${{ steps.version.outputs.code }}
         run: |
           mkdir -p dist
           cp android/app/build/outputs/apk/release/app-release.apk dist/openstream-android.apk
           sha256sum dist/openstream-android.apk > dist/openstream-android.apk.sha256
-          VERSION_NAME="${{ inputs.tag || github.ref_name }}"
+          VERSION_NAME="$RELEASE_VERSION_NAME"
           VERSION_NAME="${VERSION_NAME#v}"
           APK_SHA256="$(cut -d ' ' -f 1 dist/openstream-android.apk.sha256)"
           printf '{\n  "versionName": "%s",\n  "versionCode": %s,\n  "apkAsset": "openstream-android.apk",\n  "apkSha256": "%s"\n}\n' \
             "$VERSION_NAME" \
-            "${{ steps.version.outputs.code }}" \
+            "$RELEASE_VERSION_CODE" \
             "$APK_SHA256" \
             > dist/openstream-android-update.json
 
