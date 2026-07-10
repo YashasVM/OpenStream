@@ -153,11 +153,18 @@ only one component.
 POST /reserve
 Content-Type: application/json
 
-{"sourceInstanceId":"openstream-..."}
+{
+  "sourceInstanceId": "openstream-...",
+  "slotId": "slot-a",
+  "slotLabel": "CAM A",
+  "bitrateMbps": 50
+}
 ```
 
 Marks the phone as reserved before OBS opens the SRT stream. The phone rejects
 reservations from other source instances while reserved or streaming.
+`sourceInstanceId` is required. `slotId`, `slotLabel`, and `bitrateMbps` provide
+slot metadata and the requested streaming bitrate.
 
 ### Release Phone
 
@@ -236,7 +243,13 @@ reservation owner.
 
 ### Response
 
-All control endpoints return HTTP `200 OK` on success.
+All control endpoints return HTTP `200 OK` on success. Successful `POST`
+responses contain `"ok": true` (and may include endpoint-specific fields), for
+example:
+
+```json
+{"ok":true}
+```
 
 ## Compatibility and Release Ordering
 

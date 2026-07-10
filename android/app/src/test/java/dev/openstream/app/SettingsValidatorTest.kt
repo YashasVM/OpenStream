@@ -12,8 +12,15 @@ class SettingsValidatorTest {
         assertTrue(SettingsValidator.isValidHost("", required = false))
         assertFalse(SettingsValidator.isValidHost("", required = true))
         assertTrue(SettingsValidator.isValidHost("192.168.1.20", required = true))
+        assertTrue(SettingsValidator.isValidHost("obs.local", required = true))
+        assertTrue(SettingsValidator.isValidHost("[2001:db8::1]", required = true))
         assertFalse(SettingsValidator.isValidHost("srt://192.168.1.20", required = true))
         assertFalse(SettingsValidator.isValidHost("bad host", required = true))
+        assertFalse(SettingsValidator.isValidHost("obs.local/path", required = true))
+        assertFalse(SettingsValidator.isValidHost("obs.local?x=1", required = true))
+        assertFalse(SettingsValidator.isValidHost("obs.local#fragment", required = true))
+        assertFalse(SettingsValidator.isValidHost("obs.local:9000", required = true))
+        assertFalse(SettingsValidator.isValidHost("999.1.1.1", required = true))
     }
 
     @Test

@@ -191,6 +191,8 @@ class AppUpdater(
     private fun installDownloadedApk() {
         if (!isSuccessfulDownload()) {
             Toast.makeText(activity, "Update download failed", Toast.LENGTH_LONG).show()
+            pendingDownloadId = NO_DOWNLOAD
+            pendingRelease = null
             return
         }
 
@@ -238,6 +240,10 @@ class AppUpdater(
 
     private fun showVerificationFailure(downloadId: Long) {
         Toast.makeText(activity, "Update verification failed", Toast.LENGTH_LONG).show()
+        if (downloadId != NO_DOWNLOAD) {
+            runCatching { downloadManager.remove(downloadId) }
+                .onFailure { error -> Log.w(TAG, "Could not delete unverified update", error) }
+        }
         if (pendingDownloadId == downloadId) {
             pendingDownloadId = NO_DOWNLOAD
             pendingRelease = null

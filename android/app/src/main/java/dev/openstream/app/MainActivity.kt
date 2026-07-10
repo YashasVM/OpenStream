@@ -81,6 +81,7 @@ class MainActivity : Activity() {
     @Volatile private var reservedBy: String? = null
     @Volatile private var reservedSlotLabel: String? = null
     @Volatile private var listenerThread: Thread? = null
+    @Volatile private var pendingListenerStart = false
     @Volatile private var listenerGeneration = 0L
     @Volatile private var activityStarted = false
     private var keepScreenOn = false
@@ -640,6 +641,8 @@ class MainActivity : Activity() {
             showLiveState(target.name)
         }.onFailure { error ->
             stopStream()
+            startPreviewIfAllowed()
+            startPhoneServerIfAllowed()
             statusText.text = "Connection failed"
             statusDetail.text = error.message ?: "Unknown error"
         }
@@ -658,12 +661,14 @@ class MainActivity : Activity() {
     private fun startPhoneServerIfAllowed() {
         if (phoneServerRunning) return
         if (listenerThread?.isAlive == true) {
+            pendingListenerStart = true
             Log.w("OpenStream", "Previous SRT listener is still stopping; not starting another")
             return
         }
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
         if (!cameraPreview.holder.surface.isValid) return
 
+        pendingListenerStart = false
         val generation = listenerGeneration + 1
         listenerGeneration = generation
         phoneServerRunning = true
@@ -739,6 +744,12 @@ class MainActivity : Activity() {
             } finally {
                 if (listenerThread === Thread.currentThread()) {
                     listenerThread = null
+                    mainHandler.post {
+                        if (pendingListenerStart) {
+                            pendingListenerStart = false
+                            startPhoneServerIfAllowed()
+                        }
+                    }
                 }
             }
         }, "OpenStreamPhoneSrtListener").apply {
@@ -756,6 +767,7 @@ class MainActivity : Activity() {
         clearReservation: Boolean = true,
         updateStatus: Boolean = true,
     ) {
+        pendingListenerStart = false
         listenerGeneration += 1
         phoneServerRunning = false
         phoneConnected = false
