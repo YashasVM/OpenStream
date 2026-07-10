@@ -504,7 +504,7 @@ class OpenStreamDock final : public QWidget {
     const QSignalBlocker authority_block(authority_);
     const QSignalBlocker preview_block(preview_tally_);
     const QSignalBlocker program_block(program_tally_);
-    authority_->setCurrentIndex(std::max(0, authority_->findData(QString::fromStdString(state.authority))));
+    selectWireValue(authority_, state.authority);
     authority_->setEnabled(controls_ready);
     preview_tally_->setChecked(state.preview_tally);
     program_tally_->setChecked(state.program_tally);
@@ -525,7 +525,9 @@ class OpenStreamDock final : public QWidget {
     const QSignalBlocker shutter_block(shutter_denominator_);
     const QSignalBlocker fps_block(frame_rate_);
     const QSignalBlocker ev_block(exposure_compensation_);
-    exposure_mode_->setCurrentIndex(std::max(0, exposure_mode_->findData(QString::fromStdString(state.exposure_mode))));
+    selectWireValue(exposure_mode_, state.exposure_mode);
+    setItemSupported(exposure_mode_, "auto", caps.auto_exposure);
+    setItemSupported(exposure_mode_, "manual", caps.manual_exposure);
     exposure_mode_->setEnabled(ready);
     const bool manual = ready && caps.manual_exposure && state.exposure_mode == "manual";
     if (caps.iso.available) iso_->setRange(static_cast<int>(caps.iso.minimum), static_cast<int>(caps.iso.maximum));
@@ -553,7 +555,8 @@ class OpenStreamDock final : public QWidget {
     const auto &state = camera.state;
     const QSignalBlocker mode_block(focus_mode_);
     const QSignalBlocker distance_block(focus_distance_);
-    focus_mode_->setCurrentIndex(std::max(0, focus_mode_->findData(QString::fromStdString(state.focus_mode))));
+    selectWireValue(focus_mode_, state.focus_mode);
+    applySupportedModes(focus_mode_, caps.focus_modes);
     focus_mode_->setEnabled(ready && (caps.autofocus || caps.manual_focus));
     if (caps.focus_distance.available) focus_distance_->setRange(caps.focus_distance.minimum, caps.focus_distance.maximum);
     focus_distance_->setValue(state.focus_distance);
@@ -568,7 +571,8 @@ class OpenStreamDock final : public QWidget {
     const QSignalBlocker kelvin_block(kelvin_);
     const QSignalBlocker tint_block(tint_);
     const QSignalBlocker lock_block(white_balance_lock_);
-    white_balance_mode_->setCurrentIndex(std::max(0, white_balance_mode_->findData(QString::fromStdString(state.white_balance_mode))));
+    selectWireValue(white_balance_mode_, state.white_balance_mode);
+    applySupportedModes(white_balance_mode_, caps.white_balance_modes);
     white_balance_mode_->setEnabled(ready && (caps.auto_white_balance || caps.manual_white_balance));
     kelvin_->setValue(static_cast<int>(state.white_balance_kelvin > 0 ? state.white_balance_kelvin : 5600));
     tint_->setValue(static_cast<int>(state.white_balance_tint));
@@ -588,15 +592,30 @@ class OpenStreamDock final : public QWidget {
     if (caps.zoom_ratio.available) zoom_->setRange(caps.zoom_ratio.minimum, caps.zoom_ratio.maximum);
     zoom_->setValue(state.zoom_ratio);
     zoom_->setEnabled(ready && caps.zoom);
-    stabilization_->setCurrentIndex(std::max(0, stabilization_->findData(QString::fromStdString(state.stabilization_mode))));
+    selectWireValue(stabilization_, state.stabilization_mode);
     stabilization_->setEnabled(ready && caps.stabilization);
-    for (int index = 0; index < stabilization_->count(); ++index) {
-      const std::string value = stabilization_->itemData(index).toString().toStdString();
-      const bool supported = value == "off" || std::find(caps.stabilization_modes.begin(), caps.stabilization_modes.end(), value) != caps.stabilization_modes.end();
-      stabilization_->setItemData(index, supported ? QVariant() : QVariant(0), Qt::UserRole - 1);
-    }
+    applySupportedModes(stabilization_, caps.stabilization_modes);
     torch_->setChecked(state.torch);
     torch_->setEnabled(ready && caps.torch);
+  }
+
+  static void selectWireValue(QComboBox *combo, const std::string &value) {
+    const int index = combo->findData(QString::fromStdString(value));
+    combo->setPlaceholderText(index >= 0 ? QString() : QString("Unsupported: %1").arg(QString::fromStdString(value)));
+    combo->setCurrentIndex(index);
+  }
+
+  static void setItemSupported(QComboBox *combo, const char *wire_value, bool supported) {
+    const int index = combo->findData(QString::fromUtf8(wire_value));
+    if (index >= 0) combo->setItemData(index, supported ? QVariant() : QVariant(0), Qt::UserRole - 1);
+  }
+
+  static void applySupportedModes(QComboBox *combo, const std::vector<std::string> &supported) {
+    for (int index = 0; index < combo->count(); ++index) {
+      const std::string value = combo->itemData(index).toString().toStdString();
+      const bool available = std::find(supported.begin(), supported.end(), value) != supported.end();
+      combo->setItemData(index, available ? QVariant() : QVariant(0), Qt::UserRole - 1);
+    }
   }
 
   void sendSettings(OpenStreamSettingsPatch patch, const QString &message) {

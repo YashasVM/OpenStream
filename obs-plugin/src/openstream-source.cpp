@@ -2176,18 +2176,18 @@ OpenStreamCameraCapabilities parse_capabilities(const std::string &json) {
     return caps;
   }
 
-  const auto focus_modes = json_string_array_value(json, "focusModes");
-  const auto white_balance_modes = json_string_array_value(json, "whiteBalanceModes");
+  caps.focus_modes = json_string_array_value(json, "focusModes");
+  caps.white_balance_modes = json_string_array_value(json, "whiteBalanceModes");
   caps.stabilization_modes = json_string_array_value(json, "stabilizationModes");
   const auto contains = [](const std::vector<std::string> &values, const char *value) {
     return std::find(values.begin(), values.end(), value) != values.end();
   };
-  caps.autofocus = contains(focus_modes, "continuous") || contains(focus_modes, "single");
+  caps.autofocus = contains(caps.focus_modes, "continuous") || contains(caps.focus_modes, "single");
   caps.tap_to_focus = data_bool(root, "supportsTapFocus").value_or(false);
-  caps.manual_focus = contains(focus_modes, "manual");
+  caps.manual_focus = contains(caps.focus_modes, "manual");
   caps.auto_exposure = true;
   caps.manual_exposure = data_bool(root, "manualSensor").value_or(false);
-  caps.auto_white_balance = contains(white_balance_modes, "auto");
+  caps.auto_white_balance = contains(caps.white_balance_modes, "auto");
   caps.manual_white_balance = data_bool(root, "manualWhiteBalance").value_or(false);
   caps.zoom = data_bool(root, "supportsZoomRatio").value_or(false);
   caps.torch = data_bool(root, "supportsTorch").value_or(false);

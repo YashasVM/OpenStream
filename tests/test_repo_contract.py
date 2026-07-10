@@ -421,6 +421,19 @@ def test_obs_serializes_remote_commands_and_uses_mutation_state() -> None:
     assert "command.type != OpenStreamCommandType::Stop" in dock
 
 
+def test_obs_controls_follow_reported_mode_capabilities() -> None:
+    api = read("obs-plugin/src/openstream-ui-api.hpp")
+    source = read("obs-plugin/src/openstream-source.cpp")
+    dock = read("obs-plugin/src/openstream-dock.cpp")
+    assert "focus_modes" in api
+    assert "white_balance_modes" in api
+    assert 'caps.focus_modes = json_string_array_value(json, "focusModes")' in source
+    assert 'caps.white_balance_modes = json_string_array_value(json, "whiteBalanceModes")' in source
+    assert "applySupportedModes(focus_mode_, caps.focus_modes)" in dock
+    assert "applySupportedModes(white_balance_mode_, caps.white_balance_modes)" in dock
+    assert 'QString("Unsupported: %1")' in dock
+
+
 def test_android_unattended_service_is_explicit_and_non_sticky() -> None:
     manifest = read("android/app/src/main/AndroidManifest.xml")
     service = read("android/app/src/main/java/dev/openstream/app/service/OpenStreamCameraService.kt")

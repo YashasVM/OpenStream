@@ -34,6 +34,8 @@ struct OpenStreamCameraCapabilities {
   OpenStreamNumberRange white_balance_tint;
   OpenStreamNumberRange zoom_ratio;
   std::vector<std::string> lenses;
+  std::vector<std::string> focus_modes;
+  std::vector<std::string> white_balance_modes;
   std::vector<std::string> stabilization_modes;
   std::vector<double> frame_rates;
 };
