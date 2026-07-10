@@ -67,9 +67,10 @@ Content-Type: application/json
 }
 ```
 
-A successful response returns a bearer token. Pairing codes are short-lived,
-one-time credentials; bearer tokens are long random credentials stored only in
-the Android app and the OBS source configuration.
+A successful response returns a bearer token. Android displays a six-digit
+one-time pairing code and rotates it after successful use. Bearer tokens contain
+32 bytes of cryptographic randomness and are stored only in the Android app and
+the OBS source configuration.
 
 ```json
 {"ok":true,"token":"<opaque-token>"}
@@ -81,9 +82,11 @@ Every other `/v2` request requires:
 Authorization: Bearer <opaque-token>
 ```
 
-Missing, malformed, or unknown credentials are rejected. A pairing code is not
-a long-term control credential. Clearing trusted controllers on Android
-invalidates their tokens.
+Missing, malformed, or unknown credentials are rejected using a constant-time
+comparison. A pairing code is not a long-term control credential. V2 bearer
+authentication prevents accidental or unauthorized control, but plain HTTP on
+a trusted LAN is not transport confidentiality; production networks must be
+isolated until authenticated encryption is added to the control channel.
 
 When automatic discovery is unavailable, the same pairing target may be
 carried by the existing deep link or a QR code:
@@ -241,17 +244,17 @@ shows conflicting tally.
 
 ### Responses and errors
 
-Successful mutations return `ok`, the new `revision`, applied settings/state,
-and any hardware clamp information. Errors use an HTTP status and stable code:
+Successful mutations return `ok` and the complete applied state. Errors use an
+HTTP status and stable code:
 
 | Status | Code | Meaning |
 |---|---|---|
 | 400 | `invalid_request` | Malformed JSON, coordinate, mode, or range |
 | 401 | `unauthorized` | Missing or invalid bearer token |
-| 403 | `authority_locked` | The actor cannot mutate in the current mode |
+| 423 | `obs_locked` | The actor cannot mutate in the current mode |
 | 409 | `revision_conflict` | `expectedRevision` is stale |
 | 422 | `unsupported` | The active camera cannot apply the requested setting |
-| 503 | `camera_unavailable` | Camera/session is not ready |
+| 503 | `camera_not_ready` | Camera capabilities are not available yet |
 
 ## Legacy V1 compatibility
 

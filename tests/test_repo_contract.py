@@ -351,6 +351,57 @@ def test_android_control_server_supports_source_reservations() -> None:
     assert "val bitrateMbps = if (json.has(\"bitrateMbps\"))" in control
 
 
+def test_android_v2_control_plane_requires_pairing_and_bearer_auth() -> None:
+    control = read("android/app/src/main/java/dev/openstream/app/control/CameraControlServer.kt")
+    token_store = read("android/app/src/main/java/dev/openstream/app/control/PairingTokenStore.kt")
+
+    pair_route = 'method == "POST" && path == "/v2/pair"'
+    auth_gate = 'path.startsWith("/v2/") && !pairingTokenStore.validateBearer'
+    assert pair_route in control
+    assert auth_gate in control
+    assert control.index(pair_route) < control.index(auth_gate)
+    for route in (
+        "/v2/capabilities",
+        "/v2/state",
+        "/v2/settings",
+        "/v2/focus",
+        "/v2/authority",
+        "/v2/tally",
+    ):
+        assert f'path == "{route}"' in control
+    assert 'headers["authorization"]' in control
+    assert 'errorJson("unauthorized"' in control
+    assert '"expectedRevision"' in control
+    assert '"revision_conflict"' in control
+    assert '"unsupported"' in control
+    assert '"obs_locked"' in control
+
+    assert "SecureRandom" in token_store
+    assert "TOKEN_BYTES = 32" in token_store
+    assert "KEY_PAIRING_CODE, newPairingCode()" in token_store
+    assert 'BEARER_PREFIX = "Bearer "' in token_store
+    assert "MessageDigest.isEqual" in token_store
+
+
+def test_android_unattended_service_is_explicit_and_non_sticky() -> None:
+    manifest = read("android/app/src/main/AndroidManifest.xml")
+    service = read("android/app/src/main/java/dev/openstream/app/service/OpenStreamCameraService.kt")
+
+    assert "android.permission.FOREGROUND_SERVICE_CAMERA" in manifest
+    assert "android.permission.FOREGROUND_SERVICE_MICROPHONE" in manifest
+    assert 'android:foregroundServiceType="camera|microphone"' in manifest
+    assert "ACTION_ARM" in service
+    assert "ACTION_STOP" in service
+    assert "START_NOT_STICKY" in service
+    assert "PowerManager.PARTIAL_WAKE_LOCK" in service
+    assert "WifiManager.WIFI_MODE_FULL_HIGH_PERF" in service
+    assert "startForeground" in service
+    assert "stopForeground" in service
+    assert "onHeadlessSurfaceAvailable" in service
+    assert "onRemoteStop" in service
+    assert "LocalBinder" in service
+
+
 def test_camera_controller_supports_preview_before_streaming() -> None:
     camera = read("android/app/src/main/java/dev/openstream/app/camera/Camera2Controller.kt")
     assert "fun startPreview()" in camera
