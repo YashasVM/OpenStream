@@ -26,6 +26,7 @@
 #include <inttypes.h>
 #include <cstdlib>
 #include <cstring>
+#include <future>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -1864,11 +1865,13 @@ void *openstream_create(obs_data_t *settings, obs_source_t *source) {
   obs_data_set_string(settings, "slot_label", ctx->slot_label.c_str());
   ctx->phone_discovery.start();
   openstream_update(ctx, settings);
+  notify_camera_changed(ctx->instance_id);
   return ctx;
 }
 
 void openstream_destroy(void *data) {
   auto *ctx = static_cast<OpenStreamSource *>(data);
+  const std::string instance_id = ctx->instance_id;
   openstream_stop_worker(ctx);
   ctx->phone_discovery.stop();
   {
@@ -1876,6 +1879,7 @@ void openstream_destroy(void *data) {
     g_source_slots.erase(ctx);
   }
   delete ctx;
+  notify_camera_changed(instance_id);
 }
 
 void openstream_defaults(obs_data_t *settings) {
@@ -2078,7 +2082,7 @@ obs_source_info openstream_legacy_source_info = {
 
 namespace {
 std::mutex g_ui_command_mutex;
-std::vector<std::thread> g_ui_command_threads;
+std::vector<std::future<void>> g_ui_command_tasks;
 std::mutex g_camera_subscription_mutex;
 std::map<uint64_t, OpenStreamCameraChangedCallback> g_camera_subscriptions;
 std::atomic<uint64_t> g_next_camera_subscription_id = 1;
@@ -2175,6 +2179,7 @@ OpenStreamCameraCapabilities parse_capabilities(const std::string &json) {
                        contains(caps.stabilization_modes, "optical");
   caps.iso = read_range(root, "isoRange");
   caps.shutter_us = read_range(root, "shutterRangeNs", 0.001);
+  caps.exposure_compensation = read_range(root, "exposureCompensationRange");
   caps.focus_distance = read_range(root, "focusDistanceRange");
   caps.zoom_ratio = read_range(root, "zoomRange");
   if (caps.manual_white_balance) {
@@ -2365,7 +2370,7 @@ void openstream_run_command_async(const std::string &instance_id,
   }
   notify_camera_changed(instance_id);
 
-  std::thread worker([source, ctx, instance_id, command = std::move(command),
+  auto worker = std::async(std::launch::async, [source, ctx, instance_id, command = std::move(command),
                       completion = std::move(completion)]() mutable {
     OpenStreamCommandResponse result;
     if (command.type == OpenStreamCommandType::Start ||
@@ -2434,8 +2439,12 @@ void openstream_run_command_async(const std::string &instance_id,
             caps_ok = response.transport_ok && response.status_code >= 200 &&
                       response.status_code < 300;
             if (caps_ok) {
-              std::lock_guard<std::mutex> lock(ctx->settings_mutex);
-              ctx->capabilities = parse_capabilities(response.body);
+              const auto capabilities = parse_capabilities(response.body);
+              caps_ok = capabilities.loaded;
+              if (caps_ok) {
+                std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+                ctx->capabilities = capabilities;
+              }
             }
           }
           const auto response = send_control_request(phone->host, phone->control_port,
@@ -2446,9 +2455,14 @@ void openstream_run_command_async(const std::string &instance_id,
           result.message = result.ok ? "Camera state updated" : "Camera control channel unavailable";
           if (state_ok) {
             const auto state = parse_camera_state(response.body);
-            result.revision = state.revision;
-            std::lock_guard<std::mutex> lock(ctx->settings_mutex);
-            ctx->camera_state = state;
+            if (state.valid) {
+              result.revision = state.revision;
+              std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+              ctx->camera_state = state;
+            } else {
+              result.ok = false;
+              result.message = "Camera returned an incompatible state payload";
+            }
           }
         } else {
           std::string path;
@@ -2526,7 +2540,12 @@ void openstream_run_command_async(const std::string &instance_id,
     if (completion) completion(std::move(result));
   });
   std::lock_guard<std::mutex> lock(g_ui_command_mutex);
-  g_ui_command_threads.push_back(std::move(worker));
+  g_ui_command_tasks.erase(
+      std::remove_if(g_ui_command_tasks.begin(), g_ui_command_tasks.end(), [](auto &task) {
+        return task.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+      }),
+      g_ui_command_tasks.end());
+  g_ui_command_tasks.push_back(std::move(worker));
 }
 
 uint64_t openstream_subscribe_camera_changes(OpenStreamCameraChangedCallback callback) {
@@ -2561,7 +2580,7 @@ void openstream_run_command_async(const std::string &instance_id,
     return;
   }
 
-  std::thread worker([source, instance_id, command, completion = std::move(completion)]() mutable {
+  auto worker = std::async(std::launch::async, [source, instance_id, command, completion = std::move(completion)]() mutable {
     bool ok = false;
     std::string message;
     OpenStreamSource *ctx = nullptr;
@@ -2634,17 +2653,22 @@ void openstream_run_command_async(const std::string &instance_id,
     if (completion) completion(ok, std::move(message));
   });
   std::lock_guard<std::mutex> lock(g_ui_command_mutex);
-  g_ui_command_threads.push_back(std::move(worker));
+  g_ui_command_tasks.erase(
+      std::remove_if(g_ui_command_tasks.begin(), g_ui_command_tasks.end(), [](auto &task) {
+        return task.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+      }),
+      g_ui_command_tasks.end());
+  g_ui_command_tasks.push_back(std::move(worker));
 }
 
 void openstream_wait_for_commands() {
-  std::vector<std::thread> commands;
+  std::vector<std::future<void>> commands;
   {
     std::lock_guard<std::mutex> lock(g_ui_command_mutex);
-    commands.swap(g_ui_command_threads);
+    commands.swap(g_ui_command_tasks);
   }
   for (auto &command : commands) {
-    if (command.joinable()) command.join();
+    command.wait();
   }
 }
 

@@ -28,6 +28,7 @@ struct OpenStreamCameraCapabilities {
   bool stabilization = false;
   OpenStreamNumberRange iso;
   OpenStreamNumberRange shutter_us;
+  OpenStreamNumberRange exposure_compensation;
   OpenStreamNumberRange focus_distance;
   OpenStreamNumberRange white_balance_kelvin;
   OpenStreamNumberRange white_balance_tint;
