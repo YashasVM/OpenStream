@@ -9,14 +9,20 @@ def read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def test_architecture_documents_practical_v1_transport() -> None:
+def test_architecture_documents_professional_camera_control_boundaries() -> None:
     architecture = read("docs/architecture.md")
-    assert "MediaCodec hardware HEVC/H.264 video encode" in architecture
-    assert "MediaCodec AAC audio encode" in architecture
+    assert "Android camera head" in architecture
+    assert "OBS control room" in architecture
+    assert "CameraCapabilities" in architecture
+    assert "CameraStateStore" in architecture
+    assert "expected state" in architecture
+    assert "OpenStreamCameraService" in architecture
+    assert "Source Properties" in architecture
+    assert "OpenStream Control Room" in architecture
     assert "SRT caller" in architecture
     assert "UDP discovery" in architecture
     assert "PTP" in architecture
-    assert "not required for the first prototype" in architecture
+    assert "Legacy discovery" in architecture
 
 
 def test_android_project_declares_camera_media_codec_srt_discovery_boundaries() -> None:
@@ -94,8 +100,6 @@ def test_audio_path_uses_adts_aac_and_obs_planar_formats() -> None:
 def test_obs_plugin_routes_multiple_phones_by_selected_slot() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
     assert "selected_phone_id" in source
-    assert "Discovered phones" in source
-    assert "Refresh Phones" in source
     assert "refresh_devices" in source
     assert "kAutoPhoneId" in source
     assert "std::map<std::string, PhoneDevice> devices_" in source
@@ -123,7 +127,7 @@ def test_obs_sources_are_named_camera_slots_with_advanced_transport() -> None:
     assert '"bitrate_mbps", "Expected bitrate (Mbps)", 8, 120, 1' in source
 
 
-def test_obs_camera_dock_uses_snapshots_async_commands_and_safe_lifecycle() -> None:
+def test_obs_control_room_api_is_capability_revision_and_event_driven() -> None:
     cmake = read("obs-plugin/CMakeLists.txt")
     api = read("obs-plugin/src/openstream-ui-api.hpp")
     source = read("obs-plugin/src/openstream-source.cpp")
@@ -133,17 +137,105 @@ def test_obs_camera_dock_uses_snapshots_async_commands_and_safe_lifecycle() -> N
     assert "option(OPENSTREAM_BUILD_DOCK" in cmake
     assert "src/openstream-dock.cpp" in cmake
     assert "src/openstream-dock-stub.cpp" in cmake
+    assert "struct OpenStreamCameraCapabilities" in api
+    assert "struct OpenStreamCameraState" in api
     assert "struct OpenStreamCameraSnapshot" in api
-    assert "enum class OpenStreamUiCommand" in api
+    assert "enum class OpenStreamCommandType" in api
+    assert "struct OpenStreamSettingsPatch" in api
+    assert "expected_revision" in api
+    assert "FocusAt" in api
+    assert "SetAuthority" in api
+    assert "SetTally" in api
     assert "openstream_camera_snapshots()" in source
     assert "openstream_run_command_async" in source
-    assert "OpenStream Cameras" in dock
+    assert "openstream_subscribe_camera_changes" in api
+    assert "openstream_unsubscribe_camera_changes" in api
     assert "obs_frontend_add_dock_by_id" in dock
     assert "obs_frontend_add_event_callback" in dock
     assert "obs_frontend_remove_event_callback" in dock
-    assert "QTimer" in dock
     assert "openstream_dock_create();" in source
     assert "openstream_dock_destroy();" in source
+
+
+def test_obs_source_properties_are_setup_only() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+    properties = source.split("obs_properties_t *openstream_properties", 1)[1].split(
+        "return props;", 1
+    )[0]
+
+    assert '"slot_setup", "Camera setup"' in properties
+    assert '"show_advanced", "Troubleshooting"' in properties
+    assert '"selected_phone_id"' in properties
+    assert '"connect"' in properties
+    assert '"disconnect"' in properties
+    assert '"listener_port"' in properties
+    assert '"latency_ms"' in properties
+    assert '"camera_controls"' not in properties
+    assert '"cam_zoom"' not in properties
+    assert '"cam_torch_on"' not in properties
+    assert '"cam_lens_front"' not in properties
+
+
+def test_android_professional_camera_state_contract_is_capability_driven() -> None:
+    models = read("android/app/src/main/java/dev/openstream/app/camera/CameraModels.kt")
+    store = read("android/app/src/main/java/dev/openstream/app/camera/CameraStateStore.kt")
+
+    for model in (
+        "CameraCapabilities",
+        "CameraSettings",
+        "CameraSettingsPatch",
+        "CameraTelemetry",
+        "CameraState",
+        "TallyState",
+    ):
+        assert f"data class {model}" in models
+
+    assert 'Collaborative("collaborative")' in models
+    assert 'ObsLock("obs_lock")' in models
+    assert "sealed interface CameraControlResult" in models
+    assert "data class Conflict" in models
+    assert "data class Unsupported" in models
+    assert "data class Locked" in models
+    assert "expectedRevision" in store
+    assert "state.revision + 1" in store
+    assert "patch.exposureMode ?: current.exposureMode" in store
+    assert "patch.whiteBalanceKelvin ?: current.whiteBalanceKelvin" in store
+    assert "state.authority == AuthorityMode.ObsLock" in store
+    assert "actor == CameraActor.Camera" in store
+
+
+def test_android_tap_focus_uses_normalized_transmitted_frame_coordinates() -> None:
+    mapper = read("android/app/src/main/java/dev/openstream/app/camera/FocusCoordinateMapper.kt")
+    store = read("android/app/src/main/java/dev/openstream/app/camera/CameraStateStore.kt")
+
+    assert "normalizedX in 0f..1f" in mapper
+    assert "normalizedY in 0f..1f" in mapper
+    assert "rotationDegrees" in mapper
+    assert "mirrored" in mapper
+    assert "cropRegion" in mapper
+    assert "activeArray" in mapper
+    assert "caps.supportsTapFocus" in store
+    assert "x !in 0f..1f" in store
+    assert "y !in 0f..1f" in store
+
+
+def test_camera2_controller_applies_manual_controls_from_complete_state() -> None:
+    camera = read("android/app/src/main/java/dev/openstream/app/camera/Camera2Controller.kt")
+
+    assert "CameraStateStore" in camera
+    assert "REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR" in camera
+    assert "CONTROL_AE_MODE_OFF" in camera
+    assert "SENSOR_SENSITIVITY" in camera
+    assert "SENSOR_EXPOSURE_TIME" in camera
+    assert "CONTROL_AWB_MODE" in camera
+    assert "CONTROL_AWB_LOCK" in camera
+    assert "LENS_FOCUS_DISTANCE" in camera
+    assert "CONTROL_AF_REGIONS" in camera
+    assert "CONTROL_AE_REGIONS" in camera
+    assert "CONTROL_ZOOM_RATIO" in camera
+    assert "SCALER_CROP_REGION" in camera
+    assert "onCaptureCompleted" in camera
+    assert "updateTelemetry" in camera
 
 
 def test_obs_discovery_beacons_advertise_slots_not_raw_listener_only() -> None:
@@ -236,7 +328,7 @@ def test_identify_camera_control_round_trip_exists() -> None:
     control = read("android/app/src/main/java/dev/openstream/app/control/CameraControlServer.kt")
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
     layout = read("android/app/src/main/res/layout/activity_main.xml")
-    assert "Show Slot Label on Phone" in source
+    assert "OpenStreamCommandType::Identify" in source
     assert '"/identify"' in source
     assert 'path == "/identify"' in control
     assert "handleIdentify" in control
@@ -286,7 +378,7 @@ def test_receiver_validates_srt_support() -> None:
     assert "mode=caller" in receiver
 
 
-def test_protocol_documents_media_and_telemetry_contracts() -> None:
+def test_protocol_documents_media_control_and_compatibility_contracts() -> None:
     protocol = read("docs/protocol.md")
     assert "MediaCodec" in protocol
     assert "MPEG-TS" in protocol
@@ -296,9 +388,16 @@ def test_protocol_documents_media_and_telemetry_contracts() -> None:
     assert "slotId" in protocol
     assert "slotLabel" in protocol
     assert "pairingUrl" in protocol
-    assert "deviceName" in protocol
     assert "reservedBy" in protocol
-    assert "latencyMs" in protocol
+    assert "CameraCapabilities" in protocol
+    assert "CameraState" in protocol
+    assert "expectedRevision" in protocol
+    assert "Authorization: Bearer" in protocol
+    assert "/v2/focus" in protocol
+    assert "normalized coordinates" in protocol
+    assert "collaborative" in protocol
+    assert "obs_lock" in protocol
+    assert "Legacy V1 compatibility" in protocol
 
 
 def test_docs_keep_python_receiver_as_developer_tool_only() -> None:
