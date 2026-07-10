@@ -27,7 +27,7 @@
 
     <!-- Status -->
     <string name="status_ready">Ready to connect</string>
-    <string name="status_waiting">Open OBS on the same Wi-Fi, then choose a camera slot.</string>
+    <string name="status_waiting">Ready for OBS. Add an OpenStream Camera source on the same network.</string>
     <string name="status_streaming">LIVE → %1$s</string>
     <string name="status_stopped">STOPPED</string>
     <string name="status_no_slots">Scanning for OBS… Keep OBS and this phone on the same network.</string>
@@ -96,4 +96,11 @@
     <string name="camera_service_title">OpenStream camera armed</string>
     <string name="camera_service_text">Remote controls and streaming stay available while the screen is off.</string>
     <string name="camera_service_stop">Stop camera</string>
+    <string name="camera_preview_description">Live camera preview. Tap to focus and pinch to zoom.</string>
+    <string name="pairing_code_description">One-time OBS pairing code</string>
+    <string name="close_controls">Close camera controls</string>
+    <string name="remote_armed">Remote camera armed</string>
+    <string name="remote_disarmed">Arm remote</string>
+    <string name="control_locked_by_obs">Controls are locked by OBS</string>
+    <string name="tap_focus_unavailable">Tap focus is unavailable on this camera</string>
 </resources>

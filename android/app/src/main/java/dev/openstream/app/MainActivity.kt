@@ -18,6 +18,7 @@ import android.os.Looper
 import android.os.IBinder
 import android.util.Log
 import android.view.Gravity
+import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.SurfaceHolder
@@ -29,9 +30,20 @@ import android.view.WindowInsets
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.SeekBar
 import android.widget.TextView
+import dev.openstream.app.camera.AuthorityMode
+import dev.openstream.app.camera.CameraActor
 import dev.openstream.app.camera.Camera2Controller
+import dev.openstream.app.camera.CameraControlResult
 import dev.openstream.app.camera.CameraLens
+import dev.openstream.app.camera.CameraSettingsPatch
+import dev.openstream.app.camera.CameraState
+import dev.openstream.app.camera.ExposureMode
+import dev.openstream.app.camera.FocusActionMode
+import dev.openstream.app.camera.FocusMode
+import dev.openstream.app.camera.StabilizationMode
+import dev.openstream.app.camera.WhiteBalanceMode
 import dev.openstream.app.control.CameraControlServer
 import dev.openstream.app.control.PairingTokenStore
 import dev.openstream.app.discovery.DiscoveredObsDevice
@@ -45,6 +57,9 @@ import dev.openstream.app.stream.SrtStreamClient
 import dev.openstream.app.service.OpenStreamCameraService
 import dev.openstream.app.telemetry.TelemetrySampler
 import dev.openstream.app.update.AppUpdater
+import kotlin.math.exp
+import kotlin.math.ln
+import kotlin.math.roundToInt
 
 class MainActivity : Activity() {
 
@@ -68,6 +83,38 @@ class MainActivity : Activity() {
     private lateinit var screenOffOverlay: View
     private lateinit var identifyOverlay: TextView
     private lateinit var bottomControls: LinearLayout
+    private lateinit var tallyBadge: TextView
+    private lateinit var authorityBadge: TextView
+    private lateinit var pairingCodeText: TextView
+    private lateinit var hudFps: TextView
+    private lateinit var hudShutter: TextView
+    private lateinit var hudIso: TextView
+    private lateinit var hudWb: TextView
+    private lateinit var hudFocus: TextView
+    private lateinit var btnExposurePanel: TextView
+    private lateinit var btnFocusPanel: TextView
+    private lateinit var btnColorPanel: TextView
+    private lateinit var btnLensPanel: TextView
+    private lateinit var btnArmRemote: TextView
+    private lateinit var focusReticle: TextView
+    private lateinit var controlPalette: LinearLayout
+    private lateinit var paletteTitle: TextView
+    private lateinit var paletteHelp: TextView
+    private lateinit var paletteModeRow: LinearLayout
+    private lateinit var paletteModeA: TextView
+    private lateinit var paletteModeB: TextView
+    private lateinit var paletteModeC: TextView
+    private lateinit var paletteSlider1Label: TextView
+    private lateinit var paletteSlider1Value: TextView
+    private lateinit var paletteSlider1: SeekBar
+    private lateinit var paletteSlider2Label: TextView
+    private lateinit var paletteSlider2Value: TextView
+    private lateinit var paletteSlider2: SeekBar
+    private lateinit var paletteSlider3Label: TextView
+    private lateinit var paletteSlider3Value: TextView
+    private lateinit var paletteSlider3: SeekBar
+    private lateinit var paletteAction: TextView
+    private lateinit var paletteClose: TextView
 
     // ── Core components ──
     private lateinit var camera: Camera2Controller
@@ -79,6 +126,8 @@ class MainActivity : Activity() {
     private lateinit var obsDiscoveryClient: ObsDiscoveryClient
     private lateinit var controlServer: CameraControlServer
     private lateinit var appUpdater: AppUpdater
+    private lateinit var pairingTokenStore: PairingTokenStore
+    private var cameraStateSubscription: AutoCloseable? = null
     private var cameraService: OpenStreamCameraService? = null
     private var cameraServiceBound = false
     @Volatile private var remoteArmed = false
@@ -105,6 +154,7 @@ class MainActivity : Activity() {
             service.attachSession(serviceSessionOwner)
             remoteArmed = remoteArmed || service.isArmed()
             if (remoteArmed) service.arm()
+            renderRemoteArmState()
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -131,6 +181,8 @@ class MainActivity : Activity() {
     private var currentLens: CameraLens = CameraLens.Back
     private var availableLenses: List<CameraLens> = listOf(CameraLens.Back)
     private lateinit var scaleGestureDetector: ScaleGestureDetector
+    private lateinit var tapGestureDetector: GestureDetector
+    private var activePalette: CameraPalette? = null
     private var zoomHideRunnable: Runnable? = null
     private var liveDotAnimator: ObjectAnimator? = null
     private var currentPort: Int = ConnectionTarget.DEFAULT_PORT
@@ -168,6 +220,7 @@ class MainActivity : Activity() {
         telemetry = TelemetrySampler(this)
         appUpdater = AppUpdater(this)
         appUpdater.register()
+        pairingTokenStore = PairingTokenStore(this)
         phoneAdvertiser = PhoneDiscoveryAdvertiser(
             context = this,
             config = streamConfig,
@@ -200,8 +253,11 @@ class MainActivity : Activity() {
             previewSurfaceProvider = { cameraPreview.holder.surface },
             lensProvider = { currentLens },
         )
+        cameraStateSubscription = camera.addStateListener { state ->
+            runOnUiThread { renderProfessionalState(state) }
+        }
         controlServer = CameraControlServer(
-            pairingTokenStore = PairingTokenStore(this),
+            pairingTokenStore = pairingTokenStore,
             cameraProvider = { camera },
             lensListProvider = { availableLenses },
             currentLensProvider = { currentLens },
@@ -223,9 +279,13 @@ class MainActivity : Activity() {
             },
             onRelease = { sourceInstanceId -> releaseForSource(sourceInstanceId) },
             onIdentify = { label, subtitle -> runOnUiThread { showIdentifyOverlay(label, subtitle) } },
-            onPaired = { runOnUiThread { armForRemoteOperation() } },
+            onPaired = { runOnUiThread {
+                armForRemoteOperation()
+                refreshPairingBanner()
+            } },
         )
         bindCameraService()
+        refreshPairingBanner()
 
         cameraPreview.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
@@ -302,6 +362,8 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         if (!remoteArmed) clearReservation()
         mainHandler.removeCallbacksAndMessages(null)
+        cameraStateSubscription?.close()
+        cameraStateSubscription = null
         appUpdater.dispose()
         if (cameraServiceBound) {
             if (!remoteArmed) cameraService?.detachSession(serviceSessionOwner)
@@ -369,6 +431,38 @@ class MainActivity : Activity() {
         screenOffOverlay = findViewById(R.id.screenOffOverlay)
         identifyOverlay = findViewById(R.id.identifyOverlay)
         bottomControls = findViewById(R.id.bottomControls)
+        tallyBadge = findViewById(R.id.tallyBadge)
+        authorityBadge = findViewById(R.id.authorityBadge)
+        pairingCodeText = findViewById(R.id.pairingCodeText)
+        hudFps = findViewById(R.id.hudFps)
+        hudShutter = findViewById(R.id.hudShutter)
+        hudIso = findViewById(R.id.hudIso)
+        hudWb = findViewById(R.id.hudWb)
+        hudFocus = findViewById(R.id.hudFocus)
+        btnExposurePanel = findViewById(R.id.btnExposurePanel)
+        btnFocusPanel = findViewById(R.id.btnFocusPanel)
+        btnColorPanel = findViewById(R.id.btnColorPanel)
+        btnLensPanel = findViewById(R.id.btnLensPanel)
+        btnArmRemote = findViewById(R.id.btnArmRemote)
+        focusReticle = findViewById(R.id.focusReticle)
+        controlPalette = findViewById(R.id.controlPalette)
+        paletteTitle = findViewById(R.id.paletteTitle)
+        paletteHelp = findViewById(R.id.paletteHelp)
+        paletteModeRow = findViewById(R.id.paletteModeRow)
+        paletteModeA = findViewById(R.id.paletteModeA)
+        paletteModeB = findViewById(R.id.paletteModeB)
+        paletteModeC = findViewById(R.id.paletteModeC)
+        paletteSlider1Label = findViewById(R.id.paletteSlider1Label)
+        paletteSlider1Value = findViewById(R.id.paletteSlider1Value)
+        paletteSlider1 = findViewById(R.id.paletteSlider1)
+        paletteSlider2Label = findViewById(R.id.paletteSlider2Label)
+        paletteSlider2Value = findViewById(R.id.paletteSlider2Value)
+        paletteSlider2 = findViewById(R.id.paletteSlider2)
+        paletteSlider3Label = findViewById(R.id.paletteSlider3Label)
+        paletteSlider3Value = findViewById(R.id.paletteSlider3Value)
+        paletteSlider3 = findViewById(R.id.paletteSlider3)
+        paletteAction = findViewById(R.id.paletteAction)
+        paletteClose = findViewById(R.id.paletteClose)
     }
 
     private fun setupButtons() {
@@ -382,13 +476,35 @@ class MainActivity : Activity() {
             startActivityForResult(intent, SETTINGS_REQUEST_CODE)
         }
         btnStop.setOnClickListener {
-            stopPhoneServer(clearReservation = false)
+            stopPhoneServer(clearReservation = true)
+            disarmRemoteOperation()
             startPreviewIfAllowed()
-            startPhoneServerIfAllowed()
+            renderUiState(OpenStreamUiState.Stopped)
+        }
+
+        btnExposurePanel.setOnClickListener { showCameraPalette(CameraPalette.Exposure) }
+        btnFocusPanel.setOnClickListener { showCameraPalette(CameraPalette.Focus) }
+        btnColorPanel.setOnClickListener { showCameraPalette(CameraPalette.Color) }
+        btnLensPanel.setOnClickListener { showCameraPalette(CameraPalette.Lens) }
+        hudFps.setOnClickListener { showCameraPalette(CameraPalette.Exposure) }
+        hudShutter.setOnClickListener { showCameraPalette(CameraPalette.Exposure) }
+        hudIso.setOnClickListener { showCameraPalette(CameraPalette.Exposure) }
+        hudWb.setOnClickListener { showCameraPalette(CameraPalette.Color) }
+        hudFocus.setOnClickListener { showCameraPalette(CameraPalette.Focus) }
+        paletteClose.setOnClickListener { hideCameraPalette() }
+        btnArmRemote.setOnClickListener {
+            if (remoteArmed) disarmRemoteOperation() else armForRemoteOperation()
+            renderRemoteArmState()
+        }
+        btnScreenOff.setOnClickListener {
+            if (!remoteArmed) armForRemoteOperation()
+            toggleDisplayOff()
+            renderRemoteArmState()
         }
 
         // Tap the screen-off overlay to re-enable display
         screenOffOverlay.setOnClickListener { toggleDisplayOff() }
+        renderRemoteArmState()
     }
 
     private fun createVideoEncoder(bitrate: Int): MediaCodecVideoEncoder {
@@ -428,15 +544,429 @@ class MainActivity : Activity() {
                 return true
             }
         })
+        tapGestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(event: MotionEvent): Boolean = true
 
-        // Also handle pinch on the preview surface itself
+            override fun onSingleTapConfirmed(event: MotionEvent): Boolean {
+                if (cameraPreview.width <= 0 || cameraPreview.height <= 0) return false
+                val x = (event.x / cameraPreview.width).coerceIn(0f, 1f)
+                val y = (event.y / cameraPreview.height).coerceIn(0f, 1f)
+                val result = camera.focusAt(x, y, FocusActionMode.Auto, actor = CameraActor.Camera)
+                renderFocusResult(result, event.x, event.y)
+                return true
+            }
+        })
+
         cameraPreview.setOnTouchListener { _, event ->
             scaleGestureDetector.onTouchEvent(event)
+            if (!scaleGestureDetector.isInProgress) tapGestureDetector.onTouchEvent(event)
             true
         }
     }
 
     // ─────────────────────────── Lens switching ───────────────────────────
+
+    private fun refreshPairingBanner() {
+        val pairedName = pairingTokenStore.pairedSourceName()
+        pairingCodeText.text = if (pairedName.isNullOrBlank()) {
+            "PAIR ${pairingTokenStore.currentPairingCode()}"
+        } else {
+            "PAIRED · $pairedName"
+        }
+    }
+
+    private fun renderProfessionalState(state: CameraState) {
+        val settings = state.settings
+        val telemetry = state.telemetry
+        hudFps.text = "FPS ${settings.fps ?: streamConfig.fps}"
+        hudShutter.text = "SHUTTER ${telemetry.actualShutterNs?.let(::formatShutter) ?: settings.shutterNs?.let(::formatShutter) ?: "AUTO"}"
+        hudIso.text = "ISO ${telemetry.actualIso ?: settings.iso ?: "AUTO"}"
+        hudWb.text = if (settings.whiteBalanceMode == WhiteBalanceMode.Manual) {
+            "WB ${settings.whiteBalanceKelvin ?: telemetry.actualWhiteBalanceKelvin ?: "MANUAL"}K"
+        } else {
+            "WB ${settings.whiteBalanceMode.wireValue.uppercase()}"
+        }
+        hudFocus.text = when (settings.focusMode) {
+            FocusMode.Continuous -> "AF-C"
+            FocusMode.Single -> "AF-S"
+            FocusMode.Manual -> "MF"
+        }
+
+        tallyBadge.visibility = if (state.tally.program || state.tally.preview) View.VISIBLE else View.GONE
+        if (state.tally.program) {
+            tallyBadge.text = "PROGRAM"
+            tallyBadge.setTextColor(getColor(R.color.os_live_red))
+        } else if (state.tally.preview) {
+            tallyBadge.text = "PREVIEW"
+            tallyBadge.setTextColor(getColor(R.color.os_success))
+        }
+
+        val locked = state.authority == AuthorityMode.ObsLock
+        authorityBadge.text = if (locked) "OBS CONTROL" else "COLLABORATIVE"
+        authorityBadge.setTextColor(getColor(if (locked) R.color.os_warning else R.color.os_accent))
+        listOf(btnExposurePanel, btnFocusPanel, btnColorPanel, btnLensPanel).forEach {
+            it.alpha = if (locked) 0.45f else 1f
+            it.isEnabled = !locked
+        }
+        if (locked && activePalette != null) hideCameraPalette()
+        renderRemoteArmState()
+    }
+
+    private fun showCameraPalette(palette: CameraPalette) {
+        if (camera.currentState().authority == AuthorityMode.ObsLock) {
+            statusDetail.setText(R.string.control_locked_by_obs)
+            return
+        }
+        if (camera.currentCapabilities() == null) return
+        activePalette = palette
+        resetPalette()
+        controlPalette.visibility = View.VISIBLE
+        controlPalette.bringToFront()
+        when (palette) {
+            CameraPalette.Exposure -> configureExposurePalette()
+            CameraPalette.Focus -> configureFocusPalette()
+            CameraPalette.Color -> configureColorPalette()
+            CameraPalette.Lens -> configureLensPalette()
+        }
+    }
+
+    private fun resetPalette() {
+        listOf(paletteModeA, paletteModeB, paletteModeC).forEach {
+            it.visibility = View.VISIBLE
+            it.isEnabled = true
+            it.alpha = 1f
+            it.isSelected = false
+            it.setOnClickListener(null)
+        }
+        listOf(
+            paletteSlider1Label, paletteSlider1Value, paletteSlider1,
+            paletteSlider2Label, paletteSlider2Value, paletteSlider2,
+            paletteSlider3Label, paletteSlider3Value, paletteSlider3,
+        ).forEach { it.visibility = View.VISIBLE }
+        lensSelectorRow.visibility = View.GONE
+        paletteAction.visibility = View.VISIBLE
+        paletteAction.setOnClickListener(null)
+    }
+
+    private fun setupModes(first: String, second: String, third: String) {
+        paletteModeA.text = first
+        paletteModeB.text = second
+        paletteModeC.text = third
+    }
+
+    private fun selectMode(index: Int) {
+        listOf(paletteModeA, paletteModeB, paletteModeC).forEachIndexed { position, view ->
+            view.isSelected = position == index
+            view.setTextColor(getColor(if (position == index) R.color.os_black else R.color.os_text_primary))
+        }
+    }
+
+    private fun hideCameraPalette() {
+        activePalette = null
+        controlPalette.visibility = View.GONE
+    }
+
+    private fun configureExposurePalette() {
+        val state = camera.currentState()
+        val capabilities = camera.currentCapabilities() ?: return
+        paletteTitle.text = "Exposure"
+        paletteHelp.text = if (capabilities.manualSensor) {
+            "Auto adapts continuously. Manual holds ISO and shutter for a repeatable broadcast image."
+        } else {
+            "This camera exposes automatically. Compensation is available when supported."
+        }
+        setupModes("Auto", "Manual", "Reset EV")
+        selectMode(if (state.settings.exposureMode == ExposureMode.Auto) 0 else 1)
+        paletteModeA.setOnClickListener {
+            applyLocalSettings(CameraSettingsPatch(exposureMode = ExposureMode.Auto))
+            selectMode(0)
+        }
+        paletteModeB.isEnabled = capabilities.manualSensor
+        paletteModeB.alpha = if (capabilities.manualSensor) 1f else 0.35f
+        paletteModeB.setOnClickListener {
+            applyLocalSettings(
+                CameraSettingsPatch(
+                    exposureMode = ExposureMode.Manual,
+                    iso = state.telemetry.actualIso ?: capabilities.isoRange?.min,
+                    shutterNs = state.telemetry.actualShutterNs ?: capabilities.shutterRangeNs?.min,
+                ),
+            )
+            showCameraPalette(CameraPalette.Exposure)
+        }
+        paletteModeC.setOnClickListener {
+            applyLocalSettings(CameraSettingsPatch(exposureCompensation = 0))
+            showCameraPalette(CameraPalette.Exposure)
+        }
+
+        capabilities.isoRange?.takeIf { capabilities.manualSensor }?.let { range ->
+            configureLinearSlider(
+                paletteSlider1Label, paletteSlider1Value, paletteSlider1,
+                "ISO", range.min.toDouble(), range.max.toDouble(),
+                (state.settings.iso ?: state.telemetry.actualIso ?: range.min).toDouble(),
+                { it.roundToInt().toString() },
+            ) { applyLocalSettings(CameraSettingsPatch(exposureMode = ExposureMode.Manual, iso = it.roundToInt())) }
+        } ?: hideSlider(paletteSlider1Label, paletteSlider1Value, paletteSlider1)
+
+        capabilities.shutterRangeNs?.takeIf { capabilities.manualSensor }?.let { range ->
+            configureLogSlider(
+                paletteSlider2Label, paletteSlider2Value, paletteSlider2,
+                "Shutter", range.min.toDouble(), range.max.toDouble(),
+                (state.settings.shutterNs ?: state.telemetry.actualShutterNs ?: range.min).toDouble(),
+                { formatShutter(it.toLong()) },
+            ) { applyLocalSettings(CameraSettingsPatch(exposureMode = ExposureMode.Manual, shutterNs = it.toLong())) }
+        } ?: hideSlider(paletteSlider2Label, paletteSlider2Value, paletteSlider2)
+
+        capabilities.exposureCompensationRange?.let { range ->
+            configureLinearSlider(
+                paletteSlider3Label, paletteSlider3Value, paletteSlider3,
+                "Exposure compensation", range.min.toDouble(), range.max.toDouble(),
+                state.settings.exposureCompensation.toDouble(),
+                { String.format("%+.0f", it) },
+            ) { applyLocalSettings(CameraSettingsPatch(exposureCompensation = it.roundToInt())) }
+        } ?: hideSlider(paletteSlider3Label, paletteSlider3Value, paletteSlider3)
+        paletteAction.visibility = View.GONE
+    }
+
+    private fun configureFocusPalette() {
+        val state = camera.currentState()
+        val capabilities = camera.currentCapabilities() ?: return
+        paletteTitle.text = "Focus"
+        paletteHelp.text = if (capabilities.supportsTapFocus) {
+            "Tap anywhere on the picture to focus there. Choose manual focus for a fixed plane."
+        } else {
+            getString(R.string.tap_focus_unavailable)
+        }
+        setupModes("AF-C", "AF-S", "Manual")
+        selectMode(when (state.settings.focusMode) {
+            FocusMode.Continuous -> 0
+            FocusMode.Single -> 1
+            FocusMode.Manual -> 2
+        })
+        paletteModeA.isEnabled = FocusMode.Continuous in capabilities.focusModes
+        paletteModeA.setOnClickListener { applyLocalSettings(CameraSettingsPatch(focusMode = FocusMode.Continuous)); selectMode(0) }
+        paletteModeB.isEnabled = FocusMode.Single in capabilities.focusModes
+        paletteModeB.setOnClickListener { applyLocalSettings(CameraSettingsPatch(focusMode = FocusMode.Single)); selectMode(1) }
+        paletteModeC.isEnabled = FocusMode.Manual in capabilities.focusModes
+        paletteModeC.setOnClickListener { applyLocalSettings(CameraSettingsPatch(focusMode = FocusMode.Manual)); showCameraPalette(CameraPalette.Focus) }
+        capabilities.focusDistanceRange?.let { range ->
+            configureLinearSlider(
+                paletteSlider1Label, paletteSlider1Value, paletteSlider1,
+                "Focus distance", range.min.toDouble(), range.max.toDouble(),
+                (state.settings.focusDistanceDiopters ?: state.telemetry.actualFocusDistanceDiopters ?: range.min).toDouble(),
+                { if (it < 0.05) "∞" else String.format("%.2f D", it) },
+            ) { applyLocalSettings(CameraSettingsPatch(focusMode = FocusMode.Manual, focusDistanceDiopters = it.toFloat())) }
+        } ?: hideSlider(paletteSlider1Label, paletteSlider1Value, paletteSlider1)
+        hideSlider(paletteSlider2Label, paletteSlider2Value, paletteSlider2)
+        hideSlider(paletteSlider3Label, paletteSlider3Value, paletteSlider3)
+        paletteAction.visibility = if (capabilities.supportsTapFocus) View.VISIBLE else View.GONE
+        paletteAction.text = "Focus center"
+        paletteAction.setOnClickListener {
+            renderFocusResult(
+                camera.focusAt(0.5f, 0.5f, FocusActionMode.Auto, actor = CameraActor.Camera),
+                cameraPreview.width / 2f,
+                cameraPreview.height / 2f,
+            )
+        }
+    }
+
+    private fun configureColorPalette() {
+        val state = camera.currentState()
+        val capabilities = camera.currentCapabilities() ?: return
+        paletteTitle.text = "Color"
+        paletteHelp.text = "Use Auto for changing light, a preset for daylight, or Manual for a matched multi-camera look."
+        setupModes("Auto", "Daylight", "Manual")
+        selectMode(when (state.settings.whiteBalanceMode) {
+            WhiteBalanceMode.Auto -> 0
+            WhiteBalanceMode.Manual -> 2
+            else -> 1
+        })
+        paletteModeA.setOnClickListener { applyLocalSettings(CameraSettingsPatch(whiteBalanceMode = WhiteBalanceMode.Auto)); selectMode(0) }
+        paletteModeB.setOnClickListener { applyLocalSettings(CameraSettingsPatch(whiteBalanceMode = WhiteBalanceMode.Daylight)); selectMode(1) }
+        paletteModeC.isEnabled = capabilities.manualWhiteBalance
+        paletteModeC.alpha = if (capabilities.manualWhiteBalance) 1f else 0.35f
+        paletteModeC.setOnClickListener {
+            applyLocalSettings(CameraSettingsPatch(whiteBalanceMode = WhiteBalanceMode.Manual, whiteBalanceKelvin = state.settings.whiteBalanceKelvin ?: 5600))
+            showCameraPalette(CameraPalette.Color)
+        }
+        if (capabilities.manualWhiteBalance) {
+            configureLinearSlider(
+                paletteSlider1Label, paletteSlider1Value, paletteSlider1,
+                "Color temperature", 2000.0, 12000.0,
+                (state.settings.whiteBalanceKelvin ?: 5600).toDouble(),
+                { "${it.roundToInt()} K" },
+            ) { applyLocalSettings(CameraSettingsPatch(whiteBalanceMode = WhiteBalanceMode.Manual, whiteBalanceKelvin = it.roundToInt())) }
+            configureLinearSlider(
+                paletteSlider2Label, paletteSlider2Value, paletteSlider2,
+                "Tint", -100.0, 100.0, state.settings.whiteBalanceTint.toDouble(),
+                { String.format("%+.0f", it) },
+            ) { applyLocalSettings(CameraSettingsPatch(whiteBalanceMode = WhiteBalanceMode.Manual, whiteBalanceTint = it.roundToInt())) }
+        } else {
+            hideSlider(paletteSlider1Label, paletteSlider1Value, paletteSlider1)
+            hideSlider(paletteSlider2Label, paletteSlider2Value, paletteSlider2)
+        }
+        hideSlider(paletteSlider3Label, paletteSlider3Value, paletteSlider3)
+        paletteAction.visibility = if (capabilities.supportsAwbLock) View.VISIBLE else View.GONE
+        paletteAction.text = if (state.settings.whiteBalanceLock) "Unlock white balance" else "Lock white balance"
+        paletteAction.setOnClickListener {
+            applyLocalSettings(CameraSettingsPatch(whiteBalanceLock = !camera.currentState().settings.whiteBalanceLock))
+            showCameraPalette(CameraPalette.Color)
+        }
+    }
+
+    private fun configureLensPalette() {
+        val state = camera.currentState()
+        val capabilities = camera.currentCapabilities() ?: return
+        paletteTitle.text = "Lens & stabilization"
+        paletteHelp.text = "Choose a physical lens, frame with zoom, then select stabilization supported by this camera."
+        lensSelectorRow.visibility = View.VISIBLE
+        buildLensButtons()
+        setupModes("Off", "EIS", "OIS")
+        selectMode(when (state.settings.stabilizationMode) {
+            StabilizationMode.Off -> 0
+            StabilizationMode.Video -> 1
+            StabilizationMode.Optical -> 2
+        })
+        paletteModeA.setOnClickListener { applyLocalSettings(CameraSettingsPatch(stabilizationMode = StabilizationMode.Off)); selectMode(0) }
+        paletteModeB.isEnabled = StabilizationMode.Video in capabilities.stabilizationModes
+        paletteModeB.alpha = if (paletteModeB.isEnabled) 1f else 0.35f
+        paletteModeB.setOnClickListener { applyLocalSettings(CameraSettingsPatch(stabilizationMode = StabilizationMode.Video)); selectMode(1) }
+        paletteModeC.isEnabled = StabilizationMode.Optical in capabilities.stabilizationModes
+        paletteModeC.alpha = if (paletteModeC.isEnabled) 1f else 0.35f
+        paletteModeC.setOnClickListener { applyLocalSettings(CameraSettingsPatch(stabilizationMode = StabilizationMode.Optical)); selectMode(2) }
+        configureLinearSlider(
+            paletteSlider1Label, paletteSlider1Value, paletteSlider1,
+            "Zoom", capabilities.zoomRange.min.toDouble(), capabilities.zoomRange.max.toDouble(),
+            state.settings.zoomRatio.toDouble(), { String.format("%.1f×", it) },
+        ) { applyLocalSettings(CameraSettingsPatch(zoomRatio = it.toFloat())) }
+        hideSlider(paletteSlider2Label, paletteSlider2Value, paletteSlider2)
+        hideSlider(paletteSlider3Label, paletteSlider3Value, paletteSlider3)
+        paletteAction.visibility = if (capabilities.supportsTorch) View.VISIBLE else View.GONE
+        paletteAction.text = if (state.settings.torch) "Turn torch off" else "Turn torch on"
+        paletteAction.setOnClickListener {
+            applyLocalSettings(CameraSettingsPatch(torch = !camera.currentState().settings.torch))
+            showCameraPalette(CameraPalette.Lens)
+        }
+    }
+
+    private fun hideSlider(label: TextView, value: TextView, slider: SeekBar) {
+        label.visibility = View.GONE
+        value.visibility = View.GONE
+        slider.visibility = View.GONE
+        slider.setOnSeekBarChangeListener(null)
+    }
+
+    private fun configureLinearSlider(
+        label: TextView,
+        valueView: TextView,
+        slider: SeekBar,
+        labelText: String,
+        min: Double,
+        max: Double,
+        current: Double,
+        formatter: (Double) -> String,
+        onCommit: (Double) -> Unit,
+    ) {
+        val safeCurrent = current.coerceIn(min, max)
+        configureSlider(label, valueView, slider, labelText, safeCurrent, formatter, onCommit) { progress ->
+            min + (max - min) * progress / SLIDER_STEPS
+        }
+        slider.progress = (((safeCurrent - min) / (max - min).coerceAtLeast(0.000001)) * SLIDER_STEPS).roundToInt()
+    }
+
+    private fun configureLogSlider(
+        label: TextView,
+        valueView: TextView,
+        slider: SeekBar,
+        labelText: String,
+        min: Double,
+        max: Double,
+        current: Double,
+        formatter: (Double) -> String,
+        onCommit: (Double) -> Unit,
+    ) {
+        val logMin = ln(min.coerceAtLeast(1.0))
+        val logMax = ln(max.coerceAtLeast(min + 1.0))
+        val safeCurrent = current.coerceIn(min, max)
+        configureSlider(label, valueView, slider, labelText, safeCurrent, formatter, onCommit) { progress ->
+            exp(logMin + (logMax - logMin) * progress / SLIDER_STEPS)
+        }
+        val logCurrent = ln(safeCurrent.coerceAtLeast(1.0))
+        slider.progress = (((logCurrent - logMin) / (logMax - logMin).coerceAtLeast(0.000001)) * SLIDER_STEPS).roundToInt()
+    }
+
+    private fun configureSlider(
+        label: TextView,
+        valueView: TextView,
+        slider: SeekBar,
+        labelText: String,
+        current: Double,
+        formatter: (Double) -> String,
+        onCommit: (Double) -> Unit,
+        fromProgress: (Int) -> Double,
+    ) {
+        label.visibility = View.VISIBLE
+        valueView.visibility = View.VISIBLE
+        slider.visibility = View.VISIBLE
+        label.text = labelText
+        valueView.text = formatter(current)
+        slider.max = SLIDER_STEPS
+        slider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) valueView.text = formatter(fromProgress(progress))
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                onCommit(fromProgress(slider.progress))
+            }
+        })
+    }
+
+    private fun applyLocalSettings(patch: CameraSettingsPatch) {
+        statusDetail.text = when (val result = camera.applySettings(patch, actor = CameraActor.Camera)) {
+            is CameraControlResult.Applied -> "Camera setting applied"
+            is CameraControlResult.Conflict -> "Setting changed elsewhere. Latest camera state loaded."
+            is CameraControlResult.Unsupported -> result.reason
+            is CameraControlResult.Invalid -> result.reason
+            is CameraControlResult.Locked -> getString(R.string.control_locked_by_obs)
+        }
+    }
+
+    private fun renderFocusResult(result: CameraControlResult, x: Float, y: Float) {
+        when (result) {
+            is CameraControlResult.Applied -> {
+                focusReticle.x = (x - focusReticle.width / 2f).coerceIn(
+                    0f,
+                    (previewContainer.width - focusReticle.width).coerceAtLeast(0).toFloat(),
+                )
+                focusReticle.y = (y - focusReticle.height / 2f).coerceIn(
+                    0f,
+                    (previewContainer.height - focusReticle.height).coerceAtLeast(0).toFloat(),
+                )
+                focusReticle.visibility = View.VISIBLE
+                focusReticle.bringToFront()
+                mainHandler.postDelayed({ focusReticle.visibility = View.GONE }, FOCUS_RETICLE_MS)
+            }
+            is CameraControlResult.Unsupported -> statusDetail.text = result.reason
+            is CameraControlResult.Invalid -> statusDetail.text = result.reason
+            is CameraControlResult.Locked -> statusDetail.setText(R.string.control_locked_by_obs)
+            is CameraControlResult.Conflict -> statusDetail.text = "Focus conflicted with a newer control change"
+        }
+    }
+
+    private fun renderRemoteArmState() {
+        btnArmRemote.text = getString(if (remoteArmed) R.string.remote_armed else R.string.remote_disarmed)
+        btnArmRemote.isSelected = remoteArmed
+        btnArmRemote.setTextColor(getColor(if (remoteArmed) R.color.os_black else R.color.os_text_primary))
+        btnStop.visibility = if (remoteArmed || uiState is OpenStreamUiState.Live) View.VISIBLE else View.GONE
+    }
+
+    private fun formatShutter(shutterNs: Long): String {
+        if (shutterNs <= 0L) return "AUTO"
+        val seconds = shutterNs / 1_000_000_000.0
+        return if (seconds >= 1.0) String.format("%.1fs", seconds) else "1/${(1.0 / seconds).roundToInt()}"
+    }
 
     private fun initializeLenses() {
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
@@ -451,14 +981,22 @@ class MainActivity : Activity() {
         lensSelectorRow.removeAllViews()
         for (lens in availableLenses) {
             val btn = TextView(this).apply {
-                text = lens.shortLabel
-                textSize = 14f
+                text = lens.displayName
+                textSize = 13f
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 gravity = Gravity.CENTER
-                val size = resources.getDimensionPixelSize(R.dimen.os_lens_btn_size)
-                layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    resources.getDimensionPixelSize(R.dimen.os_lens_btn_size),
+                ).apply {
                     marginEnd = resources.getDimensionPixelSize(R.dimen.os_spacing_sm)
                 }
+                setPadding(
+                    resources.getDimensionPixelSize(R.dimen.os_spacing_md),
+                    0,
+                    resources.getDimensionPixelSize(R.dimen.os_spacing_md),
+                    0,
+                )
                 setBackgroundResource(R.drawable.bg_lens_selector)
                 isSelected = (lens == currentLens)
                 setTextColor(
@@ -892,18 +1430,24 @@ class MainActivity : Activity() {
     }
 
     private fun armForRemoteOperation() {
-        if (remoteArmed && cameraService?.isArmed() == true) return
+        if (remoteArmed && cameraService?.isArmed() == true) {
+            renderRemoteArmState()
+            return
+        }
         remoteArmed = true
         val intent = OpenStreamCameraService.armIntent(this)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
         cameraService?.attachSession(serviceSessionOwner)
         cameraService?.arm()
+        renderRemoteArmState()
+        refreshPairingBanner()
     }
 
     private fun disarmRemoteOperation() {
         remoteArmed = false
         camera.setFallbackPreviewSurface(null)
         cameraService?.disarm()
+        renderRemoteArmState()
     }
 
     @Synchronized
@@ -970,7 +1514,7 @@ class MainActivity : Activity() {
     private fun renderUiState(next: OpenStreamUiState) {
         uiState = next
         statusText.setTextColor(getColor(if (next is OpenStreamUiState.Error) R.color.os_warning else R.color.os_text_primary))
-        btnStop.visibility = if (next is OpenStreamUiState.Live) View.VISIBLE else View.GONE
+        renderRemoteArmState()
         when (next) {
             OpenStreamUiState.Discovering -> {
                 statusText.setText(R.string.status_ready)
@@ -1237,11 +1781,20 @@ class MainActivity : Activity() {
         private const val LISTENER_RETRY_MS = 750L
         private const val LISTENER_STOP_TIMEOUT_MS = 2_000L
         private const val SETTINGS_REQUEST_CODE = 200
+        private const val SLIDER_STEPS = 1_000
+        private const val FOCUS_RETICLE_MS = 1_500L
         private const val APP_PREFS_NAME = "openstream_app"
         private const val PREF_LAST_VERSION_DIALOG = "last_version_dialog"
         private val REQUIRED_PERMISSIONS = arrayOf(
             Manifest.permission.CAMERA,
             Manifest.permission.RECORD_AUDIO,
         )
+    }
+
+    private enum class CameraPalette {
+        Exposure,
+        Focus,
+        Color,
+        Lens,
     }
 }
