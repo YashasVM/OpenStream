@@ -381,6 +381,15 @@ def test_android_v2_control_plane_requires_pairing_and_bearer_auth() -> None:
     assert "KEY_PAIRING_CODE, newPairingCode()" in token_store
     assert 'BEARER_PREFIX = "Bearer "' in token_store
     assert "MessageDigest.isEqual" in token_store
+    assert "hasPairedAdministrator" in token_store
+    assert '!path.startsWith("/v2/") && pairingTokenStore.hasPairedAdministrator()' in control
+
+
+def test_obs_authenticates_legacy_control_after_pairing() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+    assert "const std::string &bearer_token = {}" in source
+    assert 'send_control_command(phone.host, phone.control_port, "/reserve", body.str(), token)' in source
+    assert 'send_control_command(phone.host, phone.control_port, "/release", body.str(), token)' in source
 
 
 def test_obs_v2_client_uses_android_canonical_camera_schema() -> None:

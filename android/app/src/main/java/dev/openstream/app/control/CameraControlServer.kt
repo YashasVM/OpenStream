@@ -25,7 +25,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Lightweight HTTP/JSON control plane. V2 is authenticated; legacy routes remain available. */
+/** Lightweight HTTP/JSON control plane. V2 is authenticated; legacy routes are bootstrap-only. */
 class CameraControlServer(
     private val pairingTokenStore: PairingTokenStore,
     private val port: Int = CONTROL_PORT,
@@ -133,6 +133,11 @@ class CameraControlServer(
         if (method == "POST" && path == "/v2/pair") return handleV2Pair(body)
         if (path.startsWith("/v2/") && !pairingTokenStore.validateBearer(headers["authorization"])) {
             return HttpResponse(401, errorJson("unauthorized", "A valid bearer token is required"))
+        }
+        if (!path.startsWith("/v2/") && pairingTokenStore.hasPairedAdministrator() &&
+            !pairingTokenStore.validateBearer(headers["authorization"])
+        ) {
+            return HttpResponse(401, errorJson("unauthorized", "This camera is paired; authenticate legacy requests"))
         }
         return try {
             when {

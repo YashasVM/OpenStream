@@ -46,6 +46,10 @@ class PairingTokenStore(context: Context) {
         return constantTimeEquals(supplied, expected)
     }
 
+    fun hasPairedAdministrator(): Boolean = !preferences.getString(KEY_TOKEN, null).isNullOrBlank()
+
+    fun streamPassphrase(): String? = preferences.getString(KEY_TOKEN, null)?.takeIf { it.isNotBlank() }
+
     fun pairedSourceName(): String? = preferences.getString(KEY_SOURCE_NAME, null)
 
     private fun newPairingCode(): String = (random.nextInt(900_000) + 100_000).toString()

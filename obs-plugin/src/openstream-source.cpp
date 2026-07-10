@@ -995,8 +995,9 @@ ControlHttpResponse send_control_request(const std::string &host,
 }
 
 bool send_control_command(const std::string &host, int port,
-                          const std::string &path, const std::string &body) {
-  const auto response = send_control_request(host, port, "POST", path, body);
+                          const std::string &path, const std::string &body,
+                          const std::string &bearer_token = {}) {
+  const auto response = send_control_request(host, port, "POST", path, body, bearer_token);
   return response.transport_ok && response.status_code >= 200 && response.status_code < 300 &&
          json_bool_value(response.body, "ok").value_or(false);
 }
@@ -1038,20 +1039,27 @@ std::string phone_label(const PhoneDevice &phone) {
 
 bool reserve_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
   std::ostringstream body;
+  std::string token;
   {
     std::lock_guard<std::mutex> lock(ctx->settings_mutex);
     body << "{\"sourceInstanceId\":\"" << json_escape(ctx->instance_id) << "\","
          << "\"slotId\":\"" << json_escape(ctx->slot_id) << "\","
          << "\"slotLabel\":\"" << json_escape(ctx->slot_label) << "\","
          << "\"bitrateMbps\":" << ctx->bitrate_mbps << "}";
+    token = ctx->control_token;
   }
-  return send_control_command(phone.host, phone.control_port, "/reserve", body.str());
+  return send_control_command(phone.host, phone.control_port, "/reserve", body.str(), token);
 }
 
 void release_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
   std::ostringstream body;
+  std::string token;
   body << "{\"sourceInstanceId\":\"" << json_escape(ctx->instance_id) << "\"}";
-  send_control_command(phone.host, phone.control_port, "/release", body.str());
+  {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    token = ctx->control_token;
+  }
+  send_control_command(phone.host, phone.control_port, "/release", body.str(), token);
 }
 
 std::string av_error(int error) {
@@ -2614,11 +2622,13 @@ void openstream_run_command_async(const std::string &instance_id,
           std::string body;
           std::string slot_label;
           std::string device_name;
+          std::string token;
           double zoom = 1.0;
           {
             std::lock_guard<std::mutex> lock(ctx->settings_mutex);
             slot_label = ctx->slot_label;
             device_name = ctx->device_name;
+            token = ctx->control_token;
             if (command == OpenStreamUiCommand::ZoomIn || command == OpenStreamUiCommand::ZoomOut) {
               const double delta = command == OpenStreamUiCommand::ZoomIn ? 0.25 : -0.25;
               ctx->last_cam_zoom = std::clamp(ctx->last_cam_zoom + delta, 1.0, 10.0);
@@ -2645,7 +2655,8 @@ void openstream_run_command_async(const std::string &instance_id,
             }
             default: break;
           }
-          ok = !path.empty() && send_control_command(phone->host, phone->control_port, path, body);
+          ok = !path.empty() &&
+               send_control_command(phone->host, phone->control_port, path, body, token);
           message = ok ? "Command sent" : "Phone did not accept the command";
         }
     }
