@@ -45,7 +45,7 @@ Phone camera -> HEVC/H.264 + AAC -> SRT over Wi-Fi -> OpenStream camera slot in 
 
 | Area | V2 improvement |
 |---|---|
-| **OBS setup** | The source properties now follow a `Camera Slot -> Live Camera Controls -> Network & Pairing` flow. |
+| **OBS setup** | The persistent OpenStream Cameras dock brings every camera slot, connection state, and live control into one place. |
 | **Upgrade safety** | Existing `OpenStream V7` scene sources keep loading while new sources appear as `OpenStream V8`. |
 | **Pairing clarity** | OBS and Android both describe slots as production camera positions instead of raw listener ports. |
 | **Release polish** | Version defaults, release notes, and setup docs are aligned around the V2 beta release. |
@@ -63,7 +63,7 @@ DroidCam is a mature phone-as-webcam product with Wi-Fi, USB, desktop webcam cli
 | **Video target** | `1080p60` default with high local bitrate and HEVC preference. | Standard-definition free mode; HD/Full-HD/4K options depend on DroidCam mode and pro upgrade. |
 | **Audio path** | AAC microphone audio into a separate OBS mixer channel, tuned for `48 kHz` live production. | Sound capture is supported, including webcam-style audio paths. |
 | **Multi-camera setup** | Source slots such as `CAM A` and `CAM B` reserve phones and recover reconnects into the same OBS source. | DroidCam OBS supports adding multiple devices as OBS sources. |
-| **Remote camera controls** | OBS source properties can control zoom, torch, lens switching, and phone identification overlay. | Pro features include manual camera controls and PC remote controls. |
+| **Remote camera controls** | The OBS Cameras dock controls zoom, torch, lens switching, and the phone identification overlay. | Pro features include manual camera controls and PC remote controls. |
 | **Release updates** | GitHub Releases provide `openstream-android.apk` and updater metadata for in-app update prompts. | Updates are delivered through DroidCam's app/client/plugin distribution channels. |
 | **Best fit** | Builders and streamers who want an inspectable, hackable OBS-first camera pipeline. | Users who want a polished cross-app webcam product with mature USB and desktop-client options. |
 
@@ -90,11 +90,11 @@ In OBS, click `+` in Sources, choose `OpenStream V8`, keep the camera slot enabl
 
 ### 4. Pair the Phone
 
-Open the OpenStream Android app on the same Wi-Fi network as the PC. Tap an available OBS camera slot from the phone, or choose a discovered phone from the OBS source properties. The camera feed should appear in OBS within a few seconds.
+Open the OpenStream Android app on the same Wi-Fi network as the PC. Its guided discovery panel lists available OBS camera slots; tap one to connect. The camera feed should appear in OBS within a few seconds.
 
 ### 5. Stream
 
-Use OBS as usual. Phone audio appears as a separate OBS mixer channel, camera controls live under `2. Live Camera Controls`, and the selected phone is held for quick reconnects if Wi-Fi drops briefly.
+Use OBS as usual. Open **Docks → OpenStream Cameras** to monitor every slot and control zoom, torch, lens, and identification. Phone audio appears as a separate OBS mixer channel, and the selected phone is held for quick reconnects if Wi-Fi drops briefly.
 
 > [!TIP]
 > Use a 5 GHz or Wi-Fi 6 network, keep both devices on the same subnet, and disable VPNs or router client isolation during first setup.
@@ -137,13 +137,14 @@ Use OBS as usual. Phone audio appears as a separate OBS mixer channel, camera co
 | Feature | Details |
 |---|---|
 | **Native OBS Source** | Adds an `OpenStream V8` source type inside OBS Studio while preserving V7 scene compatibility. |
+| **Multi-Camera Dock** | Shows every OpenStream source with state-aware connect, retry, stop, discovery, and live camera controls. |
 | **One-Click Installer** | Windows installer copies the plugin into the OBS plugin folder. |
 | **Camera Slots** | Gives each source a stable slot label such as `CAM A`, `CAM B`, or a custom slot name. |
 | **Phone Discovery** | Lists discovered Android phones, includes a refresh action, and can let the phone choose the OBS slot. |
 | **Auto-Connect** | Listens for the Android app and connects without typing IP addresses. |
 | **Deep-Link Pairing URL** | Exposes an `openstream://connect` pairing URL with slot, port, latency, and source identity. |
 | **Separate Audio Mixer** | Phone microphone audio gets its own OBS mixer channel. |
-| **Remote Controls** | Adjust zoom, torch, rear/front camera, and the phone slot label overlay from source properties. |
+| **Remote Controls** | Adjust zoom, torch, rear/front camera, and the phone slot label overlay from the persistent dock. |
 | **Reconnect Handling** | Reserves and releases phones per source so streams recover into the same OBS slot. |
 
 ---
@@ -152,9 +153,9 @@ Use OBS as usual. Phone audio appears as a separate OBS mixer channel, camera co
 
 | Moment | Experience |
 |---|---|
-| **First launch** | The phone opens directly to the camera preview, requests camera/microphone permissions, and waits for OBS. |
-| **OBS setup** | Add one `OpenStream V8` source per camera angle, then name slots for the production layout. |
-| **Pairing** | The phone lists available OBS slots; OBS can also select a discovered phone or show a pairing URL. |
+| **First launch** | The phone explains camera/microphone access, then presents a guided discovery state over the camera preview. |
+| **OBS setup** | Add one `OpenStream V8` source per camera angle, name the production slots, and monitor them from the Cameras dock. |
+| **Pairing** | The phone scans for available OBS slots and provides refresh, empty-state recovery, and manual fallback. |
 | **Going live** | A `LIVE` badge, zoom chip, stream stats, and status text make the active connection visible at a glance. |
 | **Multi-camera work** | Busy and reserved slots prevent two phones from fighting over the same source. |
 | **On-set checks** | Use `Show Slot Label on Phone` in OBS to flash the slot label on the physical phone. |

@@ -17,6 +17,8 @@
 #include <obs-module.h>
 #include <util/platform.h>
 
+#include "openstream-ui-api.hpp"
+
 #include <chrono>
 #include <atomic>
 #include <charconv>
@@ -1914,7 +1916,7 @@ obs_properties_t *openstream_properties(void *data) {
       disconnect_button,
       "Stops this OBS source from listening without removing it from the scene.");
 
-  obs_properties_add_group(props, "slot_setup", "1. Camera Slot", OBS_GROUP_NORMAL, slot_group);
+  obs_properties_add_group(props, "slot_setup", "Connection", OBS_GROUP_NORMAL, slot_group);
 
   // ── Camera remote controls ──
   obs_properties_t *advanced_group = obs_properties_create();
@@ -1936,8 +1938,6 @@ obs_properties_t *openstream_properties(void *data) {
       obs_properties_add_int_slider(advanced_group, "bitrate_mbps", "Expected bitrate (Mbps)", 8, 120, 1);
   obs_property_int_set_suffix(bitrate, " Mbps");
   obs_property_set_long_description(bitrate, "Used in discovery so the phone can tune stream quality for this slot.");
-  obs_properties_add_group(props, "show_advanced", "3. Network & Pairing (Advanced)", OBS_GROUP_CHECKABLE, advanced_group);
-
   obs_properties_t *camera_group = obs_properties_create();
 
   obs_property_t *zoom_prop = obs_properties_add_float_slider(camera_group, "cam_zoom", "Zoom", 1.0, 10.0, 0.1);
@@ -2013,10 +2013,8 @@ obs_properties_t *openstream_properties(void *data) {
     return sent;
   });
 
-  obs_properties_add_group(props, "camera_controls", "2. Live Camera Controls", OBS_GROUP_NORMAL, camera_group);
-
-  // Credit
-  obs_properties_add_text(props, "credit", "About", OBS_TEXT_INFO);
+  obs_properties_add_group(props, "camera_controls", "Camera Controls", OBS_GROUP_NORMAL, camera_group);
+  obs_properties_add_group(props, "show_advanced", "Advanced Network & Pairing", OBS_GROUP_CHECKABLE, advanced_group);
 
   return props;
 }
@@ -2046,6 +2044,155 @@ obs_source_info openstream_legacy_source_info = {
 };
 }  // namespace
 
+namespace {
+std::mutex g_ui_command_mutex;
+std::vector<std::thread> g_ui_command_threads;
+}
+
+std::vector<OpenStreamCameraSnapshot> openstream_camera_snapshots() {
+  std::vector<OpenStreamCameraSnapshot> snapshots;
+  std::vector<std::pair<OpenStreamSource *, obs_source_t *>> sources;
+  {
+    std::lock_guard<std::mutex> registry_lock(g_slot_registry_mutex);
+    sources.reserve(g_source_slots.size());
+    for (const auto &[key, unused_label] : g_source_slots) {
+      (void)unused_label;
+      auto *ctx = static_cast<OpenStreamSource *>(const_cast<void *>(key));
+      if (ctx->source) sources.emplace_back(ctx, obs_source_get_ref(ctx->source));
+    }
+  }
+  snapshots.reserve(sources.size());
+  for (const auto &[ctx, source] : sources) {
+    OpenStreamCameraSnapshot item;
+    {
+      std::lock_guard<std::mutex> settings_lock(ctx->settings_mutex);
+      item.instance_id = ctx->instance_id;
+      item.source_name = obs_source_get_name(source);
+      item.slot_label = ctx->slot_label;
+      item.production_label = ctx->device_name;
+      item.status = ctx->slot_status;
+      item.phone_label = ctx->phone_target_hint;
+      item.listener_enabled = ctx->listener_enabled;
+      item.phone_available = ctx->active_phone.has_value();
+      item.live = ctx->phone_connected.load();
+    }
+    snapshots.push_back(std::move(item));
+    obs_source_release(source);
+  }
+  std::sort(snapshots.begin(), snapshots.end(), [](const auto &left, const auto &right) {
+    if (left.slot_label == right.slot_label) return left.source_name < right.source_name;
+    return left.slot_label < right.slot_label;
+  });
+  return snapshots;
+}
+
+void openstream_run_command_async(const std::string &instance_id,
+                                  OpenStreamUiCommand command,
+                                  OpenStreamCommandResult completion) {
+  obs_source_t *source = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
+    for (const auto &[key, unused_label] : g_source_slots) {
+      (void)unused_label;
+      auto *ctx = static_cast<OpenStreamSource *>(const_cast<void *>(key));
+      if (ctx->instance_id == instance_id && ctx->source) {
+        source = obs_source_get_ref(ctx->source);
+        break;
+      }
+    }
+  }
+  if (!source) {
+    if (completion) completion(false, "Camera source is no longer available");
+    return;
+  }
+
+  std::thread worker([source, instance_id, command, completion = std::move(completion)]() mutable {
+    bool ok = false;
+    std::string message;
+    OpenStreamSource *ctx = nullptr;
+    {
+      std::lock_guard<std::mutex> registry_lock(g_slot_registry_mutex);
+      for (const auto &[key, unused_label] : g_source_slots) {
+        (void)unused_label;
+        auto *candidate = static_cast<OpenStreamSource *>(const_cast<void *>(key));
+        if (candidate->instance_id == instance_id) {
+          ctx = candidate;
+          break;
+        }
+      }
+    }
+    if (!ctx) {
+      message = "Camera source was removed";
+    } else if (command == OpenStreamUiCommand::Start || command == OpenStreamUiCommand::Refresh) {
+        openstream_start_worker(ctx);
+        ok = true;
+        message = command == OpenStreamUiCommand::Refresh ? "Discovery refreshed" : "Listening for phone";
+      } else if (command == OpenStreamUiCommand::Stop) {
+        openstream_stop_worker(ctx);
+        ok = true;
+        message = "Camera slot stopped";
+      } else {
+        const auto phone = control_phone(ctx);
+        if (!phone) {
+          message = "Connect a phone before using camera controls";
+        } else {
+          std::string path;
+          std::string body;
+          std::string slot_label;
+          std::string device_name;
+          double zoom = 1.0;
+          {
+            std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+            slot_label = ctx->slot_label;
+            device_name = ctx->device_name;
+            if (command == OpenStreamUiCommand::ZoomIn || command == OpenStreamUiCommand::ZoomOut) {
+              const double delta = command == OpenStreamUiCommand::ZoomIn ? 0.25 : -0.25;
+              ctx->last_cam_zoom = std::clamp(ctx->last_cam_zoom + delta, 1.0, 10.0);
+            }
+            zoom = ctx->last_cam_zoom;
+          }
+          switch (command) {
+            case OpenStreamUiCommand::Identify:
+              path = "/identify";
+              body = "{\"label\":\"" + json_escape(slot_label) +
+                     "\",\"subtitle\":\"" + json_escape(device_name) + "\"}";
+              break;
+            case OpenStreamUiCommand::TorchOn: path = "/torch"; body = "{\"enabled\":true}"; break;
+            case OpenStreamUiCommand::TorchOff: path = "/torch"; body = "{\"enabled\":false}"; break;
+            case OpenStreamUiCommand::RearCamera: path = "/lens"; body = "{\"lens\":\"1×\"}"; break;
+            case OpenStreamUiCommand::FrontCamera: path = "/lens"; body = "{\"lens\":\"Front\"}"; break;
+            case OpenStreamUiCommand::ZoomIn:
+            case OpenStreamUiCommand::ZoomOut: {
+              std::ostringstream value;
+              value << "{\"value\":" << zoom << "}";
+              path = "/zoom";
+              body = value.str();
+              break;
+            }
+            default: break;
+          }
+          ok = !path.empty() && send_control_command(phone->host, phone->control_port, path, body);
+          message = ok ? "Command sent" : "Phone did not accept the command";
+        }
+    }
+    obs_source_release(source);
+    if (completion) completion(ok, std::move(message));
+  });
+  std::lock_guard<std::mutex> lock(g_ui_command_mutex);
+  g_ui_command_threads.push_back(std::move(worker));
+}
+
+void openstream_wait_for_commands() {
+  std::vector<std::thread> commands;
+  {
+    std::lock_guard<std::mutex> lock(g_ui_command_mutex);
+    commands.swap(g_ui_command_threads);
+  }
+  for (auto &command : commands) {
+    if (command.joinable()) command.join();
+  }
+}
+
 bool obs_module_load(void) {
 #ifdef _WIN32
   WSADATA data = {};
@@ -2057,11 +2204,15 @@ bool obs_module_load(void) {
 #endif
   obs_register_source(&openstream_source_info);
   obs_register_source(&openstream_legacy_source_info);
+  openstream_dock_create();
   blog(LOG_INFO, "[OpenStream] OBS plugin loaded: V8 — video + audio + remote controls (Made by @yashas.vm)");
   return true;
 }
 
 void obs_module_unload(void) {
+  // Stop the dock timer and prevent new UI commands before draining workers.
+  openstream_dock_destroy();
+  openstream_wait_for_commands();
 #ifdef _WIN32
   if (g_winsock_started) {
     WSACleanup();

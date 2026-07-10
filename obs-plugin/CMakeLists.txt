@@ -8,9 +8,21 @@ if (NOT DEFINED OBS_ROOT)
     message(FATAL_ERROR "Set OBS_ROOT to the OBS Studio install, source checkout, build tree, or development SDK root.")
 endif()
 
-add_library(openstream-obs MODULE
-    src/openstream-source.cpp
-)
+set(OPENSTREAM_SOURCES src/openstream-source.cpp)
+
+# OBS ships a Qt 6 frontend. Normal and release builds require its development
+# package so a successful build always contains the camera dock. The opt-out is
+# intended only for minimal SDK contract checks, never for distributable builds.
+option(OPENSTREAM_BUILD_DOCK "Build the required OpenStream Cameras Qt dock" ON)
+if (OPENSTREAM_BUILD_DOCK)
+    find_package(Qt6 6.2 COMPONENTS Widgets REQUIRED)
+    list(APPEND OPENSTREAM_SOURCES src/openstream-dock.cpp)
+else()
+    list(APPEND OPENSTREAM_SOURCES src/openstream-dock-stub.cpp)
+    message(WARNING "OPENSTREAM_BUILD_DOCK=OFF: building a non-release plugin without the camera dock.")
+endif()
+
+add_library(openstream-obs MODULE ${OPENSTREAM_SOURCES})
 
 find_path(OBS_INCLUDE_DIR
     NAMES obs-module.h
@@ -69,8 +81,14 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/obsconfig.h"
 target_include_directories(openstream-obs PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
     ${OBS_INCLUDE_DIR}
+    ${OBS_ROOT}/frontend/api
     ${AVFORMAT_INCLUDE_DIR}
 )
+
+if (OPENSTREAM_BUILD_DOCK)
+    target_link_libraries(openstream-obs PRIVATE Qt6::Widgets)
+    target_compile_definitions(openstream-obs PRIVATE OPENSTREAM_HAS_CAMERA_DOCK=1)
+endif()
 
 target_link_libraries(openstream-obs PRIVATE
     ${OBS_LIBRARY}
@@ -82,6 +100,10 @@ target_link_libraries(openstream-obs PRIVATE
 
 if (WIN32)
     target_link_libraries(openstream-obs PRIVATE ws2_32 iphlpapi)
+endif()
+
+if (UNIX AND NOT APPLE AND OPENSTREAM_BUILD_DOCK)
+    target_link_libraries(openstream-obs PRIVATE dl)
 endif()
 
 target_compile_definitions(openstream-obs PRIVATE

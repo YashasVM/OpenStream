@@ -24,6 +24,19 @@ jobs:
         shell: powershell
         run: choco install obs-studio -y --no-progress
 
+      - name: Install OBS Qt 6 development bundle
+        shell: powershell
+        run: |
+          $url = "https://github.com/obsproject/obs-deps/releases/download/2025-08-23/windows-deps-qt6-2025-08-23-x64.zip"
+          $archive = "$env:RUNNER_TEMP\obs-qt6.zip"
+          $destination = "$PWD\.deps\obs-qt6"
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          $actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = "c62e82483bc7c0bf199e8ac3220c66a85a6e8a0cd69a05b6d44f873b830e415f"
+          if ($actual -ne $expected) { throw "OBS Qt dependency checksum mismatch" }
+          Expand-Archive -Path $archive -DestinationPath $destination
+          "CMAKE_PREFIX_PATH=$destination" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Build plugin package
         shell: cmd
         run: |

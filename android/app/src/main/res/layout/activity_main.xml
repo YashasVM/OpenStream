@@ -1,290 +1,68 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- OpenStream — Minimalist UI.
-     Full screen camera preview with floating glassmorphic controls. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
+    android:layout_width="match_parent" android:layout_height="match_parent"
     android:background="@color/os_black">
 
-    <!-- ====== BACKGROUND CAMERA PREVIEW ====== -->
-    <FrameLayout
-        android:id="@+id/previewContainer"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent">
-
-        <SurfaceView
-            android:id="@+id/cameraPreview"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:layout_gravity="center" />
-            
-        <!-- IDENTIFY OVERLAY -->
-        <TextView
-            android:id="@+id/identifyOverlay"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="@color/os_overlay_dark"
-            android:gravity="center"
-            android:textColor="@color/os_text_primary"
-            android:textSize="54sp"
-            android:fontFamily="sans-serif-light"
-            android:lineSpacingExtra="10dp"
-            android:visibility="gone" />
+    <FrameLayout android:id="@+id/previewContainer" android:layout_width="match_parent" android:layout_height="match_parent">
+        <SurfaceView android:id="@+id/cameraPreview" android:layout_width="match_parent" android:layout_height="match_parent" android:layout_gravity="center" />
+        <TextView android:id="@+id/identifyOverlay" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:background="@color/os_overlay_dark" android:gravity="center" android:textColor="@color/os_text_primary"
+            android:textSize="48sp" android:fontFamily="sans-serif-light" android:visibility="gone" />
     </FrameLayout>
 
-    <!-- ====== TOP OVERLAY (Status) ====== -->
-    <FrameLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top"
-        android:background="@drawable/scrim_top"
-        android:paddingStart="@dimen/os_spacing_lg"
-        android:paddingEnd="@dimen/os_spacing_lg"
-        android:paddingTop="56dp"
-        android:paddingBottom="32dp">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
-
-            <!-- LIVE badge -->
-            <LinearLayout
-                android:id="@+id/liveBadge"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:background="@drawable/bg_minimal_pill"
-                android:paddingStart="12dp"
-                android:paddingEnd="16dp"
-                android:paddingTop="8dp"
-                android:paddingBottom="8dp"
-                android:visibility="gone">
-
-                <View
-                    android:id="@+id/liveDot"
-                    android:layout_width="8dp"
-                    android:layout_height="8dp"
-                    android:background="@drawable/live_dot" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="LIVE"
-                    android:textColor="@color/os_live_red"
-                    android:textSize="12sp"
-                    android:fontFamily="sans-serif-medium"
-                    android:layout_marginStart="8dp" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="top"
+        android:orientation="vertical" android:background="@drawable/scrim_top" android:paddingStart="20dp" android:paddingEnd="20dp"
+        android:paddingTop="52dp" android:paddingBottom="40dp">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
+            <LinearLayout android:id="@+id/liveBadge" android:layout_width="wrap_content" android:layout_height="40dp"
+                android:orientation="horizontal" android:gravity="center_vertical" android:background="@drawable/bg_minimal_pill"
+                android:paddingHorizontal="14dp" android:visibility="gone">
+                <View android:id="@+id/liveDot" android:layout_width="8dp" android:layout_height="8dp" android:background="@drawable/live_dot" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp"
+                    android:text="@string/live" android:textColor="@color/os_live_red" android:textStyle="bold" android:textSize="12sp" />
             </LinearLayout>
-
-            <!-- Stream info chip -->
-            <TextView
-                android:id="@+id/streamInfoChip"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="@drawable/bg_minimal_pill"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:paddingTop="8dp"
-                android:paddingBottom="8dp"
-                android:textColor="@color/os_text_secondary"
-                android:textSize="12sp"
-                android:fontFamily="sans-serif-medium"
-                android:layout_marginStart="@dimen/os_spacing_sm"
-                android:visibility="gone" />
-
-            <View
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
-
-            <!-- Zoom label -->
-            <TextView
-                android:id="@+id/zoomLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="@drawable/bg_minimal_pill"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
-                android:paddingTop="8dp"
-                android:paddingBottom="8dp"
-                android:textColor="@color/os_text_primary"
-                android:textSize="14sp"
-                android:fontFamily="sans-serif-medium"
-                android:visibility="gone" />
-        </LinearLayout>
-    </FrameLayout>
-
-    <!-- ====== BOTTOM CONTROLS ====== -->
-    <LinearLayout
-        android:id="@+id/bottomControls"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:orientation="vertical"
-        android:background="@drawable/scrim_bottom"
-        android:paddingStart="@dimen/os_spacing_lg"
-        android:paddingEnd="@dimen/os_spacing_lg"
-        android:paddingTop="32dp"
-        android:paddingBottom="@dimen/os_spacing_xl"
-        android:fitsSystemWindows="true">
-
-        <!-- Status Block -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:layout_marginBottom="@dimen/os_spacing_md">
-
-            <TextView
-                android:id="@+id/statusText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/status_ready"
-                android:textColor="@color/os_text_primary"
-                android:textSize="20sp"
-                android:fontFamily="sans-serif-medium"
-                android:layout_marginBottom="4dp" />
-
-            <TextView
-                android:id="@+id/statusDetail"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="@color/os_text_secondary"
-                android:textSize="14sp"
-                android:fontFamily="sans-serif" />
-        </LinearLayout>
-
-        <!-- OBS Slot List (populated programmatically) -->
-        <HorizontalScrollView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:scrollbars="none"
-            android:clipToPadding="false"
-            android:layout_marginBottom="@dimen/os_spacing_md">
-
-            <LinearLayout
-                android:id="@+id/obsSlotList"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical" />
-        </HorizontalScrollView>
-
-        <!-- Lens Selector Row -->
-        <LinearLayout
-            android:id="@+id/lensSelectorRow"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="@dimen/os_spacing_lg">
-            <!-- Lens buttons added programmatically -->
-        </LinearLayout>
-
-        <!-- Utility Button Row -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
-
-            <!-- Screen off -->
-            <TextView
-                android:id="@+id/btnScreenOff"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="@dimen/os_control_btn_height"
-                android:gravity="center"
-                android:background="@drawable/bg_minimal_pill"
-                android:text="Screen"
-                android:textColor="@color/os_text_primary"
-                android:textSize="12sp"
-                android:fontFamily="sans-serif-medium"
-                android:layout_marginEnd="@dimen/os_spacing_xs" />
-
-            <!-- Stay -->
-            <TextView
-                android:id="@+id/btnKeepScreenOn"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="@dimen/os_control_btn_height"
-                android:gravity="center"
-                android:background="@drawable/bg_minimal_pill"
-                android:text="Stay"
-                android:textColor="@color/os_text_primary"
-                android:textSize="12sp"
-                android:fontFamily="sans-serif-medium"
-                android:layout_marginEnd="@dimen/os_spacing_xs" />
-
-            <!-- Torch -->
-            <TextView
-                android:id="@+id/btnTorch"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="@dimen/os_control_btn_height"
-                android:gravity="center"
-                android:background="@drawable/bg_minimal_pill"
-                android:text="Torch"
-                android:textColor="@color/os_text_primary"
-                android:textSize="12sp"
-                android:fontFamily="sans-serif-medium"
-                android:layout_marginEnd="@dimen/os_spacing_xs" />
-
-            <!-- Flip -->
-            <TextView
-                android:id="@+id/btnFlipCamera"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="@dimen/os_control_btn_height"
-                android:gravity="center"
-                android:background="@drawable/bg_minimal_pill"
-                android:text="Flip"
-                android:textColor="@color/os_text_primary"
-                android:textSize="12sp"
-                android:fontFamily="sans-serif-medium"
-                android:layout_marginEnd="@dimen/os_spacing_xs" />
-
-            <!-- Settings -->
-            <TextView
-                android:id="@+id/btnSettings"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="@dimen/os_control_btn_height"
-                android:gravity="center"
-                android:background="@drawable/bg_minimal_pill"
-                android:text="Config"
-                android:textColor="@color/os_text_primary"
-                android:textSize="12sp"
-                android:fontFamily="sans-serif-medium"
-                android:layout_marginEnd="@dimen/os_spacing_xs" />
-
-            <!-- Stop -->
-            <TextView
-                android:id="@+id/btnStop"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="@dimen/os_control_btn_height"
-                android:gravity="center"
-                android:background="@drawable/bg_minimal_btn_danger"
-                android:text="Stop"
-                android:textColor="@color/os_text_primary"
-                android:textSize="12sp"
-                android:fontFamily="sans-serif-medium"
-                android:visibility="gone" />
+            <TextView android:id="@+id/streamInfoChip" android:layout_width="wrap_content" android:layout_height="40dp"
+                android:layout_marginStart="8dp" android:gravity="center" android:background="@drawable/bg_minimal_pill"
+                android:paddingHorizontal="12dp" android:textColor="@color/os_text_secondary" android:textSize="12sp" android:visibility="gone" />
+            <Space android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1" />
+            <TextView android:id="@+id/zoomLabel" android:layout_width="wrap_content" android:layout_height="40dp"
+                android:gravity="center" android:background="@drawable/bg_minimal_pill" android:paddingHorizontal="14dp"
+                android:textColor="@color/os_text_primary" android:textSize="14sp" android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Last child so screen-off mode covers status and controls as advertised. -->
-    <View
-        android:id="@+id/screenOffOverlay"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@color/os_black"
-        android:contentDescription="@string/screen_off_overlay_description"
-        android:visibility="gone"
-        android:clickable="true"
-        android:focusable="true" />
+    <LinearLayout android:id="@+id/bottomControls" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_gravity="bottom" android:orientation="vertical" android:background="@drawable/scrim_bottom"
+        android:paddingStart="20dp" android:paddingEnd="20dp" android:paddingTop="44dp" android:paddingBottom="24dp" android:fitsSystemWindows="true">
+        <TextView android:id="@+id/statusText" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/status_ready" android:textColor="@color/os_text_primary" android:textSize="22sp" android:textStyle="bold" />
+        <TextView android:id="@+id/statusDetail" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="4dp" android:layout_marginBottom="16dp" android:text="@string/status_waiting"
+            android:textColor="@color/os_text_secondary" android:textSize="14sp" />
+
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/section_obs_slots"
+            android:textColor="@color/os_text_secondary" android:textSize="11sp" android:textStyle="bold" android:letterSpacing="0.08" />
+        <HorizontalScrollView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp"
+            android:layout_marginBottom="14dp" android:scrollbars="none" android:clipToPadding="false">
+            <LinearLayout android:id="@+id/obsSlotList" android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" />
+        </HorizontalScrollView>
+
+        <LinearLayout android:id="@+id/lensSelectorRow" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal" android:orientation="horizontal" android:gravity="center" android:layout_marginBottom="14dp" />
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center">
+            <TextView android:id="@+id/btnTorch" style="@style/OpenStream.Control" android:text="@string/control_torch" />
+            <TextView android:id="@+id/btnFlipCamera" style="@style/OpenStream.Control" android:text="@string/control_flip" />
+            <TextView android:id="@+id/btnKeepScreenOn" style="@style/OpenStream.Control" android:text="@string/control_awake" />
+            <TextView android:id="@+id/btnScreenOff" style="@style/OpenStream.Control" android:text="@string/control_dim" />
+            <TextView android:id="@+id/btnSettings" style="@style/OpenStream.Control" android:text="@string/control_settings" />
+        </LinearLayout>
+        <TextView android:id="@+id/btnStop" android:layout_width="match_parent" android:layout_height="52dp" android:layout_marginTop="12dp"
+            android:gravity="center" android:background="@drawable/bg_minimal_btn_danger" android:text="@string/action_stop_stream"
+            android:textColor="@color/os_text_primary" android:textStyle="bold" android:textSize="15sp" android:visibility="gone" />
+    </LinearLayout>
+
+    <View android:id="@+id/screenOffOverlay" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:background="@color/os_black" android:contentDescription="@string/screen_off_overlay_description"
+        android:visibility="gone" android:clickable="true" android:focusable="true" />
 </FrameLayout>

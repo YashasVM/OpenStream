@@ -99,6 +99,7 @@ class MainActivity : Activity() {
     private var pendingConnectAfterSettings = false
     private var currentDevices: List<DiscoveredObsDevice> = emptyList()
     private var activeStreamBitrate: Int = streamConfig.bitrate
+    private var uiState: OpenStreamUiState = OpenStreamUiState.Discovering
 
     private val statsTicker = object : Runnable {
         override fun run() {
@@ -139,6 +140,9 @@ class MainActivity : Activity() {
             onDevicesChanged = { devices ->
                 currentDevices = devices
                 renderObsSlots(devices)
+                if (reservedBy == null && activeTargetName == null) {
+                    renderUiState(OpenStreamUiState.Discovering)
+                }
             },
         )
         encoder = createVideoEncoder(activeStreamBitrate)
@@ -436,8 +440,7 @@ class MainActivity : Activity() {
                     camera.startStreaming(encoder.inputSurface())
                 }.onFailure { e ->
                     Log.e("OpenStream", "Failed to restart encoder after lens switch", e)
-                    statusText.text = "Encoder error"
-                    statusDetail.text = e.message ?: "Unknown"
+                    renderUiState(OpenStreamUiState.Error(e.message ?: getString(R.string.error_unknown)))
                 }
             }
             lensRestartRunnable = restart
@@ -583,8 +586,7 @@ class MainActivity : Activity() {
         }
 
         if (reserveForSource(device.sourceInstanceId, device.displayLabel, device.bitrateMbps)) {
-            statusText.text = "Paired to ${device.displayLabel}"
-            statusDetail.text = "Waiting for OBS to go live"
+            renderUiState(OpenStreamUiState.Reserved(device.displayLabel))
             renderObsSlots(currentDevices)
         }
     }
@@ -608,8 +610,7 @@ class MainActivity : Activity() {
             val slotLabel = uri.getQueryParameter("slotLabel")?.trim().orEmpty()
             val bitrateMbps = uri.getQueryParameter("bitrateMbps")?.toIntOrNull()?.coerceIn(1, 200)
             if (reserveForSource(sourceInstanceId, slotLabel, bitrateMbps)) {
-                statusText.text = "Paired to ${slotLabel.ifBlank { "OBS slot" }}"
-                statusDetail.text = "Waiting for OBS to go live"
+                renderUiState(OpenStreamUiState.Reserved(slotLabel.ifBlank { getString(R.string.obs_slot_fallback) }))
             }
             return
         }
@@ -622,8 +623,7 @@ class MainActivity : Activity() {
         // stop the listener before opening a manual caller connection.
         stopPhoneServer(clearReservation = true, updateStatus = false)
         useStreamBitrate(target.bitrateMbps)
-        statusText.text = "Connecting…"
-        statusDetail.text = "${currentLens.displayName} → ${target.name}"
+        renderUiState(OpenStreamUiState.Connecting(target.name))
         runCatching {
             streamClient.connect(
                 url = target.toSrtCallerUrl(),
@@ -643,8 +643,7 @@ class MainActivity : Activity() {
             stopStream()
             startPreviewIfAllowed()
             startPhoneServerIfAllowed()
-            statusText.text = "Connection failed"
-            statusDetail.text = error.message ?: "Unknown error"
+            renderUiState(OpenStreamUiState.Error(error.message ?: getString(R.string.error_unknown)))
         }
     }
 
@@ -674,10 +673,7 @@ class MainActivity : Activity() {
         phoneServerRunning = true
         phoneConnected = false
         activeTargetName = null
-        statusText.text = getString(R.string.status_ready)
-        statusText.setTextColor(getColor(R.color.os_text_primary))
-        statusDetail.text = getString(R.string.status_waiting)
-        btnStop.visibility = View.GONE
+        renderUiState(OpenStreamUiState.Discovering)
 
         val thread = Thread({
             try {
@@ -717,8 +713,7 @@ class MainActivity : Activity() {
                         val error = listenResult.exceptionOrNull()
                         runOnUiThread {
                             if (!isListenerActive(generation)) return@runOnUiThread
-                            statusText.text = "Listener error"
-                            statusDetail.text = error?.message ?: "Unknown"
+                            renderUiState(OpenStreamUiState.Error(error?.message ?: getString(R.string.error_unknown)))
                         }
                         try {
                             Thread.sleep(LISTENER_RETRY_MS)
@@ -735,9 +730,10 @@ class MainActivity : Activity() {
                         runOnUiThread {
                             if (!isListenerActive(generation)) return@runOnUiThread
                             hideLiveState()
-                            statusText.text = getString(R.string.status_ready)
-                            statusDetail.text = reservedSlotLabel?.let { "Holding $it for reconnect" }
-                                ?: getString(R.string.status_waiting)
+                            renderUiState(
+                                reservedSlotLabel?.let(OpenStreamUiState::Reconnecting)
+                                    ?: OpenStreamUiState.Discovering,
+                            )
                         }
                     }
                 }
@@ -806,8 +802,7 @@ class MainActivity : Activity() {
         encoder.stop()
         audioEncoder.stop()
         if (updateStatus) {
-            statusText.text = getString(R.string.status_stopped)
-            statusDetail.text = "Camera preview remains active"
+            renderUiState(OpenStreamUiState.Stopped)
         }
     }
 
@@ -877,10 +872,8 @@ class MainActivity : Activity() {
 
     private fun showLiveState(targetName: String) {
         liveBadge.visibility = View.VISIBLE
-        btnStop.visibility = View.VISIBLE
         startLiveDotAnimation()
-        statusText.text = getString(R.string.status_streaming, targetName)
-        statusText.setTextColor(getColor(R.color.os_text_primary))
+        renderUiState(OpenStreamUiState.Live(targetName))
         statusDetail.text = "${streamConfig.width}×${streamConfig.height}@${streamConfig.fps} · ${activeStreamBitrate / 1_000_000} Mbps"
     }
 
@@ -888,6 +881,40 @@ class MainActivity : Activity() {
         liveBadge.visibility = View.GONE
         streamInfoChip.visibility = View.GONE
         stopLiveDotAnimation()
+    }
+
+    /** Central renderer for connection status and the state-aware primary action. */
+    private fun renderUiState(next: OpenStreamUiState) {
+        uiState = next
+        statusText.setTextColor(getColor(if (next is OpenStreamUiState.Error) R.color.os_warning else R.color.os_text_primary))
+        btnStop.visibility = if (next is OpenStreamUiState.Live) View.VISIBLE else View.GONE
+        when (next) {
+            OpenStreamUiState.Discovering -> {
+                statusText.setText(R.string.status_ready)
+                statusDetail.setText(R.string.status_waiting)
+            }
+            is OpenStreamUiState.Reserved -> {
+                statusText.text = getString(R.string.status_paired, next.slotLabel)
+                statusDetail.setText(R.string.status_waiting_for_obs)
+            }
+            is OpenStreamUiState.Connecting -> {
+                statusText.setText(R.string.status_connecting)
+                statusDetail.text = getString(R.string.status_connecting_detail, currentLens.displayName, next.targetLabel)
+            }
+            is OpenStreamUiState.Live -> statusText.text = getString(R.string.status_streaming, next.targetLabel)
+            is OpenStreamUiState.Reconnecting -> {
+                statusText.setText(R.string.status_reconnecting)
+                statusDetail.text = getString(R.string.status_holding_slot, next.slotLabel)
+            }
+            is OpenStreamUiState.Error -> {
+                statusText.setText(R.string.status_connection_issue)
+                statusDetail.text = next.message
+            }
+            OpenStreamUiState.Stopped -> {
+                statusText.setText(R.string.status_stopped)
+                statusDetail.setText(R.string.status_preview_active)
+            }
+        }
     }
 
     private fun startLiveDotAnimation() {

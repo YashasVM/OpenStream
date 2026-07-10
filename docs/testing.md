@@ -23,14 +23,35 @@ implementation.
 
 - One Android phone streams 1080p30 for 30 minutes without receiver crash.
 - Android discovers an OBS `OpenStream Phone Link` listener without manual IP entry.
-- Tapping a discovered OBS device starts the stream directly.
+- The discovery screen distinguishes available, busy, and selected camera slots.
+- Tapping an available discovered slot reserves it and starts the connection flow.
+- The Android status distinguishes discovery, reserved, connecting, live, reconnecting, stopped, and actionable error states.
+- Permission rationale, denial, and permanently-denied system-settings recovery are actionable.
 - Stopping the OBS listener removes the device from Android discovery within about 5 seconds.
 - SRT reconnect completes within 2 seconds after a short Wi-Fi interruption.
+- Reconnecting and errors are announced in the Android UI without leaving stale live controls enabled.
 - OBS receives video as one source.
 - OBS receives mono AAC audio at 48 kHz on the source's mixer channel.
 - The OBS source shows only the phone camera feed, never the Android screen.
 - 1080p60 works on devices that advertise hardware support.
 - Telemetry updates at least once per second.
+
+## UI and accessibility acceptance tests
+
+Test Android on a compact Android 10 device and a current large-screen device,
+then test the OBS dock at narrow and wide widths with Windows scaling at 100%,
+150%, and 200%.
+
+- Camera controls and the primary action have at least 48 dp touch targets.
+- TalkBack announces controls, selected slots, connection-state changes, and errors in a logical focus order.
+- Large font does not clip status, slot labels, settings validation, or recovery actions.
+- Camera preview, controls, and transient messages stay clear of system bars and gesture insets.
+- Pinch zoom has an accessible slider alternative; unsupported torch/lens actions are disabled with a visible explanation.
+- Settings preserve saved values, validate host/port/latency inline, and keep manual networking collapsed until explicitly enabled.
+- The OBS dock lists every OpenStream source and updates on add, remove, rename, scene-collection change, reconnect, and unload.
+- OBS slot cards expose one state-appropriate primary action and never enable remote controls unless a compatible phone is live.
+- Progress, success, warning, and failure are understandable without relying on color alone.
+- OBS light/dark themes and narrow dock widths do not hide status or the primary recovery action.
 
 ## Android/OBS compatibility matrix
 

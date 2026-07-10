@@ -77,7 +77,7 @@ class SettingsActivity : Activity() {
         clearValidationErrors()
         val host = inputObsHost.text.toString().trim()
         if (!SettingsValidator.isValidHost(host, required = connectAfterSave)) {
-            inputObsHost.error = "Enter a valid OBS host or IP address"
+            inputObsHost.error = getString(R.string.error_invalid_host)
             inputObsHost.requestFocus()
             return
         }
@@ -107,7 +107,7 @@ class SettingsActivity : Activity() {
             .putInt(KEY_LISTENING_PORT, listenPort)
             .apply()
 
-        Toast.makeText(this, "Settings saved", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, R.string.settings_saved, Toast.LENGTH_SHORT).show()
         setResult(
             RESULT_OK,
             Intent().putExtra(EXTRA_CONNECT_AFTER_SAVE, connectAfterSave),

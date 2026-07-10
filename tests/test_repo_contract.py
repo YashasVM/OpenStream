@@ -123,6 +123,29 @@ def test_obs_sources_are_named_camera_slots_with_advanced_transport() -> None:
     assert '"bitrate_mbps", "Expected bitrate (Mbps)", 8, 120, 1' in source
 
 
+def test_obs_camera_dock_uses_snapshots_async_commands_and_safe_lifecycle() -> None:
+    cmake = read("obs-plugin/CMakeLists.txt")
+    api = read("obs-plugin/src/openstream-ui-api.hpp")
+    source = read("obs-plugin/src/openstream-source.cpp")
+    dock = read("obs-plugin/src/openstream-dock.cpp")
+
+    assert "find_package(Qt6 6.2 COMPONENTS Widgets REQUIRED)" in cmake
+    assert "option(OPENSTREAM_BUILD_DOCK" in cmake
+    assert "src/openstream-dock.cpp" in cmake
+    assert "src/openstream-dock-stub.cpp" in cmake
+    assert "struct OpenStreamCameraSnapshot" in api
+    assert "enum class OpenStreamUiCommand" in api
+    assert "openstream_camera_snapshots()" in source
+    assert "openstream_run_command_async" in source
+    assert "OpenStream Cameras" in dock
+    assert "obs_frontend_add_dock_by_id" in dock
+    assert "obs_frontend_add_event_callback" in dock
+    assert "obs_frontend_remove_event_callback" in dock
+    assert "QTimer" in dock
+    assert "openstream_dock_create();" in source
+    assert "openstream_dock_destroy();" in source
+
+
 def test_obs_discovery_beacons_advertise_slots_not_raw_listener_only() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
     assert "sourceInstanceId" in source
@@ -140,12 +163,14 @@ def test_slot_reservation_allows_owned_busy_phone_and_reconnect_hold() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
     advertiser = read("android/app/src/main/java/dev/openstream/app/discovery/PhoneDiscoveryAdvertiser.kt")
+    strings = read("android/app/src/main/res/values/strings.xml")
     assert "reserved_by == source_instance_id" in source
     assert "set_slot_status(ctx, \"Reconnecting\")" in source
     assert "set_active_phone(ctx, reserved_phone)" in source
     assert '"reservedBy"' in advertiser
     assert "RECONNECT_RESERVATION_MS = 45_000L" in app
-    assert "Holding $it for reconnect" in app
+    assert "OpenStreamUiState.Reconnecting" in app
+    assert 'name="status_holding_slot">Holding %1$s for reconnect<' in strings
     assert "scheduleReservationRelease" in app
     assert "cancelReservationRelease" in app
 
@@ -168,8 +193,42 @@ def test_android_discovery_ui_parses_and_displays_obs_slots() -> None:
     assert "device.busy && reservedBy != device.sourceInstanceId" in app
     assert "compareBy<DiscoveredObsDevice> { it.displayLabel }" in discovery
     assert "obsSlotList" in layout
-    assert 'name="status_waiting">Choose an OBS camera slot<' in strings
+    assert 'name="status_waiting">Open OBS on the same Wi-Fi, then choose a camera slot.<' in strings
     assert "btnSettings" in app
+
+
+def test_android_ui_state_and_settings_copy_cover_the_redesigned_workflow() -> None:
+    state = read("android/app/src/main/java/dev/openstream/app/OpenStreamUiState.kt")
+    app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    strings = read("android/app/src/main/res/values/strings.xml")
+
+    for variant in (
+        "Discovering",
+        "Reserved",
+        "Connecting",
+        "Live",
+        "Reconnecting",
+        "Error",
+        "Stopped",
+    ):
+        assert variant in state
+        assert f"OpenStreamUiState.{variant}" in app
+
+    for resource in (
+        "settings_section_connection",
+        "settings_section_streaming",
+        "settings_section_advanced",
+        "settings_section_updates",
+        "settings_subtitle",
+        "settings_connection_help",
+        "control_torch",
+        "control_flip",
+        "control_awake",
+        "control_dim",
+        "control_settings",
+        "action_stop_stream",
+    ):
+        assert f'name="{resource}"' in strings
 
 
 def test_identify_camera_control_round_trip_exists() -> None:
