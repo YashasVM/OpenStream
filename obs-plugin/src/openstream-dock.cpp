@@ -444,6 +444,20 @@ class OpenStreamDock final : public QWidget {
   void refreshSnapshots() {
     const std::string previous = current_instance_;
     snapshots_ = openstream_camera_snapshots();
+    bool selector_changed = camera_selector_->count() != static_cast<int>(snapshots_.size());
+    if (!selector_changed) {
+      for (int index = 0; index < camera_selector_->count(); ++index) {
+        if (camera_selector_->itemData(index).toString().toStdString() !=
+            snapshots_[static_cast<size_t>(index)].instance_id) {
+          selector_changed = true;
+          break;
+        }
+      }
+    }
+    if (!selector_changed) {
+      renderSelected();
+      return;
+    }
     QSignalBlocker blocker(camera_selector_);
     camera_selector_->clear();
     for (const auto &camera : snapshots_) {
@@ -634,6 +648,7 @@ class OpenStreamDock final : public QWidget {
   }
 
   void requestRemoteRefresh(bool user_requested = false) {
+    if (!user_requested && !isVisible()) return;
     const auto camera = selected();
     if (!camera || !camera->phone_available || !camera->paired || camera->request_pending) return;
     OpenStreamCommand command;

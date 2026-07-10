@@ -434,6 +434,13 @@ def test_obs_controls_follow_reported_mode_capabilities() -> None:
     assert 'QString("Unsupported: %1")' in dock
 
 
+def test_obs_dock_preserves_selector_during_model_refresh() -> None:
+    dock = read("obs-plugin/src/openstream-dock.cpp")
+    assert "bool selector_changed" in dock
+    assert "if (!selector_changed)" in dock
+    assert "if (!user_requested && !isVisible()) return" in dock
+
+
 def test_android_unattended_service_is_explicit_and_non_sticky() -> None:
     manifest = read("android/app/src/main/AndroidManifest.xml")
     service = read("android/app/src/main/java/dev/openstream/app/service/OpenStreamCameraService.kt")
