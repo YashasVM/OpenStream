@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
@@ -418,6 +419,7 @@ class MpegTsMuxer {
 struct SrtUrl {
   std::string host;
   std::string port;
+  uint16_t portNumber = 0;
   int latencyMs = 120;
 };
 
@@ -438,6 +440,18 @@ std::optional<SrtUrl> parseSrtUrl(const std::string &url) {
   SrtUrl parsed;
   parsed.host = authority.substr(0, colon);
   parsed.port = authority.substr(colon + 1);
+  if (parsed.host.size() >= 2 && parsed.host.front() == '[' && parsed.host.back() == ']') {
+    parsed.host = parsed.host.substr(1, parsed.host.size() - 2);
+  }
+  unsigned int portNumber = 0;
+  const auto portResult = std::from_chars(
+      parsed.port.data(), parsed.port.data() + parsed.port.size(), portNumber);
+  if (portResult.ec != std::errc{} ||
+      portResult.ptr != parsed.port.data() + parsed.port.size() ||
+      portNumber == 0 || portNumber > 65535) {
+    return std::nullopt;
+  }
+  parsed.portNumber = static_cast<uint16_t>(portNumber);
 
   if (queryStart != std::string::npos) {
     const std::string query = url.substr(queryStart + 1);
@@ -447,7 +461,14 @@ std::optional<SrtUrl> parseSrtUrl(const std::string &url) {
       const std::string part = query.substr(offset, amp == std::string::npos ? std::string::npos : amp - offset);
       constexpr const char *latencyKey = "latency=";
       if (part.rfind(latencyKey, 0) == 0) {
-        parsed.latencyMs = std::max(20, std::min(2000, std::atoi(part.c_str() + std::strlen(latencyKey))));
+        const std::string value = part.substr(std::strlen(latencyKey));
+        int latency = 0;
+        const auto latencyResult =
+            std::from_chars(value.data(), value.data() + value.size(), latency);
+        if (latencyResult.ec == std::errc{} &&
+            latencyResult.ptr == value.data() + value.size()) {
+          parsed.latencyMs = std::clamp(latency, 80, 200);
+        }
       }
       if (amp == std::string::npos) {
         break;
@@ -563,7 +584,7 @@ class NativeSender {
 
     sockaddr_in address{};
     address.sin_family = AF_INET;
-    address.sin_port = htons(static_cast<uint16_t>(std::atoi(parsed->port.c_str())));
+    address.sin_port = htons(parsed->portNumber);
     address.sin_addr.s_addr = INADDR_ANY;
 
     if (srt_bind(listenerSocket, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == SRT_ERROR) {
@@ -600,6 +621,10 @@ class NativeSender {
 
   bool send(const std::vector<uint8_t> &bytes) {
 #if OPENSTREAM_HAVE_LIBSRT
+    // Closing an SRT socket or tearing down libsrt while another codec thread
+    // is inside srt_sendmsg is unsafe. Serialize the whole send with teardown,
+    // not just the socket-handle lookup.
+    std::lock_guard<std::mutex> ioLock(ioMutex_);
     const SRTSOCKET socket = currentSocket();
     if (socket == SRT_INVALID_SOCK) {
       return false;
@@ -632,6 +657,7 @@ class NativeSender {
 
   void disconnect() {
 #if OPENSTREAM_HAVE_LIBSRT
+    std::lock_guard<std::mutex> ioLock(ioMutex_);
     const SRTSOCKET listenerSocket = takeListenerSocket();
     const SRTSOCKET socket = takeSocket();
     if (listenerSocket != SRT_INVALID_SOCK) {
@@ -664,10 +690,16 @@ class NativeSender {
   }
 
   void closeSocket(SRTSOCKET socket) {
-    (void)socket;
-    const SRTSOCKET current = takeSocket();
-    if (current != SRT_INVALID_SOCK) {
-      srt_close(current);
+    bool ownsSocket = false;
+    {
+      std::lock_guard<std::mutex> lock(socketMutex_);
+      if (socket_ == socket) {
+        socket_ = SRT_INVALID_SOCK;
+        ownsSocket = true;
+      }
+    }
+    if (ownsSocket) {
+      srt_close(socket);
     }
   }
 
@@ -684,14 +716,21 @@ class NativeSender {
   }
 
   void closeListenerSocket(SRTSOCKET socket) {
-    (void)socket;
-    const SRTSOCKET current = takeListenerSocket();
-    if (current != SRT_INVALID_SOCK) {
-      srt_close(current);
+    bool ownsSocket = false;
+    {
+      std::lock_guard<std::mutex> lock(socketMutex_);
+      if (listener_socket_ == socket) {
+        listener_socket_ = SRT_INVALID_SOCK;
+        ownsSocket = true;
+      }
+    }
+    if (ownsSocket) {
+      srt_close(socket);
     }
   }
 
   mutable std::mutex socketMutex_;
+  std::mutex ioMutex_;
   SRTSOCKET socket_ = SRT_INVALID_SOCK;
   SRTSOCKET listener_socket_ = SRT_INVALID_SOCK;
 #endif
@@ -732,7 +771,6 @@ Java_dev_openstream_app_stream_SrtNativeBridge_connect(
     return JNI_FALSE;
   }
 
-  g_state.sender.disconnect();
   {
     std::lock_guard<std::mutex> lock(g_state.mediaMutex);
     g_state.muxer.emplace(*codec);
@@ -741,6 +779,7 @@ Java_dev_openstream_app_stream_SrtNativeBridge_connect(
     g_state.audioCodecConfig.clear();
     g_state.connected = false;
   }
+  g_state.sender.disconnect();
   const bool connected = g_state.sender.connect(urlString);
   {
     std::lock_guard<std::mutex> lock(g_state.mediaMutex);
@@ -774,7 +813,6 @@ Java_dev_openstream_app_stream_SrtNativeBridge_listen(
     return JNI_FALSE;
   }
 
-  g_state.sender.disconnect();
   {
     std::lock_guard<std::mutex> lock(g_state.mediaMutex);
     g_state.muxer.emplace(*codec);
@@ -783,6 +821,7 @@ Java_dev_openstream_app_stream_SrtNativeBridge_listen(
     g_state.audioCodecConfig.clear();
     g_state.connected = false;
   }
+  g_state.sender.disconnect();
   const bool connected = g_state.sender.listen(urlString);
   {
     std::lock_guard<std::mutex> lock(g_state.mediaMutex);
@@ -805,41 +844,41 @@ Java_dev_openstream_app_stream_SrtNativeBridge_sendVideo(
   std::vector<uint8_t> bytes(static_cast<size_t>(size));
   env->GetByteArrayRegion(data, 0, size, reinterpret_cast<jbyte *>(bytes.data()));
 
-  std::vector<uint8_t> ts;
-  {
-    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
-    if (!g_state.connected || !g_state.muxer) {
-      return JNI_FALSE;
-    }
-
-    std::vector<uint8_t> annexB = normalizeAnnexB(bytes.data(), bytes.size());
-    if ((flags & kMediaCodecBufferFlagCodecConfig) != 0) {
-      g_state.codecConfig = std::move(annexB);
-      logInfo("Stored codec config for keyframe pre-roll");
-      return JNI_TRUE;
-    }
-
-    const bool keyFrame = (flags & kMediaCodecBufferFlagKeyFrame) != 0;
-    if (keyFrame && !g_state.codecConfig.empty()) {
-      std::vector<uint8_t> withConfig = g_state.codecConfig;
-      withConfig.insert(withConfig.end(), annexB.begin(), annexB.end());
-      annexB = std::move(withConfig);
-    }
-
-    ts = g_state.muxer->muxAccessUnit(annexB, static_cast<int64_t>(presentation_time_us), keyFrame);
+  std::lock_guard<std::mutex> lock(g_state.mediaMutex);
+  if (!g_state.connected || !g_state.muxer) {
+    return JNI_FALSE;
   }
-  return g_state.sender.send(ts) ? JNI_TRUE : JNI_FALSE;
+
+  std::vector<uint8_t> annexB = normalizeAnnexB(bytes.data(), bytes.size());
+  if ((flags & kMediaCodecBufferFlagCodecConfig) != 0) {
+    g_state.codecConfig = std::move(annexB);
+    logInfo("Stored codec config for keyframe pre-roll");
+    return JNI_TRUE;
+  }
+
+  const bool keyFrame = (flags & kMediaCodecBufferFlagKeyFrame) != 0;
+  if (keyFrame && !g_state.codecConfig.empty()) {
+    std::vector<uint8_t> withConfig = g_state.codecConfig;
+    withConfig.insert(withConfig.end(), annexB.begin(), annexB.end());
+    annexB = std::move(withConfig);
+  }
+
+  const std::vector<uint8_t> ts =
+      g_state.muxer->muxAccessUnit(annexB, static_cast<int64_t>(presentation_time_us), keyFrame);
+  const bool sent = g_state.sender.send(ts);
+  if (!sent) {
+    g_state.connected = false;
+  }
+  return sent ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_dev_openstream_app_stream_SrtNativeBridge_disconnect(JNIEnv *, jobject) {
-  {
-    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
-    g_state.muxer.reset();
-    g_state.codecConfig.clear();
-    g_state.audioCodecConfig.clear();
-    g_state.connected = false;
-  }
+  std::lock_guard<std::mutex> lock(g_state.mediaMutex);
+  g_state.muxer.reset();
+  g_state.codecConfig.clear();
+  g_state.audioCodecConfig.clear();
+  g_state.connected = false;
   g_state.sender.disconnect();
   logInfo("SRT bridge disconnected");
 }
@@ -855,21 +894,22 @@ Java_dev_openstream_app_stream_SrtNativeBridge_sendAudio(
   std::vector<uint8_t> bytes(static_cast<size_t>(size));
   env->GetByteArrayRegion(data, 0, size, reinterpret_cast<jbyte *>(bytes.data()));
 
-  std::vector<uint8_t> ts;
-  {
-    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
-    if (!g_state.connected || !g_state.muxer) {
-      return JNI_FALSE;
-    }
-
-    if ((flags & kMediaCodecBufferFlagCodecConfig) != 0) {
-      g_state.audioCodecConfig = std::move(bytes);
-      logInfo("Stored audio codec config (ASC)");
-      return JNI_TRUE;
-    }
-
-    ts = g_state.muxer->muxAudioAccessUnit(
-        bytes, g_state.audioCodecConfig, static_cast<int64_t>(presentation_time_us));
+  std::lock_guard<std::mutex> lock(g_state.mediaMutex);
+  if (!g_state.connected || !g_state.muxer) {
+    return JNI_FALSE;
   }
-  return g_state.sender.send(ts) ? JNI_TRUE : JNI_FALSE;
+
+  if ((flags & kMediaCodecBufferFlagCodecConfig) != 0) {
+    g_state.audioCodecConfig = std::move(bytes);
+    logInfo("Stored audio codec config (ASC)");
+    return JNI_TRUE;
+  }
+
+  const std::vector<uint8_t> ts = g_state.muxer->muxAudioAccessUnit(
+      bytes, g_state.audioCodecConfig, static_cast<int64_t>(presentation_time_us));
+  const bool sent = g_state.sender.send(ts);
+  if (!sent) {
+    g_state.connected = false;
+  }
+  return sent ? JNI_TRUE : JNI_FALSE;
 }

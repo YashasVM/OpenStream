@@ -18,16 +18,6 @@
             android:layout_height="match_parent"
             android:layout_gravity="center" />
             
-        <!-- SCREEN-OFF OVERLAY -->
-        <View
-            android:id="@+id/screenOffOverlay"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="#FF000000"
-            android:visibility="gone"
-            android:clickable="true"
-            android:focusable="true" />
-            
         <!-- IDENTIFY OVERLAY -->
         <TextView
             android:id="@+id/identifyOverlay"
@@ -287,26 +277,14 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- ====== PORT SELECTOR ROW & MANUAL (Hidden but required for binding) ====== -->
-    <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:visibility="gone">
-        <TextView android:id="@+id/btnPortDown" android:layout_width="1dp" android:layout_height="1dp" />
-        <TextView android:id="@+id/portLabel" android:layout_width="1dp" android:layout_height="1dp" />
-        <TextView android:id="@+id/btnPortUp" android:layout_width="1dp" android:layout_height="1dp" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:id="@+id/manualContainer"
+    <!-- Last child so screen-off mode covers status and controls as advertised. -->
+    <View
+        android:id="@+id/screenOffOverlay"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:visibility="gone">
-        <TextView android:id="@+id/connectionInfo" android:layout_width="1dp" android:layout_height="1dp" />
-        <EditText android:id="@+id/inputObsHost" android:layout_width="1dp" android:layout_height="1dp" />
-        <EditText android:id="@+id/inputObsPort" android:layout_width="1dp" android:layout_height="1dp" />
-        <EditText android:id="@+id/inputLatency" android:layout_width="1dp" android:layout_height="1dp" />
-        <TextView android:id="@+id/btnManualConnect" android:layout_width="1dp" android:layout_height="1dp" />
-    </LinearLayout>
+        android:layout_height="match_parent"
+        android:background="@color/os_black"
+        android:contentDescription="@string/screen_off_overlay_description"
+        android:visibility="gone"
+        android:clickable="true"
+        android:focusable="true" />
 </FrameLayout>

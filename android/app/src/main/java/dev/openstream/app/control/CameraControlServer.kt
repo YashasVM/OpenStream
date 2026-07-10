@@ -4,8 +4,8 @@ import android.util.Log
 import dev.openstream.app.camera.Camera2Controller
 import dev.openstream.app.camera.CameraLens
 import org.json.JSONObject
-import java.io.BufferedReader
-import java.io.InputStreamReader
+import java.io.BufferedInputStream
+import java.io.OutputStreamWriter
 import java.io.PrintWriter
 import java.net.ServerSocket
 import java.net.Socket
@@ -80,11 +80,11 @@ class CameraControlServer(
     private fun handleClient(client: Socket) {
         try {
             client.soTimeout = 5000
-            val reader = BufferedReader(InputStreamReader(client.getInputStream()))
-            val writer = PrintWriter(client.getOutputStream(), true)
+            val input = BufferedInputStream(client.getInputStream())
+            val writer = PrintWriter(OutputStreamWriter(client.getOutputStream(), Charsets.UTF_8), false)
 
             // Parse request line
-            val requestLine = reader.readLine() ?: return
+            val requestLine = readAsciiLine(input, MAX_REQUEST_LINE_BYTES) ?: return
             val parts = requestLine.split(" ")
             if (parts.size < 2) {
                 sendResponse(writer, 400, """{"error":"bad request"}""")
@@ -95,19 +95,39 @@ class CameraControlServer(
 
             // Read headers to get Content-Length
             var contentLength = 0
-            var line = reader.readLine()
+            var headerBytes = 0
+            var line = readAsciiLine(input, MAX_HEADER_LINE_BYTES)
             while (line != null && line.isNotEmpty()) {
-                if (line.startsWith("Content-Length:", ignoreCase = true)) {
-                    contentLength = line.substringAfter(":").trim().toIntOrNull() ?: 0
+                headerBytes += line.toByteArray(Charsets.US_ASCII).size + 2
+                if (headerBytes > MAX_HEADER_BYTES) {
+                    sendResponse(writer, 413, """{"error":"headers too large"}""")
+                    return
                 }
-                line = reader.readLine()
+                if (line.startsWith("Content-Length:", ignoreCase = true)) {
+                    contentLength = line.substringAfter(":").trim().toIntOrNull() ?: -1
+                }
+                line = readAsciiLine(input, MAX_HEADER_LINE_BYTES)
+            }
+            if (line == null || contentLength !in 0..MAX_BODY_BYTES) {
+                sendResponse(writer, if (contentLength > MAX_BODY_BYTES) 413 else 400,
+                    if (contentLength > MAX_BODY_BYTES) """{"error":"request too large"}"""
+                    else """{"error":"bad request"}""")
+                return
             }
 
             // Read body if present
             val body = if (contentLength > 0) {
-                val chars = CharArray(contentLength)
-                reader.read(chars, 0, contentLength)
-                String(chars)
+                val bytes = ByteArray(contentLength)
+                var offset = 0
+                while (offset < bytes.size) {
+                    val read = input.read(bytes, offset, bytes.size - offset)
+                    if (read < 0) {
+                        sendResponse(writer, 400, """{"error":"incomplete request"}""")
+                        return
+                    }
+                    offset += read
+                }
+                String(bytes, Charsets.UTF_8)
             } else ""
 
             // Route request
@@ -138,18 +158,35 @@ class CameraControlServer(
             200 -> "OK"
             400 -> "Bad Request"
             404 -> "Not Found"
+            413 -> "Payload Too Large"
             else -> "Error"
         }
+        val bodyBytes = body.toByteArray(Charsets.UTF_8)
         writer.print("HTTP/1.1 $code $status\r\n")
         writer.print("Content-Type: application/json\r\n")
         writer.print("Access-Control-Allow-Origin: *\r\n")
         writer.print("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n")
         writer.print("Access-Control-Allow-Headers: Content-Type\r\n")
-        writer.print("Content-Length: ${body.length}\r\n")
+        writer.print("Content-Length: ${bodyBytes.size}\r\n")
         writer.print("Connection: close\r\n")
         writer.print("\r\n")
         writer.print(body)
         writer.flush()
+    }
+
+    /** Reads a CRLF-delimited HTTP line without decoding body bytes as characters. */
+    private fun readAsciiLine(input: BufferedInputStream, maxBytes: Int): String? {
+        val bytes = ArrayList<Byte>(minOf(maxBytes, 256))
+        while (bytes.size <= maxBytes) {
+            val value = input.read()
+            if (value < 0) return null
+            if (value == '\n'.code) {
+                if (bytes.lastOrNull() == '\r'.code.toByte()) bytes.removeAt(bytes.lastIndex)
+                return bytes.toByteArray().toString(Charsets.US_ASCII)
+            }
+            bytes.add(value.toByte())
+        }
+        return null
     }
 
     private fun handleStatus(): String {
@@ -227,5 +264,9 @@ class CameraControlServer(
     companion object {
         private const val TAG = "OpenStreamControl"
         const val CONTROL_PORT = 9001
+        private const val MAX_REQUEST_LINE_BYTES = 2_048
+        private const val MAX_HEADER_LINE_BYTES = 2_048
+        private const val MAX_HEADER_BYTES = 8_192
+        private const val MAX_BODY_BYTES = 8_192
     }
 }

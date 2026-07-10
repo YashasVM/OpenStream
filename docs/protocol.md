@@ -2,6 +2,10 @@
 
 ## Overview
 
+OpenStream V2 currently uses version 1 of its LAN wire protocol. Product
+version numbers and protocol versions are independent: `OPENSTREAM/1` and
+`OPENSTREAM_PHONE/1` below identify the protocol, not the app release.
+
 OpenStream uses three communication channels between the Android phone and OBS:
 
 1. **Media Stream** - SRT/MPEG-TS for video + audio (phone -> OBS)
@@ -18,15 +22,18 @@ V1 media transport uses SRT from Android caller to Windows listener.
 
 Android caller:
 
-```
+```text
 srt://<obs-pc-ip>:9000?mode=caller&latency=120
 ```
 
 OBS listener:
 
-```
+```text
 srt://0.0.0.0:9000?mode=listener&latency=120
 ```
+
+The supported latency range is `80-200 ms`; both pairing links and the OBS
+source clamp values to that range.
 
 ### Container Format
 
@@ -48,7 +55,7 @@ transport stream.
 
 - Codec: AAC
 - Source: MediaCodec audio encoder from device microphone
-- Sample rate: Device default (typically 44100 Hz)
+- Sample rate: 48 kHz
 - Channels: Mono
 - Output: Separate OBS mixer channel for independent volume control
 
@@ -68,7 +75,7 @@ on port `51515`:
 
 **Beacon format:**
 
-```
+```text
 OPENSTREAM/1 {"type":"dev.openstream.listener","version":1,"name":"OpenStream","instanceId":"...","sourceInstanceId":"...","slotId":"...","slotLabel":"CAM A","pairingUrl":"openstream://connect?...","host":"<obs-ip>","listenerPort":9000,"latencyMs":120,"bitrateMbps":50,"busy":false}
 ```
 
@@ -81,7 +88,7 @@ OPENSTREAM/1 {"type":"dev.openstream.listener","version":1,"name":"OpenStream","
 | `sourceInstanceId` | string | Stable OBS source instance used for reservations |
 | `slotId` | string | OBS camera slot identifier |
 | `slotLabel` | string | Human-readable camera slot label, such as `CAM A` |
-| `pairingUrl` | string | Deep-link URL for QR/manual pairing |
+| `pairingUrl` | string | Deep-link URL for QR/manual pairing, including the source control token |
 | `host` | string | OBS machine IP address |
 | `listenerPort` | int | SRT listener port |
 | `latencyMs` | int | Configured SRT latency |
@@ -94,7 +101,7 @@ The Android app advertises itself on the same multicast group:
 
 **Beacon format:**
 
-```
+```text
 OPENSTREAM_PHONE/1 {"type":"dev.openstream.phone","version":1,"name":"<device-name>","instanceId":"...","host":"<phone-ip>","listenerPort":9000,"controlPort":9001,"latencyMs":120,"codec":"video/hevc","width":1920,"height":1080,"fps":60,"bitrateMbps":50,"busy":false,"reservedBy":""}
 ```
 
@@ -123,7 +130,7 @@ non-busy phone; any other value binds that source to one specific phone.
 
 If discovery is blocked, the OBS source exposes a deep-link URL:
 
-```
+```text
 openstream://connect?slotId=<slot-id>&slotLabel=<slot-label>&sourceInstanceId=<source-id>&host=<obs-ip>&port=<port>&latency=<ms>&name=...
 ```
 
@@ -133,12 +140,16 @@ This can be encoded as a QR code or entered manually in the Android app.
 
 ## Control Protocol
 
-The Android app runs a lightweight HTTP server on port `9001` for remote
-camera control from OBS.
+The Android app runs a lightweight HTTP server on port `9001` for remote camera
+control from OBS. Requests, headers, and bodies are size-limited and parsed as
+UTF-8 bytes. Protocol V1 does not authenticate this channel, so discovery and
+camera control must be used only on a trusted LAN. Authentication must be added
+as a versioned, atomic Android-and-OBS protocol upgrade rather than enabled in
+only one component.
 
 ### Reserve Phone
 
-```
+```http
 POST /reserve
 Content-Type: application/json
 
@@ -150,7 +161,7 @@ reservations from other source instances while reserved or streaming.
 
 ### Release Phone
 
-```
+```http
 POST /release
 Content-Type: application/json
 
@@ -163,7 +174,7 @@ Clears the reservation after disconnect.
 
 #### Set Zoom
 
-```
+```http
 POST /zoom
 Content-Type: application/json
 
@@ -174,7 +185,7 @@ Sets the digital zoom level. Value range depends on the active camera lens.
 
 #### Toggle Torch
 
-```
+```http
 POST /torch
 Content-Type: application/json
 
@@ -185,7 +196,7 @@ Turns the flashlight on (`true`) or off (`false`).
 
 #### Switch Lens
 
-```
+```http
 POST /lens
 Content-Type: application/json
 
@@ -203,9 +214,43 @@ Switches to the specified camera lens. Known values:
 
 Available lenses depend on the device hardware.
 
+#### Identify Phone
+
+```http
+POST /identify
+Content-Type: application/json
+
+{"label":"CAM A","subtitle":"Wide shot"}
+```
+
+Temporarily shows the OBS camera-slot label on the phone.
+
+#### Read Status
+
+```http
+GET /status
+```
+
+Returns the current zoom range, selected lens, available lenses, and
+reservation owner.
+
 ### Response
 
 All control endpoints return HTTP `200 OK` on success.
+
+## Compatibility and Release Ordering
+
+Android and the OBS plugin are two halves of one protocol. Adding a required
+field, token, endpoint, or validation rule is a compatibility change even if
+the `OPENSTREAM/1` prefix remains unchanged. Such changes must be tested as an
+old/new client matrix and released atomically as one full release containing
+both artifacts.
+
+Do not publish an enforcing Android update before the compatible OBS plugin is
+available to users. For example, a future Android build that requires a control
+token could not pair with older OBS beacons unless an explicit compatibility
+path were provided. Additive optional fields may be rolled out independently
+only when both older components demonstrably ignore them safely.
 
 ---
 

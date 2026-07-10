@@ -39,7 +39,7 @@ def parse_obs_beacon(payload: str, packet_host: str, now_ms: int) -> dict | None
         "name": name,
         "host": (beacon.get("host") or "").strip() or packet_host,
         "port": port,
-        "latencyMs": clamp(int(beacon.get("latencyMs", 120)), 20, 2000),
+        "latencyMs": clamp(int(beacon.get("latencyMs", 120)), 80, 200),
         "bitrateMbps": clamp(int(beacon.get("bitrateMbps", 12)), 1, 200),
         "instanceId": instance_id,
         "sourceInstanceId": beacon.get("sourceInstanceId") or instance_id,
@@ -131,7 +131,7 @@ def test_pairing_url_acceptance_contract_clamps_network_values() -> None:
     assert parse_pairing_url("https://example.test") is None
 
 
-def test_release_workflow_prefers_signed_android_apk_with_debug_fallback() -> None:
+def test_release_workflow_requires_signed_android_apk_and_digest() -> None:
     release_workflow = read(".github/workflows/release.yml")
 
     assert "OPENSTREAM_RELEASE_KEYSTORE_BASE64" in release_workflow
@@ -139,38 +139,38 @@ def test_release_workflow_prefers_signed_android_apk_with_debug_fallback() -> No
     assert "OPENSTREAM_RELEASE_KEY_ALIAS" in release_workflow
     assert "OPENSTREAM_RELEASE_KEY_PASSWORD" in release_workflow
     assert ":app:assembleRelease" in release_workflow
-    assert ":app:assembleDebug" in release_workflow
-    assert "debug-signed-beta" in release_workflow
+    assert ":app:assembleDebug" not in release_workflow
+    assert "debug-signed-beta" not in release_workflow
+    assert "Public releases require all Android signing secrets" in release_workflow
     assert "dist/openstream-android.apk" in release_workflow
+    assert "dist/openstream-android.apk.sha256" in release_workflow
+    assert '"apkSha256"' in release_workflow
 
 
-def test_android_auto_update_release_does_not_replace_public_latest_release() -> None:
+def test_android_updates_follow_atomic_full_releases() -> None:
     android_workflow = read(".github/workflows/android.yml")
     release_workflow = read(".github/workflows/release.yml")
     updater = read("android/app/src/main/java/dev/openstream/app/update/AppUpdater.kt")
     release_docs = read("docs/release.md")
 
-    assert "RELEASE_TAG: android-latest" in android_workflow
-    assert "--latest=false" in android_workflow
-    assert "concurrency:" in android_workflow
-    assert "android-latest-publish" in android_workflow
-    assert "gh release upload \"$LATEST_TAG\"" in android_workflow
-    assert "gh release delete \"$RELEASE_TAG\"" not in android_workflow
+    assert "publish-android-update" not in android_workflow
+    assert "gh release create" not in android_workflow
+    assert "python -m pytest -q" in android_workflow
+    assert ":app:lintDebug" in android_workflow
+    assert "openstream-android.apk.sha256" in android_workflow
     assert "git log -1 --format=%ct" in android_workflow
     assert "git log -1 --format=%ct" in release_workflow
-    assert "releases/tags/android-latest" in updater
+    assert "releases/latest" in updater
     assert "/releases/latest/download/" in read("README.md")
-    assert "Windows OBS installer and zip" in release_docs
+    assert "come from the same commit" in release_docs
 
 
 def test_android_pr_builds_do_not_receive_signing_secrets_or_write_token() -> None:
     android_workflow = read(".github/workflows/android.yml")
-    build_job_text = android_workflow.split("  build:", 1)[1].split("  publish-android-update:", 1)[0]
-    publish_job_text = android_workflow.split("  publish-android-update:", 1)[1]
+    build_job_text = android_workflow.split("  build:", 1)[1]
 
     assert "permissions:\n  contents: read" in android_workflow
-    assert "if: github.event_name == 'push' && github.ref == 'refs/heads/main'" in publish_job_text
-    assert "permissions:\n      contents: write" in publish_job_text
     assert "OPENSTREAM_RELEASE_KEYSTORE_BASE64" not in build_job_text
     assert "OPENSTREAM_RELEASE_STORE_PASSWORD" not in build_job_text
     assert "contents: write" not in build_job_text
+    assert "persist-credentials: false" in build_job_text

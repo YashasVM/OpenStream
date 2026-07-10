@@ -160,7 +160,7 @@ object ObsDiscoveryProtocol {
             name = json.optString("name", "OpenStream Phone Link").ifBlank { "OpenStream Phone Link" },
             host = host,
             port = port,
-            latencyMs = json.optInt("latencyMs", 120).coerceIn(20, 2000),
+            latencyMs = json.optInt("latencyMs", 120).coerceIn(80, 200),
             bitrateMbps = json.optInt("bitrateMbps", 12).coerceIn(1, 200),
             instanceId = json.optString("instanceId", "$packetHost:$port"),
             sourceInstanceId = json.optString("sourceInstanceId", json.optString("instanceId", "$packetHost:$port")),

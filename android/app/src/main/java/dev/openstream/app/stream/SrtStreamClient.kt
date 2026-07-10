@@ -15,7 +15,8 @@ data class StreamStats(
 }
 
 class SrtStreamClient {
-    private var connected = false
+    @Volatile private var connected = false
+    private val sessionGeneration = AtomicLong()
     val stats: StreamStats
         get() = StreamStats(
             accessUnitsSent = accessUnitsSent.get(),
@@ -33,14 +34,26 @@ class SrtStreamClient {
 
     fun connect(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
         require(url.startsWith("srt://")) { "OpenStream V1 expects an SRT URL" }
-        check(SrtNativeBridge.connect(url, codecMime, width, height, fps)) { "Native SRT bridge failed to connect" }
+        val generation = sessionGeneration.incrementAndGet()
+        val didConnect = SrtNativeBridge.connect(url, codecMime, width, height, fps)
+        if (generation != sessionGeneration.get()) {
+            if (didConnect) SrtNativeBridge.disconnect()
+            error("SRT connection was cancelled")
+        }
+        check(didConnect) { "Native SRT bridge failed to connect" }
         resetStats()
         connected = true
     }
 
     fun listen(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
         require(url.startsWith("srt://")) { "OpenStream V2 expects an SRT URL" }
-        check(SrtNativeBridge.listen(url, codecMime, width, height, fps)) { "Native SRT bridge failed to listen" }
+        val generation = sessionGeneration.incrementAndGet()
+        val didConnect = SrtNativeBridge.listen(url, codecMime, width, height, fps)
+        if (generation != sessionGeneration.get()) {
+            if (didConnect) SrtNativeBridge.disconnect()
+            error("SRT listener was cancelled")
+        }
+        check(didConnect) { "Native SRT bridge failed to listen" }
         resetStats()
         connected = true
     }
@@ -72,10 +85,11 @@ class SrtStreamClient {
     }
 
     fun disconnect() {
-        if (connected) {
-            SrtNativeBridge.disconnect()
-        }
+        sessionGeneration.incrementAndGet()
         connected = false
+        // listen() blocks in native accept before connected becomes true. Always
+        // disconnect so a lifecycle stop can close that pending listener too.
+        SrtNativeBridge.disconnect()
     }
 
     private fun resetStats() {

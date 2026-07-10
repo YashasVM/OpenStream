@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -154,6 +155,7 @@ def test_android_discovery_ui_parses_and_displays_obs_slots() -> None:
     discovery = read("android/app/src/main/java/dev/openstream/app/discovery/ObsDiscoveryClient.kt")
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
     layout = read("android/app/src/main/res/layout/activity_main.xml")
+    strings = read("android/app/src/main/res/values/strings.xml")
     assert "val sourceInstanceId" in device
     assert "val slotId" in device
     assert "val slotLabel" in device
@@ -165,9 +167,9 @@ def test_android_discovery_ui_parses_and_displays_obs_slots() -> None:
     assert "slotAvailabilityLabel" in app
     assert "device.busy && reservedBy != device.sourceInstanceId" in app
     assert "compareBy<DiscoveredObsDevice> { it.displayLabel }" in discovery
-    assert "Available OBS cameras" in app
     assert "obsSlotList" in layout
-    assert 'android:text="ADV"' in layout
+    assert 'name="status_waiting">Choose an OBS camera slot<' in strings
+    assert "btnSettings" in app
 
 
 def test_identify_camera_control_round_trip_exists() -> None:
@@ -257,8 +259,10 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert ":app:assembleDebug" in android_workflow
     assert "openstream.nonStreamingCiBuild" not in android_workflow
     assert "openstream-android-debug-apk" in android_workflow
+    assert "python -m pytest -q" in android_workflow
+    assert ":app:lintDebug" in android_workflow
     assert ":app:assembleRelease" in release_workflow
-    assert ":app:assembleDebug" in release_workflow
+    assert ":app:assembleDebug" not in release_workflow
     assert "OPENSTREAM_RELEASE_KEYSTORE_BASE64" in release_workflow
     assert "OPENSTREAM_VERSION_NAME" in release_workflow
     assert "OPENSTREAM_VERSION_CODE" in release_workflow
@@ -268,9 +272,11 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "gh release create" in release_workflow
     assert "docs/release-notes-template.md" in release_workflow
     assert "openstream-android.apk" in release_workflow
-    assert "debug-signed-beta" in release_workflow
+    assert "openstream-android.apk.sha256" in release_workflow
+    assert '"apkSha256"' in release_workflow
+    assert "Public releases require all Android signing secrets" in release_workflow
     assert "openstream-obs-windows-x64.zip" in release_workflow
-    assert "debug-signed beta APK" in release_docs
+    assert "never publishes a debug-signed fallback" in release_docs
     assert "Android Signing Secrets" in release_docs
     assert "OPENSTREAM_SKIP_INSTALL" in plugin_builder
     assert "OPENSTREAM_PLUGIN_PACKAGE_DIR" in plugin_builder
@@ -295,7 +301,13 @@ def test_release_build_fails_without_signing_and_keystores_are_ignored() -> None
     assert "openstream.versionName" in app_gradle
     assert "openstream.versionCode" in app_gradle
     assert '"2.0.0-beta"' in app_gradle
-    assert '.orElse("20")' in app_gradle
+    version_code = re.search(
+        r"openStreamVersionCode.*?\.orElse\(\"(\d+)\"\)",
+        app_gradle,
+        re.DOTALL,
+    )
+    assert version_code is not None
+    assert int(version_code.group(1)) > 0
     assert "*.keystore" in gitignore
     assert "*.jks" in gitignore
 
