@@ -21,6 +21,7 @@
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QStackedWidget>
+#include <QStyle>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -327,7 +328,12 @@ class OpenStreamDock final : public QWidget {
       #osTitle { font-size: 18px; font-weight: 700; }
       #osIdentity, #osSectionTitle { font-size: 14px; font-weight: 650; }
       #osMuted { color: palette(mid); }
-      #osStatus { color: #65d6a6; font-weight: 700; }
+      #osStatus { font-weight: 700; }
+      #osStatus[tone="program"] { color: #ff5c63; }
+      #osStatus[tone="preview"] { color: #65d68d; }
+      #osStatus[tone="live"] { color: #65d6c8; }
+      #osStatus[tone="warning"] { color: #e5a33b; }
+      #osStatus[tone="offline"] { color: palette(mid); }
       #osFeedback { color: #e5a33b; }
       QGroupBox { border: 1px solid palette(midlight); border-radius: 8px; margin-top: 10px; padding: 12px 8px 8px 8px; font-weight: 650; }
       QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }
@@ -482,12 +488,24 @@ class OpenStreamDock final : public QWidget {
     if (!camera) {
       identity_->setText("No camera selected");
       status_->setText("OFFLINE");
+      setStatusTone("offline");
       pages_->setCurrentWidget(empty_page_);
       return;
     }
 
     identity_->setText(QString::fromStdString(camera->slot_label + " · " + camera->production_label));
     status_->setText(QString::fromStdString(camera->status).toUpper());
+    if (camera->state.program_tally) {
+      setStatusTone("program");
+    } else if (camera->state.preview_tally) {
+      setStatusTone("preview");
+    } else if (camera->live) {
+      setStatusTone("live");
+    } else if (camera->status == "Reconnecting" || camera->status == "Connecting") {
+      setStatusTone("warning");
+    } else {
+      setStatusTone("offline");
+    }
     if (!camera->paired) {
       pages_->setCurrentWidget(pair_page_);
       const bool ready = camera->phone_available && !camera->request_pending;
@@ -617,6 +635,13 @@ class OpenStreamDock final : public QWidget {
     const int index = combo->findData(QString::fromStdString(value));
     combo->setPlaceholderText(index >= 0 ? QString() : QString("Unsupported: %1").arg(QString::fromStdString(value)));
     combo->setCurrentIndex(index);
+  }
+
+  void setStatusTone(const char *tone) {
+    if (status_->property("tone").toString() == QString::fromUtf8(tone)) return;
+    status_->setProperty("tone", tone);
+    status_->style()->unpolish(status_);
+    status_->style()->polish(status_);
   }
 
   static void setItemSupported(QComboBox *combo, const char *wire_value, bool supported) {

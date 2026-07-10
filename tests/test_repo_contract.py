@@ -441,6 +441,14 @@ def test_obs_dock_preserves_selector_during_model_refresh() -> None:
     assert "if (!user_requested && !isVisible()) return" in dock
 
 
+def test_obs_status_tones_distinguish_tally_and_offline_states() -> None:
+    dock = read("obs-plugin/src/openstream-dock.cpp")
+    for tone in ("program", "preview", "live", "warning", "offline"):
+        assert f'tone="{tone}"' in dock
+    assert 'setStatusTone("program")' in dock
+    assert 'setStatusTone("preview")' in dock
+
+
 def test_android_unattended_service_is_explicit_and_non_sticky() -> None:
     manifest = read("android/app/src/main/AndroidManifest.xml")
     service = read("android/app/src/main/java/dev/openstream/app/service/OpenStreamCameraService.kt")
