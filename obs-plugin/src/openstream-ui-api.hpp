@@ -33,6 +33,7 @@ struct OpenStreamCameraCapabilities {
   OpenStreamNumberRange white_balance_tint;
   OpenStreamNumberRange zoom_ratio;
   std::vector<std::string> lenses;
+  std::vector<std::string> stabilization_modes;
   std::vector<double> frame_rates;
 };
 
@@ -46,6 +47,7 @@ struct OpenStreamCameraState {
   std::string focus_status = "idle";
   double iso = 0.0;
   double shutter_us = 0.0;
+  double exposure_compensation = 0.0;
   double frame_rate = 0.0;
   double focus_distance = 0.0;
   double white_balance_kelvin = 0.0;
@@ -56,7 +58,8 @@ struct OpenStreamCameraState {
   double network_mbps = 0.0;
   double dropped_frames_percent = 0.0;
   bool torch = false;
-  bool stabilization = false;
+  bool white_balance_lock = false;
+  std::string stabilization_mode = "off";
   bool program_tally = false;
   bool preview_tally = false;
   bool screen_sleeping = false;
@@ -97,16 +100,18 @@ struct OpenStreamSettingsPatch {
   std::optional<std::string> exposure_mode;
   std::optional<double> iso;
   std::optional<double> shutter_us;
+  std::optional<double> exposure_compensation;
   std::optional<double> frame_rate;
   std::optional<std::string> focus_mode;
   std::optional<double> focus_distance;
   std::optional<std::string> white_balance_mode;
   std::optional<double> white_balance_kelvin;
   std::optional<double> white_balance_tint;
+  std::optional<bool> white_balance_lock;
   std::optional<std::string> lens;
   std::optional<double> zoom_ratio;
   std::optional<bool> torch;
-  std::optional<bool> stabilization;
+  std::optional<std::string> stabilization_mode;
 };
 
 struct OpenStreamCommand {

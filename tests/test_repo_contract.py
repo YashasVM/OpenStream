@@ -285,7 +285,7 @@ def test_android_discovery_ui_parses_and_displays_obs_slots() -> None:
     assert "device.busy && reservedBy != device.sourceInstanceId" in app
     assert "compareBy<DiscoveredObsDevice> { it.displayLabel }" in discovery
     assert "obsSlotList" in layout
-    assert 'name="status_waiting">Open OBS on the same Wi-Fi, then choose a camera slot.<' in strings
+    assert 'name="status_waiting">Ready for OBS. Add an OpenStream Camera source on the same network.<' in strings
     assert "btnSettings" in app
 
 
@@ -381,6 +381,23 @@ def test_android_v2_control_plane_requires_pairing_and_bearer_auth() -> None:
     assert "KEY_PAIRING_CODE, newPairingCode()" in token_store
     assert 'BEARER_PREFIX = "Bearer "' in token_store
     assert "MessageDigest.isEqual" in token_store
+
+
+def test_obs_v2_client_uses_android_canonical_camera_schema() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+
+    assert 'obs_data_create_from_json(json.c_str())' in source
+    assert 'read_range(root, "shutterRangeNs", 0.001)' in source
+    assert 'data_bool(root, "supportsTapFocus")' in source
+    assert 'data_bool(root, "manualSensor")' in source
+    assert 'data_string(settings, "stabilizationMode")' in source
+    assert 'data_bool(tally, "program")' in source
+    assert 'append_json_number(body, first, "shutterNs", shutter_ns)' in source
+    assert 'append_json_number(body, first, "fps", command.settings.frame_rate)' in source
+    assert 'append_json_number(body, first, "focusDistanceDiopters"' in source
+    assert 'append_json_string(body, first, "stabilizationMode"' in source
+    assert 'append_json_number(body, first, "shutterUs"' not in source
+    assert 'append_json_number(body, first, "frameRate"' not in source
 
 
 def test_android_unattended_service_is_explicit_and_non_sticky() -> None:

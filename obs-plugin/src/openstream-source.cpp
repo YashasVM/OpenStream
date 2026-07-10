@@ -2109,66 +2109,152 @@ OpenStreamSource *find_camera_source(const std::string &instance_id,
   return nullptr;
 }
 
-OpenStreamNumberRange read_range(const std::string &json, const std::string &name) {
+bool data_has_type(obs_data_t *data, const char *name, obs_data_type type) {
+  if (!data) return false;
+  obs_data_item_t *item = obs_data_item_byname(data, name);
+  if (!item) return false;
+  const bool matches = obs_data_item_gettype(item) == type;
+  obs_data_item_release(&item);
+  return matches;
+}
+
+std::optional<double> data_number(obs_data_t *data, const char *name) {
+  if (!data_has_type(data, name, OBS_DATA_NUMBER)) return std::nullopt;
+  return obs_data_get_double(data, name);
+}
+
+std::optional<bool> data_bool(obs_data_t *data, const char *name) {
+  if (!data_has_type(data, name, OBS_DATA_BOOLEAN)) return std::nullopt;
+  return obs_data_get_bool(data, name);
+}
+
+std::optional<std::string> data_string(obs_data_t *data, const char *name) {
+  if (!data_has_type(data, name, OBS_DATA_STRING)) return std::nullopt;
+  return std::string(obs_data_get_string(data, name));
+}
+
+OpenStreamNumberRange read_range(obs_data_t *root, const char *name,
+                                 double scale = 1.0) {
   OpenStreamNumberRange range;
-  range.minimum = json_number_value(json, name + "Min").value_or(0.0);
-  range.maximum = json_number_value(json, name + "Max").value_or(0.0);
-  range.step = json_number_value(json, name + "Step").value_or(0.0);
+  if (!data_has_type(root, name, OBS_DATA_OBJECT)) return range;
+  obs_data_t *object = obs_data_get_obj(root, name);
+  if (!object) return range;
+  range.minimum = data_number(object, "min").value_or(0.0) * scale;
+  range.maximum = data_number(object, "max").value_or(0.0) * scale;
+  range.step = data_number(object, "step").value_or(0.0) * scale;
   range.available = range.maximum > range.minimum;
+  obs_data_release(object);
   return range;
 }
 
 OpenStreamCameraCapabilities parse_capabilities(const std::string &json) {
   OpenStreamCameraCapabilities caps;
+  obs_data_t *root = obs_data_create_from_json(json.c_str());
+  if (!root || data_number(root, "protocolVersion").value_or(0.0) != 2.0) {
+    if (root) obs_data_release(root);
+    return caps;
+  }
+
+  const auto focus_modes = json_string_array_value(json, "focusModes");
+  const auto white_balance_modes = json_string_array_value(json, "whiteBalanceModes");
+  caps.stabilization_modes = json_string_array_value(json, "stabilizationModes");
+  const auto contains = [](const std::vector<std::string> &values, const char *value) {
+    return std::find(values.begin(), values.end(), value) != values.end();
+  };
+  caps.autofocus = contains(focus_modes, "continuous") || contains(focus_modes, "single");
+  caps.tap_to_focus = data_bool(root, "supportsTapFocus").value_or(false);
+  caps.manual_focus = contains(focus_modes, "manual");
+  caps.auto_exposure = true;
+  caps.manual_exposure = data_bool(root, "manualSensor").value_or(false);
+  caps.auto_white_balance = contains(white_balance_modes, "auto");
+  caps.manual_white_balance = data_bool(root, "manualWhiteBalance").value_or(false);
+  caps.zoom = data_bool(root, "supportsZoomRatio").value_or(false);
+  caps.torch = data_bool(root, "supportsTorch").value_or(false);
+  caps.lens_selection = false;
+  caps.stabilization = contains(caps.stabilization_modes, "video") ||
+                       contains(caps.stabilization_modes, "optical");
+  caps.iso = read_range(root, "isoRange");
+  caps.shutter_us = read_range(root, "shutterRangeNs", 0.001);
+  caps.focus_distance = read_range(root, "focusDistanceRange");
+  caps.zoom_ratio = read_range(root, "zoomRange");
+  if (caps.manual_white_balance) {
+    caps.white_balance_kelvin = {2000.0, 12000.0, 50.0, true};
+    caps.white_balance_tint = {-100.0, 100.0, 1.0, true};
+  }
+
+  if (data_has_type(root, "fpsRanges", OBS_DATA_ARRAY)) {
+    obs_data_array_t *ranges = obs_data_get_array(root, "fpsRanges");
+    if (ranges) {
+      for (size_t index = 0; index < obs_data_array_count(ranges); ++index) {
+        obs_data_t *range = obs_data_array_item(ranges, index);
+        if (!range) continue;
+        const auto minimum = data_number(range, "min");
+        const auto maximum = data_number(range, "max");
+        if (minimum) caps.frame_rates.push_back(*minimum);
+        if (maximum && (!minimum || *maximum != *minimum)) caps.frame_rates.push_back(*maximum);
+        obs_data_release(range);
+      }
+      obs_data_array_release(ranges);
+    }
+  }
+  std::sort(caps.frame_rates.begin(), caps.frame_rates.end());
+  caps.frame_rates.erase(std::unique(caps.frame_rates.begin(), caps.frame_rates.end()),
+                         caps.frame_rates.end());
   caps.loaded = true;
-  caps.autofocus = json_bool_value(json, "autofocus").value_or(false);
-  caps.tap_to_focus = json_bool_value(json, "tapToFocus").value_or(caps.autofocus);
-  caps.manual_focus = json_bool_value(json, "manualFocus").value_or(false);
-  caps.auto_exposure = json_bool_value(json, "autoExposure").value_or(true);
-  caps.manual_exposure = json_bool_value(json, "manualExposure").value_or(false);
-  caps.auto_white_balance = json_bool_value(json, "autoWhiteBalance").value_or(true);
-  caps.manual_white_balance = json_bool_value(json, "manualWhiteBalance").value_or(false);
-  caps.zoom = json_bool_value(json, "zoom").value_or(false);
-  caps.torch = json_bool_value(json, "torch").value_or(false);
-  caps.lens_selection = json_bool_value(json, "lensSelection").value_or(false);
-  caps.stabilization = json_bool_value(json, "stabilization").value_or(false);
-  caps.iso = read_range(json, "iso");
-  caps.shutter_us = read_range(json, "shutterUs");
-  caps.focus_distance = read_range(json, "focusDistance");
-  caps.white_balance_kelvin = read_range(json, "whiteBalanceKelvin");
-  caps.white_balance_tint = read_range(json, "whiteBalanceTint");
-  caps.zoom_ratio = read_range(json, "zoomRatio");
-  caps.lenses = json_string_array_value(json, "lenses");
-  caps.frame_rates = json_number_array_value(json, "frameRates");
+  obs_data_release(root);
   return caps;
 }
 
 OpenStreamCameraState parse_camera_state(const std::string &json) {
   OpenStreamCameraState state;
-  state.revision = json_uint64_value(json, "revision").value_or(0);
-  state.authority = json_string_value(json, "authority").value_or("collaborative");
-  state.exposure_mode = json_string_value(json, "exposureMode").value_or("auto");
-  state.focus_mode = json_string_value(json, "focusMode").value_or("continuous");
-  state.white_balance_mode = json_string_value(json, "whiteBalanceMode").value_or("auto");
-  state.lens = json_string_value(json, "lens").value_or("wide");
-  state.focus_status = json_string_value(json, "focusStatus").value_or("idle");
-  state.iso = json_number_value(json, "iso").value_or(0.0);
-  state.shutter_us = json_number_value(json, "shutterUs").value_or(0.0);
-  state.frame_rate = json_number_value(json, "frameRate").value_or(0.0);
-  state.focus_distance = json_number_value(json, "focusDistance").value_or(0.0);
-  state.white_balance_kelvin = json_number_value(json, "whiteBalanceKelvin").value_or(0.0);
-  state.white_balance_tint = json_number_value(json, "whiteBalanceTint").value_or(0.0);
-  state.zoom_ratio = json_number_value(json, "zoomRatio").value_or(1.0);
-  state.battery_percent = json_number_value(json, "batteryPercent").value_or(-1.0);
-  state.device_temperature_c = json_number_value(json, "deviceTemperatureC").value_or(0.0);
-  state.network_mbps = json_number_value(json, "networkMbps").value_or(0.0);
-  state.dropped_frames_percent = json_number_value(json, "droppedFramesPercent").value_or(0.0);
-  state.torch = json_bool_value(json, "torch").value_or(false);
-  state.stabilization = json_bool_value(json, "stabilization").value_or(false);
-  state.program_tally = json_bool_value(json, "programTally").value_or(false);
-  state.preview_tally = json_bool_value(json, "previewTally").value_or(false);
-  state.screen_sleeping = json_bool_value(json, "screenSleeping").value_or(false);
+  obs_data_t *root = obs_data_create_from_json(json.c_str());
+  if (!root || data_number(root, "protocolVersion").value_or(0.0) != 2.0 ||
+      !data_has_type(root, "settings", OBS_DATA_OBJECT) ||
+      !data_has_type(root, "telemetry", OBS_DATA_OBJECT) ||
+      !data_has_type(root, "tally", OBS_DATA_OBJECT)) {
+    if (root) obs_data_release(root);
+    return state;
+  }
+  obs_data_t *settings = obs_data_get_obj(root, "settings");
+  obs_data_t *telemetry = obs_data_get_obj(root, "telemetry");
+  obs_data_t *tally = obs_data_get_obj(root, "tally");
+  if (!settings || !telemetry || !tally) {
+    if (settings) obs_data_release(settings);
+    if (telemetry) obs_data_release(telemetry);
+    if (tally) obs_data_release(tally);
+    obs_data_release(root);
+    return state;
+  }
+
+  state.revision = static_cast<uint64_t>(data_number(root, "revision").value_or(0.0));
+  state.authority = data_string(root, "authority").value_or("collaborative");
+  state.exposure_mode = data_string(settings, "exposureMode").value_or("auto");
+  state.focus_mode = data_string(settings, "focusMode").value_or("continuous");
+  state.white_balance_mode = data_string(settings, "whiteBalanceMode").value_or("auto");
+  state.focus_status = data_string(telemetry, "focusStatus").value_or("inactive");
+  state.iso = data_number(telemetry, "actualIso").value_or(
+      data_number(settings, "iso").value_or(0.0));
+  state.shutter_us = data_number(telemetry, "actualShutterNs").value_or(
+      data_number(settings, "shutterNs").value_or(0.0)) * 0.001;
+  state.exposure_compensation = data_number(settings, "exposureCompensation").value_or(0.0);
+  state.frame_rate = data_number(settings, "fps").value_or(0.0);
+  state.focus_distance = data_number(telemetry, "actualFocusDistanceDiopters").value_or(
+      data_number(settings, "focusDistanceDiopters").value_or(0.0));
+  state.white_balance_kelvin = data_number(telemetry, "actualWhiteBalanceKelvin").value_or(
+      data_number(settings, "whiteBalanceKelvin").value_or(0.0));
+  state.white_balance_tint = data_number(settings, "whiteBalanceTint").value_or(0.0);
+  state.white_balance_lock = data_bool(settings, "whiteBalanceLock").value_or(false);
+  state.zoom_ratio = data_number(telemetry, "actualZoomRatio").value_or(
+      data_number(settings, "zoomRatio").value_or(1.0));
+  state.torch = data_bool(settings, "torch").value_or(false);
+  state.stabilization_mode = data_string(settings, "stabilizationMode").value_or("off");
+  state.program_tally = data_bool(tally, "program").value_or(false);
+  state.preview_tally = data_bool(tally, "preview").value_or(false);
   state.valid = true;
+  obs_data_release(settings);
+  obs_data_release(telemetry);
+  obs_data_release(tally);
+  obs_data_release(root);
   return state;
 }
 
@@ -2202,17 +2288,20 @@ std::string settings_body(const OpenStreamCommand &command) {
   bool first = true;
   append_json_string(body, first, "exposureMode", command.settings.exposure_mode);
   append_json_number(body, first, "iso", command.settings.iso);
-  append_json_number(body, first, "shutterUs", command.settings.shutter_us);
-  append_json_number(body, first, "frameRate", command.settings.frame_rate);
+  std::optional<double> shutter_ns;
+  if (command.settings.shutter_us) shutter_ns = *command.settings.shutter_us * 1000.0;
+  append_json_number(body, first, "shutterNs", shutter_ns);
+  append_json_number(body, first, "exposureCompensation", command.settings.exposure_compensation);
+  append_json_number(body, first, "fps", command.settings.frame_rate);
   append_json_string(body, first, "focusMode", command.settings.focus_mode);
-  append_json_number(body, first, "focusDistance", command.settings.focus_distance);
+  append_json_number(body, first, "focusDistanceDiopters", command.settings.focus_distance);
   append_json_string(body, first, "whiteBalanceMode", command.settings.white_balance_mode);
   append_json_number(body, first, "whiteBalanceKelvin", command.settings.white_balance_kelvin);
   append_json_number(body, first, "whiteBalanceTint", command.settings.white_balance_tint);
-  append_json_string(body, first, "lens", command.settings.lens);
+  append_json_bool(body, first, "whiteBalanceLock", command.settings.white_balance_lock);
   append_json_number(body, first, "zoomRatio", command.settings.zoom_ratio);
   append_json_bool(body, first, "torch", command.settings.torch);
-  append_json_bool(body, first, "stabilization", command.settings.stabilization);
+  append_json_string(body, first, "stabilizationMode", command.settings.stabilization_mode);
   body << "}}";
   return body.str();
 }
