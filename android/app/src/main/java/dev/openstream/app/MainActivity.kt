@@ -282,6 +282,8 @@ class MainActivity : Activity() {
             onPaired = { runOnUiThread {
                 armForRemoteOperation()
                 refreshPairingBanner()
+                stopPhoneServer(clearReservation = false, updateStatus = false)
+                startPhoneServerIfAllowed()
             } },
         )
         bindCameraService()
@@ -1283,6 +1285,7 @@ class MainActivity : Activity() {
                             width = streamConfig.width,
                             height = streamConfig.height,
                             fps = streamConfig.fps,
+                            passphrase = pairingTokenStore.streamPassphrase(),
                         )
                         if (!isListenerActive(generation)) {
                             streamClient.disconnect()

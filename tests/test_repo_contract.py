@@ -455,6 +455,23 @@ def test_receiver_validates_srt_support() -> None:
     assert "mode=caller" in receiver
 
 
+def test_paired_secret_encrypts_android_and_obs_srt_transport() -> None:
+    token_store = read("android/app/src/main/java/dev/openstream/app/control/PairingTokenStore.kt")
+    client = read("android/app/src/main/java/dev/openstream/app/stream/SrtStreamClient.kt")
+    native = read("android/app/src/main/cpp/openstream_srt.cpp")
+    app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    source = read("obs-plugin/src/openstream-source.cpp")
+    protocol = read("docs/protocol.md")
+
+    assert "streamPassphrase" in token_store
+    assert "passphrase: String? = null" in client
+    assert "SRTO_PASSPHRASE" in native
+    assert "SRTO_PBKEYLEN" in native
+    assert "passphrase = pairingTokenStore.streamPassphrase()" in app
+    assert 'av_dict_set(&options, "passphrase", stream_passphrase.c_str(), 0)' in source
+    assert "Pairing restarts the waiting Android listener" in protocol
+
+
 def test_protocol_documents_media_control_and_compatibility_contracts() -> None:
     protocol = read("docs/protocol.md")
     assert "MediaCodec" in protocol

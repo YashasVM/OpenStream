@@ -256,6 +256,16 @@ HTTP status and stable code:
 | 422 | `unsupported` | The active camera cannot apply the requested setting |
 | 503 | `camera_not_ready` | Camera capabilities are not available yet |
 
+## Media encryption
+
+After V2 pairing, the 256-bit pairing token also becomes the SRT passphrase.
+Android configures `SRTO_PASSPHRASE` with a 32-byte key before accepting the
+caller, and OBS supplies the same secret to FFmpeg without placing it in the
+logged SRT URL. Pairing restarts the waiting Android listener so the first
+post-pair media session is encrypted. Pre-pair V1 discovery can still bootstrap
+an upgrade, but paired cameras require the bearer token even on legacy control
+routes.
+
 ## Legacy V1 compatibility
 
 Existing source IDs, scenes, SRT URLs, discovery fields, reservations, and

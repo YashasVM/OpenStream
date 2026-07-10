@@ -1607,6 +1607,15 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     av_dict_set(&options, "flags", "low_delay", 0);
     av_dict_set(&options, "probesize", "1048576", 0);
     av_dict_set(&options, "analyzeduration", "1000000", 0);
+    std::string stream_passphrase;
+    {
+      std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+      stream_passphrase = ctx->control_token;
+    }
+    if (!stream_passphrase.empty()) {
+      av_dict_set(&options, "passphrase", stream_passphrase.c_str(), 0);
+      av_dict_set(&options, "pbkeylen", "32", 0);
+    }
 
     blog(LOG_INFO,
          "[OpenStream] Opening Android stream at %s",
