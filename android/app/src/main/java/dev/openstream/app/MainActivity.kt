@@ -4,7 +4,10 @@ import android.Manifest
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.app.Activity
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.net.Uri
@@ -12,11 +15,13 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.IBinder
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.SurfaceHolder
+import android.view.Surface
 import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
@@ -28,6 +33,7 @@ import android.widget.TextView
 import dev.openstream.app.camera.Camera2Controller
 import dev.openstream.app.camera.CameraLens
 import dev.openstream.app.control.CameraControlServer
+import dev.openstream.app.control.PairingTokenStore
 import dev.openstream.app.discovery.DiscoveredObsDevice
 import dev.openstream.app.discovery.ObsDiscoveryClient
 import dev.openstream.app.discovery.PhoneDiscoveryAdvertiser
@@ -36,6 +42,7 @@ import dev.openstream.app.encoder.MediaCodecVideoEncoder
 import dev.openstream.app.stream.ConnectionTarget
 import dev.openstream.app.stream.StreamConfig
 import dev.openstream.app.stream.SrtStreamClient
+import dev.openstream.app.service.OpenStreamCameraService
 import dev.openstream.app.telemetry.TelemetrySampler
 import dev.openstream.app.update.AppUpdater
 
@@ -72,6 +79,39 @@ class MainActivity : Activity() {
     private lateinit var obsDiscoveryClient: ObsDiscoveryClient
     private lateinit var controlServer: CameraControlServer
     private lateinit var appUpdater: AppUpdater
+    private var cameraService: OpenStreamCameraService? = null
+    private var cameraServiceBound = false
+    @Volatile private var remoteArmed = false
+
+    private val serviceSessionOwner = object : OpenStreamCameraService.SessionOwner {
+        override fun onHeadlessSurfaceAvailable(surface: Surface) {
+            if (::camera.isInitialized) camera.setFallbackPreviewSurface(surface)
+        }
+
+        override fun onRemoteStop() {
+            runOnUiThread {
+                remoteArmed = false
+                stopPhoneServer(clearReservation = true)
+                camera.setFallbackPreviewSurface(null)
+            }
+        }
+    }
+
+    private val cameraServiceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            val service = (binder as? OpenStreamCameraService.LocalBinder)?.service() ?: return
+            cameraService = service
+            cameraServiceBound = true
+            service.attachSession(serviceSessionOwner)
+            remoteArmed = remoteArmed || service.isArmed()
+            if (remoteArmed) service.arm()
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            cameraServiceBound = false
+            cameraService = null
+        }
+    }
 
     private val streamConfig = StreamConfig.Default1080p60
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -161,6 +201,7 @@ class MainActivity : Activity() {
             lensProvider = { currentLens },
         )
         controlServer = CameraControlServer(
+            pairingTokenStore = PairingTokenStore(this),
             cameraProvider = { camera },
             lensListProvider = { availableLenses },
             currentLensProvider = { currentLens },
@@ -182,10 +223,13 @@ class MainActivity : Activity() {
             },
             onRelease = { sourceInstanceId -> releaseForSource(sourceInstanceId) },
             onIdentify = { label, subtitle -> runOnUiThread { showIdentifyOverlay(label, subtitle) } },
+            onPaired = { runOnUiThread { armForRemoteOperation() } },
         )
+        bindCameraService()
 
         cameraPreview.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
+                camera.useFallbackPreviewSurface(false)
                 initializeLenses()
                 startPreviewIfAllowed()
                 startPhoneServerIfAllowed()
@@ -197,8 +241,12 @@ class MainActivity : Activity() {
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 // Close the camera before encoder teardown tries to rebuild a
                 // preview-only session against this now-invalid surface.
-                camera.stop()
-                stopPhoneServer(clearReservation = false, updateStatus = false)
+                if (remoteArmed) {
+                    camera.useFallbackPreviewSurface(true)
+                } else {
+                    camera.stop()
+                    stopPhoneServer(clearReservation = false, updateStatus = false)
+                }
             }
         })
 
@@ -237,19 +285,29 @@ class MainActivity : Activity() {
     override fun onStop() {
         activityStarted = false
         cancelLensRestart()
-        camera.stop()
-        stopPhoneServer(clearReservation = false, updateStatus = false)
-        obsDiscoveryClient.stop()
-        phoneAdvertiser.stop()
-        controlServer.stop()
-        stopLiveDotAnimation()
+        if (remoteArmed) {
+            camera.useFallbackPreviewSurface(true)
+            obsDiscoveryClient.stop()
+        } else {
+            camera.stop()
+            stopPhoneServer(clearReservation = false, updateStatus = false)
+            obsDiscoveryClient.stop()
+            phoneAdvertiser.stop()
+            controlServer.stop()
+            stopLiveDotAnimation()
+        }
         super.onStop()
     }
 
     override fun onDestroy() {
-        clearReservation()
+        if (!remoteArmed) clearReservation()
         mainHandler.removeCallbacksAndMessages(null)
         appUpdater.dispose()
+        if (cameraServiceBound) {
+            if (!remoteArmed) cameraService?.detachSession(serviceSessionOwner)
+            unbindService(cameraServiceConnection)
+            cameraServiceBound = false
+        }
         super.onDestroy()
     }
 
@@ -619,6 +677,7 @@ class MainActivity : Activity() {
     }
 
     private fun startStream(target: ConnectionTarget) {
+        armForRemoteOperation()
         // Caller mode and listener mode share one native SRT transport. Fully
         // stop the listener before opening a manual caller connection.
         stopPhoneServer(clearReservation = true, updateStatus = false)
@@ -816,11 +875,35 @@ class MainActivity : Activity() {
     ): Boolean {
         val currentReservation = reservedBy
         if (phoneConnected && currentReservation != sourceInstanceId) return false
+        armForRemoteOperation()
         cancelReservationRelease()
         useStreamBitrate(bitrateMbps)
         reservedBy = sourceInstanceId
         reservedSlotLabel = slotLabel.ifBlank { reservedSlotLabel }
         return true
+    }
+
+    private fun bindCameraService() {
+        bindService(
+            Intent(this, OpenStreamCameraService::class.java),
+            cameraServiceConnection,
+            Context.BIND_AUTO_CREATE,
+        )
+    }
+
+    private fun armForRemoteOperation() {
+        if (remoteArmed && cameraService?.isArmed() == true) return
+        remoteArmed = true
+        val intent = OpenStreamCameraService.armIntent(this)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
+        cameraService?.attachSession(serviceSessionOwner)
+        cameraService?.arm()
+    }
+
+    private fun disarmRemoteOperation() {
+        remoteArmed = false
+        camera.setFallbackPreviewSurface(null)
+        cameraService?.disarm()
     }
 
     @Synchronized

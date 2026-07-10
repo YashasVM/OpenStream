@@ -49,6 +49,8 @@ class Camera2Controller(
     private var frontFacing: Boolean = false
     private var focusRegion: MeteringRectangle? = null
     private var lastTelemetryPublishNs = 0L
+    @Volatile private var fallbackPreviewSurface: Surface? = null
+    @Volatile private var preferFallbackPreviewSurface = false
 
     val zoomRatio: Float get() = stateStore.snapshot().settings.zoomRatio
     val zoomRange: ClosedFloatingPointRange<Float>
@@ -57,6 +59,20 @@ class Camera2Controller(
     fun currentState(): CameraState = stateStore.snapshot()
     fun currentCapabilities(): CameraCapabilities? = stateStore.capabilities()
     fun addStateListener(listener: (CameraState) -> Unit): AutoCloseable = stateStore.addListener(listener)
+
+    fun setFallbackPreviewSurface(surface: Surface?) {
+        fallbackPreviewSurface = surface
+    }
+
+    fun useFallbackPreviewSurface(enabled: Boolean) {
+        preferFallbackPreviewSurface = enabled
+        refreshPreviewSurface()
+    }
+
+    /** Rebuild after the Activity preview surface is created or destroyed. */
+    fun refreshPreviewSurface() {
+        if (camera != null) createSession()
+    }
 
     fun availableLenses(): List<CameraLens> {
         val result = mutableListOf<CameraLens>()
@@ -320,7 +336,7 @@ class Camera2Controller(
 
     private fun createSession() {
         val device = camera ?: return
-        val preview = runCatching { previewSurfaceProvider() }.getOrElse {
+        val preview = resolvePreviewSurface().getOrElse {
             Log.w(TAG, "Preview surface is not ready", it)
             return
         }
@@ -344,7 +360,7 @@ class Camera2Controller(
     private fun rebuildRepeatingRequest() {
         val device = camera ?: return
         val activeSession = session ?: return
-        val preview = runCatching { previewSurfaceProvider() }.getOrNull() ?: return
+        val preview = resolvePreviewSurface().getOrNull() ?: return
         val encoded = streamingSurface
         val template = if (encoded != null) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
         runCatching {
@@ -479,7 +495,7 @@ class Camera2Controller(
     private fun triggerFocus(mode: FocusActionMode) {
         val device = camera ?: return
         val activeSession = session ?: return
-        val preview = runCatching { previewSurfaceProvider() }.getOrNull() ?: return
+        val preview = resolvePreviewSurface().getOrNull() ?: return
         val encoded = streamingSurface
         val template = if (encoded != null) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
         runCatching {
@@ -602,6 +618,18 @@ class Camera2Controller(
     }
 
     private fun Rect.toSensorRect() = SensorRect(left, top, right, bottom)
+
+    private fun resolvePreviewSurface(): Result<Surface> {
+        if (preferFallbackPreviewSurface) {
+            val fallback = fallbackPreviewSurface
+            if (fallback?.isValid == true) return Result.success(fallback)
+        }
+        val activitySurface = runCatching { previewSurfaceProvider() }.getOrNull()
+        if (activitySurface?.isValid == true) return Result.success(activitySurface)
+        val fallback = fallbackPreviewSurface
+        if (fallback?.isValid == true) return Result.success(fallback)
+        return Result.failure(IllegalStateException("No valid camera preview surface"))
+    }
 
     companion object {
         private const val TAG = "OpenStreamCamera"

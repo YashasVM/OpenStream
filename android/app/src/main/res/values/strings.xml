@@ -91,4 +91,9 @@
     <string name="settings_save">Save Settings</string>
     <string name="settings_saved">Settings saved</string>
     <string name="error_invalid_host">Enter a valid OBS host or IP address</string>
+    <string name="camera_service_channel_name">Camera session</string>
+    <string name="camera_service_channel_description">Keeps an armed OpenStream camera available to OBS</string>
+    <string name="camera_service_title">OpenStream camera armed</string>
+    <string name="camera_service_text">Remote controls and streaming stay available while the screen is off.</string>
+    <string name="camera_service_stop">Stop camera</string>
 </resources>
