@@ -17,6 +17,14 @@
             android:layout_gravity="center"
             android:contentDescription="@string/camera_preview_description" />
 
+        <dev.openstream.app.monitoring.MonitoringOverlayView
+            android:id="@+id/monitoringOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:clickable="false"
+            android:focusable="false" />
+
         <TextView
             android:id="@+id/focusReticle"
             android:layout_width="64dp"
@@ -142,6 +150,11 @@
                 <TextView android:id="@+id/hudIso" style="@style/OpenStream.HudControl" android:text="ISO AUTO" />
                 <TextView android:id="@+id/hudWb" style="@style/OpenStream.HudControl" android:text="WB AUTO" />
                 <TextView android:id="@+id/hudFocus" style="@style/OpenStream.HudControl" android:text="AF-C" />
+                <TextView android:id="@+id/hudBattery" style="@style/OpenStream.HudStatus" android:layout_marginEnd="8dp" android:text="BAT --%" />
+                <TextView android:id="@+id/hudThermal" style="@style/OpenStream.HudStatus" android:layout_marginEnd="8dp" android:text="THERMAL --" />
+                <TextView android:id="@+id/hudNetwork" style="@style/OpenStream.HudStatus" android:layout_marginEnd="8dp" android:text="NETWORK --" />
+                <TextView android:id="@+id/btnFrameGuides" style="@style/OpenStream.HudControl" android:contentDescription="@string/frame_guides_description" android:text="GUIDES 3×3" />
+                <TextView android:id="@+id/btnZebra" style="@style/OpenStream.HudControl" android:contentDescription="@string/zebra_description" android:text="ZEBRA 95" />
             </LinearLayout>
         </HorizontalScrollView>
     </LinearLayout>

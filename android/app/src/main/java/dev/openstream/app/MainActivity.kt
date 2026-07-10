@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
@@ -20,6 +21,7 @@ import android.util.Log
 import android.view.Gravity
 import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.PixelCopy
 import android.view.ScaleGestureDetector
 import android.view.SurfaceHolder
 import android.view.Surface
@@ -51,11 +53,15 @@ import dev.openstream.app.discovery.ObsDiscoveryClient
 import dev.openstream.app.discovery.PhoneDiscoveryAdvertiser
 import dev.openstream.app.encoder.MediaCodecAudioEncoder
 import dev.openstream.app.encoder.MediaCodecVideoEncoder
+import dev.openstream.app.monitoring.FrameGuideMode
+import dev.openstream.app.monitoring.MonitoringOverlayView
+import dev.openstream.app.monitoring.ZebraAnalyzer
 import dev.openstream.app.stream.ConnectionTarget
 import dev.openstream.app.stream.StreamConfig
 import dev.openstream.app.stream.SrtStreamClient
 import dev.openstream.app.service.OpenStreamCameraService
 import dev.openstream.app.telemetry.TelemetrySampler
+import dev.openstream.app.telemetry.TelemetryFormatter
 import dev.openstream.app.update.AppUpdater
 import kotlin.math.exp
 import kotlin.math.ln
@@ -91,6 +97,12 @@ class MainActivity : Activity() {
     private lateinit var hudIso: TextView
     private lateinit var hudWb: TextView
     private lateinit var hudFocus: TextView
+    private lateinit var hudBattery: TextView
+    private lateinit var hudThermal: TextView
+    private lateinit var hudNetwork: TextView
+    private lateinit var btnFrameGuides: TextView
+    private lateinit var btnZebra: TextView
+    private lateinit var monitoringOverlay: MonitoringOverlayView
     private lateinit var btnExposurePanel: TextView
     private lateinit var btnFocusPanel: TextView
     private lateinit var btnColorPanel: TextView
@@ -327,6 +339,8 @@ class MainActivity : Activity() {
         controlServer.start()
         startPreviewIfAllowed()
         startPhoneServerIfAllowed()
+        mainHandler.removeCallbacks(monitoringTicker)
+        mainHandler.post(monitoringTicker)
     }
 
     override fun onResume() {
@@ -346,6 +360,7 @@ class MainActivity : Activity() {
 
     override fun onStop() {
         activityStarted = false
+        mainHandler.removeCallbacks(monitoringTicker)
         cancelLensRestart()
         if (remoteArmed) {
             camera.useFallbackPreviewSurface(true)
@@ -387,6 +402,14 @@ class MainActivity : Activity() {
             initializeLenses()
             startPreviewIfAllowed()
             startPhoneServerIfAllowed()
+        }
+    }
+
+    private val monitoringTicker = object : Runnable {
+        override fun run() {
+            renderDeviceTelemetry()
+            if (monitoringOverlay.zebraEnabled) samplePreviewForZebras()
+            if (activityStarted) mainHandler.postDelayed(this, MONITORING_INTERVAL_MS)
         }
     }
 
@@ -441,6 +464,12 @@ class MainActivity : Activity() {
         hudIso = findViewById(R.id.hudIso)
         hudWb = findViewById(R.id.hudWb)
         hudFocus = findViewById(R.id.hudFocus)
+        hudBattery = findViewById(R.id.hudBattery)
+        hudThermal = findViewById(R.id.hudThermal)
+        hudNetwork = findViewById(R.id.hudNetwork)
+        btnFrameGuides = findViewById(R.id.btnFrameGuides)
+        btnZebra = findViewById(R.id.btnZebra)
+        monitoringOverlay = findViewById(R.id.monitoringOverlay)
         btnExposurePanel = findViewById(R.id.btnExposurePanel)
         btnFocusPanel = findViewById(R.id.btnFocusPanel)
         btnColorPanel = findViewById(R.id.btnColorPanel)
@@ -493,6 +522,8 @@ class MainActivity : Activity() {
         hudIso.setOnClickListener { showCameraPalette(CameraPalette.Exposure) }
         hudWb.setOnClickListener { showCameraPalette(CameraPalette.Color) }
         hudFocus.setOnClickListener { showCameraPalette(CameraPalette.Focus) }
+        btnFrameGuides.setOnClickListener { cycleFrameGuides() }
+        btnZebra.setOnClickListener { toggleZebras() }
         paletteClose.setOnClickListener { hideCameraPalette() }
         btnArmRemote.setOnClickListener {
             if (remoteArmed) disarmRemoteOperation() else armForRemoteOperation()
@@ -507,6 +538,56 @@ class MainActivity : Activity() {
         // Tap the screen-off overlay to re-enable display
         screenOffOverlay.setOnClickListener { toggleDisplayOff() }
         renderRemoteArmState()
+        restoreMonitoringPreferences()
+    }
+
+    private fun restoreMonitoringPreferences() {
+        val preferences = getSharedPreferences(MONITORING_PREFS, MODE_PRIVATE)
+        monitoringOverlay.frameGuideMode = runCatching {
+            FrameGuideMode.valueOf(
+                preferences.getString(KEY_FRAME_GUIDES, FrameGuideMode.Thirds.name)
+                    ?: FrameGuideMode.Thirds.name,
+            )
+        }.getOrDefault(FrameGuideMode.Thirds)
+        monitoringOverlay.zebraEnabled = preferences.getBoolean(KEY_ZEBRA_ENABLED, false)
+        renderMonitoringControls()
+    }
+
+    private fun cycleFrameGuides() {
+        monitoringOverlay.frameGuideMode = when (monitoringOverlay.frameGuideMode) {
+            FrameGuideMode.Off -> FrameGuideMode.Thirds
+            FrameGuideMode.Thirds -> FrameGuideMode.SafeArea
+            FrameGuideMode.SafeArea -> FrameGuideMode.Off
+        }
+        getSharedPreferences(MONITORING_PREFS, MODE_PRIVATE).edit()
+            .putString(KEY_FRAME_GUIDES, monitoringOverlay.frameGuideMode.name)
+            .apply()
+        renderMonitoringControls()
+    }
+
+    private fun toggleZebras() {
+        monitoringOverlay.zebraEnabled = !monitoringOverlay.zebraEnabled
+        getSharedPreferences(MONITORING_PREFS, MODE_PRIVATE).edit()
+            .putBoolean(KEY_ZEBRA_ENABLED, monitoringOverlay.zebraEnabled)
+            .apply()
+        renderMonitoringControls()
+        if (monitoringOverlay.zebraEnabled) samplePreviewForZebras()
+    }
+
+    private fun renderMonitoringControls() {
+        btnFrameGuides.text = when (monitoringOverlay.frameGuideMode) {
+            FrameGuideMode.Off -> "GUIDES OFF"
+            FrameGuideMode.Thirds -> "GUIDES 3×3"
+            FrameGuideMode.SafeArea -> "GUIDES SAFE"
+        }
+        btnFrameGuides.setTextColor(getColor(
+            if (monitoringOverlay.frameGuideMode == FrameGuideMode.Off) R.color.os_text_secondary
+            else R.color.os_accent,
+        ))
+        btnZebra.text = if (monitoringOverlay.zebraEnabled) "ZEBRA 95 ON" else "ZEBRA 95"
+        btnZebra.setTextColor(getColor(
+            if (monitoringOverlay.zebraEnabled) R.color.os_warning else R.color.os_text_secondary,
+        ))
     }
 
     private fun createVideoEncoder(bitrate: Int): MediaCodecVideoEncoder {
@@ -1593,6 +1674,45 @@ class MainActivity : Activity() {
         )
     }
 
+    private fun renderDeviceTelemetry() {
+        val device = telemetry.sample(
+            streamUrl = activeTargetName ?: "local-preview",
+            codec = streamConfig.codecPreference.name,
+            width = streamConfig.width,
+            height = streamConfig.height,
+            fps = streamConfig.fps,
+            bitrate = activeStreamBitrate,
+        )
+        val hud = TelemetryFormatter.forHud(device)
+        hudBattery.text = hud.battery
+        hudThermal.text = hud.thermal
+        hudNetwork.text = hud.network
+        hudBattery.setTextColor(getColor(if (hud.isBatteryLow) R.color.os_warning else R.color.os_text_secondary))
+        hudThermal.setTextColor(getColor(if (hud.isThermalWarning) R.color.os_warning else R.color.os_text_secondary))
+        hudNetwork.setTextColor(getColor(if (hud.isNetworkWeak) R.color.os_warning else R.color.os_text_secondary))
+    }
+
+    private fun samplePreviewForZebras() {
+        if (!monitoringOverlay.zebraEnabled || !cameraPreview.holder.surface.isValid) return
+        val bitmap = Bitmap.createBitmap(ZEBRA_SAMPLE_WIDTH, ZEBRA_SAMPLE_HEIGHT, Bitmap.Config.ARGB_8888)
+        try {
+            PixelCopy.request(cameraPreview, bitmap, { result ->
+                if (result == PixelCopy.SUCCESS && monitoringOverlay.zebraEnabled) {
+                    val pixels = IntArray(bitmap.width * bitmap.height)
+                    bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+                    monitoringOverlay.setZebraMask(
+                        bitmap.width,
+                        bitmap.height,
+                        ZebraAnalyzer.analyze(pixels, ZEBRA_THRESHOLD_PERCENT),
+                    )
+                }
+                bitmap.recycle()
+            }, mainHandler)
+        } catch (_: IllegalArgumentException) {
+            bitmap.recycle()
+        }
+    }
+
     // ─────────────────────────── Utilities ───────────────────────────
 
     private fun startPreviewIfAllowed() {
@@ -1751,6 +1871,11 @@ class MainActivity : Activity() {
         lp.height = targetHeight
         lp.gravity = Gravity.CENTER
         cameraPreview.layoutParams = lp
+        val overlayLp = monitoringOverlay.layoutParams as FrameLayout.LayoutParams
+        overlayLp.width = targetWidth
+        overlayLp.height = targetHeight
+        overlayLp.gravity = Gravity.CENTER
+        monitoringOverlay.layoutParams = overlayLp
     }
 
     // ─────────────────────────── Nav bar insets (3-button nav fix) ───────────────────────────
@@ -1786,6 +1911,13 @@ class MainActivity : Activity() {
         private const val SETTINGS_REQUEST_CODE = 200
         private const val SLIDER_STEPS = 1_000
         private const val FOCUS_RETICLE_MS = 1_500L
+        private const val MONITORING_INTERVAL_MS = 2_000L
+        private const val ZEBRA_SAMPLE_WIDTH = 96
+        private const val ZEBRA_SAMPLE_HEIGHT = 54
+        private const val ZEBRA_THRESHOLD_PERCENT = 95
+        private const val MONITORING_PREFS = "openstream_monitoring"
+        private const val KEY_FRAME_GUIDES = "frame_guides"
+        private const val KEY_ZEBRA_ENABLED = "zebra_enabled"
         private const val APP_PREFS_NAME = "openstream_app"
         private const val PREF_LAST_VERSION_DIALOG = "last_version_dialog"
         private val REQUIRED_PERMISSIONS = arrayOf(

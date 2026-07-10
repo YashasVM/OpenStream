@@ -108,4 +108,6 @@
     <string name="remote_disarmed">Arm remote</string>
     <string name="control_locked_by_obs">Controls are locked by OBS</string>
     <string name="tap_focus_unavailable">Tap focus is unavailable on this camera</string>
+    <string name="frame_guides_description">Cycle preview frame guides</string>
+    <string name="zebra_description">Toggle 95 percent exposure zebra warnings</string>
 </resources>
