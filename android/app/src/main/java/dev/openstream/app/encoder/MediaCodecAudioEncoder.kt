@@ -1,5 +1,9 @@
 package dev.openstream.app.encoder
 
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaCodec
@@ -17,17 +21,22 @@ import kotlin.math.max
  * Encoded access units are delivered via [onEncodedAccessUnit] for muxing into MPEG-TS.
  */
 class MediaCodecAudioEncoder(
+    context: Context,
     private val sampleRate: Int = 48_000,
     private val channelCount: Int = 1,
     private val bitrate: Int = 192_000,
     private val onEncodedAccessUnit: (EncodedAccessUnit) -> Unit,
 ) {
+    private val context = context.applicationContext
     private var codec: MediaCodec? = null
     private var audioRecord: AudioRecord? = null
     private var captureThread: Thread? = null
     @Volatile private var running = false
 
     fun start() {
+        check(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            "Microphone permission is not granted"
+        }
         // If already running, stop first to allow clean restart
         if (codec != null) {
             stop()
@@ -176,6 +185,7 @@ class MediaCodecAudioEncoder(
         return bytes.takeIf { it.isNotEmpty() }
     }
 
+    @SuppressLint("MissingPermission")
     private fun createRecorder(channelConfig: Int, bufferSize: Int): AudioRecord {
         val sources = buildList {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {

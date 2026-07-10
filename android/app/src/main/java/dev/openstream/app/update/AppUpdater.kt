@@ -19,7 +19,10 @@ import dev.openstream.app.R
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 class AppUpdater(
     private val activity: Activity,
@@ -27,7 +30,10 @@ class AppUpdater(
     private val executor = Executors.newSingleThreadExecutor()
     private val downloadManager = activity.getSystemService(DownloadManager::class.java)
     private var pendingDownloadId: Long = NO_DOWNLOAD
+    private var pendingRelease: ReleaseUpdate? = null
     private var registered = false
+    private var verifyingDownloadId: Long = NO_DOWNLOAD
+    private val disposed = AtomicBoolean(false)
 
     private val downloadReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -42,7 +48,7 @@ class AppUpdater(
     }
 
     fun register() {
-        if (registered) return
+        if (disposed.get() || registered) return
         val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             activity.registerReceiver(downloadReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -59,10 +65,17 @@ class AppUpdater(
         registered = false
     }
 
+    fun dispose() {
+        if (!disposed.compareAndSet(false, true)) return
+        unregister()
+        executor.shutdownNow()
+    }
+
     fun checkForUpdates(showAlreadyCurrent: Boolean = false) {
-        executor.execute {
+        if (disposed.get()) return
+        submitUpdateWork {
             val result = runCatching { fetchLatestRelease() }
-            activity.runOnUiThread {
+            runWhenActivityIsActive {
                 result
                     .onSuccess { release ->
                         if (release.isNewerThan(currentVersionName(), currentVersionCode())) {
@@ -82,7 +95,7 @@ class AppUpdater(
     }
 
     fun resumePendingInstallIfAllowed() {
-        if (pendingDownloadId == NO_DOWNLOAD) return
+        if (disposed.get() || pendingDownloadId == NO_DOWNLOAD) return
         if (canRequestPackageInstall()) {
             installDownloadedApk()
         }
@@ -108,6 +121,10 @@ class AppUpdater(
             name = json.optString("name"),
             versionCode = metadata?.optLong("versionCode")?.takeIf { it > 0 },
             apkUrl = apkUrl ?: error("Release asset $ANDROID_APK_ASSET was not found"),
+            apkSha256 = metadata?.optString("apkSha256")
+                ?.lowercase()
+                ?.takeIf { it.matches(SHA256_HEX) }
+                ?: error("Release metadata did not contain a valid APK SHA-256 digest"),
         )
     }
 
@@ -128,6 +145,7 @@ class AppUpdater(
 
 
     private fun downloadApk(release: ReleaseUpdate) {
+        if (disposed.get()) return
         val request = DownloadManager.Request(Uri.parse(release.apkUrl))
             .setTitle("OpenStream ${release.displayVersion}")
             .setDescription("Downloading OpenStream update")
@@ -141,6 +159,7 @@ class AppUpdater(
             .setAllowedOverMetered(true)
             .setAllowedOverRoaming(false)
 
+        pendingRelease = release
         pendingDownloadId = downloadManager.enqueue(request)
         Toast.makeText(activity, "Downloading update", Toast.LENGTH_SHORT).show()
     }
@@ -172,15 +191,41 @@ class AppUpdater(
     private fun installDownloadedApk() {
         if (!isSuccessfulDownload()) {
             Toast.makeText(activity, "Update download failed", Toast.LENGTH_LONG).show()
+            pendingDownloadId = NO_DOWNLOAD
+            pendingRelease = null
             return
         }
 
+        val downloadId = pendingDownloadId
+        val release = pendingRelease ?: run {
+            showVerificationFailure(downloadId)
+            return
+        }
+        if (verifyingDownloadId == downloadId) return
+        verifyingDownloadId = downloadId
+
+        submitUpdateWork {
+            val verified = hasExpectedApkDigest(downloadId, release.apkSha256)
+            runWhenActivityIsActive {
+                if (verifyingDownloadId != downloadId) return@runWhenActivityIsActive
+                verifyingDownloadId = NO_DOWNLOAD
+                if (pendingDownloadId != downloadId) return@runWhenActivityIsActive
+                if (!verified) {
+                    showVerificationFailure(downloadId)
+                    return@runWhenActivityIsActive
+                }
+                requestPackageInstall(downloadId)
+            }
+        }
+    }
+
+    private fun requestPackageInstall(downloadId: Long) {
         if (!canRequestPackageInstall()) {
             showInstallPermissionPrompt()
             return
         }
 
-        val apkUri = downloadManager.getUriForDownloadedFile(pendingDownloadId)
+        val apkUri = downloadManager.getUriForDownloadedFile(downloadId)
         if (apkUri == null) {
             Toast.makeText(activity, "Downloaded APK was not found", Toast.LENGTH_LONG).show()
             return
@@ -193,6 +238,18 @@ class AppUpdater(
         activity.startActivity(installIntent)
     }
 
+    private fun showVerificationFailure(downloadId: Long) {
+        Toast.makeText(activity, "Update verification failed", Toast.LENGTH_LONG).show()
+        if (downloadId != NO_DOWNLOAD) {
+            runCatching { downloadManager.remove(downloadId) }
+                .onFailure { error -> Log.w(TAG, "Could not delete unverified update", error) }
+        }
+        if (pendingDownloadId == downloadId) {
+            pendingDownloadId = NO_DOWNLOAD
+            pendingRelease = null
+        }
+    }
+
     private fun isSuccessfulDownload(): Boolean {
         val query = DownloadManager.Query().setFilterById(pendingDownloadId)
         downloadManager.query(query)?.use { cursor ->
@@ -201,6 +258,39 @@ class AppUpdater(
             return cursor.getInt(statusColumn) == DownloadManager.STATUS_SUCCESSFUL
         }
         return false
+    }
+
+    private fun hasExpectedApkDigest(downloadId: Long, expected: String): Boolean {
+        val apkUri = downloadManager.getUriForDownloadedFile(downloadId) ?: return false
+        val actual = runCatching {
+            activity.contentResolver.openInputStream(apkUri)?.use { input ->
+                val digest = MessageDigest.getInstance("SHA-256")
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    digest.update(buffer, 0, read)
+                }
+                digest.digest().joinToString("") { byte -> "%02x".format(byte) }
+            }
+        }.getOrNull()
+        return actual != null && actual.equals(expected, ignoreCase = true)
+    }
+
+    private fun submitUpdateWork(work: () -> Unit) {
+        if (disposed.get()) return
+        try {
+            executor.execute(work)
+        } catch (_: RejectedExecutionException) {
+            // dispose() may race a delayed UI callback or broadcast receiver.
+        }
+    }
+
+    private fun runWhenActivityIsActive(action: () -> Unit) {
+        activity.runOnUiThread {
+            if (disposed.get() || activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+            action()
+        }
     }
 
     private fun showInstallPermissionPrompt() {
@@ -248,6 +338,7 @@ class AppUpdater(
         val name: String,
         val versionCode: Long?,
         val apkUrl: String,
+        val apkSha256: String,
     ) {
         val displayVersion: String = tagName.ifBlank { name }.removePrefix("v")
 
@@ -262,10 +353,11 @@ class AppUpdater(
     companion object {
         private const val TAG = "OpenStreamUpdater"
         private const val NO_DOWNLOAD = -1L
-        private const val RELEASE_API_URL = "https://api.github.com/repos/YashasVM/OpenStream/releases/tags/android-latest"
+        private const val RELEASE_API_URL = "https://api.github.com/repos/YashasVM/OpenStream/releases/latest"
         private const val ANDROID_APK_ASSET = "openstream-android.apk"
         private const val ANDROID_UPDATE_METADATA_ASSET = "openstream-android-update.json"
         private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
+        private val SHA256_HEX = Regex("^[0-9a-f]{64}$")
 
         private fun compareVersions(candidate: String, current: String): Int {
             val candidateParts = VersionParts.parse(candidate)

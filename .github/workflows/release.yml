@@ -12,7 +12,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   android:
@@ -22,6 +22,13 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -35,38 +42,41 @@ jobs:
       - name: Install Android build packages
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "cmake;3.22.1" "ndk;27.0.12077973"
 
+      - name: Run repository tests and Android lint
+        run: |
+          python -m pip install --disable-pip-version-check pytest
+          python -m pytest -q
+          cd android
+          chmod +x ./gradlew
+          ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug
+
       - name: Compute Android version metadata
         id: version
         run: |
           echo "code=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
 
-      - name: Check Android signing inputs
-        id: signing
+      - name: Require Android signing inputs
         env:
           OPENSTREAM_RELEASE_KEYSTORE_BASE64: ${{ secrets.OPENSTREAM_RELEASE_KEYSTORE_BASE64 }}
           OPENSTREAM_RELEASE_STORE_PASSWORD: ${{ secrets.OPENSTREAM_RELEASE_STORE_PASSWORD }}
           OPENSTREAM_RELEASE_KEY_ALIAS: ${{ secrets.OPENSTREAM_RELEASE_KEY_ALIAS }}
           OPENSTREAM_RELEASE_KEY_PASSWORD: ${{ secrets.OPENSTREAM_RELEASE_KEY_PASSWORD }}
         run: |
-          if [ -n "$OPENSTREAM_RELEASE_KEYSTORE_BASE64" ] &&
-             [ -n "$OPENSTREAM_RELEASE_STORE_PASSWORD" ] &&
-             [ -n "$OPENSTREAM_RELEASE_KEY_ALIAS" ] &&
-             [ -n "$OPENSTREAM_RELEASE_KEY_PASSWORD" ]; then
-            echo "has_signing=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_signing=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Android release signing secrets are incomplete; publishing debug-signed beta APK."
-          fi
+          test -n "$OPENSTREAM_RELEASE_KEYSTORE_BASE64" &&
+          test -n "$OPENSTREAM_RELEASE_STORE_PASSWORD" &&
+          test -n "$OPENSTREAM_RELEASE_KEY_ALIAS" &&
+          test -n "$OPENSTREAM_RELEASE_KEY_PASSWORD" || {
+            echo "::error::Public releases require all Android signing secrets."
+            exit 1
+          }
 
       - name: Decode Android signing key
-        if: steps.signing.outputs.has_signing == 'true'
         env:
           OPENSTREAM_RELEASE_KEYSTORE_BASE64: ${{ secrets.OPENSTREAM_RELEASE_KEYSTORE_BASE64 }}
         run: |
           printf '%s' "$OPENSTREAM_RELEASE_KEYSTORE_BASE64" | base64 --decode > android/app/openstream-release.keystore
 
       - name: Build signed release APK with native SRT enabled
-        if: steps.signing.outputs.has_signing == 'true'
         working-directory: android
         env:
           OPENSTREAM_RELEASE_KEYSTORE: ${{ github.workspace }}/android/app/openstream-release.keystore
@@ -79,31 +89,21 @@ jobs:
           chmod +x ./gradlew
           ./gradlew --no-daemon :app:assembleRelease
 
-      - name: Build debug-signed beta APK with native SRT enabled
-        if: steps.signing.outputs.has_signing != 'true'
-        working-directory: android
-        env:
-          OPENSTREAM_VERSION_NAME: ${{ inputs.tag || github.ref_name }}
-          OPENSTREAM_VERSION_CODE: ${{ steps.version.outputs.code }}
-        run: |
-          chmod +x ./gradlew
-          ./gradlew --no-daemon :app:assembleDebug
-
       - name: Normalize Android APK artifact
+        env:
+          RELEASE_VERSION_NAME: ${{ inputs.tag || github.ref_name }}
+          RELEASE_VERSION_CODE: ${{ steps.version.outputs.code }}
         run: |
           mkdir -p dist
-          if [ -f android/app/build/outputs/apk/release/app-release.apk ]; then
-            cp android/app/build/outputs/apk/release/app-release.apk dist/openstream-android.apk
-            printf 'signed-release\n' > dist/android-signing.txt
-          else
-            cp android/app/build/outputs/apk/debug/app-debug.apk dist/openstream-android.apk
-            printf 'debug-signed-beta\n' > dist/android-signing.txt
-          fi
-          VERSION_NAME="${{ inputs.tag || github.ref_name }}"
+          cp android/app/build/outputs/apk/release/app-release.apk dist/openstream-android.apk
+          (cd dist && sha256sum openstream-android.apk > openstream-android.apk.sha256)
+          APK_SHA256="$(cut -d ' ' -f 1 dist/openstream-android.apk.sha256)"
+          VERSION_NAME="$RELEASE_VERSION_NAME"
           VERSION_NAME="${VERSION_NAME#v}"
-          printf '{\n  "versionName": "%s",\n  "versionCode": %s,\n  "apkAsset": "openstream-android.apk"\n}\n' \
+          printf '{\n  "versionName": "%s",\n  "versionCode": %s,\n  "apkAsset": "openstream-android.apk",\n  "apkSha256": "%s"\n}\n' \
             "$VERSION_NAME" \
-            "${{ steps.version.outputs.code }}" \
+            "$RELEASE_VERSION_CODE" \
+            "$APK_SHA256" \
             > dist/openstream-android-update.json
 
       - name: Upload APK artifact
@@ -112,7 +112,7 @@ jobs:
           name: openstream-android-apk
           path: |
             dist/openstream-android.apk
-            dist/android-signing.txt
+            dist/openstream-android.apk.sha256
             dist/openstream-android-update.json
           if-no-files-found: error
 
@@ -123,6 +123,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install OBS Studio
         shell: powershell
@@ -167,10 +169,14 @@ jobs:
     name: Publish GitHub release
     runs-on: ubuntu-latest
     needs: [android, obs-plugin]
+    permissions:
+      contents: write
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4
@@ -181,6 +187,7 @@ jobs:
       - name: Verify release assets
         run: |
           test -f dist/openstream-android.apk
+          test -f dist/openstream-android.apk.sha256
           test -f dist/openstream-android-update.json
           test -f dist/openstream-obs-plugin-installer-windows-x64.exe
           test -f dist/openstream-obs-windows-x64.zip
@@ -193,6 +200,7 @@ jobs:
           TAG_NAME="${INPUT_TAG:-${GITHUB_REF_NAME}}"
           gh release create "$TAG_NAME" \
             dist/openstream-android.apk \
+            dist/openstream-android.apk.sha256 \
             dist/openstream-android-update.json \
             dist/openstream-obs-plugin-installer-windows-x64.exe \
             dist/openstream-obs-windows-x64.zip \

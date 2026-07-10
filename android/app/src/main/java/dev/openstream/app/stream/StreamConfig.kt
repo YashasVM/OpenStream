@@ -10,6 +10,9 @@ data class StreamConfig(
     val keyframeIntervalSeconds: Int,
     val latencyMs: Int,
     val codecPreference: CodecPreference,
+    val audioSampleRate: Int,
+    val audioChannelCount: Int,
+    val audioBitrate: Int,
 ) {
     val bitrateMbps: Int
         get() = bitrate / 1_000_000
@@ -23,6 +26,9 @@ data class StreamConfig(
             keyframeIntervalSeconds = 1,
             latencyMs = 120,
             codecPreference = CodecPreference.PreferHevc,
+            audioSampleRate = 48_000,
+            audioChannelCount = 1,
+            audioBitrate = 192_000,
         )
 
         val Fallback720p60 = StreamConfig(
@@ -33,6 +39,9 @@ data class StreamConfig(
             keyframeIntervalSeconds = 1,
             latencyMs = 120,
             codecPreference = CodecPreference.PreferHevc,
+            audioSampleRate = 48_000,
+            audioChannelCount = 1,
+            audioBitrate = 192_000,
         )
     }
 }

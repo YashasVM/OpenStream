@@ -1,6 +1,7 @@
 package dev.openstream.app
 
 import android.app.Activity
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowInsets
@@ -17,6 +18,7 @@ class SettingsActivity : Activity() {
     private lateinit var inputLatency: EditText
     private lateinit var inputListeningPort: EditText
     private lateinit var btnSave: TextView
+    private lateinit var btnSaveAndConnect: TextView
     private lateinit var btnBack: TextView
     private lateinit var btnCheckUpdates: TextView
     private lateinit var versionInfo: TextView
@@ -31,6 +33,7 @@ class SettingsActivity : Activity() {
         inputLatency = findViewById(R.id.settingsLatency)
         inputListeningPort = findViewById(R.id.settingsListeningPort)
         btnSave = findViewById(R.id.btnSaveSettings)
+        btnSaveAndConnect = findViewById(R.id.btnSaveAndConnect)
         btnBack = findViewById(R.id.btnBackSettings)
         btnCheckUpdates = findViewById(R.id.btnCheckUpdates)
         versionInfo = findViewById(R.id.settingsVersionInfo)
@@ -41,7 +44,8 @@ class SettingsActivity : Activity() {
         loadSettings()
         showVersionInfo()
 
-        btnSave.setOnClickListener { saveSettings() }
+        btnSave.setOnClickListener { saveSettings(connectAfterSave = false) }
+        btnSaveAndConnect.setOnClickListener { saveSettings(connectAfterSave = true) }
         btnBack.setOnClickListener { finish() }
         btnCheckUpdates.setOnClickListener {
             appUpdater.checkForUpdates(showAlreadyCurrent = true)
@@ -54,7 +58,7 @@ class SettingsActivity : Activity() {
     }
 
     override fun onDestroy() {
-        appUpdater.unregister()
+        appUpdater.dispose()
         super.onDestroy()
     }
 
@@ -69,22 +73,70 @@ class SettingsActivity : Activity() {
         inputListeningPort.setText(listenPort.toString())
     }
 
-    private fun saveSettings() {
+    private fun saveSettings(connectAfterSave: Boolean) {
+        clearValidationErrors()
         val host = inputObsHost.text.toString().trim()
-        val port = inputObsPort.text.toString().toIntOrNull() ?: ConnectionTarget.DEFAULT_PORT
-        val latency = inputLatency.text.toString().toIntOrNull() ?: ConnectionTarget.DEFAULT_LATENCY_MS
-        val listenPort = inputListeningPort.text.toString().toIntOrNull() ?: ConnectionTarget.DEFAULT_PORT
+        if (!SettingsValidator.isValidHost(host, required = connectAfterSave)) {
+            inputObsHost.error = "Enter a valid OBS host or IP address"
+            inputObsHost.requestFocus()
+            return
+        }
+        val port = validatedNumber(
+            input = inputObsPort,
+            defaultValue = ConnectionTarget.DEFAULT_PORT,
+            validRange = 1..65535,
+            label = "OBS port",
+        ) ?: return
+        val latency = validatedNumber(
+            input = inputLatency,
+            defaultValue = ConnectionTarget.DEFAULT_LATENCY_MS,
+            validRange = 80..200,
+            label = "Latency",
+        ) ?: return
+        val listenPort = validatedNumber(
+            input = inputListeningPort,
+            defaultValue = ConnectionTarget.DEFAULT_PORT,
+            validRange = 1024..65535,
+            label = "Listening port",
+        ) ?: return
 
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
             .putString(KEY_OBS_HOST, host)
-            .putInt(KEY_OBS_PORT, port.coerceIn(1, 65535))
-            .putInt(KEY_LATENCY, latency.coerceIn(20, 2000))
-            .putInt(KEY_LISTENING_PORT, listenPort.coerceIn(1024, 65535))
+            .putInt(KEY_OBS_PORT, port)
+            .putInt(KEY_LATENCY, latency)
+            .putInt(KEY_LISTENING_PORT, listenPort)
             .apply()
 
         Toast.makeText(this, "Settings saved", Toast.LENGTH_SHORT).show()
-        setResult(RESULT_OK)
+        setResult(
+            RESULT_OK,
+            Intent().putExtra(EXTRA_CONNECT_AFTER_SAVE, connectAfterSave),
+        )
         finish()
+    }
+
+    private fun validatedNumber(
+        input: EditText,
+        defaultValue: Int,
+        validRange: IntRange,
+        label: String,
+    ): Int? {
+        val raw = input.text.toString().trim()
+        if (raw.isBlank()) return defaultValue
+        val value = SettingsValidator.parseNumber(raw, defaultValue, validRange)
+        if (value == null) {
+            input.error = "$label must be between ${validRange.first} and ${validRange.last}"
+            input.requestFocus()
+            return null
+        }
+        return value
+    }
+
+    private fun clearValidationErrors() {
+        inputObsHost.error = null
+        inputObsPort.error = null
+        inputLatency.error = null
+        inputListeningPort.error = null
     }
 
     private fun showVersionInfo() {
@@ -106,5 +158,6 @@ class SettingsActivity : Activity() {
         const val KEY_OBS_PORT = "obs_port"
         const val KEY_LATENCY = "latency_ms"
         const val KEY_LISTENING_PORT = "listening_port"
+        const val EXTRA_CONNECT_AFTER_SAVE = "connect_after_save"
     }
 }

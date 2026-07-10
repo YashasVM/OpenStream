@@ -16,16 +16,18 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Settings"
+            android:text="@string/settings_title"
             android:textColor="@color/os_text_primary"
             android:textSize="32sp"
             android:fontFamily="sans-serif-medium"
             android:layout_marginBottom="40dp" />
 
         <TextView
+            android:id="@+id/labelSettingsObsHost"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="OBS Host"
+            android:text="@string/settings_obs_host"
+            android:labelFor="@id/settingsObsHost"
             android:textColor="@color/os_text_secondary"
             android:textSize="14sp"
             android:layout_marginBottom="8dp" />
@@ -42,12 +44,15 @@
             android:paddingStart="16dp"
             android:paddingEnd="16dp"
             android:singleLine="true"
+            android:inputType="textUri"
             android:layout_marginBottom="24dp" />
 
         <TextView
+            android:id="@+id/labelSettingsObsPort"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="OBS Port"
+            android:text="@string/settings_obs_port"
+            android:labelFor="@id/settingsObsPort"
             android:textColor="@color/os_text_secondary"
             android:textSize="14sp"
             android:layout_marginBottom="8dp" />
@@ -68,9 +73,11 @@
             android:layout_marginBottom="24dp" />
 
         <TextView
+            android:id="@+id/labelSettingsLatency"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Latency (ms)"
+            android:text="@string/settings_latency"
+            android:labelFor="@id/settingsLatency"
             android:textColor="@color/os_text_secondary"
             android:textSize="14sp"
             android:layout_marginBottom="8dp" />
@@ -91,9 +98,11 @@
             android:layout_marginBottom="24dp" />
 
         <TextView
+            android:id="@+id/labelSettingsListeningPort"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Listening Port"
+            android:text="@string/settings_listening_port"
+            android:labelFor="@id/settingsListeningPort"
             android:textColor="@color/os_text_secondary"
             android:textSize="14sp"
             android:layout_marginBottom="8dp" />
@@ -114,39 +123,56 @@
             android:layout_marginBottom="40dp" />
 
         <!-- Check for Updates button -->
-        <TextView
+        <Button
             android:id="@+id/btnCheckUpdates"
             android:layout_width="match_parent"
             android:layout_height="56dp"
             android:gravity="center"
             android:background="@drawable/bg_minimal_btn_ghost"
-            android:text="Check for Updates"
+            android:text="@string/settings_check_updates"
+            android:textAllCaps="false"
             android:textColor="@color/os_text_primary"
             android:textSize="16sp"
             android:fontFamily="sans-serif-medium"
             android:layout_marginBottom="16dp" />
 
-        <!-- Save button -->
-        <TextView
-            android:id="@+id/btnSaveSettings"
+        <!-- Save and connect button -->
+        <Button
+            android:id="@+id/btnSaveAndConnect"
             android:layout_width="match_parent"
             android:layout_height="56dp"
             android:gravity="center"
             android:background="@drawable/bg_minimal_btn"
-            android:text="Save Settings"
+            android:text="@string/settings_save_connect"
+            android:textAllCaps="false"
             android:textColor="@color/os_black"
             android:textSize="16sp"
             android:fontFamily="sans-serif-medium"
             android:layout_marginBottom="16dp" />
 
+        <!-- Save button -->
+        <Button
+            android:id="@+id/btnSaveSettings"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:gravity="center"
+            android:background="@drawable/bg_minimal_btn_ghost"
+            android:text="@string/settings_save"
+            android:textAllCaps="false"
+            android:textColor="@color/os_text_primary"
+            android:textSize="16sp"
+            android:fontFamily="sans-serif-medium"
+            android:layout_marginBottom="16dp" />
+
         <!-- Back button -->
-        <TextView
+        <Button
             android:id="@+id/btnBackSettings"
             android:layout_width="match_parent"
             android:layout_height="56dp"
             android:gravity="center"
             android:background="@drawable/bg_minimal_btn_ghost"
-            android:text="Back"
+            android:text="@string/btn_back"
+            android:textAllCaps="false"
             android:textColor="@color/os_text_primary"
             android:textSize="16sp"
             android:fontFamily="sans-serif-medium"

@@ -22,7 +22,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.WindowManager
-import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -47,12 +46,7 @@ class MainActivity : Activity() {
     private lateinit var previewContainer: FrameLayout
     private lateinit var statusText: TextView
     private lateinit var statusDetail: TextView
-    private lateinit var connectionInfo: TextView
-    private lateinit var manualContainer: LinearLayout
     private lateinit var obsSlotList: LinearLayout
-    private lateinit var inputObsHost: EditText
-    private lateinit var inputObsPort: EditText
-    private lateinit var inputLatency: EditText
     private lateinit var lensSelectorRow: LinearLayout
     private lateinit var liveBadge: View
     private lateinit var liveDot: View
@@ -63,14 +57,10 @@ class MainActivity : Activity() {
     private lateinit var btnTorch: TextView
     private lateinit var btnFlipCamera: TextView
     private lateinit var btnSettings: TextView
-    private lateinit var btnManualConnect: TextView
     private lateinit var btnStop: TextView
     private lateinit var screenOffOverlay: View
     private lateinit var identifyOverlay: TextView
     private lateinit var bottomControls: LinearLayout
-    private lateinit var portLabel: TextView
-    private lateinit var btnPortUp: TextView
-    private lateinit var btnPortDown: TextView
 
     // ── Core components ──
     private lateinit var camera: Camera2Controller
@@ -85,12 +75,15 @@ class MainActivity : Activity() {
 
     private val streamConfig = StreamConfig.Default1080p60
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var activeTargetName: String? = null
+    @Volatile private var activeTargetName: String? = null
     @Volatile private var phoneServerRunning = false
     @Volatile private var phoneConnected = false
     @Volatile private var reservedBy: String? = null
     @Volatile private var reservedSlotLabel: String? = null
-    private var listenerThread: Thread? = null
+    @Volatile private var listenerThread: Thread? = null
+    @Volatile private var pendingListenerStart = false
+    @Volatile private var listenerGeneration = 0L
+    @Volatile private var activityStarted = false
     private var keepScreenOn = false
     private var displayOff = false
     private var originalBrightness = -1f
@@ -102,6 +95,8 @@ class MainActivity : Activity() {
     private var liveDotAnimator: ObjectAnimator? = null
     private var currentPort: Int = ConnectionTarget.DEFAULT_PORT
     private var releaseReservationRunnable: Runnable? = null
+    private var lensRestartRunnable: Runnable? = null
+    private var pendingConnectAfterSettings = false
     private var currentDevices: List<DiscoveredObsDevice> = emptyList()
     private var activeStreamBitrate: Int = streamConfig.bitrate
 
@@ -123,6 +118,11 @@ class MainActivity : Activity() {
         bindViews()
         setupGestureDetector()
 
+        currentPort = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
+            .getInt(SettingsActivity.KEY_LISTENING_PORT, ConnectionTarget.DEFAULT_PORT)
+            .takeIf { it in 1024..65535 }
+            ?: ConnectionTarget.DEFAULT_PORT
+
         streamClient = SrtStreamClient()
         telemetry = TelemetrySampler(this)
         appUpdater = AppUpdater(this)
@@ -143,9 +143,10 @@ class MainActivity : Activity() {
         )
         encoder = createVideoEncoder(activeStreamBitrate)
         audioEncoder = MediaCodecAudioEncoder(
-            sampleRate = 44100,
-            channelCount = 1,
-            bitrate = 128_000,
+            context = this,
+            sampleRate = streamConfig.audioSampleRate,
+            channelCount = streamConfig.audioChannelCount,
+            bitrate = streamConfig.audioBitrate,
             onEncodedAccessUnit = { accessUnit ->
                 streamClient.sendAudioAccessUnit(accessUnit)
             },
@@ -189,12 +190,16 @@ class MainActivity : Activity() {
                 // Fix stretched preview: adjust SurfaceView to maintain camera aspect ratio
                 adjustPreviewAspectRatio(width, height)
             }
-            override fun surfaceDestroyed(holder: SurfaceHolder) = stopPhoneServer()
+            override fun surfaceDestroyed(holder: SurfaceHolder) {
+                // Close the camera before encoder teardown tries to rebuild a
+                // preview-only session against this now-invalid surface.
+                camera.stop()
+                stopPhoneServer(clearReservation = false, updateStatus = false)
+            }
         })
 
         setupButtons()
         setupNavBarInsets()
-        renderConnectionInfo()
         handlePairingIntent(intent)
         showVersionInstalledDialogOnce()
         mainHandler.postDelayed({ appUpdater.checkForUpdates() }, UPDATE_CHECK_DELAY_MS)
@@ -202,9 +207,11 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        activityStarted = true
         phoneAdvertiser.start()
         obsDiscoveryClient.start()
         controlServer.start()
+        startPreviewIfAllowed()
         startPhoneServerIfAllowed()
     }
 
@@ -217,11 +224,17 @@ class MainActivity : Activity() {
         if (savedPort != currentPort && savedPort in 1024..65535) {
             changePort(savedPort)
         }
+        if (pendingConnectAfterSettings) {
+            pendingConnectAfterSettings = false
+            startStream(connectionTargetFromSettings())
+        }
     }
 
     override fun onStop() {
-        stopPhoneServer()
+        activityStarted = false
+        cancelLensRestart()
         camera.stop()
+        stopPhoneServer(clearReservation = false, updateStatus = false)
         obsDiscoveryClient.stop()
         phoneAdvertiser.stop()
         controlServer.stop()
@@ -230,7 +243,9 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        appUpdater.unregister()
+        clearReservation()
+        mainHandler.removeCallbacksAndMessages(null)
+        appUpdater.dispose()
         super.onDestroy()
     }
 
@@ -240,10 +255,22 @@ class MainActivity : Activity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 100 && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+        if (requestCode == 100 &&
+            checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        ) {
             initializeLenses()
             startPreviewIfAllowed()
             startPhoneServerIfAllowed()
+        }
+    }
+
+    @Deprecated("Uses the platform Activity result API to avoid an AndroidX dependency")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == SETTINGS_REQUEST_CODE && resultCode == RESULT_OK &&
+            data?.getBooleanExtra(SettingsActivity.EXTRA_CONNECT_AFTER_SAVE, false) == true
+        ) {
+            pendingConnectAfterSettings = true
         }
     }
 
@@ -265,12 +292,7 @@ class MainActivity : Activity() {
         previewContainer = findViewById(R.id.previewContainer)
         statusText = findViewById(R.id.statusText)
         statusDetail = findViewById(R.id.statusDetail)
-        connectionInfo = findViewById(R.id.connectionInfo)
-        manualContainer = findViewById(R.id.manualContainer)
         obsSlotList = findViewById(R.id.obsSlotList)
-        inputObsHost = findViewById(R.id.inputObsHost)
-        inputObsPort = findViewById(R.id.inputObsPort)
-        inputLatency = findViewById(R.id.inputLatency)
         lensSelectorRow = findViewById(R.id.lensSelectorRow)
         liveBadge = findViewById(R.id.liveBadge)
         liveDot = findViewById(R.id.liveDot)
@@ -281,14 +303,10 @@ class MainActivity : Activity() {
         btnTorch = findViewById(R.id.btnTorch)
         btnFlipCamera = findViewById(R.id.btnFlipCamera)
         btnSettings = findViewById(R.id.btnSettings)
-        btnManualConnect = findViewById(R.id.btnManualConnect)
         btnStop = findViewById(R.id.btnStop)
         screenOffOverlay = findViewById(R.id.screenOffOverlay)
         identifyOverlay = findViewById(R.id.identifyOverlay)
         bottomControls = findViewById(R.id.bottomControls)
-        portLabel = findViewById(R.id.portLabel)
-        btnPortUp = findViewById(R.id.btnPortUp)
-        btnPortDown = findViewById(R.id.btnPortDown)
     }
 
     private fun setupButtons() {
@@ -298,15 +316,14 @@ class MainActivity : Activity() {
         btnFlipCamera.setOnClickListener { flipCamera() }
         btnSettings.setOnClickListener {
             val intent = Intent(this, SettingsActivity::class.java)
-            startActivity(intent)
+            @Suppress("DEPRECATION")
+            startActivityForResult(intent, SETTINGS_REQUEST_CODE)
         }
-        btnManualConnect.setOnClickListener { startStream(connectionTargetFromManualFields()) }
-        btnStop.setOnClickListener { stopPhoneServer() }
-
-        // Port selector buttons
-        portLabel.text = currentPort.toString()
-        btnPortUp.setOnClickListener { changePort(currentPort + 1) }
-        btnPortDown.setOnClickListener { changePort(currentPort - 1) }
+        btnStop.setOnClickListener {
+            stopPhoneServer(clearReservation = false)
+            startPreviewIfAllowed()
+            startPhoneServerIfAllowed()
+        }
 
         // Tap the screen-off overlay to re-enable display
         screenOffOverlay.setOnClickListener { toggleDisplayOff() }
@@ -410,7 +427,10 @@ class MainActivity : Activity() {
         camera.switchLens(lens)
         // If we were streaming, re-create the encoder and re-attach after the camera settles
         if (wasStreaming) {
-            mainHandler.postDelayed({
+            cancelLensRestart()
+            val restart = Runnable {
+                lensRestartRunnable = null
+                if (!activityStarted || activeTargetName == null) return@Runnable
                 runCatching {
                     encoder.start()
                     camera.startStreaming(encoder.inputSurface())
@@ -419,7 +439,9 @@ class MainActivity : Activity() {
                     statusText.text = "Encoder error"
                     statusDetail.text = e.message ?: "Unknown"
                 }
-            }, 500)
+            }
+            lensRestartRunnable = restart
+            mainHandler.postDelayed(restart, LENS_RESTART_DELAY_MS)
         }
         buildLensButtons()
     }
@@ -431,6 +453,11 @@ class MainActivity : Activity() {
             availableLenses.firstOrNull { it.isFrontFacing } ?: return
         }
         selectLens(target)
+    }
+
+    private fun cancelLensRestart() {
+        lensRestartRunnable?.let(mainHandler::removeCallbacks)
+        lensRestartRunnable = null
     }
 
     // ─────────────────────────── Keep screen on ───────────────────────────
@@ -480,17 +507,6 @@ class MainActivity : Activity() {
     }
 
     // ─────────────────────────── Connection ───────────────────────────
-
-    private fun renderConnectionInfo() {
-        connectionInfo.text = getString(
-            R.string.info_listener,
-            currentPort,
-            streamConfig.width,
-            streamConfig.height,
-            streamConfig.fps,
-            streamConfig.bitrateMbps,
-        )
-    }
 
     private fun renderObsSlots(devices: List<DiscoveredObsDevice>) {
         obsSlotList.removeAllViews()
@@ -602,7 +618,9 @@ class MainActivity : Activity() {
     }
 
     private fun startStream(target: ConnectionTarget) {
-        stopStream(updateStatus = false)
+        // Caller mode and listener mode share one native SRT transport. Fully
+        // stop the listener before opening a manual caller connection.
+        stopPhoneServer(clearReservation = true, updateStatus = false)
         useStreamBitrate(target.bitrateMbps)
         statusText.text = "Connecting…"
         statusDetail.text = "${currentLens.displayName} → ${target.name}"
@@ -615,9 +633,7 @@ class MainActivity : Activity() {
                 fps = streamConfig.fps,
             )
             encoder.start()
-            runCatching { audioEncoder.start() }.onFailure { e ->
-                Log.w("OpenStream", "Audio encoder start failed", e)
-            }
+            startAudioIfAllowed()
             camera.startStreaming(encoder.inputSurface())
             activeTargetName = target.name
             mainHandler.removeCallbacks(statsTicker)
@@ -625,86 +641,152 @@ class MainActivity : Activity() {
             showLiveState(target.name)
         }.onFailure { error ->
             stopStream()
+            startPreviewIfAllowed()
+            startPhoneServerIfAllowed()
             statusText.text = "Connection failed"
             statusDetail.text = error.message ?: "Unknown error"
         }
     }
 
+    private fun startAudioIfAllowed() {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            Log.i("OpenStream", "Microphone permission not granted; streaming video without audio")
+            return
+        }
+        runCatching { audioEncoder.start() }.onFailure { e ->
+            Log.w("OpenStream", "Audio encoder start failed; continuing video-only", e)
+        }
+    }
+
     private fun startPhoneServerIfAllowed() {
         if (phoneServerRunning) return
+        if (listenerThread?.isAlive == true) {
+            pendingListenerStart = true
+            Log.w("OpenStream", "Previous SRT listener is still stopping; not starting another")
+            return
+        }
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
         if (!cameraPreview.holder.surface.isValid) return
 
+        pendingListenerStart = false
+        val generation = listenerGeneration + 1
+        listenerGeneration = generation
         phoneServerRunning = true
         phoneConnected = false
         activeTargetName = null
         statusText.text = getString(R.string.status_ready)
+        statusText.setTextColor(getColor(R.color.os_text_primary))
         statusDetail.text = getString(R.string.status_waiting)
         btnStop.visibility = View.GONE
 
-        listenerThread = Thread({
-            while (phoneServerRunning) {
-                val listenUrl = "srt://0.0.0.0:${currentPort}?mode=listener&latency=${streamConfig.latencyMs}"
-                runCatching {
-                    streamClient.listen(
-                        url = listenUrl,
-                        codecMime = encoder.codecName,
-                        width = streamConfig.width,
-                        height = streamConfig.height,
-                        fps = streamConfig.fps,
-                    )
-                    if (!phoneServerRunning) return@runCatching
-                    phoneConnected = true
-                    cancelReservationRelease()
-                    val liveTargetName = reservedSlotLabel ?: "OBS"
-                    activeTargetName = liveTargetName
-                    runOnUiThread {
-                        showLiveState(liveTargetName)
-                        mainHandler.removeCallbacks(statsTicker)
-                        mainHandler.post(statsTicker)
+        val thread = Thread({
+            try {
+                while (isListenerActive(generation)) {
+                    val listenUrl = "srt://0.0.0.0:${currentPort}?mode=listener&latency=${streamConfig.latencyMs}"
+                    val listenResult = runCatching {
+                        streamClient.listen(
+                            url = listenUrl,
+                            codecMime = encoder.codecName,
+                            width = streamConfig.width,
+                            height = streamConfig.height,
+                            fps = streamConfig.fps,
+                        )
+                        if (!isListenerActive(generation)) {
+                            streamClient.disconnect()
+                            return@runCatching
+                        }
+                        phoneConnected = true
+                        cancelReservationRelease()
+                        val liveTargetName = reservedSlotLabel ?: "OBS"
+                        activeTargetName = liveTargetName
+                        runOnUiThread {
+                            if (!isListenerActive(generation)) return@runOnUiThread
+                            showLiveState(liveTargetName)
+                            mainHandler.removeCallbacks(statsTicker)
+                            mainHandler.post(statsTicker)
+                        }
+                        encoder.start()
+                        startAudioIfAllowed()
+                        camera.startStreaming(encoder.inputSurface())
+                        while (isListenerActive(generation) && phoneConnected) {
+                            Thread.sleep(LISTENER_POLL_MS)
+                        }
                     }
-                    encoder.start()
-                    runCatching { audioEncoder.start() }.onFailure { e ->
-                        Log.w("OpenStream", "Audio encoder start failed", e)
+
+                    if (listenResult.isFailure && isListenerActive(generation)) {
+                        val error = listenResult.exceptionOrNull()
+                        runOnUiThread {
+                            if (!isListenerActive(generation)) return@runOnUiThread
+                            statusText.text = "Listener error"
+                            statusDetail.text = error?.message ?: "Unknown"
+                        }
+                        try {
+                            Thread.sleep(LISTENER_RETRY_MS)
+                        } catch (_: InterruptedException) {
+                            Thread.currentThread().interrupt()
+                        }
                     }
-                    camera.startStreaming(encoder.inputSurface())
-                    while (phoneServerRunning && phoneConnected) {
-                        Thread.sleep(250)
+
+                    stopActiveEncoding(updateStatus = false)
+                    phoneConnected = false
+                    activeTargetName = null
+                    if (isListenerActive(generation)) {
+                        scheduleReservationRelease()
+                        runOnUiThread {
+                            if (!isListenerActive(generation)) return@runOnUiThread
+                            hideLiveState()
+                            statusText.text = getString(R.string.status_ready)
+                            statusDetail.text = reservedSlotLabel?.let { "Holding $it for reconnect" }
+                                ?: getString(R.string.status_waiting)
+                        }
                     }
-                }.onFailure { error ->
-                    runOnUiThread {
-                        statusText.text = "Listener error"
-                        statusDetail.text = error.message ?: "Unknown"
-                    }
-                    Thread.sleep(750)
                 }
-                stopActiveEncoding(updateStatus = false)
-                phoneConnected = false
-                scheduleReservationRelease()
-                activeTargetName = null
-                if (phoneServerRunning) {
-                    runOnUiThread {
-                        hideLiveState()
-                        statusText.text = getString(R.string.status_ready)
-                        statusDetail.text = reservedSlotLabel?.let { "Holding $it for reconnect" }
-                            ?: getString(R.string.status_waiting)
+            } finally {
+                if (listenerThread === Thread.currentThread()) {
+                    listenerThread = null
+                    mainHandler.post {
+                        if (pendingListenerStart) {
+                            pendingListenerStart = false
+                            startPhoneServerIfAllowed()
+                        }
                     }
                 }
             }
         }, "OpenStreamPhoneSrtListener").apply {
             isDaemon = true
-            start()
         }
+        listenerThread = thread
+        thread.start()
     }
 
-    private fun stopPhoneServer() {
+    private fun isListenerActive(generation: Long): Boolean {
+        return phoneServerRunning && listenerGeneration == generation
+    }
+
+    private fun stopPhoneServer(
+        clearReservation: Boolean = true,
+        updateStatus: Boolean = true,
+    ) {
+        pendingListenerStart = false
+        listenerGeneration += 1
         phoneServerRunning = false
         phoneConnected = false
-        clearReservation()
+        if (clearReservation) clearReservation()
         activeTargetName = null
         mainHandler.removeCallbacks(statsTicker)
         streamClient.disconnect()
-        stopActiveEncoding()
+        val thread = listenerThread
+        thread?.interrupt()
+        if (thread != null && thread !== Thread.currentThread()) {
+            runCatching { thread.join(LISTENER_STOP_TIMEOUT_MS) }
+                .onFailure { Thread.currentThread().interrupt() }
+        }
+        if (thread?.isAlive == true) {
+            Log.w("OpenStream", "SRT listener did not stop within ${LISTENER_STOP_TIMEOUT_MS}ms")
+        } else if (listenerThread === thread) {
+            listenerThread = null
+        }
+        stopActiveEncoding(updateStatus)
         hideLiveState()
         btnStop.visibility = View.GONE
     }
@@ -719,6 +801,7 @@ class MainActivity : Activity() {
     }
 
     private fun stopActiveEncoding(updateStatus: Boolean = true) {
+        cancelLensRestart()
         camera.stopStreaming()
         encoder.stop()
         audioEncoder.stop()
@@ -797,6 +880,7 @@ class MainActivity : Activity() {
         btnStop.visibility = View.VISIBLE
         startLiveDotAnimation()
         statusText.text = getString(R.string.status_streaming, targetName)
+        statusText.setTextColor(getColor(R.color.os_text_primary))
         statusDetail.text = "${streamConfig.width}×${streamConfig.height}@${streamConfig.fps} · ${activeStreamBitrate / 1_000_000} Mbps"
     }
 
@@ -910,28 +994,17 @@ class MainActivity : Activity() {
         dialog.show()
     }
 
-    private fun connectionTargetFromManualFields(): ConnectionTarget {
-        // Try loading from SharedPreferences first (set via SettingsActivity),
-        // fall back to inline fields if settings are empty.
+    private fun connectionTargetFromSettings(): ConnectionTarget {
         val settingsPrefs = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
-        val settingsHost = settingsPrefs.getString(SettingsActivity.KEY_OBS_HOST, "")?.trim().orEmpty()
-        val settingsPort = settingsPrefs.getInt(SettingsActivity.KEY_OBS_PORT, 0)
-        val settingsLatency = settingsPrefs.getInt(SettingsActivity.KEY_LATENCY, 0)
-
-        val host = settingsHost.ifBlank {
-            inputObsHost.text.toString().ifBlank { ConnectionTarget.DEFAULT_HOST }.trim()
-        }
-        val port = if (settingsPort > 0) settingsPort else {
-            inputObsPort.text.toString().toIntOrNull() ?: ConnectionTarget.DEFAULT_PORT
-        }
-        val latencyMs = if (settingsLatency > 0) settingsLatency else {
-            inputLatency.text.toString().toIntOrNull() ?: ConnectionTarget.DEFAULT_LATENCY_MS
-        }
+        val host = settingsPrefs.getString(SettingsActivity.KEY_OBS_HOST, ConnectionTarget.DEFAULT_HOST)
+            ?.trim().orEmpty().ifBlank { ConnectionTarget.DEFAULT_HOST }
+        val port = settingsPrefs.getInt(SettingsActivity.KEY_OBS_PORT, ConnectionTarget.DEFAULT_PORT)
+        val latencyMs = settingsPrefs.getInt(SettingsActivity.KEY_LATENCY, ConnectionTarget.DEFAULT_LATENCY_MS)
         return ConnectionTarget(
             name = ConnectionTarget.DEFAULT_NAME,
             host = host,
             port = port.coerceIn(1, 65535),
-            latencyMs = latencyMs.coerceIn(80, 2000),
+            latencyMs = latencyMs.coerceIn(80, 200),
         )
     }
 
@@ -974,10 +1047,8 @@ class MainActivity : Activity() {
         val clamped = newPort.coerceIn(1024, 65535)
         if (clamped == currentPort) return
         currentPort = clamped
-        portLabel.text = currentPort.toString()
-        renderConnectionInfo()
         // Restart the phone server on the new port
-        stopPhoneServer()
+        stopPhoneServer(clearReservation = false)
         // Re-create the advertiser with new port
         phoneAdvertiser.stop()
         phoneAdvertiser = PhoneDiscoveryAdvertiser(
@@ -1051,6 +1122,11 @@ class MainActivity : Activity() {
         private const val RECONNECT_RESERVATION_MS = 45_000L
         private const val IDENTIFY_OVERLAY_MS = 3_000L
         private const val UPDATE_CHECK_DELAY_MS = 2_500L
+        private const val LENS_RESTART_DELAY_MS = 500L
+        private const val LISTENER_POLL_MS = 250L
+        private const val LISTENER_RETRY_MS = 750L
+        private const val LISTENER_STOP_TIMEOUT_MS = 2_000L
+        private const val SETTINGS_REQUEST_CODE = 200
         private const val APP_PREFS_NAME = "openstream_app"
         private const val PREF_LAST_VERSION_DIALOG = "last_version_dialog"
         private val REQUIRED_PERMISSIONS = arrayOf(

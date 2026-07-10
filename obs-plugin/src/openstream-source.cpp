@@ -19,6 +19,7 @@
 
 #include <chrono>
 #include <atomic>
+#include <charconv>
 #include <cstdint>
 #include <inttypes.h>
 #include <cstdlib>
@@ -394,7 +395,14 @@ std::optional<int> json_int_value(const std::string &json, const std::string &ke
     return std::nullopt;
   }
   const size_t end = json.find_first_not_of("0123456789", first_digit);
-  return std::atoi(json.substr(first_digit, end - first_digit).c_str());
+  const char *begin_ptr = json.data() + first_digit;
+  const char *end_ptr = json.data() + (end == std::string::npos ? json.size() : end);
+  int value = 0;
+  const auto parsed = std::from_chars(begin_ptr, end_ptr, value);
+  if (parsed.ec != std::errc{} || parsed.ptr != end_ptr) {
+    return std::nullopt;
+  }
+  return value;
 }
 
 std::optional<bool> json_bool_value(const std::string &json, const std::string &key) {
@@ -454,8 +462,9 @@ class PhoneDiscoveryReceiver {
     }
   }
 
-  std::vector<PhoneDevice> devices() const {
+  std::vector<PhoneDevice> devices() {
     std::lock_guard<std::mutex> lock(mutex_);
+    pruneExpiredLocked();
     std::vector<PhoneDevice> snapshot;
     snapshot.reserve(devices_.size());
     for (const auto &entry : devices_) {
@@ -474,8 +483,9 @@ class PhoneDiscoveryReceiver {
   }
 
   std::optional<PhoneDevice> select(const std::string &selected_id,
-                                    const std::string &source_instance_id) const {
+                                    const std::string &source_instance_id) {
     std::lock_guard<std::mutex> lock(mutex_);
+    pruneExpiredLocked();
     if (selected_id.empty() || selected_id == kAutoPhoneId) {
       for (const auto &entry : devices_) {
         if (!entry.second.busy || entry.second.reserved_by == source_instance_id) {
@@ -546,7 +556,11 @@ class PhoneDiscoveryReceiver {
     while (running_.load()) {
       char buffer[4096] = {};
       sockaddr_in source = {};
+#ifdef _WIN32
       int source_len = sizeof(source);
+#else
+      socklen_t source_len = sizeof(source);
+#endif
       const int received =
           recvfrom(socket,
                    buffer,
@@ -555,6 +569,8 @@ class PhoneDiscoveryReceiver {
                    reinterpret_cast<sockaddr *>(&source),
                    &source_len);
       if (received <= 0) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        pruneExpiredLocked();
         continue;
       }
       std::string payload(buffer, buffer + received);
@@ -569,21 +585,31 @@ class PhoneDiscoveryReceiver {
       inet_ntop(AF_INET, &source.sin_addr, packet_host, sizeof(packet_host));
       PhoneDevice device;
       device.name = json_string_value(json, "name").value_or("Android Phone");
-      device.instance_id = json_string_value(json, "instanceId").value_or("");
-      device.host = json_string_value(json, "host").value_or(packet_host);
-      if (device.host.empty()) {
-        device.host = packet_host;
+      if (device.name.size() > 128) {
+        device.name.resize(128);
       }
-      device.port = json_int_value(json, "listenerPort").value_or(9000);
+      device.instance_id = json_string_value(json, "instanceId").value_or("");
+      if (device.instance_id.size() > 256) {
+        continue;
+      }
+      // The UDP source address is authoritative. Trusting the JSON host lets a
+      // spoofed beacon redirect OBS to an arbitrary address or inject SRT query
+      // parameters into the URL assembled below.
+      device.host = packet_host;
+      device.port = json_int_value(json, "listenerPort").value_or(-1);
+      device.control_port = json_int_value(json, "controlPort").value_or(-1);
+      if (device.port < 1 || device.port > 65535 ||
+          device.control_port < 1 || device.control_port > 65535) {
+        continue;
+      }
       if (device.instance_id.empty()) {
         device.instance_id = device.host + ":" + std::to_string(device.port);
       }
-      device.control_port = json_int_value(json, "controlPort").value_or(9001);
-      device.latency_ms = json_int_value(json, "latencyMs").value_or(120);
-      device.width = json_int_value(json, "width").value_or(1920);
-      device.height = json_int_value(json, "height").value_or(1080);
-      device.fps = json_int_value(json, "fps").value_or(30);
-      device.bitrate_mbps = json_int_value(json, "bitrateMbps").value_or(12);
+      device.latency_ms = std::clamp(json_int_value(json, "latencyMs").value_or(120), 80, 200);
+      device.width = std::clamp(json_int_value(json, "width").value_or(1920), 16, 8192);
+      device.height = std::clamp(json_int_value(json, "height").value_or(1080), 16, 8192);
+      device.fps = std::clamp(json_int_value(json, "fps").value_or(30), 1, 240);
+      device.bitrate_mbps = std::clamp(json_int_value(json, "bitrateMbps").value_or(12), 1, 200);
       device.busy = json_bool_value(json, "busy").value_or(false);
       device.reserved_by = json_string_value(json, "reservedBy").value_or("");
       device.last_seen = std::chrono::steady_clock::now();
@@ -769,6 +795,9 @@ void set_slot_status(OpenStreamSource *ctx, std::string status) {
 // Simple HTTP POST helper for camera controls
 bool send_control_command(const std::string &host, int port,
                           const std::string &path, const std::string &body) {
+  if (port < 1 || port > 65535 || body.size() > 8192 || path.empty() || path.front() != '/') {
+    return false;
+  }
   SocketHandle sock = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (sock == kInvalidSocket) return false;
 
@@ -786,7 +815,10 @@ bool send_control_command(const std::string &host, int port,
   sockaddr_in addr = {};
   addr.sin_family = AF_INET;
   addr.sin_port = htons(static_cast<uint16_t>(port));
-  addr.sin_addr.s_addr = inet_addr(host.c_str());
+  if (inet_pton(AF_INET, host.c_str(), &addr.sin_addr) != 1) {
+    close_socket(sock);
+    return false;
+  }
 
   if (connect(sock, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) != 0) {
     close_socket(sock);
@@ -802,14 +834,68 @@ bool send_control_command(const std::string &host, int port,
           << "\r\n"
           << body;
   const std::string req = request.str();
-  send(sock, req.c_str(), static_cast<int>(req.size()), 0);
+  size_t sent_total = 0;
+  while (sent_total < req.size()) {
+    const int sent = send(sock,
+                          req.data() + sent_total,
+                          static_cast<int>(req.size() - sent_total),
+                          0);
+    if (sent <= 0) {
+      close_socket(sock);
+      return false;
+    }
+    sent_total += static_cast<size_t>(sent);
+  }
 
-  char response[1024] = {};
-  recv(sock, response, sizeof(response) - 1, 0);
+  constexpr size_t kMaxResponseBytes = 8192;
+  std::string response;
+  response.reserve(1024);
+  char response_chunk[512];
+  while (response.size() < kMaxResponseBytes) {
+    const size_t remaining_capacity = kMaxResponseBytes - response.size();
+    const size_t receive_capacity =
+        remaining_capacity < sizeof(response_chunk) ? remaining_capacity : sizeof(response_chunk);
+    const int received = recv(sock,
+                              response_chunk,
+                              static_cast<int>(receive_capacity),
+                              0);
+    if (received <= 0) {
+      break;
+    }
+    response.append(response_chunk, static_cast<size_t>(received));
+  }
   close_socket(sock);
 
-  return std::strstr(response, "200 OK") != nullptr &&
-         std::strstr(response, "\"ok\":false") == nullptr;
+  const size_t header_end = response.find("\r\n\r\n");
+  if (header_end == std::string::npos ||
+      (response.rfind("HTTP/1.1 200 ", 0) != 0 && response.rfind("HTTP/1.0 200 ", 0) != 0)) {
+    return false;
+  }
+
+  const size_t length_header = response.find("Content-Length:");
+  if (length_header == std::string::npos || length_header > header_end) {
+    return false;
+  }
+  const size_t length_start = response.find_first_of("0123456789", length_header + 15);
+  if (length_start == std::string::npos || length_start > header_end) {
+    return false;
+  }
+  const size_t length_end = response.find_first_not_of("0123456789", length_start);
+  size_t content_length = 0;
+  const char *length_begin_ptr = response.data() + length_start;
+  const char *length_end_ptr = response.data() +
+      (length_end == std::string::npos ? response.size() : length_end);
+  const auto parsed_length = std::from_chars(length_begin_ptr, length_end_ptr, content_length);
+  if (parsed_length.ec != std::errc{} || parsed_length.ptr != length_end_ptr ||
+      content_length > kMaxResponseBytes) {
+    return false;
+  }
+  const size_t body_start = header_end + 4;
+  if (body_start > response.size() || response.size() - body_start < content_length) {
+    return false;
+  }
+  const std::string response_body = response.substr(body_start, content_length);
+  return json_bool_value(response_body, "ok").value_or(false);
 }
 
 void set_active_phone(OpenStreamSource *ctx, std::optional<PhoneDevice> phone) {
@@ -846,10 +932,13 @@ std::string phone_label(const PhoneDevice &phone) {
 
 bool reserve_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
   std::ostringstream body;
-  body << "{\"sourceInstanceId\":\"" << json_escape(ctx->instance_id) << "\","
-       << "\"slotId\":\"" << json_escape(ctx->slot_id) << "\","
-       << "\"slotLabel\":\"" << json_escape(ctx->slot_label) << "\","
-       << "\"bitrateMbps\":" << ctx->bitrate_mbps << "}";
+  {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    body << "{\"sourceInstanceId\":\"" << json_escape(ctx->instance_id) << "\","
+         << "\"slotId\":\"" << json_escape(ctx->slot_id) << "\","
+         << "\"slotLabel\":\"" << json_escape(ctx->slot_label) << "\","
+         << "\"bitrateMbps\":" << ctx->bitrate_mbps << "}";
+  }
   return send_control_command(phone.host, phone.control_port, "/reserve", body.str());
 }
 
@@ -1227,6 +1316,75 @@ void decode_packets(OpenStreamSource *ctx,
   AVStream *video_stream = format_ctx->streams[video_stream_index];
   uint64_t audio_frames_output = 0;
 
+  const auto drain_video = [&]() -> int {
+    while (!ctx->stop_requested.load()) {
+      const int result = avcodec_receive_frame(video_decoder_ctx, frame.get());
+      if (result == AVERROR(EAGAIN) || result == AVERROR_EOF) {
+        return 0;
+      }
+      if (result < 0) {
+        blog(LOG_WARNING,
+             "[OpenStream] Could not decode frame: %s",
+             av_error(result).c_str());
+        return result;
+      }
+      output_decoded_frame(
+          ctx, video_stream, video_decoder_ctx, frame.get(), &sws_ctx, &bgra_buffer);
+      av_frame_unref(frame.get());
+    }
+    return AVERROR_EXIT;
+  };
+
+  const auto drain_audio = [&]() -> int {
+    while (!ctx->stop_requested.load()) {
+      const int result = avcodec_receive_frame(audio_decoder_ctx, audio_frame.get());
+      if (result == AVERROR(EAGAIN) || result == AVERROR_EOF) {
+        return 0;
+      }
+      if (result < 0) {
+        return result;
+      }
+
+      const AVSampleFormat sample_format =
+          static_cast<AVSampleFormat>(audio_frame->format);
+      const audio_format obs_format = obs_audio_format_for_sample_format(sample_format);
+      const int sample_rate =
+          audio_frame->sample_rate > 0 ? audio_frame->sample_rate : audio_decoder_ctx->sample_rate;
+      const int channels =
+          audio_frame->ch_layout.nb_channels > 0
+              ? audio_frame->ch_layout.nb_channels
+              : audio_decoder_ctx->ch_layout.nb_channels;
+      const speaker_layout speakers = obs_speaker_layout_for_channels(channels);
+      if (obs_format == AUDIO_FORMAT_UNKNOWN || speakers == SPEAKERS_UNKNOWN ||
+          sample_rate <= 0 || audio_frame->nb_samples <= 0) {
+        av_frame_unref(audio_frame.get());
+        return AVERROR(EINVAL);
+      }
+
+      struct obs_source_audio obs_audio = {};
+      obs_audio.samples_per_sec = sample_rate;
+      obs_audio.frames = static_cast<uint32_t>(audio_frame->nb_samples);
+      obs_audio.timestamp = os_gettime_ns();
+      obs_audio.format = obs_format;
+      obs_audio.speakers = speakers;
+      for (int i = 0; i < MAX_AV_PLANES && audio_frame->data[i]; i++) {
+        obs_audio.data[i] = audio_frame->data[i];
+      }
+
+      obs_source_output_audio(ctx->source, &obs_audio);
+      ++audio_frames_output;
+      if (audio_frames_output == 1 || audio_frames_output % 1000 == 0) {
+        blog(LOG_INFO,
+             "[OpenStream] Output %" PRIu64 " decoded audio frame(s) (%d Hz, %d ch)",
+             audio_frames_output,
+             sample_rate,
+             channels);
+      }
+      av_frame_unref(audio_frame.get());
+    }
+    return AVERROR_EXIT;
+  };
+
   while (!ctx->stop_requested.load()) {
     const int read_result = av_read_frame(format_ctx, packet.get());
     if (read_result == AVERROR_EXIT && ctx->stop_requested.load()) {
@@ -1246,6 +1404,14 @@ void decode_packets(OpenStreamSource *ctx,
     // Handle video packets
     if (packet->stream_index == video_stream_index) {
       int result = avcodec_send_packet(video_decoder_ctx, packet.get());
+      if (result == AVERROR(EAGAIN)) {
+        const int drain_result = drain_video();
+        if (drain_result >= 0) {
+          result = avcodec_send_packet(video_decoder_ctx, packet.get());
+        } else {
+          result = drain_result;
+        }
+      }
       av_packet_unref(packet.get());
       if (result < 0) {
         blog(LOG_WARNING,
@@ -1253,78 +1419,24 @@ void decode_packets(OpenStreamSource *ctx,
              av_error(result).c_str());
         continue;
       }
-
-      while (!ctx->stop_requested.load()) {
-        result = avcodec_receive_frame(video_decoder_ctx, frame.get());
-        if (result == AVERROR(EAGAIN) || result == AVERROR_EOF) {
-          break;
-        }
-        if (result < 0) {
-          blog(LOG_WARNING,
-               "[OpenStream] Could not decode frame: %s",
-               av_error(result).c_str());
-          break;
-        }
-
-        output_decoded_frame(
-            ctx, video_stream, video_decoder_ctx, frame.get(), &sws_ctx, &bgra_buffer);
-        av_frame_unref(frame.get());
-      }
+      drain_video();
     }
     // Handle audio packets
     else if (audio_decoder_ctx && packet->stream_index == audio_stream_index) {
       int result = avcodec_send_packet(audio_decoder_ctx, packet.get());
+      if (result == AVERROR(EAGAIN)) {
+        const int drain_result = drain_audio();
+        if (drain_result >= 0) {
+          result = avcodec_send_packet(audio_decoder_ctx, packet.get());
+        } else {
+          result = drain_result;
+        }
+      }
       av_packet_unref(packet.get());
       if (result < 0) {
         continue;
       }
-
-      while (!ctx->stop_requested.load()) {
-        result = avcodec_receive_frame(audio_decoder_ctx, audio_frame.get());
-        if (result == AVERROR(EAGAIN) || result == AVERROR_EOF) {
-          break;
-        }
-        if (result < 0) {
-          break;
-        }
-
-        const AVSampleFormat sample_format =
-            static_cast<AVSampleFormat>(audio_frame->format);
-        const audio_format obs_format = obs_audio_format_for_sample_format(sample_format);
-        const int sample_rate =
-            audio_frame->sample_rate > 0 ? audio_frame->sample_rate : audio_decoder_ctx->sample_rate;
-        const int channels =
-            audio_frame->ch_layout.nb_channels > 0
-                ? audio_frame->ch_layout.nb_channels
-                : audio_decoder_ctx->ch_layout.nb_channels;
-        const speaker_layout speakers = obs_speaker_layout_for_channels(channels);
-        if (obs_format == AUDIO_FORMAT_UNKNOWN || speakers == SPEAKERS_UNKNOWN ||
-            sample_rate <= 0 || audio_frame->nb_samples <= 0) {
-          av_frame_unref(audio_frame.get());
-          break;
-        }
-
-        struct obs_source_audio obs_audio = {};
-        obs_audio.samples_per_sec = sample_rate;
-        obs_audio.frames = static_cast<uint32_t>(audio_frame->nb_samples);
-        obs_audio.timestamp = os_gettime_ns();
-        obs_audio.format = obs_format;
-        obs_audio.speakers = speakers;
-        for (int i = 0; i < MAX_AV_PLANES && audio_frame->data[i]; i++) {
-          obs_audio.data[i] = audio_frame->data[i];
-        }
-
-        obs_source_output_audio(ctx->source, &obs_audio);
-        ++audio_frames_output;
-        if (audio_frames_output == 1 || audio_frames_output % 1000 == 0) {
-          blog(LOG_INFO,
-               "[OpenStream] Output %" PRIu64 " decoded audio frame(s) (%d Hz, %d ch)",
-               audio_frames_output,
-               sample_rate,
-               channels);
-        }
-        av_frame_unref(audio_frame.get());
-      }
+      drain_audio();
     } else {
       av_packet_unref(packet.get());
     }
@@ -1679,6 +1791,13 @@ void openstream_defaults(obs_data_t *settings) {
 obs_properties_t *openstream_properties(void *data) {
   obs_properties_t *props = obs_properties_create();
   auto *ctx = static_cast<OpenStreamSource *>(data);
+  std::string slot_status_snapshot;
+  std::string selected_phone_id_snapshot;
+  if (ctx) {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    slot_status_snapshot = ctx->slot_status;
+    selected_phone_id_snapshot = ctx->selected_phone_id;
+  }
 
   obs_properties_t *slot_group = obs_properties_create();
   obs_property_t *slot_summary = obs_properties_add_text(
@@ -1710,9 +1829,9 @@ obs_properties_t *openstream_properties(void *data) {
       OBS_TEXT_INFO);
   obs_property_text_set_info_word_wrap(slot_status, true);
   if (ctx) {
-    if (ctx->slot_status == "Reconnecting" ||
-        ctx->slot_status == "Offline" ||
-        ctx->slot_status == "Empty Slot") {
+    if (slot_status_snapshot == "Reconnecting" ||
+        slot_status_snapshot == "Offline" ||
+        slot_status_snapshot == "Empty Slot") {
       obs_property_text_set_info_type(slot_status, OBS_TEXT_INFO_WARNING);
     }
   }
@@ -1731,16 +1850,17 @@ obs_properties_t *openstream_properties(void *data) {
       "Choose a specific Android phone, or let any available phone connect from the app.");
   obs_property_list_add_string(phone_list, "Let the phone choose this slot", PhoneDiscoveryReceiver::kAutoPhoneId);
   if (ctx) {
-    bool selected_listed = ctx->selected_phone_id.empty() ||
-                           ctx->selected_phone_id == PhoneDiscoveryReceiver::kAutoPhoneId;
+    bool selected_listed = selected_phone_id_snapshot.empty() ||
+                           selected_phone_id_snapshot == PhoneDiscoveryReceiver::kAutoPhoneId;
     for (const PhoneDevice &phone : ctx->phone_discovery.devices()) {
       obs_property_list_add_string(phone_list, phone_label(phone).c_str(), phone.instance_id.c_str());
-      if (phone.instance_id == ctx->selected_phone_id) {
+      if (phone.instance_id == selected_phone_id_snapshot) {
         selected_listed = true;
       }
     }
     if (!selected_listed) {
-      obs_property_list_add_string(phone_list, "Selected phone unavailable", ctx->selected_phone_id.c_str());
+      obs_property_list_add_string(
+          phone_list, "Selected phone unavailable", selected_phone_id_snapshot.c_str());
     }
   }
   obs_property_t *refresh_button =

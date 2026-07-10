@@ -56,9 +56,13 @@
     <string name="permission_dismiss">CANCEL</string>
 
     <!-- Settings labels -->
+    <string name="settings_title">Settings</string>
     <string name="settings_obs_host">OBS HOST</string>
     <string name="settings_obs_port">OBS PORT</string>
     <string name="settings_latency">LATENCY (ms)</string>
     <string name="settings_listening_port">LISTENING PORT</string>
     <string name="settings_check_updates">CHECK FOR UPDATES</string>
+    <string name="screen_off_overlay_description">Screen dimmed. Tap to restore controls.</string>
+    <string name="settings_save_connect">Save &amp; Connect</string>
+    <string name="settings_save">Save Settings</string>
 </resources>

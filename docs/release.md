@@ -7,6 +7,7 @@ OpenStream releases should give users direct installable assets instead of makin
 | Asset | Audience | Purpose |
 |---|---|---|
 | `openstream-android.apk` | Android users | Signed install package for the OpenStream camera app. |
+| `openstream-android.apk.sha256` | Android users and automation | SHA-256 checksum for the exact APK in the release. |
 | `openstream-android-update.json` | Android app updater | Version metadata used by the in-app update prompt. |
 | `openstream-obs-plugin-installer-windows-x64.exe` | Windows OBS users | Recommended one-click OBS plugin installer. |
 | `openstream-obs-windows-x64.zip` | Technical users | Manual plugin package with DLL and install scripts. |
@@ -28,27 +29,44 @@ The `Release` workflow builds:
 | OBS plugin package | `openstream-obs-windows-x64.zip` |
 | OBS plugin installer | `openstream-obs-plugin-installer-windows-x64.exe` |
 
-The publish job downloads the build artifacts, normalizes the APK name, writes Android update metadata, and runs `gh release create` with the release files.
+The publish job runs only after the repository tests, Android unit tests and
+lint, signed Android build, and OBS plugin build succeed. It downloads the
+artifacts, normalizes the APK name, writes its SHA-256 checksum into both a
+sidecar file and the Android update metadata, and runs `gh release create`.
 
 You can also run the `Release` workflow manually from GitHub Actions and provide a tag such as `v2.0.0-beta`.
 
-The Android job passes the release tag into Gradle as the APK `versionName` and uses the release commit timestamp as `versionCode`, so update ordering stays monotonic across the full release and Android auto-update workflows.
+The Android job passes the release tag into Gradle as the APK `versionName` and uses the release commit timestamp as `versionCode`, so update ordering stays monotonic across full releases.
 
-If Android signing secrets are configured, the workflow publishes a signed release APK. If they are missing, it publishes a debug-signed beta APK so preview releases can still ship with the OBS plugin assets.
+Public releases require all Android signing secrets. Missing or incomplete
+signing inputs fail the workflow; it never publishes a debug-signed fallback.
+Debug APKs remain available only as pull-request and local development
+artifacts.
 
-## Automatic Android Updates After PR Merge
+## In-App Updates
 
-The `Android APK` workflow also runs on every push to `main`, which is what happens after a pull request is merged. That workflow builds `openstream-android.apk`, writes `openstream-android-update.json`, and publishes a GitHub Release tagged `android-latest`.
+The `Android APK` workflow runs pytest, Android unit tests, lint, and a debug
+streaming build for pull requests and pushes. It publishes CI artifacts only.
 
-Newer Android app builds check the dedicated `android-latest` release for those assets, so a merged PR can become an in-app update without manually pushing a version tag. The workflow creates that Android-only release with `--latest=false` so public `/releases/latest/download/...` links still point to the full release that includes the Windows OBS installer and zip.
+In-app updates follow GitHub's latest full release. The APK, checksum metadata,
+Windows OBS installer, and plugin zip therefore come from the same commit. The
+app verifies the APK SHA-256 digest before opening the package installer.
 
-For already-installed app versions that still check GitHub's public latest release, the same workflow also refreshes `openstream-android.apk` and `openstream-android-update.json` on the current public latest release without replacing its Windows assets.
+### Android and OBS compatibility gate
 
-Configure the Android signing secrets below if users have installed a release-signed APK; otherwise Android will reject a debug-signed fallback update over a release-signed install.
+Changes to discovery, pairing, required control tokens, reservation behavior,
+or media framing must ship atomically in a full release containing both the
+Android APK and OBS artifacts.
+
+For example, an Android build that introduces a required control token cannot pair with an
+older OBS plugin whose beacon does not contain that token. Tests and review
+must cover the old/new compatibility matrix before changing either side of the
+wire contract.
 
 ### Android Signing Secrets
 
-Configure these GitHub Actions secrets when you want GitHub releases to publish a signed Android APK:
+Configure all of these GitHub Actions secrets before publishing an Android
+update or full release:
 
 | Secret | Purpose |
 |---|---|
@@ -100,14 +118,19 @@ $env:OPENSTREAM_RELEASE_KEY_PASSWORD = "<key-password>"
 .\gradlew.bat :app:assembleRelease
 ```
 
-Do not pass `-Popenstream.nonStreamingCiBuild=true` for release artifacts. If signing secrets are unavailable, validate the debug-signed fallback with `:app:assembleDebug` instead.
+Do not pass `-Popenstream.nonStreamingCiBuild=true` for release artifacts. If
+signing secrets are unavailable, use `:app:assembleDebug` for local validation
+only; do not publish that APK as an update or release.
 
 ## Release Checklist
 
 - Confirm the README links point to the release tag being published.
 - Confirm the setup guide links to the same APK, installer EXE, and plugin zip.
+- Confirm pytest, Android unit tests, lint, and both production builds passed.
+- Confirm `openstream-android.apk.sha256` matches the APK and the `apkSha256` metadata field.
 - Confirm OBS lists `OpenStream V8` and can still load saved `openstream_phone_v7_source` scenes.
-- Confirm the Android APK is installable on a clean phone. Prefer signed release APKs for public releases; debug-signed beta APKs are acceptable for preview tags.
+- Confirm the Android APK is release-signed and installable over the previous public release.
+- Confirm protocol-affecting Android and OBS changes are released together and pass the old/new compatibility matrix.
 - Confirm the GitHub release assets are attached, not only source-code archives.
 - Confirm the repository website is set to `https://openstream.pages.dev`.
 - Confirm the release notes link users to [`docs/set-up.md`](set-up.md).

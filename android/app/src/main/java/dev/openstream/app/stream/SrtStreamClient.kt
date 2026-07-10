@@ -15,7 +15,10 @@ data class StreamStats(
 }
 
 class SrtStreamClient {
-    private var connected = false
+    @Volatile private var connected = false
+    private val sessionGeneration = AtomicLong()
+    private val operationLock = Any()
+    private val stateLock = Any()
     val stats: StreamStats
         get() = StreamStats(
             accessUnitsSent = accessUnitsSent.get(),
@@ -33,16 +36,20 @@ class SrtStreamClient {
 
     fun connect(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
         require(url.startsWith("srt://")) { "OpenStream V1 expects an SRT URL" }
-        check(SrtNativeBridge.connect(url, codecMime, width, height, fps)) { "Native SRT bridge failed to connect" }
-        resetStats()
-        connected = true
+        synchronized(operationLock) {
+            establishSession("connection") {
+                SrtNativeBridge.connect(url, codecMime, width, height, fps)
+            }
+        }
     }
 
     fun listen(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
         require(url.startsWith("srt://")) { "OpenStream V2 expects an SRT URL" }
-        check(SrtNativeBridge.listen(url, codecMime, width, height, fps)) { "Native SRT bridge failed to listen" }
-        resetStats()
-        connected = true
+        synchronized(operationLock) {
+            establishSession("listener") {
+                SrtNativeBridge.listen(url, codecMime, width, height, fps)
+            }
+        }
     }
 
     fun sendVideoAccessUnit(accessUnit: EncodedAccessUnit): Boolean {
@@ -72,10 +79,36 @@ class SrtStreamClient {
     }
 
     fun disconnect() {
-        if (connected) {
+        synchronized(stateLock) {
+            sessionGeneration.incrementAndGet()
+            connected = false
+            // listen() blocks in native accept before connected becomes true. This
+            // must not take operationLock so lifecycle stop can cancel that accept.
             SrtNativeBridge.disconnect()
         }
-        connected = false
+    }
+
+    private inline fun establishSession(operationName: String, nativeOperation: () -> Boolean) {
+        val generation = synchronized(stateLock) {
+            sessionGeneration.incrementAndGet()
+        }
+        val didConnect = nativeOperation()
+        val cancelled = synchronized(stateLock) {
+            if (generation != sessionGeneration.get()) {
+                true
+            } else {
+                check(didConnect) { "Native SRT bridge failed to $operationName" }
+                resetStats()
+                connected = true
+                false
+            }
+        }
+        if (cancelled) {
+            // operationLock is still held, so this cleanup cannot tear down a
+            // subsequently started connect/listen operation.
+            if (didConnect) SrtNativeBridge.disconnect()
+            error("SRT $operationName was cancelled")
+        }
     }
 
     private fun resetStats() {
