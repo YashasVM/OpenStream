@@ -409,6 +409,18 @@ def test_obs_v2_client_uses_android_canonical_camera_schema() -> None:
     assert 'append_json_number(body, first, "frameRate"' not in source
 
 
+def test_obs_serializes_remote_commands_and_uses_mutation_state() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+    dock = read("obs-plugin/src/openstream-dock.cpp")
+    assert "remote_request && ctx->control_request_pending" in source
+    assert "if (remote_request) ctx->control_request_pending = true" in source
+    assert "if (remote_request) ctx->control_request_pending = false" in source
+    assert "parse_camera_state_response(response.body)" in source
+    assert 'send_control_request(phone->host, phone->control_port,\n                                                             "GET", "/v2/state"' not in source
+    assert "can_stop || !camera->request_pending" in dock
+    assert "command.type != OpenStreamCommandType::Stop" in dock
+
+
 def test_android_unattended_service_is_explicit_and_non_sticky() -> None:
     manifest = read("android/app/src/main/AndroidManifest.xml")
     service = read("android/app/src/main/java/dev/openstream/app/service/OpenStreamCameraService.kt")

@@ -486,9 +486,10 @@ class OpenStreamDock final : public QWidget {
     }
 
     pages_->setCurrentIndex(2);
+    const bool can_stop = camera->live || camera->status == "Reserved" || camera->status == "Connecting";
     const bool usable = camera->phone_available && !camera->request_pending;
-    primary_button_->setText(camera->live || camera->status == "Reserved" || camera->status == "Connecting" ? "Stop" : "Connect");
-    primary_button_->setEnabled(!camera->request_pending);
+    primary_button_->setText(can_stop ? "Stop" : "Connect");
+    primary_button_->setEnabled(can_stop || !camera->request_pending);
     refresh_button_->setEnabled(usable);
     identify_button_->setEnabled(usable);
     feedback_->setText(!camera->last_control_error.empty()
@@ -623,7 +624,7 @@ class OpenStreamDock final : public QWidget {
 
   void runCommand(OpenStreamCommand command, const QString &working) {
     const auto camera = selected();
-    if (!camera || camera->request_pending) return;
+    if (!camera || (camera->request_pending && command.type != OpenStreamCommandType::Stop)) return;
     if (command.expected_revision == 0) command.expected_revision = camera->state.revision;
     const std::string instance = camera->instance_id;
     if (!working.isEmpty()) feedback_text_ = working;

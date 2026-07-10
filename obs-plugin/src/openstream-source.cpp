@@ -2227,14 +2227,12 @@ OpenStreamCameraCapabilities parse_capabilities(const std::string &json) {
   return caps;
 }
 
-OpenStreamCameraState parse_camera_state(const std::string &json) {
+OpenStreamCameraState parse_camera_state_object(obs_data_t *root) {
   OpenStreamCameraState state;
-  obs_data_t *root = obs_data_create_from_json(json.c_str());
   if (!root || data_number(root, "protocolVersion").value_or(0.0) != 2.0 ||
       !data_has_type(root, "settings", OBS_DATA_OBJECT) ||
       !data_has_type(root, "telemetry", OBS_DATA_OBJECT) ||
       !data_has_type(root, "tally", OBS_DATA_OBJECT)) {
-    if (root) obs_data_release(root);
     return state;
   }
   obs_data_t *settings = obs_data_get_obj(root, "settings");
@@ -2244,7 +2242,6 @@ OpenStreamCameraState parse_camera_state(const std::string &json) {
     if (settings) obs_data_release(settings);
     if (telemetry) obs_data_release(telemetry);
     if (tally) obs_data_release(tally);
-    obs_data_release(root);
     return state;
   }
 
@@ -2276,6 +2273,25 @@ OpenStreamCameraState parse_camera_state(const std::string &json) {
   obs_data_release(settings);
   obs_data_release(telemetry);
   obs_data_release(tally);
+  return state;
+}
+
+OpenStreamCameraState parse_camera_state(const std::string &json) {
+  obs_data_t *root = obs_data_create_from_json(json.c_str());
+  if (!root) return {};
+  const auto state = parse_camera_state_object(root);
+  obs_data_release(root);
+  return state;
+}
+
+OpenStreamCameraState parse_camera_state_response(const std::string &json) {
+  obs_data_t *root = obs_data_create_from_json(json.c_str());
+  if (!root) return {};
+  OpenStreamCameraState state;
+  obs_data_t *nested = data_has_type(root, "state", OBS_DATA_OBJECT)
+                           ? obs_data_get_obj(root, "state") : nullptr;
+  state = parse_camera_state_object(nested ? nested : root);
+  if (nested) obs_data_release(nested);
   obs_data_release(root);
   return state;
 }
@@ -2380,10 +2396,23 @@ void openstream_run_command_async(const std::string &instance_id,
     if (completion) completion({false, "Camera source is no longer available", 0});
     return;
   }
+  const bool remote_request = command.type != OpenStreamCommandType::Start &&
+                              command.type != OpenStreamCommandType::Stop &&
+                              command.type != OpenStreamCommandType::RefreshDiscovery;
+  bool command_already_running = false;
   {
     std::lock_guard<std::mutex> lock(ctx->settings_mutex);
-    ctx->control_request_pending = true;
-    ctx->last_control_error.clear();
+    if (remote_request && ctx->control_request_pending) {
+      command_already_running = true;
+    } else {
+      if (remote_request) ctx->control_request_pending = true;
+      ctx->last_control_error.clear();
+    }
+  }
+  if (command_already_running) {
+    obs_source_release(source);
+    if (completion) completion({false, "Wait for the current camera command to finish", 0});
+    return;
   }
   notify_camera_changed(instance_id);
 
@@ -2484,7 +2513,7 @@ void openstream_run_command_async(const std::string &instance_id,
         } else {
           std::string path;
           std::string body;
-          bool authenticated = true;
+          bool returns_camera_state = true;
           command.expected_revision = revision;
           switch (command.type) {
             case OpenStreamCommandType::ApplySettings:
@@ -2513,7 +2542,7 @@ void openstream_run_command_async(const std::string &instance_id,
               break;
             case OpenStreamCommandType::Identify: {
               path = "/identify";
-              authenticated = false;
+              returns_camera_state = false;
               std::lock_guard<std::mutex> lock(ctx->settings_mutex);
               body = "{\"label\":\"" + json_escape(ctx->slot_label) +
                      "\",\"subtitle\":\"" + json_escape(ctx->device_name) + "\"}";
@@ -2522,8 +2551,7 @@ void openstream_run_command_async(const std::string &instance_id,
             default: break;
           }
           const auto response = send_control_request(phone->host, phone->control_port,
-                                                     "POST", path, body,
-                                                     authenticated ? token : "");
+                                                     "POST", path, body, token);
           result.ok = response.transport_ok && response.status_code >= 200 &&
                       response.status_code < 300 &&
                       json_bool_value(response.body, "ok").value_or(true);
@@ -2533,15 +2561,15 @@ void openstream_run_command_async(const std::string &instance_id,
                   response.status_code == 409
                       ? "Camera state changed; refresh and try again"
                       : "Phone rejected the control request");
-          if (result.ok && authenticated) {
-            const auto state_response = send_control_request(phone->host, phone->control_port,
-                                                             "GET", "/v2/state", {}, token);
-            if (state_response.transport_ok && state_response.status_code >= 200 &&
-                state_response.status_code < 300) {
-              const auto state = parse_camera_state(state_response.body);
+          if (result.ok && returns_camera_state) {
+            const auto state = parse_camera_state_response(response.body);
+            if (state.valid) {
               result.revision = state.revision;
               std::lock_guard<std::mutex> lock(ctx->settings_mutex);
               ctx->camera_state = state;
+            } else {
+              result.ok = false;
+              result.message = "Camera accepted the command but returned incompatible state";
             }
           }
         }
@@ -2549,7 +2577,7 @@ void openstream_run_command_async(const std::string &instance_id,
     }
     {
       std::lock_guard<std::mutex> lock(ctx->settings_mutex);
-      ctx->control_request_pending = false;
+      if (remote_request) ctx->control_request_pending = false;
       ctx->last_control_error = result.ok ? "" : result.message;
     }
     obs_source_release(source);
