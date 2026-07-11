@@ -1,8 +1,8 @@
-# OpenStream Architecture
+# OpenStream Beta Architecture
 
 ## Product model
 
-OpenStream follows the professional camera-head and control-room model:
+OpenStream Beta follows the professional camera-head and control-room model:
 
 - **Android camera head:** captures and encodes media, owns Camera2 hardware
   state, and offers a complete local operator HUD when a cameraman is present.
@@ -54,7 +54,7 @@ Professional controls are capability-driven:
 - Tap/click focus uses one normalized transmitted-frame coordinate mapper that
   accounts for crop, rotation, mirroring, and zoom.
 - `CONTROL_ZOOM_RATIO` is used for a logical multi-camera when the OEM exposes
-  one. Otherwise a physical camera change is explicit; OpenStream does not
+  one. Otherwise a physical camera change is explicit; OpenStream Beta does not
   pretend a hard lens reconfiguration is seamless optical zoom.
 - Fixed-focus cameras, missing torch hardware, unsupported stabilization, and
   unavailable Kelvin/tint controls remain visible only as explained capability
@@ -68,7 +68,7 @@ tally, and transport health through focused palettes. Tapping the image and
 clicking the OBS preview use the same focus command and state feedback.
 
 For unattended operation, the user explicitly chooses **Arm for Remote
-Operation** while OpenStream is visible. `OpenStreamCameraService` then owns the
+Operation** while OpenStream Beta is visible. `OpenStreamCameraService` then owns the
 camera, encoder, control server, wake lock, and Wi-Fi lock as a camera/
 microphone foreground service. **Screen Off** turns off the presentation while
 capture and remote control continue; it does not stop the service.
@@ -90,7 +90,7 @@ OBS **Source Properties** is setup-only: bind or change the phone, name the
 camera, connect/retry/stop the source, or open collapsed diagnostics and manual
 network settings. Camera image controls are never duplicated there.
 
-Day-to-day camera operation lives in one custom Qt **OpenStream Control Room**
+Day-to-day camera operation lives in one custom Qt **OpenStream Beta Control Room**
 dock. The dock has a camera roster and selected-camera preview, followed by
 Exposure, Focus, Color, Lens, and Health groups. It exposes tally,
 collaborative/OBS Lock authority, presets, Identify, Retry, and a guarded Stop

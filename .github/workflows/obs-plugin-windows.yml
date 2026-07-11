@@ -54,18 +54,18 @@ jobs:
           OPENSTREAM_VERSION: ci
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          & $iscc "tools\installer\openstream-obs-plugin.iss" `
-            "/DPluginDll=$PWD\obs-plugin\build\openstream-obs.dll" `
+          & $iscc "tools\installer\openstream-beta-obs-plugin.iss" `
+            "/DPluginDll=$PWD\obs-plugin\build\openstream-beta-obs.dll" `
             "/DOutputDir=$PWD\artifacts" `
-            "/DOutputBaseFilename=openstream-obs-plugin-installer-windows-x64" `
+            "/DOutputBaseFilename=openstream-beta-obs-plugin-installer-windows-x64" `
             "/DOpenStreamVersion=$env:OPENSTREAM_VERSION"
 
       - name: Upload plugin package and installer
         uses: actions/upload-artifact@v4
         with:
-          name: openstream-obs-windows-x64
+          name: openstream-beta-obs-windows-x64
           path: |
-            artifacts/openstream-obs-windows-x64.zip
-            artifacts/openstream-obs-plugin-installer-windows-x64.exe
+            artifacts/openstream-beta-obs-windows-x64.zip
+            artifacts/openstream-beta-obs-plugin-installer-windows-x64.exe
           if-no-files-found: error
 

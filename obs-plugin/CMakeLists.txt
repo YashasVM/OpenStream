@@ -13,7 +13,7 @@ set(OPENSTREAM_SOURCES src/openstream-source.cpp)
 # OBS ships a Qt 6 frontend. Normal and release builds require its development
 # package so a successful build always contains the camera dock. The opt-out is
 # intended only for minimal SDK contract checks, never for distributable builds.
-option(OPENSTREAM_BUILD_DOCK "Build the required OpenStream Cameras Qt dock" ON)
+option(OPENSTREAM_BUILD_DOCK "Build the required OpenStream Beta Control Room Qt dock" ON)
 if (OPENSTREAM_BUILD_DOCK)
     find_package(Qt6 6.2 COMPONENTS Widgets REQUIRED)
     list(APPEND OPENSTREAM_SOURCES src/openstream-dock.cpp)
@@ -22,7 +22,7 @@ else()
     message(WARNING "OPENSTREAM_BUILD_DOCK=OFF: building a non-release plugin without the camera dock.")
 endif()
 
-add_library(openstream-obs MODULE ${OPENSTREAM_SOURCES})
+add_library(openstream-beta-obs MODULE ${OPENSTREAM_SOURCES})
 
 find_path(OBS_INCLUDE_DIR
     NAMES obs-module.h
@@ -78,7 +78,7 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/obsconfig.h"
 "#define OBS_BETA 0\n"
 )
 
-target_include_directories(openstream-obs PRIVATE
+target_include_directories(openstream-beta-obs PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
     ${OBS_INCLUDE_DIR}
     ${OBS_ROOT}/frontend/api
@@ -86,11 +86,11 @@ target_include_directories(openstream-obs PRIVATE
 )
 
 if (OPENSTREAM_BUILD_DOCK)
-    target_link_libraries(openstream-obs PRIVATE Qt6::Widgets)
-    target_compile_definitions(openstream-obs PRIVATE OPENSTREAM_HAS_CAMERA_DOCK=1)
+    target_link_libraries(openstream-beta-obs PRIVATE Qt6::Widgets)
+    target_compile_definitions(openstream-beta-obs PRIVATE OPENSTREAM_HAS_CAMERA_DOCK=1)
 endif()
 
-target_link_libraries(openstream-obs PRIVATE
+target_link_libraries(openstream-beta-obs PRIVATE
     ${OBS_LIBRARY}
     ${AVFORMAT_LIBRARY}
     ${AVCODEC_LIBRARY}
@@ -99,19 +99,19 @@ target_link_libraries(openstream-obs PRIVATE
 )
 
 if (WIN32)
-    target_link_libraries(openstream-obs PRIVATE ws2_32 iphlpapi)
+    target_link_libraries(openstream-beta-obs PRIVATE ws2_32 iphlpapi)
 endif()
 
 if (UNIX AND NOT APPLE AND OPENSTREAM_BUILD_DOCK)
-    target_link_libraries(openstream-obs PRIVATE dl)
+    target_link_libraries(openstream-beta-obs PRIVATE dl)
 endif()
 
-target_compile_definitions(openstream-obs PRIVATE
+target_compile_definitions(openstream-beta-obs PRIVATE
     OPENSTREAM_VERSION="${PROJECT_VERSION}"
 )
 
 if (WIN32)
-    set_target_properties(openstream-obs PROPERTIES PREFIX "")
+    set_target_properties(openstream-beta-obs PROPERTIES PREFIX "")
 endif()
 
 message(STATUS "Building OpenStream OBS source with FFmpeg SRT input support.")

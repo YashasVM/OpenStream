@@ -1,16 +1,16 @@
 # Release Guide
 
-OpenStream releases should give users direct installable assets instead of making them use GitHub source-code archives.
+OpenStream Beta releases should give users direct installable assets instead of making them use GitHub source-code archives.
 
 ## Release Assets
 
 | Asset | Audience | Purpose |
 |---|---|---|
-| `openstream-android.apk` | Android users | Signed install package for the OpenStream camera app. |
+| `openstream-android.apk` | Android users | Signed install package for the OpenStream Beta camera app. |
 | `openstream-android.apk.sha256` | Android users and automation | SHA-256 checksum for the exact APK in the release. |
 | `openstream-android-update.json` | Android app updater | Version metadata used by the in-app update prompt. |
-| `openstream-obs-plugin-installer-windows-x64.exe` | Windows OBS users | Recommended one-click OBS plugin installer. |
-| `openstream-obs-windows-x64.zip` | Technical users | Manual plugin package with DLL and install scripts. |
+| `openstream-beta-obs-plugin-installer-windows-x64.exe` | Windows OBS users | Recommended one-click OBS plugin installer. |
+| `openstream-beta-obs-windows-x64.zip` | Technical users | Manual plugin package with DLL and install scripts. |
 
 ## Automated Release
 
@@ -26,8 +26,8 @@ The `Release` workflow builds:
 | Job | Output |
 |---|---|
 | Android APK | `openstream-android.apk`, `openstream-android-update.json` |
-| OBS plugin package | `openstream-obs-windows-x64.zip` |
-| OBS plugin installer | `openstream-obs-plugin-installer-windows-x64.exe` |
+| OBS plugin package | `openstream-beta-obs-windows-x64.zip` |
+| OBS plugin installer | `openstream-beta-obs-plugin-installer-windows-x64.exe` |
 
 The publish job runs only after the repository tests, Android unit tests and
 lint, signed Android build, and OBS plugin build succeed. It downloads the
@@ -88,13 +88,13 @@ $env:OPENSTREAM_PLUGIN_PACKAGE_DIR = "$PWD\artifacts"
 Output:
 
 ```text
-artifacts/openstream-obs-windows-x64.zip
+artifacts/openstream-beta-obs-windows-x64.zip
 ```
 
 The zip contains:
 
 ```text
-openstream-obs.dll
+openstream-beta-obs.dll
 Install-OpenStreamPlugin.ps1
 install-openstream-plugin.bat
 ```
@@ -128,7 +128,7 @@ only; do not publish that APK as an update or release.
 - Confirm the setup guide links to the same APK, installer EXE, and plugin zip.
 - Confirm pytest, Android unit tests, lint, and both production builds passed.
 - Confirm `openstream-android.apk.sha256` matches the APK and the `apkSha256` metadata field.
-- Confirm OBS lists `OpenStream V8` and can still load saved `openstream_phone_v7_source` scenes.
+- Confirm OBS lists `OpenStream Beta Camera` and can still load saved `openstream_phone_v7_source` scenes.
 - Confirm the Android APK is release-signed and installable over the previous public release.
 - Confirm protocol-affecting Android and OBS changes are released together and pass the old/new compatibility matrix.
 - Confirm the GitHub release assets are attached, not only source-code archives.

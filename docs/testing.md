@@ -1,4 +1,4 @@
-# OpenStream Test Plan
+# OpenStream Beta Test Plan
 
 ## Automated gates
 
@@ -124,7 +124,7 @@ or media framing, test all combinations:
 | Candidate | Previous | V1 compatibility works or Android update is withheld |
 | Candidate | Candidate | Authenticated V2 workflow and professional controls work end to end |
 
-Also open scene collections containing V7, V8, and legacy OpenStream source IDs
+Also open scene collections containing V7, V8, and legacy OpenStream Beta source IDs
 and verify names, phone binding, media, and reconnect settings survive. A
 protocol-breaking release is not published unless Android and OBS artifacts
 come from the same commit and the entire matrix passes.

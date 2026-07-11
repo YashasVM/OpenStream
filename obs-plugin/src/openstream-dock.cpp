@@ -138,7 +138,7 @@ class OpenStreamDock final : public QWidget {
     root->setContentsMargins(14, 14, 14, 14);
     root->setSpacing(10);
 
-    auto *title = new QLabel("OpenStream Control Room");
+    auto *title = new QLabel("OpenStream Beta Control Room");
     title->setObjectName("osTitle");
     auto *subtitle = new QLabel("Select a camera, pair once, then shade and focus it without leaving OBS.");
     subtitle->setObjectName("osMuted");
@@ -164,9 +164,9 @@ class OpenStreamDock final : public QWidget {
 
     empty_page_ = new QWidget;
     auto *empty_layout = new QVBoxLayout(empty_page_);
-    auto *empty_title = new QLabel("Add an OpenStream Camera source");
+    auto *empty_title = new QLabel("Add an OpenStream Beta Camera source");
     empty_title->setObjectName("osSectionTitle");
-    auto *empty_help = new QLabel("In Sources, choose + → OpenStream Camera. Normal connection and all live controls then stay here in the Control Room.");
+    auto *empty_help = new QLabel("In Sources, choose + → OpenStream Beta Camera. Normal connection and all live controls then stay here in the Control Room.");
     empty_help->setWordWrap(true);
     empty_help->setObjectName("osMuted");
     empty_layout->addStretch();
@@ -745,9 +745,9 @@ QPointer<OpenStreamDock> g_dock;
 void register_dock() {
   if (g_dock || !g_frontend.add_dock || !qApp) return;
   auto *dock = new OpenStreamDock;
-  if (!g_frontend.add_dock(kDockId, "OpenStream Control Room", dock)) {
+  if (!g_frontend.add_dock(kDockId, "OpenStream Beta Control Room", dock)) {
     delete dock;
-    blog(LOG_WARNING, "[OpenStream] OBS declined the Control Room dock registration");
+    blog(LOG_WARNING, "[OpenStream Beta] OBS declined the Control Room dock registration");
     return;
   }
   g_dock = dock;
@@ -761,7 +761,7 @@ void frontend_event(obs_frontend_event event, void *) {
 void openstream_dock_create() {
   g_frontend = load_frontend_api();
   if (!g_frontend.add_dock || !g_frontend.remove_dock) {
-    blog(LOG_WARNING, "[OpenStream] OBS frontend dock API unavailable; source setup remains available");
+    blog(LOG_WARNING, "[OpenStream Beta] OBS frontend dock API unavailable; source setup remains available");
     return;
   }
   if (g_frontend.add_event) g_frontend.add_event(frontend_event, nullptr);

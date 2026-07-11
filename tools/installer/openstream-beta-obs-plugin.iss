@@ -1,5 +1,5 @@
 #ifndef PluginDll
-  #define PluginDll "..\..\obs-plugin\build\openstream-obs.dll"
+  #define PluginDll "..\..\obs-plugin\build\openstream-beta-obs.dll"
 #endif
 
 #ifndef OutputDir
@@ -7,7 +7,7 @@
 #endif
 
 #ifndef OutputBaseFilename
-  #define OutputBaseFilename "openstream-obs-plugin-installer-windows-x64"
+  #define OutputBaseFilename "openstream-beta-obs-plugin-installer-windows-x64"
 #endif
 
 #ifndef OpenStreamVersion
@@ -41,7 +41,7 @@ Uninstallable=no
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-Source: "{#PluginDll}"; DestDir: "{app}\obs-plugins\64bit"; DestName: "openstream-obs.dll"; Flags: ignoreversion
+Source: "{#PluginDll}"; DestDir: "{app}\obs-plugins\64bit"; DestName: "openstream-beta-obs.dll"; Flags: ignoreversion
 
 [Code]
 function LooksLikeObsDir(Dir: string): Boolean;

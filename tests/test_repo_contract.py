@@ -18,7 +18,7 @@ def test_architecture_documents_professional_camera_control_boundaries() -> None
     assert "expected state" in architecture
     assert "OpenStreamCameraService" in architecture
     assert "Source Properties" in architecture
-    assert "OpenStream Control Room" in architecture
+    assert "OpenStream Beta Control Room" in architecture
     assert "SRT caller" in architecture
     assert "UDP discovery" in architecture
     assert "PTP" in architecture
@@ -285,7 +285,7 @@ def test_android_discovery_ui_parses_and_displays_obs_slots() -> None:
     assert "device.busy && reservedBy != device.sourceInstanceId" in app
     assert "compareBy<DiscoveredObsDevice> { it.displayLabel }" in discovery
     assert "obsSlotList" in layout
-    assert 'name="status_waiting">Ready for OBS. Add an OpenStream Camera source on the same network.<' in strings
+    assert 'name="status_waiting">Ready for OBS. Add an OpenStream Beta Camera source on the same network.<' in strings
     assert "btnSettings" in app
 
 
@@ -560,14 +560,14 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "OPENSTREAM_VERSION_CODE" in release_workflow
     assert "OPENSTREAM_SKIP_INSTALL=1" in obs_workflow
     assert "OPENSTREAM_PLUGIN_PACKAGE_DIR" in obs_workflow
-    assert "openstream-obs-windows-x64.zip" in obs_workflow
+    assert "openstream-beta-obs-windows-x64.zip" in obs_workflow
     assert "gh release create" in release_workflow
     assert "docs/release-notes-template.md" in release_workflow
     assert "openstream-android.apk" in release_workflow
     assert "openstream-android.apk.sha256" in release_workflow
     assert '"apkSha256"' in release_workflow
     assert "Public releases require all Android signing secrets" in release_workflow
-    assert "openstream-obs-windows-x64.zip" in release_workflow
+    assert "openstream-beta-obs-windows-x64.zip" in release_workflow
     assert "never publishes a debug-signed fallback" in release_docs
     assert "Android Signing Secrets" in release_docs
     assert "OPENSTREAM_SKIP_INSTALL" in plugin_builder
@@ -577,12 +577,12 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
 
 
 def test_manual_obs_installer_replaces_known_plugin_copies() -> None:
-    installer = read("tools/installer/Install-OpenStreamPlugin.ps1")
+    installer = read("tools/installer/Install-OpenStreamBetaPlugin.ps1")
 
     assert "Get-OpenStreamPluginTargets" in installer
     assert "ProgramData" in installer
     assert "APPDATA" in installer
-    assert "OpenStream V8" in installer
+    assert "OpenStream Beta Camera" in installer
 
 
 def test_release_build_fails_without_signing_and_keystores_are_ignored() -> None:
@@ -607,7 +607,7 @@ def test_release_build_fails_without_signing_and_keystores_are_ignored() -> None
 def test_v2_release_metadata_defaults_are_aligned() -> None:
     app_gradle = read("android/app/build.gradle.kts")
     cmake = read("obs-plugin/CMakeLists.txt")
-    installer = read("tools/installer/openstream-obs-plugin.iss")
+    installer = read("tools/installer/openstream-beta-obs-plugin.iss")
 
     assert '"2.0.0-beta"' in app_gradle
     assert "project(openstream_obs_plugin VERSION 2.0.0" in cmake

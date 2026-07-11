@@ -1,4 +1,4 @@
-# OpenStream Setup
+# OpenStream Beta Setup
 
 The current user-facing setup guide lives in [`docs/set-up.md`](set-up.md).
 

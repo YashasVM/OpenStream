@@ -163,19 +163,19 @@ jobs:
             $env:OPENSTREAM_VERSION = "manual"
           }
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          & $iscc "tools\installer\openstream-obs-plugin.iss" `
-            "/DPluginDll=$PWD\obs-plugin\build\openstream-obs.dll" `
+          & $iscc "tools\installer\openstream-beta-obs-plugin.iss" `
+            "/DPluginDll=$PWD\obs-plugin\build\openstream-beta-obs.dll" `
             "/DOutputDir=$PWD\artifacts" `
-            "/DOutputBaseFilename=openstream-obs-plugin-installer-windows-x64" `
+            "/DOutputBaseFilename=openstream-beta-obs-plugin-installer-windows-x64" `
             "/DOpenStreamVersion=$env:OPENSTREAM_VERSION"
 
       - name: Upload plugin artifact
         uses: actions/upload-artifact@v4
         with:
-          name: openstream-obs-windows-x64
+          name: openstream-beta-obs-windows-x64
           path: |
-            artifacts/openstream-obs-windows-x64.zip
-            artifacts/openstream-obs-plugin-installer-windows-x64.exe
+            artifacts/openstream-beta-obs-windows-x64.zip
+            artifacts/openstream-beta-obs-plugin-installer-windows-x64.exe
           if-no-files-found: error
 
   publish:
@@ -202,8 +202,8 @@ jobs:
           test -f dist/openstream-android.apk
           test -f dist/openstream-android.apk.sha256
           test -f dist/openstream-android-update.json
-          test -f dist/openstream-obs-plugin-installer-windows-x64.exe
-          test -f dist/openstream-obs-windows-x64.zip
+          test -f dist/openstream-beta-obs-plugin-installer-windows-x64.exe
+          test -f dist/openstream-beta-obs-windows-x64.zip
 
       - name: Create release
         env:
@@ -215,8 +215,8 @@ jobs:
             dist/openstream-android.apk \
             dist/openstream-android.apk.sha256 \
             dist/openstream-android-update.json \
-            dist/openstream-obs-plugin-installer-windows-x64.exe \
-            dist/openstream-obs-windows-x64.zip \
+            dist/openstream-beta-obs-plugin-installer-windows-x64.exe \
+            dist/openstream-beta-obs-windows-x64.zip \
             --target "$GITHUB_SHA" \
             --title "OpenStream ${TAG_NAME}" \
             --notes-file docs/release-notes-template.md

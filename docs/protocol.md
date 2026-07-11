@@ -1,8 +1,8 @@
-# OpenStream Protocol Specification
+# OpenStream Beta Protocol Specification
 
 ## Overview
 
-OpenStream V2 separates the camera media path from an authenticated control
+OpenStream Beta separates the camera media path from an authenticated control
 plane. The Android phone is the camera head; the OBS plugin is the control-room
 administrator. Both surfaces may operate the camera in `collaborative` mode,
 while OBS can select `obs_lock` to make its settings authoritative.

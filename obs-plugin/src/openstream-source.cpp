@@ -50,7 +50,7 @@ extern "C" {
 }
 
 OBS_DECLARE_MODULE()
-OBS_MODULE_USE_DEFAULT_LOCALE("openstream-obs", "en-US")
+OBS_MODULE_USE_DEFAULT_LOCALE("openstream-beta-obs", "en-US")
 
 namespace {
 struct AvPacketDeleter {
@@ -92,7 +92,7 @@ using SwsContextPtr = std::unique_ptr<SwsContext, SwsContextDeleter>;
 constexpr int kDiscoveryPort = 51515;
 constexpr int kDefaultListenerPort = 9000;
 constexpr auto kReconnectReservationWindow = std::chrono::seconds(45);
-constexpr const char *kOpenStreamSourceName = "OpenStream Camera";
+constexpr const char *kOpenStreamSourceName = "OpenStream Beta Camera";
 constexpr const char *kDiscoveryMulticastAddress = "239.255.42.99";
 constexpr const char *kPhoneDiscoveryPrefix = "OPENSTREAM_PHONE/1 ";
 
@@ -587,7 +587,7 @@ class PhoneDiscoveryReceiver {
   void run() {
     SocketHandle socket = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (socket == kInvalidSocket) {
-      blog(LOG_WARNING, "[OpenStream] Could not create phone discovery socket");
+      blog(LOG_WARNING, "[OpenStream Beta] Could not create phone discovery socket");
       return;
     }
 
@@ -607,7 +607,7 @@ class PhoneDiscoveryReceiver {
     local.sin_port = htons(kDiscoveryPort);
     local.sin_addr.s_addr = INADDR_ANY;
     if (bind(socket, reinterpret_cast<sockaddr *>(&local), sizeof(local)) != 0) {
-      blog(LOG_WARNING, "[OpenStream] Could not bind phone discovery UDP port");
+      blog(LOG_WARNING, "[OpenStream Beta] Could not bind phone discovery UDP port");
       close_socket(socket);
       return;
     }
@@ -686,7 +686,7 @@ class PhoneDiscoveryReceiver {
         devices_[device.instance_id] = device;
       }
       blog(LOG_INFO,
-           "[OpenStream] Discovered phone %s at %s:%d%s",
+           "[OpenStream Beta] Discovered phone %s at %s:%d%s",
            device.name.c_str(),
            device.host.c_str(),
            device.port,
@@ -759,7 +759,7 @@ class DiscoveryAdvertiser {
   void run() {
     SocketHandle socket = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (socket == kInvalidSocket) {
-      blog(LOG_WARNING, "[OpenStream] Could not create discovery UDP socket");
+      blog(LOG_WARNING, "[OpenStream Beta] Could not create discovery UDP socket");
       return;
     }
 
@@ -1140,7 +1140,7 @@ bool open_video_decoder(AVFormatContext *format_ctx,
   const int stream_result = avformat_find_stream_info(format_ctx, nullptr);
   if (stream_result < 0) {
     blog(LOG_WARNING,
-         "[OpenStream] Could not read stream info: %s",
+         "[OpenStream Beta] Could not read stream info: %s",
          av_error(stream_result).c_str());
     return false;
   }
@@ -1149,7 +1149,7 @@ bool open_video_decoder(AVFormatContext *format_ctx,
       format_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
   if (best_stream < 0) {
     blog(LOG_WARNING,
-         "[OpenStream] No video stream found in SRT input: %s",
+         "[OpenStream Beta] No video stream found in SRT input: %s",
          av_error(best_stream).c_str());
     return false;
   }
@@ -1158,21 +1158,21 @@ bool open_video_decoder(AVFormatContext *format_ctx,
   const AVCodec *decoder = avcodec_find_decoder(stream->codecpar->codec_id);
   if (!decoder) {
     blog(LOG_WARNING,
-         "[OpenStream] No FFmpeg decoder found for codec id %d",
+         "[OpenStream Beta] No FFmpeg decoder found for codec id %d",
          stream->codecpar->codec_id);
     return false;
   }
 
   CodecContextPtr codec_ctx(avcodec_alloc_context3(decoder));
   if (!codec_ctx) {
-    blog(LOG_WARNING, "[OpenStream] Could not allocate decoder context");
+    blog(LOG_WARNING, "[OpenStream Beta] Could not allocate decoder context");
     return false;
   }
 
   int result = avcodec_parameters_to_context(codec_ctx.get(), stream->codecpar);
   if (result < 0) {
     blog(LOG_WARNING,
-         "[OpenStream] Could not copy decoder parameters: %s",
+         "[OpenStream Beta] Could not copy decoder parameters: %s",
          av_error(result).c_str());
     return false;
   }
@@ -1181,7 +1181,7 @@ bool open_video_decoder(AVFormatContext *format_ctx,
   result = avcodec_open2(codec_ctx.get(), decoder, nullptr);
   if (result < 0) {
     blog(LOG_WARNING,
-         "[OpenStream] Could not open decoder: %s",
+         "[OpenStream Beta] Could not open decoder: %s",
          av_error(result).c_str());
     return false;
   }
@@ -1197,7 +1197,7 @@ bool open_audio_decoder(AVFormatContext *format_ctx,
   const int best_stream = av_find_best_stream(
       format_ctx, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
   if (best_stream < 0) {
-    blog(LOG_INFO, "[OpenStream] No audio stream found (video-only mode)");
+    blog(LOG_INFO, "[OpenStream Beta] No audio stream found (video-only mode)");
     *audio_stream_index = -1;
     return false;
   }
@@ -1206,7 +1206,7 @@ bool open_audio_decoder(AVFormatContext *format_ctx,
   const AVCodec *decoder = avcodec_find_decoder(stream->codecpar->codec_id);
   if (!decoder) {
     blog(LOG_WARNING,
-         "[OpenStream] No audio decoder found for codec id %d",
+         "[OpenStream Beta] No audio decoder found for codec id %d",
          stream->codecpar->codec_id);
     *audio_stream_index = -1;
     return false;
@@ -1227,7 +1227,7 @@ bool open_audio_decoder(AVFormatContext *format_ctx,
   result = avcodec_open2(codec_ctx.get(), decoder, nullptr);
   if (result < 0) {
     blog(LOG_WARNING,
-         "[OpenStream] Could not open audio decoder: %s",
+         "[OpenStream Beta] Could not open audio decoder: %s",
          av_error(result).c_str());
     *audio_stream_index = -1;
     return false;
@@ -1236,7 +1236,7 @@ bool open_audio_decoder(AVFormatContext *format_ctx,
   *audio_stream_index = best_stream;
   *decoder_ctx = std::move(codec_ctx);
   blog(LOG_INFO,
-       "[OpenStream] Opened audio decoder: %s, %d Hz, %d channels",
+       "[OpenStream Beta] Opened audio decoder: %s, %d Hz, %d channels",
        avcodec_get_name(stream->codecpar->codec_id),
        stream->codecpar->sample_rate,
        stream->codecpar->ch_layout.nb_channels);
@@ -1288,7 +1288,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
                                                 yuv_frame.color_matrix,
                                                 yuv_frame.color_range_min,
                                                 yuv_frame.color_range_max)) {
-      blog(LOG_WARNING, "[OpenStream] Could not calculate OBS YUV color parameters");
+      blog(LOG_WARNING, "[OpenStream Beta] Could not calculate OBS YUV color parameters");
       return false;
     }
 
@@ -1297,7 +1297,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
     if (frames_output == 1 || frames_output % 300 == 0) {
       const char *format_name = av_get_pix_fmt_name(source_format);
       blog(LOG_INFO,
-           "[OpenStream] Output %" PRIu64 " decoded YUV frame(s) to OBS (%dx%d, source format=%s)",
+           "[OpenStream Beta] Output %" PRIu64 " decoded YUV frame(s) to OBS (%dx%d, source format=%s)",
            frames_output,
            width,
            height,
@@ -1320,7 +1320,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
       nullptr,
       nullptr);
   if (!scaled) {
-    blog(LOG_WARNING, "[OpenStream] Could not create BGRA converter");
+    blog(LOG_WARNING, "[OpenStream Beta] Could not create BGRA converter");
     return false;
   }
   if (scaled != current_sws) {
@@ -1343,7 +1343,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
                                    dst_data,
                                    dst_linesize);
   if (scaled_rows != height) {
-    blog(LOG_WARNING, "[OpenStream] Incomplete frame conversion");
+    blog(LOG_WARNING, "[OpenStream Beta] Incomplete frame conversion");
     return false;
   }
 
@@ -1368,7 +1368,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
   if (frames_output == 1 || frames_output % 300 == 0) {
     const char *format_name = av_get_pix_fmt_name(source_format);
     blog(LOG_INFO,
-         "[OpenStream] Output %" PRIu64 " decoded BGRA frame(s) to OBS (%dx%d, source format=%s)",
+         "[OpenStream Beta] Output %" PRIu64 " decoded BGRA frame(s) to OBS (%dx%d, source format=%s)",
          frames_output,
          width,
          height,
@@ -1421,7 +1421,7 @@ void decode_packets(OpenStreamSource *ctx,
   FramePtr frame(av_frame_alloc());
   FramePtr audio_frame(av_frame_alloc());
   if (!packet || !frame || !audio_frame) {
-    blog(LOG_WARNING, "[OpenStream] Could not allocate decode packet/frame");
+    blog(LOG_WARNING, "[OpenStream Beta] Could not allocate decode packet/frame");
     return;
   }
 
@@ -1438,7 +1438,7 @@ void decode_packets(OpenStreamSource *ctx,
       }
       if (result < 0) {
         blog(LOG_WARNING,
-             "[OpenStream] Could not decode frame: %s",
+             "[OpenStream Beta] Could not decode frame: %s",
              av_error(result).c_str());
         return result;
       }
@@ -1489,7 +1489,7 @@ void decode_packets(OpenStreamSource *ctx,
       ++audio_frames_output;
       if (audio_frames_output == 1 || audio_frames_output % 1000 == 0) {
         blog(LOG_INFO,
-             "[OpenStream] Output %" PRIu64 " decoded audio frame(s) (%d Hz, %d ch)",
+             "[OpenStream Beta] Output %" PRIu64 " decoded audio frame(s) (%d Hz, %d ch)",
              audio_frames_output,
              sample_rate,
              channels);
@@ -1510,7 +1510,7 @@ void decode_packets(OpenStreamSource *ctx,
     }
     if (read_result < 0) {
       blog(LOG_INFO,
-           "[OpenStream] SRT input ended or disconnected: %s",
+           "[OpenStream Beta] SRT input ended or disconnected: %s",
            av_error(read_result).c_str());
       break;
     }
@@ -1529,7 +1529,7 @@ void decode_packets(OpenStreamSource *ctx,
       av_packet_unref(packet.get());
       if (result < 0) {
         blog(LOG_WARNING,
-             "[OpenStream] Could not send packet to decoder: %s",
+             "[OpenStream Beta] Could not send packet to decoder: %s",
              av_error(result).c_str());
         continue;
       }
@@ -1572,9 +1572,9 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
           break;
         }
         if (selected_phone_id.empty() || selected_phone_id == PhoneDiscoveryReceiver::kAutoPhoneId) {
-          blog(LOG_INFO, "[OpenStream] Waiting for available Android phone");
+          blog(LOG_INFO, "[OpenStream Beta] Waiting for available Android phone");
         } else {
-          blog(LOG_INFO, "[OpenStream] Waiting for selected Android phone");
+          blog(LOG_INFO, "[OpenStream Beta] Waiting for selected Android phone");
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
       }
@@ -1587,7 +1587,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
       srt_url = "srt://" + phone->host + ":" + std::to_string(phone->port) +
                 "?mode=caller&latency=" + std::to_string(phone->latency_ms);
       blog(LOG_INFO,
-           "[OpenStream] Connecting source to phone %s at %s",
+           "[OpenStream Beta] Connecting source to phone %s at %s",
            phone->name.c_str(),
            srt_url.c_str());
     } else {
@@ -1596,7 +1596,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
 
     AVFormatContext *raw_format_ctx = avformat_alloc_context();
     if (!raw_format_ctx) {
-      blog(LOG_WARNING, "[OpenStream] Could not allocate FFmpeg format context");
+      blog(LOG_WARNING, "[OpenStream Beta] Could not allocate FFmpeg format context");
       break;
     }
     raw_format_ctx->interrupt_callback.callback = ffmpeg_interrupt_callback;
@@ -1618,7 +1618,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     }
 
     blog(LOG_INFO,
-         "[OpenStream] Opening Android stream at %s",
+         "[OpenStream Beta] Opening Android stream at %s",
          srt_url.c_str());
     const AVInputFormat *mpegts_input = av_find_input_format("mpegts");
     int result =
@@ -1627,7 +1627,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     if (result < 0) {
       if (!ctx->stop_requested.load()) {
         blog(LOG_WARNING,
-             "[OpenStream] Could not open SRT input: %s",
+             "[OpenStream Beta] Could not open SRT input: %s",
              av_error(result).c_str());
         if (raw_format_ctx) {
           avformat_free_context(raw_format_ctx);
@@ -1677,7 +1677,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     const AVCodecParameters *codecpar =
         format_ctx->streams[video_stream_index]->codecpar;
     blog(LOG_INFO,
-         "[OpenStream] Receiving %dx%d video stream codec=%s%s",
+         "[OpenStream Beta] Receiving %dx%d video stream codec=%s%s",
          codecpar->width,
          codecpar->height,
          avcodec_get_name(codecpar->codec_id),
@@ -1688,7 +1688,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     ctx->phone_connected = false;
     if (!ctx->stop_requested.load()) {
       set_slot_status(ctx, "Reconnecting");
-      blog(LOG_INFO, "[OpenStream] Holding %s for reconnect",
+      blog(LOG_INFO, "[OpenStream Beta] Holding %s for reconnect",
            ctx->slot_label.c_str());
       std::this_thread::sleep_for(std::chrono::milliseconds(500));
       continue;
@@ -1702,7 +1702,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
   ctx->phone_connected = false;
   set_slot_status(ctx, "Offline");
   set_active_phone(ctx, std::nullopt);
-  blog(LOG_INFO, "[OpenStream] Listener worker exited");
+  blog(LOG_INFO, "[OpenStream Beta] Listener worker exited");
 }
 
 void openstream_start_worker(OpenStreamSource *ctx) {
@@ -1824,7 +1824,7 @@ void openstream_update(void *data, obs_data_t *settings) {
                                             ctx->slot_id,
                                             ctx->slot_label,
                                             ctx->instance_id);
-    ctx->pairing_hint = "Open OpenStream on your phone, choose " + ctx->slot_label +
+    ctx->pairing_hint = "Open OpenStream Beta on your phone, choose " + ctx->slot_label +
                         ", and keep both devices on the same Wi-Fi. Pairing URL is in Advanced.";
     const std::vector<PhoneDevice> phones = ctx->phone_discovery.devices();
     ctx->phone_target_hint = "Waiting for a phone to choose " + ctx->slot_label;
@@ -1909,7 +1909,7 @@ void openstream_defaults(obs_data_t *settings) {
   obs_data_set_default_string(settings, "srt_url", "openstream:auto");
   obs_data_set_default_string(settings, "selected_phone_id", PhoneDiscoveryReceiver::kAutoPhoneId);
   obs_data_set_default_string(settings, "phone_target_hint", "Waiting for a phone to choose CAM A");
-  obs_data_set_default_string(settings, "pairing_hint", "Open OpenStream on your phone, choose CAM A, and keep both devices on the same Wi-Fi.");
+  obs_data_set_default_string(settings, "pairing_hint", "Open OpenStream Beta on your phone, choose CAM A, and keep both devices on the same Wi-Fi.");
   obs_data_set_default_string(settings, "pairing_url", "openstream://connect");
   obs_data_set_default_bool(settings, "show_advanced", false);
   obs_data_set_default_int(settings, "listener_port", kDefaultListenerPort);
@@ -1999,7 +1999,7 @@ obs_properties_t *openstream_properties(void *data) {
     auto *ctx = static_cast<OpenStreamSource *>(data);
     if (ctx) {
       blog(LOG_INFO,
-           "[OpenStream] Refreshing discovered phones for %s",
+           "[OpenStream Beta] Refreshing discovered phones for %s",
            ctx->slot_label.c_str());
     }
     return true;
@@ -2017,12 +2017,12 @@ obs_properties_t *openstream_properties(void *data) {
     openstream_start_worker(ctx);
     if (const auto phone = ctx->phone_discovery.select(ctx->selected_phone_id, ctx->instance_id)) {
       blog(LOG_INFO,
-           "[OpenStream] Selected Android phone for %s: %s",
+           "[OpenStream Beta] Selected Android phone for %s: %s",
            ctx->slot_label.c_str(),
            phone->name.c_str());
     } else {
       blog(LOG_INFO,
-           "[OpenStream] No available Android phone for %s yet",
+           "[OpenStream Beta] No available Android phone for %s yet",
            ctx->slot_label.c_str());
     }
     return true;
@@ -2038,7 +2038,7 @@ obs_properties_t *openstream_properties(void *data) {
       return false;
     }
     openstream_stop_worker(ctx);
-    blog(LOG_INFO, "[OpenStream] Listener stopped");
+    blog(LOG_INFO, "[OpenStream Beta] Listener stopped");
     return true;
   });
   obs_property_set_long_description(
@@ -2726,13 +2726,13 @@ bool obs_module_load(void) {
   if (WSAStartup(MAKEWORD(2, 2), &data) == 0) {
     g_winsock_started = true;
   } else {
-    blog(LOG_WARNING, "[OpenStream] WSAStartup failed; discovery may not advertise");
+    blog(LOG_WARNING, "[OpenStream Beta] WSAStartup failed; discovery may not advertise");
   }
 #endif
   obs_register_source(&openstream_source_info);
   obs_register_source(&openstream_legacy_source_info);
   openstream_dock_create();
-  blog(LOG_INFO, "[OpenStream] OBS plugin loaded: V8 — video + audio + remote controls (Made by @yashas.vm)");
+  blog(LOG_INFO, "[OpenStream Beta] OBS plugin loaded: video + audio + remote controls (Made by @yashas.vm)");
   return true;
 }
 

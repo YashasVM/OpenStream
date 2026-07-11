@@ -58,29 +58,29 @@ function Get-OpenStreamPluginTargets {
     param([Parameter(Mandatory)][string]$ObsRoot)
 
     $targets = @(
-        (Join-Path $ObsRoot "obs-plugins\64bit\openstream-obs.dll")
+        (Join-Path $ObsRoot "obs-plugins\64bit\openstream-beta-obs.dll")
     )
 
     if ($env:ProgramData) {
-        $targets += Join-Path $env:ProgramData "obs-studio\plugins\openstream-obs\bin\64bit\openstream-obs.dll"
+        $targets += Join-Path $env:ProgramData "obs-studio\plugins\openstream-beta-obs\bin\64bit\openstream-beta-obs.dll"
     }
 
     if ($env:APPDATA) {
-        $targets += Join-Path $env:APPDATA "obs-studio\plugins\openstream-obs\bin\64bit\openstream-obs.dll"
+        $targets += Join-Path $env:APPDATA "obs-studio\plugins\openstream-beta-obs\bin\64bit\openstream-beta-obs.dll"
     }
 
     return $targets | Where-Object { $_ } | Select-Object -Unique
 }
 
 if (-not (Test-IsAdministrator)) {
-    throw "Run this installer from an elevated PowerShell window, or use install-openstream-plugin.bat to request administrator access."
+    throw "Run this installer from an elevated PowerShell window, or use install-openstream-beta-plugin.bat to request administrator access."
 }
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pluginDll = Join-Path $scriptDir "openstream-obs.dll"
+$pluginDll = Join-Path $scriptDir "openstream-beta-obs.dll"
 
 if (-not (Test-Path -LiteralPath $pluginDll)) {
-    throw "Could not find openstream-obs.dll next to this installer script. Extract the full plugin zip before running it."
+    throw "Could not find openstream-beta-obs.dll next to this installer script. Extract the full plugin zip before running it."
 }
 
 $obsRoot = Find-ObsInstallDir
@@ -107,4 +107,4 @@ foreach ($target in $installedTargets) {
     Write-Host "Plugin: $target"
 }
 Write-Host ""
-Write-Host "Restart OBS Studio, then add a source named OpenStream V8."
+Write-Host "Restart OBS Studio, then add a source named OpenStream Beta Camera."
