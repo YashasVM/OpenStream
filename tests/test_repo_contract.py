@@ -83,8 +83,9 @@ def test_obs_receiver_preserves_stream_timing_and_limits_probe_delay() -> None:
 
     assert "best_effort_timestamp" in source
     assert "stream_timestamp_ns" in source
-    assert '"probesize", "262144"' in source
-    assert '"analyzeduration", "250000"' in source
+    assert "stream_timestamp_is_stale" in source
+    assert '"probesize", "1048576"' in source
+    assert '"analyzeduration", "1000000"' in source
 
 
 def test_audio_path_uses_adts_aac_and_obs_planar_formats() -> None:
@@ -109,6 +110,8 @@ def test_android_srt_transport_bounds_live_latency_and_reconnects_quickly() -> N
     assert "sendTimeoutMs = 120" in native
     assert "SRTO_CONNTIMEO" in native
     assert "SRTO_PEERIDLETIMEO" in native
+    assert "kMaximumSendQueueBytes" in native
+    assert "runSendWorker" in native
 
 
 def test_obs_plugin_routes_multiple_phones_by_selected_slot() -> None:
@@ -199,7 +202,8 @@ def test_identify_camera_control_round_trip_exists() -> None:
     layout = read("android/app/src/main/res/layout/activity_main.xml")
     dock = read("obs-plugin/src/openstream-dock.cpp")
     assert '"Identify"' in dock
-    assert '"/identify"' in dock
+    assert "openstream_identify_camera_source" in dock
+    assert '"/identify"' in source
     assert 'path == "/identify"' in control
     assert "handleIdentify" in control
     assert "showIdentifyOverlay" in app
