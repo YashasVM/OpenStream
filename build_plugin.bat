@@ -104,7 +104,16 @@ if not exist "%OBS_SDK_DIR%\libobs\obs-module.h" (
     echo [2/6] Extracting OBS source headers...
     if not exist "%OBS_SDK_DIR%" mkdir "%OBS_SDK_DIR%"
     tar -xzf "%OBS_SDK_ZIP%" -C "%OBS_SDK_DIR%" --strip-components=1
-    if errorlevel 1 exit /b 1
+    rem Windows tar cannot materialize a few Unix helper symlinks. They are not
+    rem part of the plugin SDK, so validate the headers we actually consume.
+    if not exist "%OBS_SDK_DIR%\libobs\obs-module.h" (
+        echo ERROR: OBS headers were not extracted successfully.
+        exit /b 1
+    )
+    if not exist "%OBS_SDK_DIR%\frontend\api\obs-frontend-api.h" (
+        echo ERROR: OBS frontend API headers were not extracted successfully.
+        exit /b 1
+    )
 ) else (
     echo [2/6] OBS source headers already present, skipping download.
 )

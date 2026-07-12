@@ -170,8 +170,7 @@ class OpenStreamDock final : public QWidget {
         [](void *opaque, obs_source_t *source) {
           auto *self = static_cast<OpenStreamDock *>(opaque);
           if (!openstream_is_camera_source(source)) return true;
-          obs_source_addref(source);
-          self->sources_.push_back(source);
+          self->sources_.push_back(obs_source_get_ref(source));
           self->source_->addItem(QString::fromUtf8(obs_source_get_name(source)));
           return true;
         },
