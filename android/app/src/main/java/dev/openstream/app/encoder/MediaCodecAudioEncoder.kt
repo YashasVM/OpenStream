@@ -66,7 +66,9 @@ class MediaCodecAudioEncoder(
             sampleRate, channelConfig, AudioFormat.ENCODING_PCM_16BIT
         )
         check(minBufferSize > 0) { "AudioRecord does not support $sampleRate Hz / $channelCount ch PCM16" }
-        val bufferSize = max(minBufferSize * 4, bytesForDurationMs(250))
+        // A large AudioRecord queue conceals capture stalls as audible latency.
+        // Keep enough buffering for scheduler jitter without banking 250 ms.
+        val bufferSize = max(minBufferSize * 2, bytesForDurationMs(80))
 
         val recorder = createRecorder(channelConfig, bufferSize)
         audioRecord = recorder
