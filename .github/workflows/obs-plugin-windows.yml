@@ -22,7 +22,14 @@ jobs:
 
       - name: Install OBS Studio
         shell: powershell
-        run: choco install obs-studio -y --no-progress
+        run: choco install obs-studio --version=32.1.2 -y --no-progress
+
+      - name: Install matching Qt development files
+        shell: powershell
+        run: |
+          python -m pip install --disable-pip-version-check aqtinstall
+          python -m aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -O C:\Qt
+          "OPENSTREAM_QT_ROOT=C:\Qt\6.8.3\msvc2022_64" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Build plugin package
         shell: cmd

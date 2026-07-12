@@ -284,13 +284,44 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "org.gradle.java.home" not in gradle_properties
 
 
-def test_manual_obs_installer_replaces_known_plugin_copies() -> None:
+def test_manual_obs_installer_uses_one_canonical_per_user_copy() -> None:
     installer = read("tools/installer/Install-OpenStreamPlugin.ps1")
 
-    assert "Get-OpenStreamPluginTargets" in installer
-    assert "ProgramData" in installer
+    assert "Get-OpenStreamPluginTarget" in installer
     assert "APPDATA" in installer
+    assert "plugins\\openstream-obs\\bin\\64bit\\openstream-obs.dll" in installer
+    assert "Test-IsAdministrator" not in installer
     assert "OpenStream V8" in installer
+
+
+def test_obs_installer_is_per_user_upgradeable_and_release_has_metadata() -> None:
+    installer = read("tools/installer/openstream-obs-plugin.iss")
+    release = read(".github/workflows/release.yml")
+
+    assert "PrivilegesRequired=admin" in installer
+    assert "Uninstallable=yes" in installer
+    assert "{commonappdata}\\obs-studio\\plugins\\openstream-obs" in installer
+    assert "{userappdata}\\obs-studio\\plugins\\openstream-obs" in installer
+    assert "openstream-obs-update.json" in release
+    assert "installerSha256" in release
+    assert "openstream-obs-plugin-installer-windows-x64.exe.sha256" in release
+
+
+def test_obs_plugin_has_dock_controls_async_io_and_passive_updates() -> None:
+    cmake = read("obs-plugin/CMakeLists.txt")
+    dock = read("obs-plugin/src/openstream-dock.cpp")
+    source = read("obs-plugin/src/openstream-source.cpp")
+
+    assert "obs_frontend_add_dock_by_id" in dock
+    assert "OpenStream Camera Control" in dock
+    assert "Connect / retry" in dock
+    assert "openstream-obs-update.json" in dock
+    assert "QNetworkAccessManager" in dock
+    assert "github.com" in dock
+    assert "AsyncControlClient" in source
+    assert "queue_control_command" in source
+    assert "Qt6::Network" in cmake
+    assert "Qt6::Widgets" in cmake
 
 
 def test_release_build_fails_without_signing_and_keystores_are_ignored() -> None:

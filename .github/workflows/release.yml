@@ -128,10 +128,19 @@ jobs:
 
       - name: Install OBS Studio
         shell: powershell
-        run: choco install obs-studio -y --no-progress
+        run: choco install obs-studio --version=32.1.2 -y --no-progress
+
+      - name: Install matching Qt development files
+        shell: powershell
+        run: |
+          python -m pip install --disable-pip-version-check aqtinstall
+          python -m aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -O C:\Qt
+          "OPENSTREAM_QT_ROOT=C:\Qt\6.8.3\msvc2022_64" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Build plugin package
         shell: cmd
+        env:
+          OPENSTREAM_VERSION: ${{ inputs.tag || github.ref_name }}
         run: |
           set OPENSTREAM_SKIP_INSTALL=1
           set OPENSTREAM_PLUGIN_PACKAGE_DIR=%CD%\artifacts
@@ -192,6 +201,21 @@ jobs:
           test -f dist/openstream-obs-plugin-installer-windows-x64.exe
           test -f dist/openstream-obs-windows-x64.zip
 
+      - name: Create OBS update metadata
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          TAG_NAME="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          VERSION="${TAG_NAME#v}"
+          CHANNEL="stable"
+          case "$VERSION" in *-*) CHANNEL="beta" ;; esac
+          INSTALLER_SHA256="$(sha256sum dist/openstream-obs-plugin-installer-windows-x64.exe | cut -d ' ' -f 1)"
+          INSTALLER_SIZE="$(stat -c %s dist/openstream-obs-plugin-installer-windows-x64.exe)"
+          printf '{\n  "schemaVersion": 1,\n  "version": "%s",\n  "channel": "%s",\n  "installerAsset": "openstream-obs-plugin-installer-windows-x64.exe",\n  "installerSha256": "%s",\n  "installerSize": %s,\n  "releaseUrl": "https://github.com/YashasVM/OpenStream/releases/tag/%s"\n}\n' \
+            "$VERSION" "$CHANNEL" "$INSTALLER_SHA256" "$INSTALLER_SIZE" "$TAG_NAME" \
+            > dist/openstream-obs-update.json
+          sha256sum dist/openstream-obs-plugin-installer-windows-x64.exe > dist/openstream-obs-plugin-installer-windows-x64.exe.sha256
+
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -203,6 +227,8 @@ jobs:
             dist/openstream-android.apk.sha256 \
             dist/openstream-android-update.json \
             dist/openstream-obs-plugin-installer-windows-x64.exe \
+            dist/openstream-obs-plugin-installer-windows-x64.exe.sha256 \
+            dist/openstream-obs-update.json \
             dist/openstream-obs-windows-x64.zip \
             --target "$GITHUB_SHA" \
             --title "OpenStream ${TAG_NAME}" \

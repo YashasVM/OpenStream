@@ -45,7 +45,7 @@ Phone camera -> HEVC/H.264 + AAC -> SRT over Wi-Fi -> OpenStream camera slot in 
 
 | Area | V2 improvement |
 |---|---|
-| **OBS setup** | The source properties now follow a `Camera Slot -> Live Camera Controls -> Network & Pairing` flow. |
+| **OBS setup** | A dockable Camera Control panel keeps connection, lens, torch, zoom, and identify controls visible while you work. |
 | **Upgrade safety** | Existing `OpenStream V7` scene sources keep loading while new sources appear as `OpenStream V8`. |
 | **Pairing clarity** | OBS and Android both describe slots as production camera positions instead of raw listener ports. |
 | **Release polish** | Version defaults, release notes, and setup docs are aligned around the V2 beta release. |
@@ -64,7 +64,7 @@ DroidCam is a mature phone-as-webcam product with Wi-Fi, USB, desktop webcam cli
 | **Audio path** | AAC microphone audio into a separate OBS mixer channel, tuned for `48 kHz` live production. | Sound capture is supported, including webcam-style audio paths. |
 | **Multi-camera setup** | Source slots such as `CAM A` and `CAM B` reserve phones and recover reconnects into the same OBS source. | DroidCam OBS supports adding multiple devices as OBS sources. |
 | **Remote camera controls** | OBS source properties can control zoom, torch, lens switching, and phone identification overlay. | Pro features include manual camera controls and PC remote controls. |
-| **Release updates** | GitHub Releases provide `openstream-android.apk` and updater metadata for in-app update prompts. | Updates are delivered through DroidCam's app/client/plugin distribution channels. |
+| **Release updates** | GitHub Releases provide verified Android and OBS update metadata from one release. | Updates are delivered through DroidCam's app/client/plugin distribution channels. |
 | **Best fit** | Builders and streamers who want an inspectable, hackable OBS-first camera pipeline. | Users who want a polished cross-app webcam product with mature USB and desktop-client options. |
 
 Sources: [DroidCam official site](https://droidcam.app/), [DroidCam OBS plugin](https://droidcam.app/obs/), and [DroidCam OBS usage notes](https://droidcam.app/obs/usage/).
@@ -79,10 +79,10 @@ Download the APK from the release, copy it to your Android phone, open it, and a
 
 ### 2. Install the OBS Plugin
 
-Download and run `openstream-obs-plugin-installer-windows-x64.exe` on the Windows PC that has OBS Studio installed. Restart OBS after the installer finishes.
+Close OBS, then download and run `openstream-obs-plugin-installer-windows-x64.exe`. One Windows administrator prompt lets it replace old system/user copies, keep one canonical plugin, and support clean upgrade, repair, and uninstall. Start OBS again after it finishes.
 
 > [!NOTE]
-> If you prefer manual installation, download `openstream-obs-windows-x64.zip`, extract it, and run `install-openstream-plugin.bat` as administrator.
+> If you prefer manual installation, download `openstream-obs-windows-x64.zip`, extract it, close OBS, and run `install-openstream-plugin.bat`.
 
 ### 3. Add Camera Slots in OBS
 
@@ -94,7 +94,7 @@ Open the OpenStream Android app on the same Wi-Fi network as the PC. Tap an avai
 
 ### 5. Stream
 
-Use OBS as usual. Phone audio appears as a separate OBS mixer channel, camera controls live under `2. Live Camera Controls`, and the selected phone is held for quick reconnects if Wi-Fi drops briefly.
+Use OBS as usual. Open `View > Docks > OpenStream Camera Control` to keep connection, lens, torch, zoom, and identify controls beside your preview. Phone audio appears as a separate OBS mixer channel, and the selected phone is held for quick reconnects if Wi-Fi drops briefly.
 
 > [!TIP]
 > Use a 5 GHz or Wi-Fi 6 network, keep both devices on the same subnet, and disable VPNs or router client isolation during first setup.
@@ -137,13 +137,15 @@ Use OBS as usual. Phone audio appears as a separate OBS mixer channel, camera co
 | Feature | Details |
 |---|---|
 | **Native OBS Source** | Adds an `OpenStream V8` source type inside OBS Studio while preserving V7 scene compatibility. |
-| **One-Click Installer** | Windows installer copies the plugin into the OBS plugin folder. |
+| **One-Click Installer** | Windows installer removes stale legacy copies and supports clean install, upgrade, repair, and uninstall. |
 | **Camera Slots** | Gives each source a stable slot label such as `CAM A`, `CAM B`, or a custom slot name. |
 | **Phone Discovery** | Lists discovered Android phones, includes a refresh action, and can let the phone choose the OBS slot. |
 | **Auto-Connect** | Listens for the Android app and connects without typing IP addresses. |
 | **Deep-Link Pairing URL** | Exposes an `openstream://connect` pairing URL with slot, port, latency, and source identity. |
 | **Separate Audio Mixer** | Phone microphone audio gets its own OBS mixer channel. |
 | **Remote Controls** | Adjust zoom, torch, rear/front camera, and the phone slot label overlay from source properties. |
+| **Dockable Control Panel** | Control any OpenStream source from an always-available native OBS dock instead of reopening source properties. |
+| **Update Notices** | Checks the latest release metadata and links to the installer when a newer plugin is available; the loaded DLL is never replaced in place. |
 | **Reconnect Handling** | Reserves and releases phones per source so streams recover into the same OBS slot. |
 
 ---

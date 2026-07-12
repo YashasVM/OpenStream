@@ -9,9 +9,9 @@ if not exist "%SCRIPT%" (
     exit /b 1
 )
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = Start-Process -FilePath powershell.exe -Verb RunAs -Wait -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File','%SCRIPT%'); exit $p.ExitCode"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT%"
 if errorlevel 1 (
-    echo ERROR: OpenStream plugin installation failed or was cancelled.
+    echo ERROR: OpenStream plugin installation failed.
     exit /b 1
 )
 

@@ -10,6 +10,8 @@ OpenStream releases should give users direct installable assets instead of makin
 | `openstream-android.apk.sha256` | Android users and automation | SHA-256 checksum for the exact APK in the release. |
 | `openstream-android-update.json` | Android app updater | Version metadata used by the in-app update prompt. |
 | `openstream-obs-plugin-installer-windows-x64.exe` | Windows OBS users | Recommended one-click OBS plugin installer. |
+| `openstream-obs-plugin-installer-windows-x64.exe.sha256` | Users and updater | SHA-256 checksum for the exact OBS installer. |
+| `openstream-obs-update.json` | OBS plugin updater | Version, installer asset, size, digest, and release URL. |
 | `openstream-obs-windows-x64.zip` | Technical users | Manual plugin package with DLL and install scripts. |
 
 ## Automated Release
@@ -38,6 +40,11 @@ You can also run the `Release` workflow manually from GitHub Actions and provide
 
 The Android job passes the release tag into Gradle as the APK `versionName` and uses the release commit timestamp as `versionCode`, so update ordering stays monotonic across full releases.
 
+The OBS job embeds the same release version into the plugin and installer. The
+publish job computes the final installer digest and size, then emits
+`openstream-obs-update.json`. The plugin must never replace its loaded DLL;
+updates are handed to the installer after OBS has closed.
+
 Public releases require all Android signing secrets. Missing or incomplete
 signing inputs fail the workflow; it never publishes a debug-signed fallback.
 Debug APKs remain available only as pull-request and local development
@@ -51,6 +58,19 @@ streaming build for pull requests and pushes. It publishes CI artifacts only.
 In-app updates follow GitHub's latest full release. The APK, checksum metadata,
 Windows OBS installer, and plugin zip therefore come from the same commit. The
 app verifies the APK SHA-256 digest before opening the package installer.
+
+OBS updates follow the same atomic release. The recommended installer uses the
+canonical OBS installation directory, removes known stale per-user and
+ProgramData copies, and is registered with Windows, so running a newer
+installer performs an upgrade and Windows Settings can uninstall it. Close OBS
+before install or update. The zip fallback remains a no-elevation per-user
+installation for technical users who do not have legacy system copies.
+
+The OBS dock performs a short passive check of the latest update manifest. If
+the version differs, it shows a link to the immutable GitHub release page. It
+does not download or execute code and it never modifies the loaded plugin DLL.
+The installer digest remains available for users and future verified-download
+automation.
 
 ### Android and OBS compatibility gate
 
@@ -128,6 +148,7 @@ only; do not publish that APK as an update or release.
 - Confirm the setup guide links to the same APK, installer EXE, and plugin zip.
 - Confirm pytest, Android unit tests, lint, and both production builds passed.
 - Confirm `openstream-android.apk.sha256` matches the APK and the `apkSha256` metadata field.
+- Confirm the OBS installer checksum matches `installerSha256` in `openstream-obs-update.json`.
 - Confirm OBS lists `OpenStream V8` and can still load saved `openstream_phone_v7_source` scenes.
 - Confirm the Android APK is release-signed and installable over the previous public release.
 - Confirm protocol-affecting Android and OBS changes are released together and pass the old/new compatibility matrix.
