@@ -2,6 +2,7 @@
 
 #include <obs-frontend-api.h>
 
+#include <QAction>
 #include <QComboBox>
 #include <QByteArray>
 #include <QDesktopServices>
@@ -223,7 +224,16 @@ class OpenStreamDock final : public QWidget {
 };
 
 OpenStreamDock *g_dock = nullptr;
+QAction *g_tools_action = nullptr;
 }  // namespace
+
+void openstream_show_dock() {
+  if (!g_dock) return;
+  QWidget *container = g_dock->parentWidget() ? g_dock->parentWidget() : g_dock;
+  container->show();
+  container->raise();
+  container->activateWindow();
+}
 
 void openstream_register_dock() {
   if (g_dock) return;
@@ -233,11 +243,22 @@ void openstream_register_dock() {
                                    "OpenStream Camera Control", g_dock)) {
     delete g_dock;
     g_dock = nullptr;
+    return;
   }
+  g_tools_action = static_cast<QAction *>(
+      obs_frontend_add_tools_menu_qaction("OpenStream Camera Control"));
+  if (g_tools_action) {
+    QObject::connect(g_tools_action, &QAction::triggered, [] { openstream_show_dock(); });
+  }
+  QTimer::singleShot(0, [] { openstream_show_dock(); });
 }
 
 void openstream_unregister_dock() {
   if (!g_dock) return;
+  if (g_tools_action) {
+    delete g_tools_action;
+    g_tools_action = nullptr;
+  }
   obs_frontend_remove_dock("openstream-camera-control");
   delete g_dock;
   g_dock = nullptr;

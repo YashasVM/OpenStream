@@ -13,3 +13,4 @@ const char *openstream_source_status(obs_source_t *source);
 
 void openstream_register_dock();
 void openstream_unregister_dock();
+void openstream_show_dock();

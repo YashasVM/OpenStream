@@ -1831,6 +1831,24 @@ obs_properties_t *openstream_properties(void *data) {
     selected_phone_id_snapshot = ctx->selected_phone_id;
   }
 
+  obs_property_t *dock_intro = obs_properties_add_text(
+      props,
+      "dock_intro",
+      "Live production controls",
+      OBS_TEXT_INFO);
+  obs_property_text_set_info_word_wrap(dock_intro, true);
+  obs_property_set_long_description(
+      dock_intro,
+      "Use the dock for always-visible camera controls while streaming. These properties remain for slot setup and compatibility.");
+  obs_properties_add_button(
+      props,
+      "open_camera_control_dock",
+      "Open Camera Control Dock",
+      [](obs_properties_t *, obs_property_t *, void *) {
+        openstream_show_dock();
+        return true;
+      });
+
   obs_properties_t *slot_group = obs_properties_create();
   obs_property_t *slot_summary = obs_properties_add_text(
       slot_group,
