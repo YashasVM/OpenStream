@@ -1646,7 +1646,7 @@ void openstream_start_worker(OpenStreamSource *ctx) {
   std::string srt_url;
   int listener_port = kDefaultListenerPort;
   int latency_ms = 120;
-  int bitrate_mbps = 50;
+  int bitrate_mbps = 16;
   std::string source_name;
   std::string instance_id;
   std::string slot_id;

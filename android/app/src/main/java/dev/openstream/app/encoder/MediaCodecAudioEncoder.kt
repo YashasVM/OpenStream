@@ -24,7 +24,7 @@ class MediaCodecAudioEncoder(
     context: Context,
     private val sampleRate: Int = 48_000,
     private val channelCount: Int = 1,
-    private val bitrate: Int = 192_000,
+    private val bitrate: Int = 128_000,
     private val onEncodedAccessUnit: (EncodedAccessUnit) -> Unit,
 ) {
     private val context = context.applicationContext

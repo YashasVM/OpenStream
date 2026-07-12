@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * - POST /zoom       {"value": 2.5}
  * - POST /torch      {"enabled": true}
  * - POST /lens       {"lens": "Back"}
- * - POST /reserve    {"sourceInstanceId": "...", "bitrateMbps": 50}
+ * - POST /reserve    {"sourceInstanceId": "...", "bitrateMbps": 16}
  * - POST /release    {"sourceInstanceId": "..."}
  * - POST /identify   {"label": "CAM B", "subtitle": "Close-up"}
  * - GET  /status     Returns current camera state
