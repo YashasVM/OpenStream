@@ -1,6 +1,6 @@
 # OpenStream V2 Beta
 
-OpenStream V2 is focused on making the Android-to-OBS setup easier to understand and safer to upgrade. It includes the refreshed OBS source UI, V8 source naming, V7 scene compatibility, Android camera streaming, and direct install downloads for both surfaces.
+OpenStream is focused on making the Android-to-OBS setup easier to understand and safer to upgrade. It includes the refreshed OBS source UI, simple source naming, legacy scene compatibility, Android camera streaming, and direct install downloads for both surfaces.
 
 ## What's New
 
@@ -28,7 +28,7 @@ OpenStream V2 is focused on making the Android-to-OBS setup easier to understand
 1. Install the APK on your Android phone.
 2. Run the OBS plugin installer on your Windows OBS PC.
 3. Restart OBS Studio.
-4. Add an `OpenStream V8` source.
+4. Add an `OpenStream` source.
 5. Open the Android app on the same Wi-Fi network and tap the discovered OBS slot.
 
 For the screenshot walkthrough, read [`docs/set-up.md`](https://github.com/YashasVM/OpenStream/blob/main/docs/set-up.md).

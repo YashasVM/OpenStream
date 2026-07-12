@@ -46,7 +46,7 @@ Phone camera -> HEVC/H.264 + AAC -> SRT over Wi-Fi -> OpenStream camera slot in 
 | Area | V2 improvement |
 |---|---|
 | **OBS setup** | A dockable Camera Control panel keeps connection, lens, torch, zoom, and identify controls visible while you work. |
-| **Upgrade safety** | Existing `OpenStream V7` scene sources keep loading while new sources appear as `OpenStream V8`. |
+| **Upgrade safety** | Existing scene sources keep loading while new sources appear simply as `OpenStream`. |
 | **Pairing clarity** | OBS and Android both describe slots as production camera positions instead of raw listener ports. |
 | **Release polish** | Version defaults, release notes, and setup docs are aligned around the V2 beta release. |
 
@@ -58,7 +58,7 @@ DroidCam is a mature phone-as-webcam product with Wi-Fi, USB, desktop webcam cli
 |---|---|---|
 | **Project model** | Open-source repo with Android app, native OBS plugin, CI builds, and public release assets. | Commercial app/client/plugin from Dev47Apps with free SD usage and paid HD/pro features. |
 | **Primary workflow** | Turn Android phones into dedicated OBS camera sources over local Wi-Fi. | Use a phone as a webcam for video calls or as an OBS camera source. |
-| **OBS integration** | Native `OpenStream V8` source with camera slots, discovery, pairing URLs, and live controls. | Direct DroidCam OBS plugin; no separate desktop client needed for OBS use. |
+| **OBS integration** | Native `OpenStream` source with camera slots, discovery, pairing URLs, and live controls. | Direct DroidCam OBS plugin; no separate desktop client needed for OBS use. |
 | **Transport** | SRT over LAN with MPEG-TS carrying HEVC/H.264 video and AAC audio. | Wi-Fi and USB transfer options; DroidCam OBS advertises hardware-accelerated video. |
 | **Video target** | `1080p60` default with high local bitrate and HEVC preference. | Standard-definition free mode; HD/Full-HD/4K options depend on DroidCam mode and pro upgrade. |
 | **Audio path** | AAC microphone audio into a separate OBS mixer channel, tuned for `48 kHz` live production. | Sound capture is supported, including webcam-style audio paths. |
@@ -86,7 +86,7 @@ Close OBS, then download and run `openstream-obs-plugin-installer-windows-x64.ex
 
 ### 3. Add Camera Slots in OBS
 
-In OBS, click `+` in Sources, choose `OpenStream V8`, keep the camera slot enabled, and press OK. Each source gets a slot such as `CAM A` or `CAM B`, so multi-phone setups can stay organized.
+In OBS, click `+` in Sources, choose `OpenStream`, keep the camera slot enabled, and press OK. Each source gets a slot such as `CAM A` or `CAM B`, so multi-phone setups can stay organized.
 
 ### 4. Pair the Phone
 
@@ -136,7 +136,7 @@ Use OBS as usual. Open `View > Docks > OpenStream Camera Control` to keep connec
 
 | Feature | Details |
 |---|---|
-| **Native OBS Source** | Adds an `OpenStream V8` source type inside OBS Studio while preserving V7 scene compatibility. |
+| **Native OBS Source** | Adds an `OpenStream` source type inside OBS Studio while preserving existing scenes. |
 | **One-Click Installer** | Windows installer removes stale legacy copies and supports clean install, upgrade, repair, and uninstall. |
 | **Camera Slots** | Gives each source a stable slot label such as `CAM A`, `CAM B`, or a custom slot name. |
 | **Phone Discovery** | Lists discovered Android phones, includes a refresh action, and can let the phone choose the OBS slot. |
@@ -155,7 +155,7 @@ Use OBS as usual. Open `View > Docks > OpenStream Camera Control` to keep connec
 | Moment | Experience |
 |---|---|
 | **First launch** | The phone opens directly to the camera preview, requests camera/microphone permissions, and waits for OBS. |
-| **OBS setup** | Add one `OpenStream V8` source per camera angle, then name slots for the production layout. |
+| **OBS setup** | Add one `OpenStream` source per camera angle, then name slots for the production layout. |
 | **Pairing** | The phone lists available OBS slots; OBS can also select a discovered phone or show a pairing URL. |
 | **Going live** | A `LIVE` badge, zoom chip, stream stats, and status text make the active connection visible at a glance. |
 | **Multi-camera work** | Busy and reserved slots prevent two phones from fighting over the same source. |

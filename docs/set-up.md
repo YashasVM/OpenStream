@@ -71,7 +71,7 @@ C:\Program Files\obs-studio\obs-plugins\64bit\
 
 ### Upgrading from an Older OpenStream Plugin
 
-OpenStream V2 appears in OBS as `OpenStream V8`. Existing scene sources created with `OpenStream V7` are still supported, but the saved source names may remain `OpenStream V7` until you rename them in OBS.
+OpenStream appears in OBS simply as `OpenStream`. Existing scene sources remain supported, although custom saved source names are never renamed automatically.
 
 If OBS still shows an older OpenStream source after installing V2, check these plugin locations and remove or replace stale copies:
 
@@ -103,7 +103,7 @@ openstream-obs.dll -> C:\Program Files\obs-studio\obs-plugins\64bit\openstream-o
 
 1. Open OBS Studio.
 2. In `Sources`, click `+`.
-3. Choose `OpenStream V8`.
+3. Choose `OpenStream`.
 4. In `1. Camera Slot`, keep `Let the phone choose this slot` selected for the first test.
 5. Rename `OBS slot name` if you want a production label such as `Main CAM` or `Desk CAM`.
 6. Use `Refresh Phones` if your Android device appears after the properties window is already open.
@@ -156,7 +156,7 @@ In OBS:
 |---|---|
 | Installer cannot find OBS | Re-run it and choose the folder that contains `bin\64bit\obs64.exe`. |
 | Windows blocks the EXE | Use `More info` then `Run anyway`, or use the manual zip install. |
-| OpenStream V8 is missing in OBS | Confirm `openstream-obs.dll` is in one of the plugin folders above, remove stale older copies, then restart OBS. |
+| OpenStream is missing in OBS | Confirm `openstream-obs.dll` is in one of the plugin folders above, remove stale older copies, then restart OBS. |
 | Old OpenStream source is still visible | OBS may be loading an older all-users DLL from `C:\ProgramData\obs-studio\plugins\openstream-obs\bin\64bit\`. Replace it with the V2 DLL or remove it. |
 | Phone cannot see OBS | Put both devices on the same Wi-Fi, disable VPNs, and check guest/client isolation. |
 | Camera stays blank | Start with port `9000`, latency `120 ms`, and one phone only. |

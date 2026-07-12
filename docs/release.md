@@ -149,7 +149,7 @@ only; do not publish that APK as an update or release.
 - Confirm pytest, Android unit tests, lint, and both production builds passed.
 - Confirm `openstream-android.apk.sha256` matches the APK and the `apkSha256` metadata field.
 - Confirm the OBS installer checksum matches `installerSha256` in `openstream-obs-update.json`.
-- Confirm OBS lists `OpenStream V8` and can still load saved `openstream_phone_v7_source` scenes.
+- Confirm OBS lists `OpenStream` and can still load saved legacy scene sources.
 - Confirm the Android APK is release-signed and installable over the previous public release.
 - Confirm protocol-affecting Android and OBS changes are released together and pass the old/new compatibility matrix.
 - Confirm the GitHub release assets are attached, not only source-code archives.
