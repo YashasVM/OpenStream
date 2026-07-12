@@ -506,11 +506,15 @@ class NativeSender {
     int yes = 1;
     int transportType = SRTT_LIVE;
     int payloadSize = 188 * 7;
-    int sendTimeoutMs = 500;
+    // Never let a congested Wi-Fi link stall MediaCodec callbacks for half a
+    // second. SRT's live late-packet drop recovers latency instead of growing it.
+    int sendTimeoutMs = 120;
+    int tooLatePacketDrop = 1;
     srt_setsockopt(socket, 0, SRTO_TRANSTYPE, &transportType, sizeof transportType);
     srt_setsockopt(socket, 0, SRTO_SENDER, &yes, sizeof yes);
     srt_setsockopt(socket, 0, SRTO_PAYLOADSIZE, &payloadSize, sizeof payloadSize);
     srt_setsockopt(socket, 0, SRTO_SNDTIMEO, &sendTimeoutMs, sizeof sendTimeoutMs);
+    srt_setsockopt(socket, 0, SRTO_TLPKTDROP, &tooLatePacketDrop, sizeof tooLatePacketDrop);
     const int latency = parsed->latencyMs;
     srt_setsockopt(socket, 0, SRTO_LATENCY, &latency, sizeof latency);
     srt_setsockopt(socket, 0, SRTO_PEERLATENCY, &latency, sizeof latency);
@@ -572,13 +576,15 @@ class NativeSender {
     int yes = 1;
     int transportType = SRTT_LIVE;
     int payloadSize = 188 * 7;
-    int sendTimeoutMs = 500;
+    int sendTimeoutMs = 120;
+    int tooLatePacketDrop = 1;
     const int latency = parsed->latencyMs;
     srt_setsockopt(listenerSocket, 0, SRTO_TRANSTYPE, &transportType, sizeof transportType);
     srt_setsockopt(listenerSocket, 0, SRTO_SENDER, &yes, sizeof yes);
     srt_setsockopt(listenerSocket, 0, SRTO_REUSEADDR, &yes, sizeof yes);
     srt_setsockopt(listenerSocket, 0, SRTO_PAYLOADSIZE, &payloadSize, sizeof payloadSize);
     srt_setsockopt(listenerSocket, 0, SRTO_SNDTIMEO, &sendTimeoutMs, sizeof sendTimeoutMs);
+    srt_setsockopt(listenerSocket, 0, SRTO_TLPKTDROP, &tooLatePacketDrop, sizeof tooLatePacketDrop);
     srt_setsockopt(listenerSocket, 0, SRTO_LATENCY, &latency, sizeof latency);
     srt_setsockopt(listenerSocket, 0, SRTO_PEERLATENCY, &latency, sizeof latency);
 
@@ -609,6 +615,7 @@ class NativeSender {
       return false;
     }
     srt_setsockopt(acceptedSocket, 0, SRTO_SNDTIMEO, &sendTimeoutMs, sizeof sendTimeoutMs);
+    srt_setsockopt(acceptedSocket, 0, SRTO_TLPKTDROP, &tooLatePacketDrop, sizeof tooLatePacketDrop);
     setSocket(acceptedSocket);
     logInfo("OBS connected to Android SRT listener");
     return true;
