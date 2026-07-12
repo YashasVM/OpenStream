@@ -78,6 +78,15 @@ def test_obs_plugin_registers_openstream_source_and_discovery() -> None:
     assert "pairing_url" in source
 
 
+def test_obs_receiver_preserves_stream_timing_and_limits_probe_delay() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+
+    assert "best_effort_timestamp" in source
+    assert "stream_timestamp_ns" in source
+    assert '"probesize", "262144"' in source
+    assert '"analyzeduration", "250000"' in source
+
+
 def test_audio_path_uses_adts_aac_and_obs_planar_formats() -> None:
     native = read("android/app/src/main/cpp/openstream_srt.cpp")
     source = read("obs-plugin/src/openstream-source.cpp")
@@ -90,6 +99,16 @@ def test_audio_path_uses_adts_aac_and_obs_planar_formats() -> None:
     assert "AUDIO_FORMAT_FLOAT_PLANAR" in source
     assert "audio_frame->format" in source
     assert "obs_source_output_audio" in source
+
+
+def test_android_srt_transport_bounds_live_latency_and_reconnects_quickly() -> None:
+    native = read("android/app/src/main/cpp/openstream_srt.cpp")
+
+    assert "SRTO_TLPKTDROP" in native
+    assert "SRTO_SNDTIMEO" in native
+    assert "sendTimeoutMs = 120" in native
+    assert "SRTO_CONNTIMEO" in native
+    assert "SRTO_PEERIDLETIMEO" in native
 
 
 def test_obs_plugin_routes_multiple_phones_by_selected_slot() -> None:
