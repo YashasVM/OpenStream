@@ -192,7 +192,7 @@ Discovery uses UDP port `51515`. Camera remote controls use the phone HTTP contr
 | Resolution | `1920x1080` | Full HD capture target |
 | Frame rate | `60 fps` | 30-60 fps depending on device support |
 | Video codec | HEVC/H.265 | H.264 fallback |
-| Bitrate | `50 Mbps` | High-quality local Wi-Fi default; lower if the link drops frames |
+| Bitrate | `16 Mbps` | High-quality HEVC default with headroom for Wi-Fi retransmits |
 | SRT latency | `120 ms` | 80-200 ms useful range |
 | Discovery port | `51515/udp` | LAN discovery beacon |
 | SRT port | `9000` | Media stream |
