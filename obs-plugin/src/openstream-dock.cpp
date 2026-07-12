@@ -6,7 +6,8 @@
 #include <QComboBox>
 #include <QByteArray>
 #include <QDesktopServices>
-#include <QDoubleSpinBox>
+#include <QDockWidget>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QJsonDocument>
@@ -16,6 +17,7 @@
 #include <QNetworkRequest>
 #include <QPair>
 #include <QPushButton>
+#include <QSlider>
 #include <QTimer>
 #include <QStringList>
 #include <QVBoxLayout>
@@ -63,13 +65,21 @@ class OpenStreamDock final : public QWidget {
  public:
   OpenStreamDock() {
     setObjectName("OpenStreamCameraControl");
+    setMinimumWidth(300);
     auto *layout = new QVBoxLayout(this);
+    layout->setContentsMargins(12, 12, 12, 12);
+    layout->setSpacing(10);
+    auto *heading = new QLabel("<b>OpenStream Camera</b><br><small>Live controls for the selected source</small>", this);
+    heading->setTextFormat(Qt::RichText);
+    layout->addWidget(heading);
+
+    auto *sourceGroup = new QGroupBox("Source & connection", this);
+    auto *sourceLayout = new QVBoxLayout(sourceGroup);
     source_ = new QComboBox(this);
     status_ = new QLabel("No OpenStream camera source", this);
     status_->setWordWrap(true);
-    layout->addWidget(new QLabel("Camera source", this));
-    layout->addWidget(source_);
-    layout->addWidget(status_);
+    sourceLayout->addWidget(source_);
+    sourceLayout->addWidget(status_);
 
     auto *connection = new QHBoxLayout();
     auto *retry = new QPushButton("Connect / retry", this);
@@ -84,33 +94,41 @@ class OpenStreamDock final : public QWidget {
     });
     connection->addWidget(retry);
     connection->addWidget(stop);
-    layout->addLayout(connection);
+    sourceLayout->addLayout(connection);
+    layout->addWidget(sourceGroup);
+
+    auto *cameraGroup = new QGroupBox("Camera", this);
+    auto *cameraLayout = new QVBoxLayout(cameraGroup);
 
     auto *lens = new QHBoxLayout();
     addButton(lens, "Rear", "/lens", R"({"lens":"1\u00d7"})");
     addButton(lens, "Front", "/lens", R"({"lens":"Front"})");
-    layout->addLayout(lens);
+    cameraLayout->addLayout(lens);
 
     auto *torch = new QHBoxLayout();
     addButton(torch, "Torch on", "/torch", R"({"enabled":true})");
     addButton(torch, "Torch off", "/torch", R"({"enabled":false})");
     addButton(torch, "Identify", "/identify", R"({"label":"OBS"})");
-    layout->addLayout(torch);
+    cameraLayout->addLayout(torch);
 
     auto *zoomRow = new QHBoxLayout();
-    zoom_ = new QDoubleSpinBox(this);
-    zoom_->setRange(1.0, 10.0);
-    zoom_->setSingleStep(0.1);
-    zoom_->setSuffix("x");
-    auto *applyZoom = new QPushButton("Set zoom", this);
-    connect(applyZoom, &QPushButton::clicked, this, [this] {
+    zoom_ = new QSlider(Qt::Horizontal, this);
+    zoom_->setRange(10, 100);
+    zoom_->setValue(10);
+    zoomValue_ = new QLabel("1.0×", this);
+    connect(zoom_, &QSlider::valueChanged, this, [this](int value) {
+      zoomValue_->setText(QString::number(value / 10.0, 'f', 1) + "×");
+    });
+    connect(zoom_, &QSlider::sliderReleased, this, [this] {
       const QByteArray body = QByteArray("{\"value\":") +
-                              QByteArray::number(zoom_->value(), 'f', 1) + "}";
+                              QByteArray::number(zoom_->value() / 10.0, 'f', 1) + "}";
       send("/zoom", body.constData());
     });
+    zoomRow->addWidget(new QLabel("Zoom", this));
     zoomRow->addWidget(zoom_);
-    zoomRow->addWidget(applyZoom);
-    layout->addLayout(zoomRow);
+    zoomRow->addWidget(zoomValue_);
+    cameraLayout->addLayout(zoomRow);
+    layout->addWidget(cameraGroup);
 
     update_ = new QLabel(this);
     update_->setWordWrap(true);
@@ -121,7 +139,6 @@ class OpenStreamDock final : public QWidget {
     });
     layout->addWidget(update_);
     layout->addWidget(updateButton_);
-    layout->addStretch();
 
     refresh_ = new QTimer(this);
     refresh_->setInterval(1500);
@@ -181,7 +198,7 @@ class OpenStreamDock final : public QWidget {
     if (obs_source_t *source = currentSource()) {
       status_->setText(QString::fromUtf8(openstream_source_status(source)));
     } else {
-      status_->setText("Add an OpenStream V8 source to control your phone here.");
+      status_->setText("Add an OpenStream source to control your phone here.");
     }
   }
 
@@ -214,7 +231,8 @@ class OpenStreamDock final : public QWidget {
 
   QComboBox *source_ = nullptr;
   QLabel *status_ = nullptr;
-  QDoubleSpinBox *zoom_ = nullptr;
+  QSlider *zoom_ = nullptr;
+  QLabel *zoomValue_ = nullptr;
   QTimer *refresh_ = nullptr;
   QLabel *update_ = nullptr;
   QPushButton *updateButton_ = nullptr;
@@ -229,7 +247,19 @@ QAction *g_tools_action = nullptr;
 
 void openstream_show_dock() {
   if (!g_dock) return;
-  QWidget *container = g_dock->parentWidget() ? g_dock->parentWidget() : g_dock;
+  QWidget *ancestor = g_dock->parentWidget();
+  QDockWidget *dock = nullptr;
+  while (ancestor && !dock) {
+    dock = qobject_cast<QDockWidget *>(ancestor);
+    ancestor = ancestor->parentWidget();
+  }
+  if (dock) {
+    dock->setAllowedAreas(Qt::AllDockWidgetAreas);
+    dock->setFeatures(QDockWidget::DockWidgetClosable |
+                      QDockWidget::DockWidgetMovable |
+                      QDockWidget::DockWidgetFloatable);
+  }
+  QWidget *container = dock ? static_cast<QWidget *>(dock) : g_dock;
   container->show();
   container->raise();
   container->activateWindow();
