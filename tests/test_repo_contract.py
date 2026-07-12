@@ -33,7 +33,8 @@ def test_android_project_declares_camera_media_codec_srt_discovery_boundaries() 
     assert "MediaCodecAudioEncoder" in app
     stream_config = read("android/app/src/main/java/dev/openstream/app/stream/StreamConfig.kt")
     assert "PreferHevc" in stream_config
-    assert "50_000_000" in stream_config
+    assert "16_000_000" in stream_config
+    assert "128_000" in stream_config
     assert "OPENSTREAM_PHONE/1" in discovery
     assert "DISCOVERY_PORT = 51515" in discovery
     assert "dev.openstream.phone" in discovery
@@ -119,7 +120,7 @@ def test_obs_sources_are_named_camera_slots_with_advanced_transport() -> None:
     assert "OBS_GROUP_CHECKABLE, advanced_group" in source
     assert "listener_port" in source
     assert "SRT latency (ms)" in source
-    assert '"bitrate_mbps", 50' in source
+    assert '"bitrate_mbps", 16' in source
     assert '"bitrate_mbps", "Expected bitrate (Mbps)", 8, 120, 1' in source
 
 
@@ -177,8 +178,9 @@ def test_identify_camera_control_round_trip_exists() -> None:
     control = read("android/app/src/main/java/dev/openstream/app/control/CameraControlServer.kt")
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
     layout = read("android/app/src/main/res/layout/activity_main.xml")
-    assert "Show Slot Label on Phone" in source
-    assert '"/identify"' in source
+    dock = read("obs-plugin/src/openstream-dock.cpp")
+    assert '"Identify"' in dock
+    assert '"/identify"' in dock
     assert 'path == "/identify"' in control
     assert "handleIdentify" in control
     assert "showIdentifyOverlay" in app
@@ -291,7 +293,7 @@ def test_manual_obs_installer_uses_one_canonical_per_user_copy() -> None:
     assert "APPDATA" in installer
     assert "plugins\\openstream-obs\\bin\\64bit\\openstream-obs.dll" in installer
     assert "Test-IsAdministrator" not in installer
-    assert "OpenStream V8" in installer
+    assert "source named OpenStream" in installer
 
 
 def test_obs_installer_is_per_user_upgradeable_and_release_has_metadata() -> None:
