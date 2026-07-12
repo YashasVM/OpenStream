@@ -1040,14 +1040,13 @@ uint64_t stream_timestamp_ns(OpenStreamSource *ctx,
   }
   const int64_t relative_ns = pts_ns - ctx->first_stream_pts_ns;
   if (relative_ns < 0) return now;
-  uint64_t mapped = ctx->session_clock_start_ns + static_cast<uint64_t>(relative_ns);
+  return ctx->session_clock_start_ns + static_cast<uint64_t>(relative_ns);
+}
+
+bool stream_timestamp_is_stale(uint64_t timestamp_ns) {
   constexpr uint64_t kMaximumBacklogNs = 400000000ULL;
-  if (mapped + kMaximumBacklogNs < now) {
-    ctx->first_stream_pts_ns = pts_ns;
-    ctx->session_clock_start_ns = now;
-    mapped = now;
-  }
-  return mapped;
+  const uint64_t now = os_gettime_ns();
+  return timestamp_ns + kMaximumBacklogNs < now;
 }
 
 int ffmpeg_interrupt_callback(void *opaque) {
@@ -1193,6 +1192,8 @@ bool output_decoded_frame(OpenStreamSource *ctx,
   if (decoded_frame->width <= 0 || decoded_frame->height <= 0) {
     return false;
   }
+  const uint64_t timestamp_ns = stream_timestamp_ns(ctx, stream, decoded_frame);
+  if (stream_timestamp_is_stale(timestamp_ns)) return true;
 
   const int width = decoded_frame->width;
   const int height = decoded_frame->height;
@@ -1209,7 +1210,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
     yuv_frame.format = can_output_i420 ? VIDEO_FORMAT_I420 : VIDEO_FORMAT_NV12;
     yuv_frame.width = static_cast<uint32_t>(width);
     yuv_frame.height = static_cast<uint32_t>(height);
-    yuv_frame.timestamp = stream_timestamp_ns(ctx, stream, decoded_frame);
+    yuv_frame.timestamp = timestamp_ns;
     yuv_frame.range = obs_range_for_frame(decoded_frame, source_format);
     yuv_frame.trc = static_cast<uint8_t>(obs_trc_for_frame(decoded_frame));
     yuv_frame.flip = false;
@@ -1294,7 +1295,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
   obs_frame.format = VIDEO_FORMAT_BGRA;
   obs_frame.width = static_cast<uint32_t>(width);
   obs_frame.height = static_cast<uint32_t>(height);
-  obs_frame.timestamp = stream_timestamp_ns(ctx, stream, decoded_frame);
+  obs_frame.timestamp = timestamp_ns;
   obs_frame.data[0] = bgra_buffer->data();
   obs_frame.linesize[0] = static_cast<uint32_t>(linesize);
   obs_frame.flip = false;
@@ -1418,11 +1419,17 @@ void decode_packets(OpenStreamSource *ctx,
         av_frame_unref(audio_frame.get());
         return AVERROR(EINVAL);
       }
+      const uint64_t timestamp_ns =
+          stream_timestamp_ns(ctx, audio_stream, audio_frame.get());
+      if (stream_timestamp_is_stale(timestamp_ns)) {
+        av_frame_unref(audio_frame.get());
+        continue;
+      }
 
       struct obs_source_audio obs_audio = {};
       obs_audio.samples_per_sec = sample_rate;
       obs_audio.frames = static_cast<uint32_t>(audio_frame->nb_samples);
-      obs_audio.timestamp = stream_timestamp_ns(ctx, audio_stream, audio_frame.get());
+      obs_audio.timestamp = timestamp_ns;
       obs_audio.format = obs_format;
       obs_audio.speakers = speakers;
       for (int i = 0; i < MAX_AV_PLANES && audio_frame->data[i]; i++) {
@@ -1549,8 +1556,8 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     AVDictionary *options = nullptr;
     av_dict_set(&options, "fflags", "nobuffer", 0);
     av_dict_set(&options, "flags", "low_delay", 0);
-    av_dict_set(&options, "probesize", "262144", 0);
-    av_dict_set(&options, "analyzeduration", "250000", 0);
+    av_dict_set(&options, "probesize", "1048576", 0);
+    av_dict_set(&options, "analyzeduration", "1000000", 0);
 
     blog(LOG_INFO,
          "[OpenStream] Opening Android stream at %s",
@@ -2096,6 +2103,28 @@ bool openstream_stop_camera_source(obs_source_t *source) {
   if (!ctx) return false;
   openstream_stop_worker(ctx);
   return true;
+}
+
+bool openstream_identify_camera_source(obs_source_t *source) {
+  if (!openstream_is_camera_source(source)) return false;
+  OpenStreamSource *ctx = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
+    const auto found = g_source_contexts.find(source);
+    if (found != g_source_contexts.end()) ctx = found->second;
+  }
+  if (!ctx) return false;
+  std::string slot_label;
+  std::string device_name;
+  {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    slot_label = ctx->slot_label;
+    device_name = ctx->device_name;
+  }
+  std::ostringstream body;
+  body << "{\"label\":\"" << json_escape(slot_label) << "\","
+       << "\"subtitle\":\"" << json_escape(device_name) << "\"}";
+  return queue_control_command(ctx, "/identify", body.str());
 }
 
 const char *openstream_source_status(obs_source_t *source) {

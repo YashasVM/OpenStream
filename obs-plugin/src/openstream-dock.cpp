@@ -108,7 +108,12 @@ class OpenStreamDock final : public QWidget {
     auto *torch = new QHBoxLayout();
     addButton(torch, "Torch on", "/torch", R"({"enabled":true})");
     addButton(torch, "Torch off", "/torch", R"({"enabled":false})");
-    addButton(torch, "Identify", "/identify", R"({"label":"OBS"})");
+    auto *identify = new QPushButton("Identify", this);
+    connect(identify, &QPushButton::clicked, this, [this] {
+      const bool queued = openstream_identify_camera_source(currentSource());
+      status_->setText(queued ? "Identify queued" : "Camera is not connected");
+    });
+    torch->addWidget(identify);
     cameraLayout->addLayout(torch);
 
     auto *zoomRow = new QHBoxLayout();
@@ -289,7 +294,8 @@ void openstream_unregister_dock() {
     delete g_tools_action;
     g_tools_action = nullptr;
   }
-  obs_frontend_remove_dock("openstream-camera-control");
-  delete g_dock;
+  // OBS owns the QDockWidget wrapper and deletes its child widget when the
+  // dock is removed. Clear our non-owning pointer before triggering teardown.
   g_dock = nullptr;
+  obs_frontend_remove_dock("openstream-camera-control");
 }
