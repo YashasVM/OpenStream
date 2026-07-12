@@ -4,14 +4,18 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <charconv>
+#include <condition_variable>
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <map>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -482,6 +486,13 @@ std::optional<SrtUrl> parseSrtUrl(const std::string &url) {
 
 class NativeSender {
  public:
+  NativeSender() : sendWorker_(&NativeSender::runSendWorker, this) {}
+
+  ~NativeSender() {
+    stopSendWorker();
+    disconnect();
+  }
+
   bool connect(const std::string &url) {
 #if OPENSTREAM_HAVE_LIBSRT
     disconnect();
@@ -633,7 +644,7 @@ class NativeSender {
 #endif
   }
 
-  bool send(const std::vector<uint8_t> &bytes) {
+  bool sendNow(const std::vector<uint8_t> &bytes) {
 #if OPENSTREAM_HAVE_LIBSRT
     // Closing an SRT socket or tearing down libsrt while another codec thread
     // is inside srt_sendmsg is unsafe. Serialize the whole send with teardown,
@@ -669,8 +680,35 @@ class NativeSender {
 #endif
   }
 
+  bool send(const std::vector<uint8_t> &bytes) {
+#if OPENSTREAM_HAVE_LIBSRT
+    if (!healthy_.load()) return false;
+    {
+      std::lock_guard<std::mutex> lock(sendQueueMutex_);
+      if (sendWorkerStopping_ ||
+          sendQueueBytes_ + bytes.size() > kMaximumSendQueueBytes) {
+        healthy_ = false;
+        return false;
+      }
+      sendQueue_.push_back(bytes);
+      sendQueueBytes_ += bytes.size();
+    }
+    sendQueueWake_.notify_one();
+    return true;
+#else
+    (void)bytes;
+    return false;
+#endif
+  }
+
   void disconnect() {
 #if OPENSTREAM_HAVE_LIBSRT
+    healthy_ = false;
+    {
+      std::lock_guard<std::mutex> lock(sendQueueMutex_);
+      sendQueue_.clear();
+      sendQueueBytes_ = 0;
+    }
     std::lock_guard<std::mutex> ioLock(ioMutex_);
     const SRTSOCKET listenerSocket = takeListenerSocket();
     const SRTSOCKET socket = takeSocket();
@@ -685,6 +723,39 @@ class NativeSender {
   }
 
  private:
+  void runSendWorker() {
+    for (;;) {
+      std::vector<uint8_t> bytes;
+      {
+        std::unique_lock<std::mutex> lock(sendQueueMutex_);
+        sendQueueWake_.wait(lock, [this] {
+          return sendWorkerStopping_ || !sendQueue_.empty();
+        });
+        if (sendWorkerStopping_) return;
+        bytes = std::move(sendQueue_.front());
+        sendQueue_.pop_front();
+        sendQueueBytes_ -= bytes.size();
+      }
+      if (!sendNow(bytes)) {
+        healthy_ = false;
+        std::lock_guard<std::mutex> lock(sendQueueMutex_);
+        sendQueue_.clear();
+        sendQueueBytes_ = 0;
+      }
+    }
+  }
+
+  void stopSendWorker() {
+    {
+      std::lock_guard<std::mutex> lock(sendQueueMutex_);
+      sendWorkerStopping_ = true;
+      sendQueue_.clear();
+      sendQueueBytes_ = 0;
+    }
+    sendQueueWake_.notify_one();
+    if (sendWorker_.joinable()) sendWorker_.join();
+  }
+
 #if OPENSTREAM_HAVE_LIBSRT
   SRTSOCKET currentSocket() const {
     std::lock_guard<std::mutex> lock(socketMutex_);
@@ -694,6 +765,7 @@ class NativeSender {
   void setSocket(SRTSOCKET socket) {
     std::lock_guard<std::mutex> lock(socketMutex_);
     socket_ = socket;
+    healthy_ = true;
   }
 
   SRTSOCKET takeSocket() {
@@ -709,6 +781,7 @@ class NativeSender {
       std::lock_guard<std::mutex> lock(socketMutex_);
       if (socket_ == socket) {
         socket_ = SRT_INVALID_SOCK;
+        healthy_ = false;
         ownsSocket = true;
       }
     }
@@ -748,6 +821,14 @@ class NativeSender {
   SRTSOCKET socket_ = SRT_INVALID_SOCK;
   SRTSOCKET listener_socket_ = SRT_INVALID_SOCK;
 #endif
+  static constexpr size_t kMaximumSendQueueBytes = 768 * 1024;
+  std::atomic<bool> healthy_{false};
+  std::mutex sendQueueMutex_;
+  std::condition_variable sendQueueWake_;
+  std::deque<std::vector<uint8_t>> sendQueue_;
+  size_t sendQueueBytes_ = 0;
+  bool sendWorkerStopping_ = false;
+  std::thread sendWorker_;
 };
 
 struct StreamState {
