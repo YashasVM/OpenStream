@@ -121,13 +121,20 @@ class OpenStreamDock final : public QWidget {
     zoom_->setRange(10, 100);
     zoom_->setValue(10);
     zoomValue_ = new QLabel("1.0×", this);
+    zoomDispatch_ = new QTimer(this);
+    zoomDispatch_->setInterval(33);
+    zoomDispatch_->setTimerType(Qt::PreciseTimer);
+    connect(zoomDispatch_, &QTimer::timeout, this, [this] { dispatchZoom(); });
     connect(zoom_, &QSlider::valueChanged, this, [this](int value) {
       zoomValue_->setText(QString::number(value / 10.0, 'f', 1) + "×");
+      pendingZoom_ = value;
+      zoomDirty_ = true;
+      if (!zoomDispatch_->isActive()) zoomDispatch_->start();
     });
     connect(zoom_, &QSlider::sliderReleased, this, [this] {
-      const QByteArray body = QByteArray("{\"value\":") +
-                              QByteArray::number(zoom_->value() / 10.0, 'f', 1) + "}";
-      send("/zoom", body.constData());
+      pendingZoom_ = zoom_->value();
+      zoomDirty_ = true;
+      dispatchZoom();
     });
     zoomRow->addWidget(new QLabel("Zoom", this));
     zoomRow->addWidget(zoom_);
@@ -171,6 +178,18 @@ class OpenStreamDock final : public QWidget {
     if (!source) return;
     const bool queued = openstream_post_camera_command(source, path, body);
     status_->setText(queued ? "Command queued" : "Camera is not connected");
+  }
+
+  void dispatchZoom() {
+    if (!zoomDirty_) {
+      if (!zoom_->isSliderDown()) zoomDispatch_->stop();
+      return;
+    }
+    zoomDirty_ = false;
+    const bool queued =
+        openstream_set_camera_zoom(currentSource(), pendingZoom_ / 10.0);
+    if (!queued) status_->setText("Camera is not connected");
+    if (!zoom_->isSliderDown()) zoomDispatch_->stop();
   }
 
   obs_source_t *currentSource() const {
@@ -238,6 +257,9 @@ class OpenStreamDock final : public QWidget {
   QLabel *status_ = nullptr;
   QSlider *zoom_ = nullptr;
   QLabel *zoomValue_ = nullptr;
+  QTimer *zoomDispatch_ = nullptr;
+  int pendingZoom_ = 10;
+  bool zoomDirty_ = false;
   QTimer *refresh_ = nullptr;
   QLabel *update_ = nullptr;
   QPushButton *updateButton_ = nullptr;

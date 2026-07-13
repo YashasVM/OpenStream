@@ -1,9 +1,10 @@
 #pragma once
 
 #include <condition_variable>
+#include <deque>
 #include <functional>
 #include <mutex>
-#include <queue>
+#include <string>
 #include <thread>
 
 // Serial executor for camera-control I/O.  Commands are deliberately serialized:
@@ -17,13 +18,19 @@ class AsyncControlClient {
   AsyncControlClient &operator=(const AsyncControlClient &) = delete;
 
   void post(std::function<void()> command);
+  void postLatest(std::string key, std::function<void()> command);
   void stop();
 
  private:
+  struct PendingCommand {
+    std::string key;
+    std::function<void()> command;
+  };
+
   void run();
   std::mutex mutex_;
   std::condition_variable wake_;
-  std::queue<std::function<void()>> commands_;
+  std::deque<PendingCommand> commands_;
   bool stopping_ = false;
   std::thread worker_;
 };

@@ -23,10 +23,12 @@
 #include <chrono>
 #include <atomic>
 #include <charconv>
+#include <cmath>
 #include <cstdint>
 #include <inttypes.h>
 #include <cstdlib>
 #include <cstring>
+#include <iomanip>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -801,18 +803,23 @@ bool send_control_command(const std::string &host, int port,
 std::optional<PhoneDevice> control_phone(OpenStreamSource *ctx);
 
 bool queue_control_command(OpenStreamSource *ctx, const std::string &path,
-                           const std::string &body) {
+                           const std::string &body,
+                           const std::string &latest_key = {}) {
   if (!ctx || path.empty() || path.front() != '/' || body.size() > 8192) return false;
   const auto phone = control_phone(ctx);
   if (!phone.has_value()) return false;
   const auto client = ctx->camera_controls;
   const std::string host = phone->host;
   const int port = phone->control_port;
-  client->post([host, port, path, body] {
+  auto command = [host, port, path, body] {
     if (!send_control_command(host, port, path, body)) {
       blog(LOG_WARNING, "[OpenStream] Camera command %s failed", path.c_str());
     }
-  });
+  };
+  if (latest_key.empty())
+    client->post(std::move(command));
+  else
+    client->postLatest(latest_key, std::move(command));
   return true;
 }
 
@@ -2077,6 +2084,20 @@ bool openstream_post_camera_command(obs_source_t *source, const char *path,
     if (found != g_source_contexts.end()) ctx = found->second;
   }
   return queue_control_command(ctx, path, json_body);
+}
+
+bool openstream_set_camera_zoom(obs_source_t *source, double zoom) {
+  if (!openstream_is_camera_source(source) || !std::isfinite(zoom)) return false;
+  OpenStreamSource *ctx = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
+    const auto found = g_source_contexts.find(source);
+    if (found != g_source_contexts.end()) ctx = found->second;
+  }
+  const double safe_zoom = std::clamp(zoom, 1.0, 10.0);
+  std::ostringstream body;
+  body << "{\"value\":" << std::fixed << std::setprecision(1) << safe_zoom << "}";
+  return queue_control_command(ctx, "/zoom", body.str(), "camera-zoom");
 }
 
 bool openstream_start_camera_source(obs_source_t *source) {

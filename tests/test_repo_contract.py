@@ -345,6 +345,10 @@ def test_obs_plugin_has_dock_controls_async_io_and_passive_updates() -> None:
     assert "github.com" in dock
     assert "AsyncControlClient" in source
     assert "queue_control_command" in source
+    assert "postLatest" in source
+    assert '"camera-zoom"' in source
+    assert "zoomDispatch_->setInterval(33)" in dock
+    assert "openstream_set_camera_zoom" in dock
     assert "Qt6::Network" in cmake
     assert "Qt6::Widgets" in cmake
 
