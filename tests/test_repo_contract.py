@@ -360,7 +360,7 @@ def test_release_build_fails_without_signing_and_keystores_are_ignored() -> None
     assert "Release builds require OPENSTREAM_RELEASE_KEYSTORE" in app_gradle
     assert "openstream.versionName" in app_gradle
     assert "openstream.versionCode" in app_gradle
-    assert '"2.0.0-beta"' in app_gradle
+    assert '"2.1.0-beta"' in app_gradle
     version_code = re.search(
         r"openStreamVersionCode.*?\.orElse\(\"(\d+)\"\)",
         app_gradle,
@@ -377,6 +377,6 @@ def test_v2_release_metadata_defaults_are_aligned() -> None:
     cmake = read("obs-plugin/CMakeLists.txt")
     installer = read("tools/installer/openstream-obs-plugin.iss")
 
-    assert '"2.0.0-beta"' in app_gradle
+    assert '"2.1.0-beta"' in app_gradle
     assert "project(openstream_obs_plugin VERSION 2.0.0" in cmake
-    assert '#define OpenStreamVersion "2.0.0-beta"' in installer
+    assert '#define OpenStreamVersion "2.1.0-beta"' in installer
