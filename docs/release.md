@@ -16,11 +16,11 @@ OpenStream releases should give users direct installable assets instead of makin
 
 ## Automated Release
 
-Create and push a version tag. The V2 beta release uses `v2.0.0-beta`:
+Create and push a version tag. For example, the current V2 beta release uses `v2.1.0-beta`:
 
 ```powershell
-git tag v2.0.0-beta
-git push origin v2.0.0-beta
+git tag -a v2.1.0-beta -m "OpenStream v2.1.0-beta"
+git push origin v2.1.0-beta
 ```
 
 The `Release` workflow builds:
@@ -36,7 +36,7 @@ lint, signed Android build, and OBS plugin build succeed. It downloads the
 artifacts, normalizes the APK name, writes its SHA-256 checksum into both a
 sidecar file and the Android update metadata, and runs `gh release create`.
 
-You can also run the `Release` workflow manually from GitHub Actions and provide a tag such as `v2.0.0-beta`.
+You can also run the `Release` workflow manually from GitHub Actions and provide a tag such as `v2.1.0-beta`.
 
 The Android job passes the release tag into Gradle as the APK `versionName` and uses the release commit timestamp as `versionCode`, so update ordering stays monotonic across full releases.
 

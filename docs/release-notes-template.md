@@ -1,15 +1,16 @@
-# OpenStream V2 Beta
+# OpenStream V2.1 Beta
 
-OpenStream is focused on making the Android-to-OBS setup easier to understand and safer to upgrade. It includes the refreshed OBS source UI, simple source naming, legacy scene compatibility, Android camera streaming, and direct install downloads for both surfaces.
+OpenStream V2.1 makes the Android-to-OBS workflow faster, clearer, and safer to upgrade. It includes the native OBS control dock, smooth real-time zoom, lower-latency media handling, stronger reconnect behavior, streamlined source naming, and direct install downloads for both platforms.
 
 ## What's New
 
 | Area | Update |
 |---|---|
-| OBS setup | Source properties now follow `1. Camera Slot`, `2. Live Camera Controls`, and `3. Network & Pairing (Advanced)`. |
-| Upgrade path | Existing `OpenStream V7` scene sources keep loading through a compatibility source id. |
-| Pairing copy | OBS now explains the phone-side slot selection flow instead of leading with SRT details. |
-| Setup docs | The walkthrough now includes stale-plugin checks for Program Files, ProgramData, and per-user OBS plugin folders. |
+| OBS controls | The dock keeps connection, lens, torch, identify, and zoom controls beside the preview. Zoom responds continuously while the slider moves. |
+| Streaming | Bounded queues, stale-frame dropping, tuned SRT behavior, and asynchronous Android sends reduce avoidable buffering. |
+| Connectivity | Faster failure detection, clearer slot pairing, and reservation-aware reconnects make recovery more predictable. |
+| Upgrade path | Existing scene sources keep loading through compatibility source IDs, while the installer removes known stale plugin copies. |
+| Product polish | OBS now displays the product as `OpenStream`, with aligned setup, release, and update documentation. |
 
 ## Downloads
 
@@ -36,7 +37,7 @@ For the screenshot walkthrough, read [`docs/set-up.md`](https://github.com/Yasha
 ## Notes
 
 - Windows OBS plugin only.
-- Existing source names may still say `OpenStream V7`; rename them in OBS if you want the scene label to match V2.
+- Existing user-assigned source names are preserved during upgrades and can be renamed normally in OBS.
 - Use 5 GHz or Wi-Fi 6 for best results.
 - Keep both devices on the same subnet.
 - This is still beta software; please report issues on GitHub.
