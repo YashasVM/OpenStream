@@ -175,6 +175,18 @@ Discovery uses UDP port `51515`. Camera remote controls use the phone HTTP contr
 
 ## Building
 
+### Website
+
+The source for [openstream.pages.dev](https://openstream.pages.dev) lives in [`website/`](website/).
+
+```powershell
+cd website
+npm install
+npm run dev
+```
+
+Run `npm run build` to create the static Cloudflare Pages output in `website/dist`.
+
 ### Android App
 
 Development build:

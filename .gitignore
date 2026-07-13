@@ -38,4 +38,6 @@ local.properties
 obs-plugin/build/
 obs-plugin/deps/
 artifacts-local/
+website/node_modules/
+website/dist/
 aqtinstall.log
