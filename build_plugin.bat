@@ -25,6 +25,8 @@ set "FFMPEG_HEADERS_DIR=%DEPS_DIR%\ffmpeg-headers"
 set "OBS_BIN="
 set "PACKAGE_DIR="
 set "CMAKE_EXE=cmake"
+set "QT_ROOT=%OPENSTREAM_QT_ROOT%"
+if not defined OPENSTREAM_VERSION set "OPENSTREAM_VERSION=2.1.0-beta"
 
 if defined OPENSTREAM_OBS_INSTALL set "OBS_INSTALL=%OPENSTREAM_OBS_INSTALL%"
 if defined OPENSTREAM_PLUGIN_BUILD_DIR set "BUILD_DIR=%OPENSTREAM_PLUGIN_BUILD_DIR%"
@@ -68,6 +70,16 @@ if not defined OBS_BIN (
     exit /b 1
 )
 
+if not defined QT_ROOT (
+    echo ERROR: Qt 6 development files were not found.
+    echo Set OPENSTREAM_QT_ROOT to the Qt directory matching OBS, for example C:\Qt\6.8.3\msvc2022_64.
+    exit /b 1
+)
+if not exist "%QT_ROOT%\lib\cmake\Qt6\Qt6Config.cmake" (
+    echo ERROR: OPENSTREAM_QT_ROOT does not contain Qt6Config.cmake: %QT_ROOT%
+    exit /b 1
+)
+
 echo [1/6] Setting up Visual Studio environment...
 call "%VCVARS%" >nul 2>&1
 if errorlevel 1 (
@@ -92,7 +104,16 @@ if not exist "%OBS_SDK_DIR%\libobs\obs-module.h" (
     echo [2/6] Extracting OBS source headers...
     if not exist "%OBS_SDK_DIR%" mkdir "%OBS_SDK_DIR%"
     tar -xzf "%OBS_SDK_ZIP%" -C "%OBS_SDK_DIR%" --strip-components=1
-    if errorlevel 1 exit /b 1
+    rem Windows tar cannot materialize a few Unix helper symlinks. They are not
+    rem part of the plugin SDK, so validate the headers we actually consume.
+    if not exist "%OBS_SDK_DIR%\libobs\obs-module.h" (
+        echo ERROR: OBS headers were not extracted successfully.
+        exit /b 1
+    )
+    if not exist "%OBS_SDK_DIR%\frontend\api\obs-frontend-api.h" (
+        echo ERROR: OBS frontend API headers were not extracted successfully.
+        exit /b 1
+    )
 ) else (
     echo [2/6] OBS source headers already present, skipping download.
 )
@@ -159,6 +180,23 @@ if not exist "%FFMPEG_DIR%\lib\obs.lib" (
     )
 )
 
+if not exist "%FFMPEG_DIR%\lib\obs-frontend-api.lib" (
+    if exist "%OBS_BIN%\obs-frontend-api.dll" (
+        echo   Creating obs-frontend-api.lib from obs-frontend-api.dll...
+        dumpbin /exports "%OBS_BIN%\obs-frontend-api.dll" > "%DEPS_DIR%\obs_frontend_exports.txt" 2>nul
+        echo LIBRARY obs-frontend-api.dll> "%DEPS_DIR%\obs-frontend-api.def"
+        echo EXPORTS>> "%DEPS_DIR%\obs-frontend-api.def"
+        for /f "usebackq skip=19 tokens=4" %%E in ("%DEPS_DIR%\obs_frontend_exports.txt") do (
+            if not "%%E"=="" echo %%E>> "%DEPS_DIR%\obs-frontend-api.def"
+        )
+        lib /def:"%DEPS_DIR%\obs-frontend-api.def" /out:"%FFMPEG_DIR%\lib\obs-frontend-api.lib" /machine:x64 >nul 2>&1
+    )
+)
+if not exist "%FFMPEG_DIR%\lib\obs-frontend-api.lib" (
+    echo ERROR: Could not create the OBS frontend API import library.
+    exit /b 1
+)
+
 echo [4/6] Configuring CMake build...
 if exist "%BUILD_DIR%" rmdir /S /Q "%BUILD_DIR%"
 mkdir "%BUILD_DIR%"
@@ -169,8 +207,10 @@ if not exist "%OBS_SDK_DIR%\libobs\obs-module.h" set "OBS_ROOT=%OBS_INSTALL%"
 "%CMAKE_EXE%" -S "%PLUGIN_DIR%" -B "%BUILD_DIR%" ^
     -G "NMake Makefiles" ^
     -DCMAKE_BUILD_TYPE=Release ^
+    -DCMAKE_PREFIX_PATH="%QT_ROOT%" ^
     -DOBS_ROOT="%OBS_ROOT%" ^
-    -DFFMPEG_ROOT="%FFMPEG_DIR%"
+    -DFFMPEG_ROOT="%FFMPEG_DIR%" ^
+    -DOPENSTREAM_VERSION="%OPENSTREAM_VERSION%"
 
 if errorlevel 1 (
     echo ERROR: CMake configuration failed.

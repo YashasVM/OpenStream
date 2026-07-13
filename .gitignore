@@ -37,3 +37,5 @@ local.properties
 # OBS plugin build artifacts
 obs-plugin/build/
 obs-plugin/deps/
+artifacts-local/
+aqtinstall.log

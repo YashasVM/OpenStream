@@ -33,7 +33,8 @@ def test_android_project_declares_camera_media_codec_srt_discovery_boundaries() 
     assert "MediaCodecAudioEncoder" in app
     stream_config = read("android/app/src/main/java/dev/openstream/app/stream/StreamConfig.kt")
     assert "PreferHevc" in stream_config
-    assert "50_000_000" in stream_config
+    assert "16_000_000" in stream_config
+    assert "128_000" in stream_config
     assert "OPENSTREAM_PHONE/1" in discovery
     assert "DISCOVERY_PORT = 51515" in discovery
     assert "dev.openstream.phone" in discovery
@@ -77,6 +78,16 @@ def test_obs_plugin_registers_openstream_source_and_discovery() -> None:
     assert "pairing_url" in source
 
 
+def test_obs_receiver_preserves_stream_timing_and_limits_probe_delay() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+
+    assert "best_effort_timestamp" in source
+    assert "stream_timestamp_ns" in source
+    assert "stream_timestamp_is_stale" in source
+    assert '"probesize", "1048576"' in source
+    assert '"analyzeduration", "1000000"' in source
+
+
 def test_audio_path_uses_adts_aac_and_obs_planar_formats() -> None:
     native = read("android/app/src/main/cpp/openstream_srt.cpp")
     source = read("obs-plugin/src/openstream-source.cpp")
@@ -89,6 +100,18 @@ def test_audio_path_uses_adts_aac_and_obs_planar_formats() -> None:
     assert "AUDIO_FORMAT_FLOAT_PLANAR" in source
     assert "audio_frame->format" in source
     assert "obs_source_output_audio" in source
+
+
+def test_android_srt_transport_bounds_live_latency_and_reconnects_quickly() -> None:
+    native = read("android/app/src/main/cpp/openstream_srt.cpp")
+
+    assert "SRTO_TLPKTDROP" in native
+    assert "SRTO_SNDTIMEO" in native
+    assert "sendTimeoutMs = 120" in native
+    assert "SRTO_CONNTIMEO" in native
+    assert "SRTO_PEERIDLETIMEO" in native
+    assert "kMaximumSendQueueBytes" in native
+    assert "runSendWorker" in native
 
 
 def test_obs_plugin_routes_multiple_phones_by_selected_slot() -> None:
@@ -119,7 +142,7 @@ def test_obs_sources_are_named_camera_slots_with_advanced_transport() -> None:
     assert "OBS_GROUP_CHECKABLE, advanced_group" in source
     assert "listener_port" in source
     assert "SRT latency (ms)" in source
-    assert '"bitrate_mbps", 50' in source
+    assert '"bitrate_mbps", 16' in source
     assert '"bitrate_mbps", "Expected bitrate (Mbps)", 8, 120, 1' in source
 
 
@@ -177,7 +200,9 @@ def test_identify_camera_control_round_trip_exists() -> None:
     control = read("android/app/src/main/java/dev/openstream/app/control/CameraControlServer.kt")
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
     layout = read("android/app/src/main/res/layout/activity_main.xml")
-    assert "Show Slot Label on Phone" in source
+    dock = read("obs-plugin/src/openstream-dock.cpp")
+    assert '"Identify"' in dock
+    assert "openstream_identify_camera_source" in dock
     assert '"/identify"' in source
     assert 'path == "/identify"' in control
     assert "handleIdentify" in control
@@ -284,13 +309,48 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "org.gradle.java.home" not in gradle_properties
 
 
-def test_manual_obs_installer_replaces_known_plugin_copies() -> None:
+def test_manual_obs_installer_uses_one_canonical_per_user_copy() -> None:
     installer = read("tools/installer/Install-OpenStreamPlugin.ps1")
 
-    assert "Get-OpenStreamPluginTargets" in installer
-    assert "ProgramData" in installer
+    assert "Get-OpenStreamPluginTarget" in installer
     assert "APPDATA" in installer
-    assert "OpenStream V8" in installer
+    assert "plugins\\openstream-obs\\bin\\64bit\\openstream-obs.dll" in installer
+    assert "Test-IsAdministrator" not in installer
+    assert "source named OpenStream" in installer
+
+
+def test_obs_installer_is_per_user_upgradeable_and_release_has_metadata() -> None:
+    installer = read("tools/installer/openstream-obs-plugin.iss")
+    release = read(".github/workflows/release.yml")
+
+    assert "PrivilegesRequired=admin" in installer
+    assert "Uninstallable=yes" in installer
+    assert "{commonappdata}\\obs-studio\\plugins\\openstream-obs" in installer
+    assert "{userappdata}\\obs-studio\\plugins\\openstream-obs" in installer
+    assert "openstream-obs-update.json" in release
+    assert "installerSha256" in release
+    assert "openstream-obs-plugin-installer-windows-x64.exe.sha256" in release
+
+
+def test_obs_plugin_has_dock_controls_async_io_and_passive_updates() -> None:
+    cmake = read("obs-plugin/CMakeLists.txt")
+    dock = read("obs-plugin/src/openstream-dock.cpp")
+    source = read("obs-plugin/src/openstream-source.cpp")
+
+    assert "obs_frontend_add_dock_by_id" in dock
+    assert "OpenStream Camera Control" in dock
+    assert "Connect / retry" in dock
+    assert "openstream-obs-update.json" in dock
+    assert "QNetworkAccessManager" in dock
+    assert "github.com" in dock
+    assert "AsyncControlClient" in source
+    assert "queue_control_command" in source
+    assert "postLatest" in source
+    assert '"camera-zoom"' in source
+    assert "zoomDispatch_->setInterval(33)" in dock
+    assert "openstream_set_camera_zoom" in dock
+    assert "Qt6::Network" in cmake
+    assert "Qt6::Widgets" in cmake
 
 
 def test_release_build_fails_without_signing_and_keystores_are_ignored() -> None:
@@ -300,7 +360,7 @@ def test_release_build_fails_without_signing_and_keystores_are_ignored() -> None
     assert "Release builds require OPENSTREAM_RELEASE_KEYSTORE" in app_gradle
     assert "openstream.versionName" in app_gradle
     assert "openstream.versionCode" in app_gradle
-    assert '"2.0.0-beta"' in app_gradle
+    assert '"2.1.0-beta"' in app_gradle
     version_code = re.search(
         r"openStreamVersionCode.*?\.orElse\(\"(\d+)\"\)",
         app_gradle,
@@ -317,6 +377,6 @@ def test_v2_release_metadata_defaults_are_aligned() -> None:
     cmake = read("obs-plugin/CMakeLists.txt")
     installer = read("tools/installer/openstream-obs-plugin.iss")
 
-    assert '"2.0.0-beta"' in app_gradle
+    assert '"2.1.0-beta"' in app_gradle
     assert "project(openstream_obs_plugin VERSION 2.0.0" in cmake
-    assert '#define OpenStreamVersion "2.0.0-beta"' in installer
+    assert '#define OpenStreamVersion "2.1.0-beta"' in installer

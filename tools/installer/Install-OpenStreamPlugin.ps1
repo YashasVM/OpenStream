@@ -5,12 +5,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function Test-IsAdministrator {
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
-    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-}
-
 function Test-ObsInstallDir {
     param([Parameter(Mandatory)][string]$Path)
 
@@ -54,26 +48,11 @@ function Find-ObsInstallDir {
     return $null
 }
 
-function Get-OpenStreamPluginTargets {
-    param([Parameter(Mandatory)][string]$ObsRoot)
-
-    $targets = @(
-        (Join-Path $ObsRoot "obs-plugins\64bit\openstream-obs.dll")
-    )
-
-    if ($env:ProgramData) {
-        $targets += Join-Path $env:ProgramData "obs-studio\plugins\openstream-obs\bin\64bit\openstream-obs.dll"
+function Get-OpenStreamPluginTarget {
+    if (-not $env:APPDATA) {
+        throw "APPDATA is not available; a per-user OBS plugin location cannot be determined."
     }
-
-    if ($env:APPDATA) {
-        $targets += Join-Path $env:APPDATA "obs-studio\plugins\openstream-obs\bin\64bit\openstream-obs.dll"
-    }
-
-    return $targets | Where-Object { $_ } | Select-Object -Unique
-}
-
-if (-not (Test-IsAdministrator)) {
-    throw "Run this installer from an elevated PowerShell window, or use install-openstream-plugin.bat to request administrator access."
+    return Join-Path $env:APPDATA "obs-studio\plugins\openstream-obs\bin\64bit\openstream-obs.dll"
 }
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -90,21 +69,16 @@ if (-not $obsRoot) {
 
 $runningObs = Get-Process -Name "obs64", "obs" -ErrorAction SilentlyContinue
 if ($runningObs) {
-    Write-Warning "OBS Studio appears to be running. Close and restart OBS after installation so it can load the plugin."
+    throw "OBS Studio is running. Close OBS before installing or updating OpenStream."
 }
 
-$installedTargets = @()
-foreach ($targetDll in Get-OpenStreamPluginTargets -ObsRoot $obsRoot) {
-    $targetDir = Split-Path -Parent $targetDll
-    New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
-    Copy-Item -LiteralPath $pluginDll -Destination $targetDll -Force
-    $installedTargets += $targetDll
-}
+$targetDll = Get-OpenStreamPluginTarget
+$targetDir = Split-Path -Parent $targetDll
+New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+Copy-Item -LiteralPath $pluginDll -Destination $targetDll -Force
 
 Write-Host ""
 Write-Host "OpenStream OBS plugin installed successfully."
-foreach ($target in $installedTargets) {
-    Write-Host "Plugin: $target"
-}
+Write-Host "Plugin: $targetDll"
 Write-Host ""
-Write-Host "Restart OBS Studio, then add a source named OpenStream V8."
+Write-Host "Restart OBS Studio, then add a source named OpenStream."

@@ -15,15 +15,20 @@
 #endif
 
 #include <obs-module.h>
+
+#include "async-control-client.hpp"
+#include "openstream-control-api.hpp"
 #include <util/platform.h>
 
 #include <chrono>
 #include <atomic>
 #include <charconv>
+#include <cmath>
 #include <cstdint>
 #include <inttypes.h>
 #include <cstdlib>
 #include <cstring>
+#include <iomanip>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -39,6 +44,7 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/error.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/mathematics.h>
 #include <libavutil/opt.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/pixfmt.h>
@@ -89,7 +95,7 @@ using SwsContextPtr = std::unique_ptr<SwsContext, SwsContextDeleter>;
 constexpr int kDiscoveryPort = 51515;
 constexpr int kDefaultListenerPort = 9000;
 constexpr auto kReconnectReservationWindow = std::chrono::seconds(45);
-constexpr const char *kOpenStreamSourceName = "OpenStream V8";
+constexpr const char *kOpenStreamSourceName = "OpenStream";
 constexpr const char *kDiscoveryMulticastAddress = "239.255.42.99";
 constexpr const char *kPhoneDiscoveryPrefix = "OPENSTREAM_PHONE/1 ";
 
@@ -172,8 +178,10 @@ std::string cam_label_for_index(size_t index) {
   return "CAM " + suffix;
 }
 
+struct OpenStreamSource;
 std::mutex g_slot_registry_mutex;
 std::map<const void *, std::string> g_source_slots;
+std::map<obs_source_t *, OpenStreamSource *> g_source_contexts;
 
 std::string next_available_slot_label_locked() {
   for (size_t index = 0; index < 256; ++index) {
@@ -438,7 +446,7 @@ struct PhoneDevice {
   int width = 1920;
   int height = 1080;
   int fps = 30;
-  int bitrate_mbps = 50;
+  int bitrate_mbps = 16;
   bool busy = false;
   std::string reserved_by;
   std::chrono::steady_clock::time_point last_seen = std::chrono::steady_clock::now();
@@ -741,7 +749,7 @@ class DiscoveryAdvertiser {
   std::thread worker_;
   int listener_port_ = 9000;
   int latency_ms_ = 120;
-  int bitrate_mbps_ = 50;
+  int bitrate_mbps_ = 16;
   std::string source_name_ = kOpenStreamSourceName;
   std::string instance_id_;
   std::string slot_id_;
@@ -764,7 +772,7 @@ struct OpenStreamSource {
   std::string selected_phone_id = PhoneDiscoveryReceiver::kAutoPhoneId;
   int listener_port = 0;
   int latency_ms = 120;
-  int bitrate_mbps = 50;
+  int bitrate_mbps = 16;
   bool listener_enabled = true;
   std::atomic<bool> listener_running = false;
   std::atomic<bool> phone_connected = false;
@@ -784,8 +792,36 @@ struct OpenStreamSource {
   std::string active_selected_phone_id = PhoneDiscoveryReceiver::kAutoPhoneId;
   std::optional<PhoneDevice> active_phone;
   uint64_t frames_output = 0;
-  double last_cam_zoom = 1.0;
+  int64_t first_stream_pts_ns = AV_NOPTS_VALUE;
+  uint64_t session_clock_start_ns = 0;
+  std::shared_ptr<AsyncControlClient> camera_controls =
+      std::make_shared<AsyncControlClient>();
 };
+
+bool send_control_command(const std::string &host, int port,
+                          const std::string &path, const std::string &body);
+std::optional<PhoneDevice> control_phone(OpenStreamSource *ctx);
+
+bool queue_control_command(OpenStreamSource *ctx, const std::string &path,
+                           const std::string &body,
+                           const std::string &latest_key = {}) {
+  if (!ctx || path.empty() || path.front() != '/' || body.size() > 8192) return false;
+  const auto phone = control_phone(ctx);
+  if (!phone.has_value()) return false;
+  const auto client = ctx->camera_controls;
+  const std::string host = phone->host;
+  const int port = phone->control_port;
+  auto command = [host, port, path, body] {
+    if (!send_control_command(host, port, path, body)) {
+      blog(LOG_WARNING, "[OpenStream] Camera command %s failed", path.c_str());
+    }
+  };
+  if (latest_key.empty())
+    client->post(std::move(command));
+  else
+    client->postLatest(latest_key, std::move(command));
+  return true;
+}
 
 void set_slot_status(OpenStreamSource *ctx, std::string status) {
   std::lock_guard<std::mutex> lock(ctx->settings_mutex);
@@ -802,12 +838,12 @@ bool send_control_command(const std::string &host, int port,
   if (sock == kInvalidSocket) return false;
 
 #ifdef _WIN32
-  DWORD timeout = 3000;
+  DWORD timeout = 1000;
   setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char *>(&timeout), sizeof(timeout));
   setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char *>(&timeout), sizeof(timeout));
 #else
   timeval timeout = {};
-  timeout.tv_sec = 3;
+  timeout.tv_sec = 1;
   setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
   setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 #endif
@@ -851,7 +887,9 @@ bool send_control_command(const std::string &host, int port,
   std::string response;
   response.reserve(1024);
   char response_chunk[512];
+  const auto response_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(4);
   while (response.size() < kMaxResponseBytes) {
+    if (std::chrono::steady_clock::now() >= response_deadline) break;
     const size_t remaining_capacity = kMaxResponseBytes - response.size();
     const size_t receive_capacity =
         remaining_capacity < sizeof(response_chunk) ? remaining_capacity : sizeof(response_chunk);
@@ -993,6 +1031,29 @@ video_trc obs_trc_for_frame(const AVFrame *frame) {
     default:
       return VIDEO_TRC_DEFAULT;
   }
+}
+
+uint64_t stream_timestamp_ns(OpenStreamSource *ctx,
+                             const AVStream *stream,
+                             const AVFrame *frame) {
+  const uint64_t now = os_gettime_ns();
+  const int64_t pts = frame->best_effort_timestamp;
+  if (!stream || pts == AV_NOPTS_VALUE) return now;
+  const int64_t pts_ns =
+      av_rescale_q(pts, stream->time_base, AVRational{1, 1000000000});
+  if (ctx->first_stream_pts_ns == AV_NOPTS_VALUE) {
+    ctx->first_stream_pts_ns = pts_ns;
+    ctx->session_clock_start_ns = now;
+  }
+  const int64_t relative_ns = pts_ns - ctx->first_stream_pts_ns;
+  if (relative_ns < 0) return now;
+  return ctx->session_clock_start_ns + static_cast<uint64_t>(relative_ns);
+}
+
+bool stream_timestamp_is_stale(uint64_t timestamp_ns) {
+  constexpr uint64_t kMaximumBacklogNs = 400000000ULL;
+  const uint64_t now = os_gettime_ns();
+  return timestamp_ns + kMaximumBacklogNs < now;
 }
 
 int ffmpeg_interrupt_callback(void *opaque) {
@@ -1138,6 +1199,8 @@ bool output_decoded_frame(OpenStreamSource *ctx,
   if (decoded_frame->width <= 0 || decoded_frame->height <= 0) {
     return false;
   }
+  const uint64_t timestamp_ns = stream_timestamp_ns(ctx, stream, decoded_frame);
+  if (stream_timestamp_is_stale(timestamp_ns)) return true;
 
   const int width = decoded_frame->width;
   const int height = decoded_frame->height;
@@ -1154,7 +1217,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
     yuv_frame.format = can_output_i420 ? VIDEO_FORMAT_I420 : VIDEO_FORMAT_NV12;
     yuv_frame.width = static_cast<uint32_t>(width);
     yuv_frame.height = static_cast<uint32_t>(height);
-    yuv_frame.timestamp = os_gettime_ns();
+    yuv_frame.timestamp = timestamp_ns;
     yuv_frame.range = obs_range_for_frame(decoded_frame, source_format);
     yuv_frame.trc = static_cast<uint8_t>(obs_trc_for_frame(decoded_frame));
     yuv_frame.flip = false;
@@ -1239,7 +1302,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
   obs_frame.format = VIDEO_FORMAT_BGRA;
   obs_frame.width = static_cast<uint32_t>(width);
   obs_frame.height = static_cast<uint32_t>(height);
-  obs_frame.timestamp = os_gettime_ns();
+  obs_frame.timestamp = timestamp_ns;
   obs_frame.data[0] = bgra_buffer->data();
   obs_frame.linesize[0] = static_cast<uint32_t>(linesize);
   obs_frame.flip = false;
@@ -1314,6 +1377,9 @@ void decode_packets(OpenStreamSource *ctx,
   SwsContextPtr sws_ctx(nullptr);
   std::vector<uint8_t> bgra_buffer;
   AVStream *video_stream = format_ctx->streams[video_stream_index];
+  AVStream *audio_stream = audio_stream_index >= 0
+                               ? format_ctx->streams[audio_stream_index]
+                               : nullptr;
   uint64_t audio_frames_output = 0;
 
   const auto drain_video = [&]() -> int {
@@ -1360,11 +1426,17 @@ void decode_packets(OpenStreamSource *ctx,
         av_frame_unref(audio_frame.get());
         return AVERROR(EINVAL);
       }
+      const uint64_t timestamp_ns =
+          stream_timestamp_ns(ctx, audio_stream, audio_frame.get());
+      if (stream_timestamp_is_stale(timestamp_ns)) {
+        av_frame_unref(audio_frame.get());
+        continue;
+      }
 
       struct obs_source_audio obs_audio = {};
       obs_audio.samples_per_sec = sample_rate;
       obs_audio.frames = static_cast<uint32_t>(audio_frame->nb_samples);
-      obs_audio.timestamp = os_gettime_ns();
+      obs_audio.timestamp = timestamp_ns;
       obs_audio.format = obs_format;
       obs_audio.speakers = speakers;
       for (int i = 0; i < MAX_AV_PLANES && audio_frame->data[i]; i++) {
@@ -1528,6 +1600,8 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     ctx->phone_connected = true;
     set_slot_status(ctx, "Live");
     ctx->frames_output = 0;
+    ctx->first_stream_pts_ns = AV_NOPTS_VALUE;
+    ctx->session_clock_start_ns = 0;
 
     int video_stream_index = -1;
     CodecContextPtr video_decoder_ctx;
@@ -1586,7 +1660,7 @@ void openstream_start_worker(OpenStreamSource *ctx) {
   std::string srt_url;
   int listener_port = kDefaultListenerPort;
   int latency_ms = 120;
-  int bitrate_mbps = 50;
+  int bitrate_mbps = 16;
   std::string source_name;
   std::string instance_id;
   std::string slot_id;
@@ -1664,6 +1738,13 @@ void openstream_update(void *data, obs_data_t *settings) {
     ctx->listener_port = requested_port;
     ctx->latency_ms = static_cast<int>(obs_data_get_int(settings, "latency_ms"));
     ctx->bitrate_mbps = static_cast<int>(obs_data_get_int(settings, "bitrate_mbps"));
+    if (!obs_data_has_user_value(settings, "settings_revision")) {
+      if (ctx->bitrate_mbps == 50) {
+        ctx->bitrate_mbps = 16;
+        obs_data_set_int(settings, "bitrate_mbps", ctx->bitrate_mbps);
+      }
+      obs_data_set_int(settings, "settings_revision", 2);
+    }
     const char *slot_id = obs_data_get_string(settings, "slot_id");
     if (slot_id && slot_id[0] != '\0') {
       ctx->slot_id = slot_id;
@@ -1749,6 +1830,7 @@ void *openstream_create(obs_data_t *settings, obs_source_t *source) {
     ctx->slot_label =
         (saved_slot_label && saved_slot_label[0] != '\0') ? saved_slot_label : next_available_slot_label_locked();
     g_source_slots[ctx] = ctx->slot_label;
+    g_source_contexts[source] = ctx;
   }
   obs_data_set_string(settings, "source_instance_id", ctx->instance_id.c_str());
   obs_data_set_string(settings, "slot_id", ctx->slot_id.c_str());
@@ -1762,9 +1844,11 @@ void openstream_destroy(void *data) {
   auto *ctx = static_cast<OpenStreamSource *>(data);
   openstream_stop_worker(ctx);
   ctx->phone_discovery.stop();
+  ctx->camera_controls->stop();
   {
     std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
     g_source_slots.erase(ctx);
+    g_source_contexts.erase(ctx->source);
   }
   delete ctx;
 }
@@ -1784,8 +1868,8 @@ void openstream_defaults(obs_data_t *settings) {
   obs_data_set_default_bool(settings, "show_advanced", false);
   obs_data_set_default_int(settings, "listener_port", kDefaultListenerPort);
   obs_data_set_default_int(settings, "latency_ms", 120);
-  obs_data_set_default_int(settings, "bitrate_mbps", 50);
-  obs_data_set_default_double(settings, "cam_zoom", 1.0);
+  obs_data_set_default_int(settings, "bitrate_mbps", 16);
+  obs_data_set_default_int(settings, "settings_revision", 2);
 }
 
 obs_properties_t *openstream_properties(void *data) {
@@ -1798,6 +1882,24 @@ obs_properties_t *openstream_properties(void *data) {
     slot_status_snapshot = ctx->slot_status;
     selected_phone_id_snapshot = ctx->selected_phone_id;
   }
+
+  obs_property_t *dock_intro = obs_properties_add_text(
+      props,
+      "dock_intro",
+      "Live production controls",
+      OBS_TEXT_INFO);
+  obs_property_text_set_info_word_wrap(dock_intro, true);
+  obs_property_set_long_description(
+      dock_intro,
+      "Use the dock for always-visible camera controls while streaming. These properties remain for slot setup and compatibility.");
+  obs_properties_add_button(
+      props,
+      "open_camera_control_dock",
+      "Open Camera Control Dock",
+      [](obs_properties_t *, obs_property_t *, void *) {
+        openstream_show_dock();
+        return true;
+      });
 
   obs_properties_t *slot_group = obs_properties_create();
   obs_property_t *slot_summary = obs_properties_add_text(
@@ -1914,9 +2016,8 @@ obs_properties_t *openstream_properties(void *data) {
       disconnect_button,
       "Stops this OBS source from listening without removing it from the scene.");
 
-  obs_properties_add_group(props, "slot_setup", "1. Camera Slot", OBS_GROUP_NORMAL, slot_group);
+  obs_properties_add_group(props, "slot_setup", "Camera Slot", OBS_GROUP_NORMAL, slot_group);
 
-  // ── Camera remote controls ──
   obs_properties_t *advanced_group = obs_properties_create();
   obs_properties_add_bool(advanced_group, "listener_enabled", "Listen for this camera slot");
   obs_properties_add_text(advanced_group, "source_instance_id", "Source instance ID", OBS_TEXT_INFO);
@@ -1936,87 +2037,7 @@ obs_properties_t *openstream_properties(void *data) {
       obs_properties_add_int_slider(advanced_group, "bitrate_mbps", "Expected bitrate (Mbps)", 8, 120, 1);
   obs_property_int_set_suffix(bitrate, " Mbps");
   obs_property_set_long_description(bitrate, "Used in discovery so the phone can tune stream quality for this slot.");
-  obs_properties_add_group(props, "show_advanced", "3. Network & Pairing (Advanced)", OBS_GROUP_CHECKABLE, advanced_group);
-
-  obs_properties_t *camera_group = obs_properties_create();
-
-  obs_property_t *zoom_prop = obs_properties_add_float_slider(camera_group, "cam_zoom", "Zoom", 1.0, 10.0, 0.1);
-  obs_property_float_set_suffix(zoom_prop, "x");
-  obs_property_set_modified_callback2(zoom_prop, [](void *priv, obs_properties_t *, obs_property_t *, obs_data_t *settings) -> bool {
-    auto *ctx = static_cast<OpenStreamSource *>(priv);
-    if (!ctx) return false;
-    double zoom = obs_data_get_double(settings, "cam_zoom");
-    // Only send if value actually changed (avoid flooding)
-    if (std::abs(zoom - ctx->last_cam_zoom) < 0.05) return false;
-    ctx->last_cam_zoom = zoom;
-    auto phone = control_phone(ctx);
-    if (!phone.has_value()) return false;
-    std::ostringstream body;
-    body << "{\"value\":" << zoom << "}";
-    send_control_command(phone->host, phone->control_port, "/zoom", body.str());
-    return false;
-  }, static_cast<OpenStreamSource *>(data));
-
-  obs_properties_add_button(camera_group, "cam_torch_on", "Torch On", [](obs_properties_t *, obs_property_t *, void *data) {
-    auto *ctx = static_cast<OpenStreamSource *>(data);
-    if (!ctx) return false;
-    auto phone = control_phone(ctx);
-    if (!phone.has_value()) return false;
-    send_control_command(phone->host, phone->control_port, "/torch", "{\"enabled\":true}");
-    blog(LOG_INFO, "[OpenStream] Torch ON");
-    return true;
-  });
-
-  obs_properties_add_button(camera_group, "cam_torch_off", "Torch Off", [](obs_properties_t *, obs_property_t *, void *data) {
-    auto *ctx = static_cast<OpenStreamSource *>(data);
-    if (!ctx) return false;
-    auto phone = control_phone(ctx);
-    if (!phone.has_value()) return false;
-    send_control_command(phone->host, phone->control_port, "/torch", "{\"enabled\":false}");
-    blog(LOG_INFO, "[OpenStream] Torch OFF");
-    return true;
-  });
-
-  obs_properties_add_button(camera_group, "cam_lens_back", "Rear Camera", [](obs_properties_t *, obs_property_t *, void *data) {
-    auto *ctx = static_cast<OpenStreamSource *>(data);
-    if (!ctx) return false;
-    auto phone = control_phone(ctx);
-    if (!phone.has_value()) return false;
-    send_control_command(phone->host, phone->control_port, "/lens", "{\"lens\":\"1×\"}");
-    blog(LOG_INFO, "[OpenStream] Switch to back camera");
-    return true;
-  });
-
-  obs_properties_add_button(camera_group, "cam_lens_front", "Front Camera", [](obs_properties_t *, obs_property_t *, void *data) {
-    auto *ctx = static_cast<OpenStreamSource *>(data);
-    if (!ctx) return false;
-    auto phone = control_phone(ctx);
-    if (!phone.has_value()) return false;
-    send_control_command(phone->host, phone->control_port, "/lens", "{\"lens\":\"Front\"}");
-    blog(LOG_INFO, "[OpenStream] Switch to front camera");
-    return true;
-  });
-
-  obs_properties_add_button(camera_group, "identify_camera", "Show Slot Label on Phone", [](obs_properties_t *, obs_property_t *, void *data) {
-    auto *ctx = static_cast<OpenStreamSource *>(data);
-    if (!ctx) return false;
-    auto phone = control_phone(ctx);
-    if (!phone.has_value()) return false;
-    std::ostringstream body;
-    body << "{\"label\":\"" << json_escape(ctx->slot_label) << "\","
-         << "\"subtitle\":\"" << json_escape(ctx->device_name) << "\"}";
-    const bool sent = send_control_command(phone->host, phone->control_port, "/identify", body.str());
-    blog(LOG_INFO,
-         "[OpenStream] Identify %s%s",
-         ctx->slot_label.c_str(),
-         sent ? "" : " failed");
-    return sent;
-  });
-
-  obs_properties_add_group(props, "camera_controls", "2. Live Camera Controls", OBS_GROUP_NORMAL, camera_group);
-
-  // Credit
-  obs_properties_add_text(props, "credit", "About", OBS_TEXT_INFO);
+  obs_properties_add_group(props, "show_advanced", "Network & Pairing", OBS_GROUP_CHECKABLE, advanced_group);
 
   return props;
 }
@@ -2046,6 +2067,104 @@ obs_source_info openstream_legacy_source_info = {
 };
 }  // namespace
 
+bool openstream_is_camera_source(obs_source_t *source) {
+  if (!source) return false;
+  const char *id = obs_source_get_id(source);
+  return id && (strcmp(id, "openstream_phone_v8_source") == 0 ||
+                strcmp(id, "openstream_phone_v7_source") == 0);
+}
+
+bool openstream_post_camera_command(obs_source_t *source, const char *path,
+                                    const char *json_body) {
+  if (!openstream_is_camera_source(source) || !path || !json_body) return false;
+  OpenStreamSource *ctx = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
+    const auto found = g_source_contexts.find(source);
+    if (found != g_source_contexts.end()) ctx = found->second;
+  }
+  return queue_control_command(ctx, path, json_body);
+}
+
+bool openstream_set_camera_zoom(obs_source_t *source, double zoom) {
+  if (!openstream_is_camera_source(source) || !std::isfinite(zoom)) return false;
+  OpenStreamSource *ctx = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
+    const auto found = g_source_contexts.find(source);
+    if (found != g_source_contexts.end()) ctx = found->second;
+  }
+  const double safe_zoom = std::clamp(zoom, 1.0, 10.0);
+  std::ostringstream body;
+  body << "{\"value\":" << std::fixed << std::setprecision(1) << safe_zoom << "}";
+  return queue_control_command(ctx, "/zoom", body.str(), "camera-zoom");
+}
+
+bool openstream_start_camera_source(obs_source_t *source) {
+  if (!openstream_is_camera_source(source)) return false;
+  OpenStreamSource *ctx = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
+    const auto found = g_source_contexts.find(source);
+    if (found != g_source_contexts.end()) ctx = found->second;
+  }
+  if (!ctx) return false;
+  openstream_start_worker(ctx);
+  return true;
+}
+
+bool openstream_stop_camera_source(obs_source_t *source) {
+  if (!openstream_is_camera_source(source)) return false;
+  OpenStreamSource *ctx = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
+    const auto found = g_source_contexts.find(source);
+    if (found != g_source_contexts.end()) ctx = found->second;
+  }
+  if (!ctx) return false;
+  openstream_stop_worker(ctx);
+  return true;
+}
+
+bool openstream_identify_camera_source(obs_source_t *source) {
+  if (!openstream_is_camera_source(source)) return false;
+  OpenStreamSource *ctx = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
+    const auto found = g_source_contexts.find(source);
+    if (found != g_source_contexts.end()) ctx = found->second;
+  }
+  if (!ctx) return false;
+  std::string slot_label;
+  std::string device_name;
+  {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    slot_label = ctx->slot_label;
+    device_name = ctx->device_name;
+  }
+  std::ostringstream body;
+  body << "{\"label\":\"" << json_escape(slot_label) << "\","
+       << "\"subtitle\":\"" << json_escape(device_name) << "\"}";
+  return queue_control_command(ctx, "/identify", body.str());
+}
+
+const char *openstream_source_status(obs_source_t *source) {
+  thread_local std::string status;
+  status = "Camera unavailable";
+  if (!openstream_is_camera_source(source)) return status.c_str();
+  OpenStreamSource *ctx = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
+    const auto found = g_source_contexts.find(source);
+    if (found != g_source_contexts.end()) ctx = found->second;
+  }
+  if (!ctx) return status.c_str();
+  std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+  status = ctx->slot_label + " — " + ctx->slot_status;
+  if (ctx->active_phone.has_value()) status += " — " + ctx->active_phone->name;
+  return status.c_str();
+}
+
 bool obs_module_load(void) {
 #ifdef _WIN32
   WSADATA data = {};
@@ -2057,11 +2176,13 @@ bool obs_module_load(void) {
 #endif
   obs_register_source(&openstream_source_info);
   obs_register_source(&openstream_legacy_source_info);
-  blog(LOG_INFO, "[OpenStream] OBS plugin loaded: V8 — video + audio + remote controls (Made by @yashas.vm)");
+  openstream_register_dock();
+  blog(LOG_INFO, "[OpenStream] OBS plugin loaded — video, audio, and camera controls ready");
   return true;
 }
 
 void obs_module_unload(void) {
+  openstream_unregister_dock();
 #ifdef _WIN32
   if (g_winsock_started) {
     WSACleanup();
