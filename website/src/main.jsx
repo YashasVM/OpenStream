@@ -1,176 +1,88 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { AndroidIcon, Icon, WindowsIcon } from "./icons";
+import { Header, Logo } from "./components/Header";
+import { ProductDemo } from "./components/ProductDemo";
+import { SetupStepper } from "./components/SetupStepper";
+import { links, product } from "./product";
 import "./styles.css";
 
-const release = "https://github.com/YashasVM/OpenStream/releases/latest/download";
-const links = {
-  apk: `${release}/openstream-android.apk`,
-  installer: `${release}/openstream-obs-plugin-installer-windows-x64.exe`,
-  zip: `${release}/openstream-obs-windows-x64.zip`,
-  release: "https://github.com/YashasVM/OpenStream/releases/latest",
-  repo: "https://github.com/YashasVM/OpenStream",
-  issues: "https://github.com/YashasVM/OpenStream/issues",
-  setup: "https://github.com/YashasVM/OpenStream/blob/main/docs/set-up.md",
-};
-
-function Mark() {
-  return <span className="mark" aria-hidden="true">Os</span>;
-}
-
-function Icon({ children }) {
-  return <span className="icon" aria-hidden="true">{children}</span>;
-}
-
-function Header() {
-  return (
-    <header className="site-header">
-      <a className="brand" href="#top" aria-label="OpenStream home"><Mark /><strong>OPENSTREAM</strong><span>V2.1</span></a>
-      <nav aria-label="Main navigation">
-        <a href="#features">Features</a>
-        <a href="#downloads">Downloads</a>
-        <a href="#setup">Setup</a>
-        <a href={links.repo}>GitHub</a>
-      </nav>
-      <a className="button button-dark header-cta" href="#downloads">Download V2</a>
-    </header>
-  );
-}
-
-function PhonePreview() {
-  return (
-    <div className="phone" aria-label="OpenStream Android camera preview mockup">
-      <div className="phone-top"><strong>OpenStream</strong><span className="live"><i /> LIVE</span></div>
-      <div className="phone-meta"><span>1080p60</span><span>AAC</span><span>Wi-Fi</span></div>
-      <div className="camera-scene"><div className="camera-frame" /><div className="subject">CAM A</div></div>
-      <div className="phone-tools"><span>↻</span><span>▦</span><strong>1.8×</strong><span>☼</span></div>
-      <div className="phone-slider"><span>ZOOM</span><i><b /></i></div>
-      <span className="preview-stop" aria-hidden="true"><i /></span>
-    </div>
-  );
-}
-
-function ObsPreview() {
-  return (
-    <div className="obs" aria-label="OBS Studio with OpenStream source and control dock mockup">
-      <div className="obs-bar"><span className="obs-dot">●</span> OBS Studio <span>— □ ×</span></div>
-      <div className="obs-menu">File &nbsp; Edit &nbsp; View &nbsp; Docks &nbsp; Profile &nbsp; Scene Collection</div>
-      <div className="obs-video"><div className="signal-corners" /><strong>OPENSTREAM / CAM A</strong><span>LIVE · 60 FPS</span></div>
-      <div className="obs-panels"><div>Scenes<br/><b>Camera</b><br/>Overlay</div><div>Sources<br/><b>OpenStream</b><br/>Audio</div><div className="mixer">Audio Mixer<br/><b>▮▮▮▮▮▯▯</b><br/>OpenStream AAC</div></div>
-      <div className="dock-mini"><div className="dock-title"><Mark /> OpenStream Camera Control <span>● Connected</span></div><div className="dock-actions"><span>Rear</span><span>Front</span><span>Torch</span><span>Identify</span></div><div className="dock-zoom">Zoom <i><b /></i><strong>1.8×</strong></div></div>
-    </div>
-  );
-}
+const features = [
+  { icon: "sliders", title: "Control from OBS", copy: "Switch lenses, toggle the torch, identify a phone, and frame the shot from a dock that stays beside your preview." },
+  { icon: "target", title: "Real-time zoom", copy: "Zoom tracks every slider movement continuously, so the framing changes while you drag—not seconds later." },
+  { icon: "slots", title: "Stable camera slots", copy: "Reserve CAM A, CAM B, and other production positions so reconnecting phones return to the right source." },
+  { icon: "audio", title: "A clean audio channel", copy: "Phone microphone audio arrives as AAC in its own OBS mixer channel, independent of desktop audio." },
+];
 
 function Hero() {
   return (
-    <>
-      <section className="hero" id="top">
+    <section className="hero" id="top">
+      <div className="hero-grid">
         <div className="hero-copy">
-          <h1>Your Android phone.<br/>Now an OBS camera.</h1>
-          <p>Low-latency 1080p60 video, AAC audio, live camera controls, and reliable reconnects over local Wi-Fi.</p>
-          <div className="actions">
-            <a className="button button-dark" href={links.apk}><Icon>◆</Icon>Download for Android</a>
-            <a className="button button-light" href={links.installer}><Icon>✚</Icon>Install OBS plugin</a>
-          </div>
-          <p className="requirements">Android 10+ · Windows x64 · OBS Studio · Same local network</p>
+          <p className="eyebrow"><span /> OPEN-SOURCE CAMERA LINK FOR OBS</p>
+          <h1>Your phone is already a great camera. <em>OpenStream brings it into OBS.</em></h1>
+          <p className="hero-summary">Low-latency video up to 1080p60 on supported hardware, clean AAC audio, and live camera control over your local network.</p>
+          <div className="hero-actions"><a className="button button-primary" href={links.apk}><AndroidIcon size={19} /> Download Android app</a><a className="button button-ghost" href={links.installer}><WindowsIcon size={18} /> Install OBS plugin</a></div>
+          <p className="hero-note"><Icon name="shield" size={16} /> Free, open source, and LAN-first. No account required.</p>
         </div>
-        <div className="hero-visual"><PhonePreview /><ObsPreview /></div>
-      </section>
-      <div className="signal-strip" aria-label="OpenStream media defaults"><span>▣ <b>1080p60</b></span><span>⌁ <b>SRT 120 ms</b></span><span>▥ <b>AAC audio</b></span><span>⌁ <b>Local Wi-Fi</b></span></div>
-    </>
-  );
-}
-
-const benefits = [
-  ["⌕", "Smooth live zoom", "Zoom responds continuously while you drag the OBS slider, without stale commands piling up."],
-  ["▤", "Stable camera slots", "Reserve CAM A, CAM B, and production positions so phones reconnect to the right source."],
-  ["↻", "Fast reconnects", "Discovery, bounded queues, and reservation-aware recovery keep brief Wi-Fi drops manageable."],
-  ["▥", "Separate AAC audio", "Phone microphone audio arrives in its own OBS mixer channel, separate from desktop audio."],
-];
-
-function ControlDock() {
-  return (
-    <div className="control-window">
-      <div className="control-title"><Mark /><strong>OpenStream Camera Control</strong><span>•••</span></div>
-      <div className="control-body">
-        <div className="connection-panel"><small>CONNECTION</small><p><i /> Connected</p><small>SOURCE</small><div className="faux-select">CAM A — Pixel 8 Pro <span>⌄</span></div><div className="connection-buttons"><span>Connect / retry</span><span>Stop</span></div></div>
-        <div className="camera-panel"><small>CAMERA</small><div className="segmented"><span className="active">Rear</span><span>Front</span></div><div className="camera-actions"><span>Torch on</span><span>Torch off</span><span>Identify</span></div><label>Zoom <span>1.8×</span></label><div className="zoom-track"><i /></div></div>
+        <div className="hero-version"><span>{product.displayVersion}</span><small>RELEASED {product.releaseDate.toUpperCase()}</small></div>
       </div>
-    </div>
+      <ProductDemo />
+      <div className="status-rail"><span><small>CAMERA SLOT</small><strong>CAM A</strong></span><span><small>CONNECTION</small><strong className="positive"><i /> Connected</strong></span><span><small>TRANSPORT</small><strong>SRT · 120 ms default</strong></span><span><small>AUDIO</small><strong>AAC · 48 kHz</strong></span></div>
+    </section>
   );
 }
 
 function Features() {
   return (
-    <section className="section control-section" id="features">
-      <div className="section-lead"><h2>Control the shot<br/>without leaving OBS.</h2><p>The native dock keeps the controls you touch most beside your preview—not buried in source properties.</p><ControlDock /></div>
-      <div className="benefit-list">{benefits.map(([icon, title, copy]) => <article key={title}><Icon>{icon}</Icon><div><h3>{title}</h3><p>{copy}</p></div></article>)}</div>
-    </section>
-  );
-}
-
-function DownloadRow({ icon, title, meta, children }) {
-  return <article className="download-row"><Icon>{icon}</Icon><div><h3>{title}</h3><p>{meta}</p></div><div className="download-actions">{children}</div></article>;
-}
-
-function Downloads() {
-  return (
-    <section className="section downloads" id="downloads">
-      <div><h2>Install both sides.<br/>Start shooting.</h2><p>Install OpenStream on your phone and the native plugin on your OBS computer. Both update paths come from the same verified release.</p><a className="text-link" href={links.release}>View V2.1 release notes →</a></div>
-      <div className="download-stack">
-        <DownloadRow icon="◆" title="OpenStream for Android" meta="Android 10+ · Signed release APK"><a className="button button-dark" href={links.apk}>Download signed APK</a></DownloadRow>
-        <DownloadRow icon="⊞" title="OpenStream OBS Plugin" meta="Windows x64 · OBS Studio"><a className="button button-dark" href={links.installer}>Download installer</a><a className="button button-light" href={links.zip}>Manual ZIP</a></DownloadRow>
-        <div className="trust-note"><Icon>◇</Icon><p><strong>Release integrity included.</strong><br/>SHA-256 checksums and update manifests are published alongside every V2 release.</p></div>
+    <section className="light-section features-section" id="how-it-works">
+      <div className="section-heading"><p className="eyebrow dark"><span /> THE PRODUCTION LOOP</p><h2>Built for the way you shoot.</h2><p>OpenStream treats your phone like a camera source, not a mirrored screen. The app handles capture; the native plugin handles OBS.</p></div>
+      <div className="feature-story">
+        <div className="feature-list">{features.map((feature, index) => <article key={feature.title}><span className="feature-number">0{index + 1}</span><Icon name={feature.icon} size={24} /><div><h3>{feature.title}</h3><p>{feature.copy}</p></div></article>)}</div>
+        <div className="pipeline-card"><div className="pipeline-head"><span>LIVE SIGNAL PATH</span><strong>LOCAL NETWORK ONLY</strong></div><div className="pipeline-nodes"><span><Icon name="camera" /><b>ANDROID</b><small>Camera2 + MediaCodec</small></span><i /><span><Icon name="wifi" /><b>SRT STREAM</b><small>HEVC/H.264 + AAC</small></span><i /><span><Icon name="video" /><b>OBS SOURCE</b><small>Native plugin + mixer</small></span></div><dl><div><dt>Media</dt><dd>SRT :9000</dd></div><div><dt>Discovery</dt><dd>UDP :51515</dd></div><div><dt>Control</dt><dd>HTTP :9001</dd></div></dl></div>
       </div>
     </section>
   );
 }
 
-const steps = [
-  ["01", "Install the Android app", "Download the signed APK, install it, and grant camera and microphone access."],
-  ["02", "Install the OBS plugin", "Close OBS, run the Windows installer once, then reopen OBS Studio."],
-  ["03", "Create a camera slot", "Add an OpenStream source in OBS and name it for your production position."],
-  ["04", "Pair on local Wi-Fi", "Choose the discovered OBS slot on your phone. Manual IP remains available if discovery is blocked."],
-  ["05", "Frame and go live", "Open the Camera Control dock, verify audio, adjust zoom or lens, and stream."],
-];
+function Downloads() {
+  return (
+    <section className="dark-section download-section" id="downloads">
+      <div className="section-heading inverse"><p className="eyebrow"><span /> LATEST RELEASE · {product.displayVersion.toUpperCase()}</p><h2>Install both sides.<br />Start shooting.</h2><p>Use the Android app for capture and the native Windows plugin for OBS. Both ship from the same GitHub release.</p></div>
+      <div className="download-grid">
+        <article className="download-card featured"><div className="platform-icon"><AndroidIcon size={34} /></div><span className="availability">AVAILABLE NOW</span><h3>OpenStream for Android</h3><p>Capture video and microphone audio, discover camera slots, and control the connection from your phone.</p><dl><div><dt>Requires</dt><dd>Android 10+</dd></div><div><dt>Package</dt><dd>Signed APK</dd></div></dl><a className="button button-primary" href={links.apk}><Icon name="download" /> Download Android app</a></article>
+        <article className="download-card"><div className="platform-icon"><WindowsIcon size={34} /></div><span className="availability">AVAILABLE NOW</span><h3>OpenStream OBS plugin</h3><p>Add a native OpenStream source, camera control dock, automatic discovery, audio mixing, and in-app updates.</p><dl><div><dt>Requires</dt><dd>Windows x64 · OBS 30+</dd></div><div><dt>Package</dt><dd>Guided installer</dd></div></dl><a className="button button-light" href={links.installer}><Icon name="download" /> Download Windows installer</a><a className="secondary-link" href={links.zip}>Need the manual ZIP? <Icon name="external" size={14} /></a></article>
+      </div>
+      <div className="release-proof"><span><Icon name="shield" /><b>Verifiable releases</b><small>SHA-256 checksums and update manifests are published beside every build.</small></span><a href={links.release}>View release notes <Icon name="external" size={15} /></a></div>
+    </section>
+  );
+}
 
 function Setup() {
   return (
-    <section className="section setup" id="setup">
-      <header><h2>Five clean moves.<br/>Then live.</h2><p>No desktop webcam client. No capture card. No screen-mirroring detour.</p></header>
-      <div className="step-list">{steps.map(([n, title, copy]) => <article key={n}><span>{n}</span><div><h3>{title}</h3><p>{copy}</p></div></article>)}</div>
-      <a className="button button-light" href={links.setup}>Open the illustrated setup guide</a>
+    <section className="light-section setup-section" id="setup"><div className="section-heading"><p className="eyebrow dark"><span /> GUIDED SETUP</p><h2>From install to live in minutes.</h2><p>The guided installer handles the plugin files. Then create a slot in OBS and pair your phone over the same local network.</p></div><SetupStepper /></section>
+  );
+}
+
+function ProductionNotes() {
+  return (
+    <section className="light-section notes-section">
+      <div className="requirements-panel"><p className="eyebrow dark"><span /> BEFORE YOU INSTALL</p><h2>A strong LAN makes a strong camera link.</h2><p>Use 5 GHz or Wi-Fi 6 when possible. Keep both devices on the same subnet, and turn off VPN or client isolation during first setup.</p><ul><li><b>Phone</b><span>{product.requirements.android}</span></li><li><b>Computer</b><span>{product.requirements.windows} · {product.requirements.obs}</span></li><li><b>Network</b><span>{product.requirements.network}</span></li></ul></div>
+      <div className="faq-panel"><p className="eyebrow dark"><span /> QUICK ANSWERS</p><h2>Good to know.</h2><details><summary>Does video leave my network?<Icon name="chevron" /></summary><p>No cloud relay is used by OpenStream. The media and control paths are designed to stay on your local network.</p></details><details><summary>What if discovery cannot find OBS?<Icon name="chevron" /></summary><p>Check Windows Firewall and guest-network isolation first. You can also enter the OBS computer’s local IP address manually.</p></details><details><summary>Is 1080p60 guaranteed on every phone?<Icon name="chevron" /></summary><p>No. Available resolution, frame rate, and codec support depend on your phone’s Camera2 and hardware encoder capabilities.</p></details><details><summary>How are plugin updates delivered?<Icon name="chevron" /></summary><p>The plugin checks version metadata from GitHub and opens the latest release page when an update is available. You stay in control of the download and installation.</p></details><a href={links.issues}>Still stuck? Open an issue <Icon name="external" size={14} /></a></div>
     </section>
   );
 }
 
-function Pipeline() {
-  return (
-    <section className="pipeline">
-      <div><h2>Local network.<br/>Explicit pipes.</h2><p>Your media stays on the LAN. Camera2 and MediaCodec handle capture, MPEG-TS carries HEVC/H.264 plus AAC, and SRT delivers it to the native OBS source.</p></div>
-      <div className="flow" aria-label="OpenStream media pipeline"><span>ANDROID CAMERA<small>Camera2 + MediaCodec</small></span><b>→</b><span>SRT STREAM<small>MPEG-TS · port 9000</small></span><b>→</b><span>OBS SOURCE<small>FFmpeg decode + mixer</small></span></div>
-      <dl><div><dt>Media</dt><dd>SRT :9000</dd></div><div><dt>Discovery</dt><dd>UDP :51515</dd></div><div><dt>Control</dt><dd>HTTP :9001</dd></div><div><dt>Default bitrate</dt><dd>16 Mbps</dd></div></dl>
-    </section>
-  );
-}
-
-function Compatibility() {
-  return (
-    <section className="section compatibility">
-      <div><h2>Built for a strong LAN.</h2><p>Use 5 GHz or Wi-Fi 6, keep both devices on the same subnet, and disable VPN or client isolation during first setup.</p></div>
-      <ul><li><strong>Phone</strong><span>Android 10+ with Camera2 and hardware MediaCodec</span></li><li><strong>Computer</strong><span>Windows x64 with OBS Studio</span></li><li><strong>Network</strong><span>Same LAN; guest networks may block discovery</span></li><li><strong>Current limits</strong><span>Beta software; macOS/Linux packages and adaptive bitrate are planned</span></li></ul>
-    </section>
-  );
+function FinalCta() {
+  return <section className="final-cta"><img src="/brand/openstream-logo.png" alt="" /><p className="eyebrow"><span /> OPENSTREAM {product.displayVersion.toUpperCase()}</p><h2>Give your phone<br />a place in the scene.</h2><div><a className="button button-primary" href={links.apk}><AndroidIcon size={19} /> Get the Android app</a><a className="button button-ghost" href={links.installer}><WindowsIcon size={18} /> Install the OBS plugin</a></div></section>;
 }
 
 function Footer() {
-  return (
-    <footer><a className="brand" href="#top"><Mark /><strong>OPENSTREAM</strong></a><p>Open-source phone camera streaming for OBS.</p><nav aria-label="Footer links"><a href={links.repo}>Source</a><a href={links.release}>Releases</a><a href={links.issues}>Issues</a><a href={links.setup}>Setup</a></nav><p className="copyright">Made by YashasVM · V2.1 beta</p></footer>
-  );
+  return <footer><a className="brand" href="#top"><Logo /></a><p>Open-source phone camera streaming for OBS.</p><nav aria-label="Footer navigation"><a href={links.repo}>Source</a><a href={links.release}>Releases</a><a href={links.issues}>Issues</a><a href={links.setup}>Setup guide</a><a href={links.protocol}>Protocol</a></nav><small>© 2026 OpenStream · {product.displayVersion} · Built by YashasVM</small></footer>;
 }
 
 function App() {
-  return <><a className="skip-link" href="#main">Skip to content</a><Header /><main id="main"><Hero /><Features /><Downloads /><Setup /><Pipeline /><Compatibility /></main><Footer /></>;
+  return <><a className="skip-link" href="#main">Skip to content</a><Header /><main id="main"><Hero /><Features /><Downloads /><Setup /><ProductionNotes /><FinalCta /></main><Footer /></>;
 }
 
 createRoot(document.getElementById("root")).render(<React.StrictMode><App /></React.StrictMode>);
