@@ -5,7 +5,7 @@
   <img alt="OpenStream Banner" src="https://img.shields.io/badge/OpenStream-Turn_Your_Phone_Into_a_Wireless_OBS_Camera-00D4AA?style=for-the-badge&labelColor=0A0A0F">
 </picture>
 
-### Turn any Android phone into a wireless camera source for OBS Studio
+### Turn any Android phone into a wireless camera source for OBS Studio.
 
 [![Status](https://img.shields.io/badge/status-beta-orange?style=flat-square&labelColor=1a1a2e)](https://github.com/YashasVM/OpenStream/releases)
 [![Release](https://img.shields.io/github/v/release/YashasVM/OpenStream?display_name=tag&style=flat-square&labelColor=1a1a2e&color=00D4AA)](https://github.com/YashasVM/OpenStream/releases/latest)
@@ -13,7 +13,7 @@
 [![OBS](https://img.shields.io/badge/OBS-Studio%20Plugin-purple?style=flat-square&labelColor=1a1a2e)](https://obsproject.com)
 [![Website](https://img.shields.io/badge/website-openstream.pages.dev-00D4AA?style=flat-square&labelColor=1a1a2e)](https://openstream.pages.dev)
 
-**Open-source** | **Low-latency** | **Hardware-accelerated** | **Local Wi-Fi**
+[ **Open-source** | **Low-latency** | **Hardware-accelerated** | **Local Wi-Fi** ]
 
 ---
 
@@ -147,7 +147,7 @@ Android phone
   MPEG-TS muxer
   libsrt sender
         |
-        | SRT media stream on port 9000
+        | [SRT media stream on port 9000]
         v
 Windows PC
   OBS Studio
@@ -272,7 +272,7 @@ This is a developer/debug tool only. Normal users should install the OBS plugin.
 - [x] Audio streaming into the OBS mixer
 - [x] Remote camera controls from OBS
 - [x] Windows plugin installer
-- [ ] Adaptive bitrate based on network conditions
+- [x] Adaptive bitrate based on network conditions
 - [ ] QR pairing for restricted networks
 - [ ] GPU zero-copy receive path
 - [ ] macOS/Linux OBS plugin packages
