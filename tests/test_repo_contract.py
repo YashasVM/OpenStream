@@ -415,6 +415,7 @@ def test_obs_serializes_remote_commands_and_uses_mutation_state() -> None:
     assert "remote_request && ctx->control_request_pending" in source
     assert "if (remote_request) ctx->control_request_pending = true" in source
     assert "if (remote_request) ctx->control_request_pending = false" in source
+    assert "[source, ctx, instance_id, remote_request, command = std::move(command)" in source
     assert "parse_camera_state_response(response.body)" in source
     assert 'send_control_request(phone->host, phone->control_port,\n                                                             "GET", "/v2/state"' not in source
     assert "can_stop || !camera->request_pending" in dock

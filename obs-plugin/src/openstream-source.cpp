@@ -2416,7 +2416,7 @@ void openstream_run_command_async(const std::string &instance_id,
   }
   notify_camera_changed(instance_id);
 
-  auto worker = std::async(std::launch::async, [source, ctx, instance_id, command = std::move(command),
+  auto worker = std::async(std::launch::async, [source, ctx, instance_id, remote_request, command = std::move(command),
                       completion = std::move(completion)]() mutable {
     OpenStreamCommandResponse result;
     if (command.type == OpenStreamCommandType::Start ||
