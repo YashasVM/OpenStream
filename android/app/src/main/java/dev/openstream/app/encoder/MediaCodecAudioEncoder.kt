@@ -13,6 +13,8 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.os.Process
 import android.util.Log
+import dev.openstream.app.audio.AudioLevel
+import dev.openstream.app.audio.Pcm16AudioLevel
 import java.nio.ByteBuffer
 import kotlin.math.max
 
@@ -26,6 +28,7 @@ class MediaCodecAudioEncoder(
     private val channelCount: Int = 1,
     private val bitrate: Int = 192_000,
     private val onEncodedAccessUnit: (EncodedAccessUnit) -> Unit,
+    private val onAudioLevel: (AudioLevel) -> Unit = {},
 ) {
     private val context = context.applicationContext
     private var codec: MediaCodec? = null
@@ -77,6 +80,7 @@ class MediaCodecAudioEncoder(
             Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
             val pcmBuffer = ByteArray(bytesForDurationMs(20))
             var capturedSamples = 0L
+            var lastLevelCallbackNs = 0L
             val startPresentationTimeUs = System.nanoTime() / 1000
             while (running) {
                 val bytesRead = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -86,7 +90,15 @@ class MediaCodecAudioEncoder(
                     recorder.read(pcmBuffer, 0, pcmBuffer.size)
                 }
                 if (bytesRead > 0) {
+                    if (!running) break
+                    val nowNs = System.nanoTime()
+                    if (nowNs - lastLevelCallbackNs >= LEVEL_CALLBACK_INTERVAL_NS) {
+                        lastLevelCallbackNs = nowNs
+                        onAudioLevel(Pcm16AudioLevel.measure(pcmBuffer, bytesRead))
+                    }
                     val samplesRead = bytesRead / bytesPerSampleFrame()
+                    // Reclaim output buffers before asking the codec for another PCM input slot.
+                    drainEncoder(encoder)
                     val inputIndex = encoder.dequeueInputBuffer(10_000)
                     if (inputIndex >= 0) {
                         val inputBuffer = encoder.getInputBuffer(inputIndex)
@@ -98,6 +110,7 @@ class MediaCodecAudioEncoder(
                             encoder.queueInputBuffer(inputIndex, 0, bytesRead, presentationTimeUs, 0)
                         }
                     }
+                    // Keep timestamps aligned to the audio capture clock even if MediaCodec drops a buffer.
                     capturedSamples += samplesRead
                     drainEncoder(encoder)
                 } else if (bytesRead < 0) {
@@ -114,11 +127,12 @@ class MediaCodecAudioEncoder(
 
     fun stop() {
         running = false
-        captureThread?.join(500)
-        captureThread = null
         val recorder = audioRecord
         audioRecord = null
+        // READ_BLOCKING must be released before waiting for the capture thread.
         runCatching { recorder?.stop() }
+        captureThread?.join(500)
+        captureThread = null
         runCatching { recorder?.release() }
 
         val encoder = codec
@@ -227,5 +241,6 @@ class MediaCodecAudioEncoder(
     companion object {
         private const val TAG = "OpenStreamAudioEncoder"
         private const val BYTES_PER_PCM16_SAMPLE = 2
+        private const val LEVEL_CALLBACK_INTERVAL_NS = 33_000_000L
     }
 }

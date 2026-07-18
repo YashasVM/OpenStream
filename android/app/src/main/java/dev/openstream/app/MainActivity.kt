@@ -54,6 +54,7 @@ import dev.openstream.app.discovery.PhoneDiscoveryAdvertiser
 import dev.openstream.app.encoder.MediaCodecAudioEncoder
 import dev.openstream.app.encoder.MediaCodecVideoEncoder
 import dev.openstream.app.monitoring.FrameGuideMode
+import dev.openstream.app.monitoring.AudioLevelMeterView
 import dev.openstream.app.monitoring.MonitoringOverlayView
 import dev.openstream.app.monitoring.ZebraAnalyzer
 import dev.openstream.app.stream.ConnectionTarget
@@ -101,6 +102,7 @@ class MainActivity : Activity() {
     private lateinit var btnFrameGuides: TextView
     private lateinit var btnZebra: TextView
     private lateinit var monitoringOverlay: MonitoringOverlayView
+    private lateinit var audioLevelMeter: AudioLevelMeterView
     private lateinit var btnExposurePanel: TextView
     private lateinit var btnFocusPanel: TextView
     private lateinit var btnColorPanel: TextView
@@ -258,6 +260,7 @@ class MainActivity : Activity() {
             onEncodedAccessUnit = { accessUnit ->
                 streamClient.sendAudioAccessUnit(accessUnit)
             },
+            onAudioLevel = { level -> runOnUiThread { audioLevelMeter.setLevel(level) } },
         )
         camera = Camera2Controller(
             context = this,
@@ -467,6 +470,7 @@ class MainActivity : Activity() {
         btnFrameGuides = findViewById(R.id.btnFrameGuides)
         btnZebra = findViewById(R.id.btnZebra)
         monitoringOverlay = findViewById(R.id.monitoringOverlay)
+        audioLevelMeter = findViewById(R.id.audioLevelMeter)
         btnExposurePanel = findViewById(R.id.btnExposurePanel)
         btnFocusPanel = findViewById(R.id.btnFocusPanel)
         btnColorPanel = findViewById(R.id.btnColorPanel)
@@ -1303,11 +1307,15 @@ class MainActivity : Activity() {
     private fun startAudioIfAllowed() {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             Log.i("OpenStream", "Microphone permission not granted; streaming video without audio")
+            audioLevelMeter.setAudioActive(false)
             return
         }
-        runCatching { audioEncoder.start() }.onFailure { e ->
-            Log.w("OpenStream", "Audio encoder start failed; continuing video-only", e)
-        }
+        runCatching { audioEncoder.start() }
+            .onSuccess { audioLevelMeter.setAudioActive(true) }
+            .onFailure { e ->
+                audioLevelMeter.setAudioActive(false)
+                Log.w("OpenStream", "Audio encoder start failed; continuing video-only", e)
+            }
     }
 
     private fun startPhoneServerIfAllowed() {
@@ -1455,6 +1463,7 @@ class MainActivity : Activity() {
         camera.stopStreaming()
         encoder.stop()
         audioEncoder.stop()
+        audioLevelMeter.setAudioActive(false)
         if (updateStatus) {
             renderUiState(OpenStreamUiState.Stopped)
         }
@@ -1722,11 +1731,17 @@ class MainActivity : Activity() {
         dialog.setContentView(R.layout.dialog_custom_update)
         dialog.setCancelable(true)
 
+        val title = dialog.findViewById<TextView>(R.id.dialogUpdateTitle)
         val message = dialog.findViewById<TextView>(R.id.dialogUpdateMessage)
+        val progress = dialog.findViewById<android.widget.ProgressBar>(R.id.dialogUpdateProgress)
+        val progressText = dialog.findViewById<TextView>(R.id.dialogUpdateProgressText)
         val actionBtn = dialog.findViewById<TextView>(R.id.dialogUpdateAction)
         val dismissBtn = dialog.findViewById<TextView>(R.id.dialogUpdateDismiss)
 
+        title.text = "OpenStream ready"
         message.text = "You are running OpenStream v$versionName.\nFuture updates can be checked from Settings."
+        progress.visibility = View.GONE
+        progressText.visibility = View.GONE
         actionBtn.text = "GOT IT"
         dismissBtn.visibility = View.GONE
 
