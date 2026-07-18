@@ -437,6 +437,7 @@ def test_obs_controls_follow_reported_mode_capabilities() -> None:
 
 def test_obs_dock_preserves_selector_during_model_refresh() -> None:
     dock = read("obs-plugin/src/openstream-dock.cpp")
+    assert "#define NOMINMAX" in dock
     assert "bool selector_changed" in dock
     assert "if (!selector_changed)" in dock
     assert "if (!user_requested && !isVisible()) return" in dock
