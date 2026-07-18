@@ -441,6 +441,17 @@ def test_obs_dock_preserves_selector_during_model_refresh() -> None:
     assert "if (!user_requested && !isVisible()) return" in dock
 
 
+def test_obs_zoom_control_coalesces_live_updates() -> None:
+    dock = read("obs-plugin/src/openstream-dock.cpp")
+    assert "kZoomUpdateIntervalMs = 50" in dock
+    assert "&QDoubleSpinBox::valueChanged" in dock
+    assert "queueZoomUpdate(value)" in dock
+    assert "flushZoomUpdate" in dock
+    assert "zoom_update_in_flight_" in dock
+    assert "zoom_update_pending_" in dock
+    assert "zoom_pending_instance_ == camera.instance_id" in dock
+
+
 def test_obs_status_tones_distinguish_tally_and_offline_states() -> None:
     dock = read("obs-plugin/src/openstream-dock.cpp")
     for tone in ("program", "preview", "live", "warning", "offline"):

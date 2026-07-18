@@ -43,6 +43,7 @@
 namespace {
 constexpr const char *kDockId = "openstream-control-room";
 constexpr int kRemoteRefreshMs = 2500;
+constexpr int kZoomUpdateIntervalMs = 50;
 
 using AddDockFn = bool (*)(const char *, const char *, void *);
 using RemoveDockFn = void (*)(const char *);
@@ -123,12 +124,16 @@ class OpenStreamDock final : public QWidget {
     });
     refresh_timer_.setInterval(kRemoteRefreshMs);
     connect(&refresh_timer_, &QTimer::timeout, this, [this] { requestRemoteRefresh(); });
+    zoom_update_timer_.setInterval(kZoomUpdateIntervalMs);
+    zoom_update_timer_.setSingleShot(true);
+    connect(&zoom_update_timer_, &QTimer::timeout, this, [this] { flushZoomUpdate(); });
     refresh_timer_.start();
     refreshSnapshots();
   }
 
   ~OpenStreamDock() override {
     refresh_timer_.stop();
+    zoom_update_timer_.stop();
     if (subscription_id_ != 0) openstream_unsubscribe_camera_changes(subscription_id_);
   }
 
@@ -346,6 +351,8 @@ class OpenStreamDock final : public QWidget {
 
   void connectUi() {
     connect(camera_selector_, &QComboBox::currentIndexChanged, this, [this](int index) {
+      zoom_update_pending_ = false;
+      zoom_pending_instance_.clear();
       current_instance_ = index >= 0 ? camera_selector_->itemData(index).toString().toStdString() : "";
       renderSelected();
       requestRemoteRefresh();
@@ -428,8 +435,8 @@ class OpenStreamDock final : public QWidget {
     connect(white_balance_lock_, &QCheckBox::clicked, this, [this](bool enabled) {
       OpenStreamSettingsPatch patch; patch.white_balance_lock = enabled; sendSettings(std::move(patch), enabled ? "Locking white balance…" : "Unlocking white balance…");
     });
-    connect(zoom_, &QDoubleSpinBox::editingFinished, this, [this] {
-      OpenStreamSettingsPatch patch; patch.zoom_ratio = zoom_->value(); sendSettings(std::move(patch), "Setting zoom…");
+    connect(zoom_, &QDoubleSpinBox::valueChanged, this, [this](double value) {
+      queueZoomUpdate(value);
     });
     connect(stabilization_, &QComboBox::currentIndexChanged, this, [this](int) {
       OpenStreamSettingsPatch patch; patch.stabilization_mode = stabilization_->currentData().toString().toStdString(); sendSettings(std::move(patch), "Setting stabilization…");
@@ -621,9 +628,11 @@ class OpenStreamDock final : public QWidget {
     const QSignalBlocker zoom_block(zoom_);
     const QSignalBlocker stabilization_block(stabilization_);
     const QSignalBlocker torch_block(torch_);
+    const bool local_zoom_update = zoom_update_in_flight_ && zoom_active_instance_ == camera.instance_id;
+    const bool pending_zoom_update = zoom_update_pending_ && zoom_pending_instance_ == camera.instance_id;
     if (caps.zoom_ratio.available) zoom_->setRange(caps.zoom_ratio.minimum, caps.zoom_ratio.maximum);
-    zoom_->setValue(state.zoom_ratio);
-    zoom_->setEnabled(ready && caps.zoom);
+    if (!local_zoom_update && !pending_zoom_update) zoom_->setValue(state.zoom_ratio);
+    zoom_->setEnabled((ready || local_zoom_update) && caps.zoom);
     selectWireValue(stabilization_, state.stabilization_mode);
     stabilization_->setEnabled(ready && caps.stabilization);
     applySupportedModes(stabilization_, caps.stabilization_modes);
@@ -664,6 +673,47 @@ class OpenStreamDock final : public QWidget {
     runCommand(std::move(command), message);
   }
 
+  void queueZoomUpdate(double value) {
+    if (current_instance_.empty()) return;
+    zoom_pending_value_ = value;
+    zoom_pending_instance_ = current_instance_;
+    zoom_update_pending_ = true;
+    if (!zoom_update_in_flight_ && !zoom_update_timer_.isActive()) zoom_update_timer_.start();
+  }
+
+  void flushZoomUpdate() {
+    if (zoom_update_in_flight_ || !zoom_update_pending_) return;
+    if (zoom_pending_instance_ != current_instance_) {
+      zoom_update_pending_ = false;
+      zoom_pending_instance_.clear();
+      renderSelected();
+      return;
+    }
+    const auto camera = selected();
+    if (!camera || camera->request_pending) {
+      zoom_update_timer_.start();
+      return;
+    }
+
+    zoom_update_pending_ = false;
+    zoom_update_in_flight_ = true;
+    zoom_active_instance_ = camera->instance_id;
+    OpenStreamSettingsPatch patch;
+    patch.zoom_ratio = zoom_pending_value_;
+    OpenStreamCommand command;
+    command.type = OpenStreamCommandType::ApplySettings;
+    command.settings = std::move(patch);
+    runCommand(std::move(command), "Setting zoom…", [this] {
+      zoom_update_in_flight_ = false;
+      zoom_active_instance_.clear();
+      if (zoom_update_pending_) {
+        zoom_update_timer_.start();
+      } else {
+        renderSelected();
+      }
+    });
+  }
+
   void sendTally() {
     OpenStreamCommand command;
     command.type = OpenStreamCommandType::SetTally;
@@ -681,20 +731,26 @@ class OpenStreamDock final : public QWidget {
     runCommand(std::move(command), user_requested ? "Synchronizing camera state…" : QString());
   }
 
-  void runCommand(OpenStreamCommand command, const QString &working) {
+  void runCommand(OpenStreamCommand command, const QString &working,
+                  std::function<void()> completed = {}) {
     const auto camera = selected();
-    if (!camera || (camera->request_pending && command.type != OpenStreamCommandType::Stop)) return;
+    if (!camera || (camera->request_pending && command.type != OpenStreamCommandType::Stop)) {
+      if (completed) completed();
+      return;
+    }
     if (command.expected_revision == 0) command.expected_revision = camera->state.revision;
     const std::string instance = camera->instance_id;
     if (!working.isEmpty()) feedback_text_ = working;
     renderSelected();
     QPointer<OpenStreamDock> guard(this);
-    openstream_run_command_async(instance, std::move(command), [guard](OpenStreamCommandResponse response) {
+    openstream_run_command_async(instance, std::move(command),
+                                 [guard, completed = std::move(completed)](OpenStreamCommandResponse response) mutable {
       if (!guard || !qApp) return;
-      QMetaObject::invokeMethod(qApp, [guard, response = std::move(response)] {
+      QMetaObject::invokeMethod(qApp, [guard, response = std::move(response), completed = std::move(completed)]() mutable {
         if (!guard) return;
         guard->feedback_text_ = QString::fromStdString(response.message);
         guard->refreshSnapshots();
+        if (completed) completed();
       }, Qt::QueuedConnection);
     });
   }
@@ -737,6 +793,12 @@ class OpenStreamDock final : public QWidget {
   std::string current_instance_;
   uint64_t subscription_id_ = 0;
   QTimer refresh_timer_;
+  QTimer zoom_update_timer_;
+  double zoom_pending_value_ = 1.0;
+  bool zoom_update_pending_ = false;
+  bool zoom_update_in_flight_ = false;
+  std::string zoom_pending_instance_;
+  std::string zoom_active_instance_;
 };
 
 FrontendApi g_frontend;
