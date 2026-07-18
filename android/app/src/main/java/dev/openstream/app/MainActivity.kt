@@ -80,10 +80,8 @@ class MainActivity : Activity() {
     private lateinit var liveDot: View
     private lateinit var streamInfoChip: TextView
     private lateinit var zoomLabel: TextView
-    private lateinit var btnKeepScreenOn: TextView
     private lateinit var btnScreenOff: TextView
     private lateinit var btnTorch: TextView
-    private lateinit var btnFlipCamera: TextView
     private lateinit var btnSettings: TextView
     private lateinit var btnStop: TextView
     private lateinit var screenOffOverlay: View
@@ -186,12 +184,11 @@ class MainActivity : Activity() {
     @Volatile private var pendingListenerStart = false
     @Volatile private var listenerGeneration = 0L
     @Volatile private var activityStarted = false
-    private var keepScreenOn = false
     private var displayOff = false
     private var originalBrightness = -1f
     private var torchOn = false
-    private var currentLens: CameraLens = CameraLens.Back
-    private var availableLenses: List<CameraLens> = listOf(CameraLens.Back)
+    private var currentLens: CameraLens = CameraLens.defaultBack()
+    private var availableLenses: List<CameraLens> = listOf(CameraLens.defaultBack())
     private lateinit var scaleGestureDetector: ScaleGestureDetector
     private lateinit var tapGestureDetector: GestureDetector
     private var activePalette: CameraPalette? = null
@@ -221,6 +218,8 @@ class MainActivity : Activity() {
         requestRuntimePermissions()
         setContentView(R.layout.activity_main)
         bindViews()
+        // Camera operation should not be interrupted by the device sleep timer.
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setupGestureDetector()
 
         currentPort = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
@@ -447,10 +446,8 @@ class MainActivity : Activity() {
         liveDot = findViewById(R.id.liveDot)
         streamInfoChip = findViewById(R.id.streamInfoChip)
         zoomLabel = findViewById(R.id.zoomLabel)
-        btnKeepScreenOn = findViewById(R.id.btnKeepScreenOn)
         btnScreenOff = findViewById(R.id.btnScreenOff)
         btnTorch = findViewById(R.id.btnTorch)
-        btnFlipCamera = findViewById(R.id.btnFlipCamera)
         btnSettings = findViewById(R.id.btnSettings)
         btnStop = findViewById(R.id.btnStop)
         screenOffOverlay = findViewById(R.id.screenOffOverlay)
@@ -497,10 +494,8 @@ class MainActivity : Activity() {
     }
 
     private fun setupButtons() {
-        btnKeepScreenOn.setOnClickListener { toggleKeepScreenOn() }
         btnScreenOff.setOnClickListener { toggleDisplayOff() }
         btnTorch.setOnClickListener { toggleTorch() }
-        btnFlipCamera.setOnClickListener { flipCamera() }
         btnSettings.setOnClickListener {
             val intent = Intent(this, SettingsActivity::class.java)
             @Suppress("DEPRECATION")
@@ -1055,7 +1050,9 @@ class MainActivity : Activity() {
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
         availableLenses = camera.availableLenses()
         if (currentLens !in availableLenses) {
-            currentLens = availableLenses.firstOrNull { it.isBackFacing } ?: availableLenses.first()
+            currentLens = availableLenses.firstOrNull { it.isBackFacing && it.shortLabel == "1×" }
+                ?: availableLenses.firstOrNull { it.isBackFacing }
+                ?: availableLenses.first()
         }
         buildLensButtons()
     }
@@ -1128,36 +1125,12 @@ class MainActivity : Activity() {
         buildLensButtons()
     }
 
-    private fun flipCamera() {
-        val target = if (currentLens.isFrontFacing) {
-            availableLenses.firstOrNull { it.isBackFacing } ?: return
-        } else {
-            availableLenses.firstOrNull { it.isFrontFacing } ?: return
-        }
-        selectLens(target)
-    }
-
     private fun cancelLensRestart() {
         lensRestartRunnable?.let(mainHandler::removeCallbacks)
         lensRestartRunnable = null
     }
 
     // ─────────────────────────── Keep screen on ───────────────────────────
-
-    private fun toggleKeepScreenOn() {
-        keepScreenOn = !keepScreenOn
-        if (keepScreenOn) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            btnKeepScreenOn.text = "STAY ✓"
-            btnKeepScreenOn.setBackgroundResource(R.drawable.bg_btn_accent)
-            btnKeepScreenOn.setTextColor(getColor(R.color.os_black))
-        } else {
-            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            btnKeepScreenOn.text = "STAY"
-            btnKeepScreenOn.setTextColor(getColor(R.color.os_text_secondary))
-            btnKeepScreenOn.setBackgroundResource(R.drawable.bg_btn_ghost)
-        }
-    }
 
     // ─────────────────────────── Torch ───────────────────────────
 
@@ -1808,10 +1781,6 @@ class MainActivity : Activity() {
             params.screenBrightness = if (originalBrightness >= 0) originalBrightness else -1f
             window.attributes = params
             screenOffOverlay.visibility = View.GONE
-            // Restore keep-screen-on to user's toggle state
-            if (!keepScreenOn) {
-                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            }
             btnScreenOff.text = "DISPLAY"
             btnScreenOff.setBackgroundResource(R.drawable.bg_btn_ghost)
             btnScreenOff.setTextColor(getColor(R.color.os_text_secondary))

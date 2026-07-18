@@ -222,10 +222,8 @@
                 android:visibility="gone" />
         </LinearLayout>
 
-        <!-- Compatibility-only containers retained for legacy rendering code. -->
+        <!-- Compatibility-only container retained for legacy rendering code. -->
         <LinearLayout android:id="@+id/obsSlotList" android:layout_width="0dp" android:layout_height="0dp" android:orientation="vertical" android:visibility="gone" />
-        <TextView android:id="@+id/btnKeepScreenOn" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
-        <TextView android:id="@+id/btnFlipCamera" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
     </LinearLayout>
 
     <LinearLayout

@@ -32,7 +32,7 @@ import kotlin.math.min
 class Camera2Controller(
     private val context: Context,
     private val previewSurfaceProvider: () -> Surface,
-    private val lensProvider: () -> CameraLens = { CameraLens.Back },
+    private val lensProvider: () -> CameraLens = { CameraLens.defaultBack() },
     private val stateStore: CameraStateStore = CameraStateStore(),
 ) {
     private val cameraManager = context.getSystemService(CameraManager::class.java)
@@ -43,6 +43,7 @@ class Camera2Controller(
     private var streamingSurface: Surface? = null
     private var activeCameraId: String? = null
     private var activeLens: CameraLens? = null
+    private var pendingLensZoom: Float? = null
     private var characteristics: CameraCharacteristics? = null
     private var sensorRect: Rect? = null
     private var sensorOrientation: Int = 0
@@ -80,7 +81,7 @@ class Camera2Controller(
             cameraManager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) ==
                 CameraCharacteristics.LENS_FACING_BACK
         }
-        val front = cameraManager.cameraIdList.any { id ->
+        val front = cameraManager.cameraIdList.firstOrNull { id ->
             cameraManager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) ==
                 CameraCharacteristics.LENS_FACING_FRONT
         }
@@ -89,22 +90,22 @@ class Camera2Controller(
         }
         if (logical != null) {
             val caps = capabilitiesFor(logical)
-            if (caps.zoomRange.min < 0.95f) result += CameraLens.BackUltrawide
-            result += CameraLens.Back
-            if (caps.zoomRange.max >= 1.8f) result += CameraLens.BackTelephoto
+            val physicalCandidates = cameraManager.getCameraCharacteristics(logical).physicalCameraIds
+                .mapNotNull(::lensCandidateFor)
+            result += CameraLensDiscovery.rearLenses(
+                logicalCameraId = logical,
+                candidates = physicalCandidates.ifEmpty { listOfNotNull(lensCandidateFor(logical)) },
+                supportsLogicalZoomRatio = caps.supportsZoomRatio,
+            )
         } else {
-            val ordered = back.sortedBy { id -> primaryFocalLength(id) }
-            when {
-                ordered.size >= 3 -> result += listOf(CameraLens.BackUltrawide, CameraLens.Back, CameraLens.BackTelephoto)
-                ordered.size == 2 && primaryFocalLength(ordered.last()) / primaryFocalLength(ordered.first()).coerceAtLeast(0.1f) > 1.5f -> {
-                    result += listOf(CameraLens.Back, CameraLens.BackTelephoto)
-                }
-                ordered.size == 2 -> result += listOf(CameraLens.BackUltrawide, CameraLens.Back)
-                ordered.isNotEmpty() -> result += CameraLens.Back
-            }
+            result += CameraLensDiscovery.rearLenses(
+                logicalCameraId = null,
+                candidates = back.mapNotNull(::lensCandidateFor),
+                supportsLogicalZoomRatio = false,
+            )
         }
-        if (front) result += CameraLens.Front
-        return result.ifEmpty { listOf(CameraLens.Back) }
+        front?.let { result += CameraLens.selfie(it) }
+        return result.ifEmpty { listOf(CameraLens.defaultBack()) }
     }
 
     @SuppressLint("MissingPermission")
@@ -119,10 +120,13 @@ class Camera2Controller(
         closeCamera()
         activeLens = desiredLens
         activeCameraId = desiredId
+        pendingLensZoom = desiredLens.targetZoom
         cameraManager.openCamera(desiredId, object : CameraDevice.StateCallback() {
             override fun onOpened(device: CameraDevice) {
                 camera = device
                 loadCamera(desiredId)
+                pendingLensZoom?.let(::setZoom)
+                pendingLensZoom = null
                 createSession()
             }
 
@@ -143,16 +147,11 @@ class Camera2Controller(
         val previousId = activeCameraId
         activeLens = lens
         if (newId == previousId && camera != null) {
-            val range = stateStore.capabilities()?.zoomRange ?: return
-            val anchor = when (lens.focalHint) {
-                CameraLens.FocalHint.Ultrawide -> range.min
-                CameraLens.FocalHint.Normal -> 1f.coerceIn(range.min, range.max)
-                CameraLens.FocalHint.Telephoto -> 2f.coerceIn(range.min, range.max)
-            }
-            setZoom(anchor)
+            setZoom(lens.targetZoom)
             return
         }
         activeCameraId = newId
+        pendingLensZoom = lens.targetZoom
         focusRegion = null
         closeCamera()
         startPreview()
@@ -556,6 +555,7 @@ class Camera2Controller(
 
     private fun selectCameraId(lens: CameraLens): String {
         val ids = cameraManager.cameraIdList
+        lens.cameraId?.takeIf { it in ids }?.let { return it }
         val candidates = ids.filter { id ->
             cameraManager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == lens.facing
         }
@@ -566,19 +566,21 @@ class Camera2Controller(
             val caps = chars.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES) ?: intArrayOf()
             CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA in caps
         }
-        if (logical != null) return logical
-        val sorted = candidates.sortedBy { primaryFocalLength(it) }
-        return when (lens.focalHint) {
-            CameraLens.FocalHint.Ultrawide -> sorted.first()
-            CameraLens.FocalHint.Telephoto -> sorted.last()
-            CameraLens.FocalHint.Normal -> if (sorted.size >= 3) sorted[1] else sorted.last()
-        }
+        return logical ?: candidates.minByOrNull { equivalentFocalLength(it) } ?: candidates.first()
     }
 
-    private fun primaryFocalLength(cameraId: String): Float = cameraManager.getCameraCharacteristics(cameraId)
-        .get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
-        ?.firstOrNull()
-        ?: 1f
+    private fun lensCandidateFor(cameraId: String): CameraLensCandidate? = runCatching {
+        CameraLensCandidate(cameraId, equivalentFocalLength(cameraId))
+    }.getOrNull()
+
+    private fun equivalentFocalLength(cameraId: String): Float {
+        val chars = cameraManager.getCameraCharacteristics(cameraId)
+        val focalLength = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+            ?.firstOrNull()
+            ?: return 24f
+        val sensorWidth = chars.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)?.width
+        return if (sensorWidth != null && sensorWidth > 0f) focalLength / sensorWidth * 36f else focalLength
+    }
 
     private fun focusStatus(value: Int?): FocusStatus = when (value) {
         CaptureResult.CONTROL_AF_STATE_ACTIVE_SCAN,
