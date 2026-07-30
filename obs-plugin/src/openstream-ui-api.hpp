@@ -23,6 +23,7 @@ struct OpenStreamCameraCapabilities {
   bool auto_white_balance = false;
   bool manual_white_balance = false;
   bool zoom = false;
+  bool zoom_transition = false;
   bool torch = false;
   bool lens_selection = false;
   bool stabilization = false;
@@ -38,6 +39,13 @@ struct OpenStreamCameraCapabilities {
   std::vector<std::string> white_balance_modes;
   std::vector<std::string> stabilization_modes;
   std::vector<double> frame_rates;
+};
+
+struct OpenStreamZoomPresetConfig {
+  int version = 1;
+  bool show_buttons = true;
+  int duration_ms = 2000;
+  std::vector<double> ratios = {0.5, 1.0, 3.0, 5.0};
 };
 
 struct OpenStreamCameraState {
@@ -56,6 +64,9 @@ struct OpenStreamCameraState {
   double white_balance_kelvin = 0.0;
   double white_balance_tint = 0.0;
   double zoom_ratio = 1.0;
+  bool zoom_transition_active = false;
+  double zoom_transition_target_ratio = 1.0;
+  int zoom_transition_duration_ms = 0;
   double battery_percent = -1.0;
   double device_temperature_c = 0.0;
   double network_mbps = 0.0;
@@ -84,6 +95,7 @@ struct OpenStreamCameraSnapshot {
   std::string last_control_error;
   OpenStreamCameraCapabilities capabilities;
   OpenStreamCameraState state;
+  OpenStreamZoomPresetConfig zoom_presets;
 };
 
 enum class OpenStreamCommandType {
@@ -93,6 +105,7 @@ enum class OpenStreamCommandType {
   Pair,
   RefreshRemoteState,
   ApplySettings,
+  ZoomTransition,
   FocusAt,
   SetAuthority,
   SetTally,
@@ -128,6 +141,8 @@ struct OpenStreamCommand {
   bool program_tally = false;
   bool preview_tally = false;
   std::string pairing_code;
+  double zoom_ratio = 1.0;
+  int zoom_duration_ms = 2000;
 };
 
 struct OpenStreamCommandResponse {
@@ -151,6 +166,9 @@ void openstream_run_command_async(const std::string &instance_id,
 void openstream_run_command_async(const std::string &instance_id,
                                   OpenStreamUiCommand command,
                                   std::function<void(bool, std::string)> completion);
+OpenStreamZoomPresetConfig openstream_zoom_presets(const std::string &instance_id);
+bool openstream_save_zoom_presets(const std::string &instance_id,
+                                   const OpenStreamZoomPresetConfig &config);
 uint64_t openstream_subscribe_camera_changes(OpenStreamCameraChangedCallback callback);
 void openstream_unsubscribe_camera_changes(uint64_t subscription_id);
 void openstream_wait_for_commands();

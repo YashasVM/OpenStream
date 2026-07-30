@@ -3,7 +3,6 @@
     <string name="app_name">OpenStream Beta</string>
     <string name="live">LIVE</string>
     <string name="control_torch">Torch</string>
-    <string name="control_flip">Flip</string>
     <string name="control_awake">Awake</string>
     <string name="control_dim">Dim</string>
     <string name="control_settings">Settings</string>
@@ -18,7 +17,6 @@
     <!-- Buttons -->
     <string name="btn_screen_on">Screen</string>
     <string name="btn_screen_on_active">Screen ✓</string>
-    <string name="btn_flip_camera">FLIP</string>
     <string name="btn_connect">CONNECT</string>
     <string name="btn_stop">STOP</string>
     <string name="btn_settings">SETTINGS</string>

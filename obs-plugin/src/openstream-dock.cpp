@@ -14,6 +14,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMouseEvent>
+#include <QMenu>
 #include <QPainter>
 #include <QPointer>
 #include <QPushButton>
@@ -24,6 +25,7 @@
 #include <QStyle>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QWidgetAction>
 #include <QWidget>
 
 #include <algorithm>
@@ -46,7 +48,6 @@
 namespace {
 constexpr const char *kDockId = "openstream-control-room";
 constexpr int kRemoteRefreshMs = 2500;
-constexpr int kZoomUpdateIntervalMs = 50;
 
 using AddDockFn = bool (*)(const char *, const char *, void *);
 using RemoveDockFn = void (*)(const char *);
@@ -127,16 +128,13 @@ class OpenStreamDock final : public QWidget {
     });
     refresh_timer_.setInterval(kRemoteRefreshMs);
     connect(&refresh_timer_, &QTimer::timeout, this, [this] { requestRemoteRefresh(); });
-    zoom_update_timer_.setInterval(kZoomUpdateIntervalMs);
-    zoom_update_timer_.setSingleShot(true);
-    connect(&zoom_update_timer_, &QTimer::timeout, this, [this] { flushZoomUpdate(); });
     refresh_timer_.start();
     refreshSnapshots();
   }
 
   ~OpenStreamDock() override {
     refresh_timer_.stop();
-    zoom_update_timer_.stop();
+    if (preset_popup_) preset_popup_->hide();
     if (subscription_id_ != 0) openstream_unsubscribe_camera_changes(subscription_id_);
   }
 
@@ -312,6 +310,9 @@ class OpenStreamDock final : public QWidget {
     stabilization_->addItem("Optical", "optical");
     torch_ = new QCheckBox("Torch");
     lens_form->addRow("Zoom", zoom_);
+    zoom_presets_button_ = new QPushButton("Zoom presets…");
+    zoom_presets_button_->setAccessibleName("Zoom presets");
+    lens_form->addRow("", zoom_presets_button_);
     lens_form->addRow("Stabilization", stabilization_);
     lens_form->addRow("", torch_);
     controls->addWidget(lens);
@@ -354,8 +355,9 @@ class OpenStreamDock final : public QWidget {
 
   void connectUi() {
     connect(camera_selector_, &QComboBox::currentIndexChanged, this, [this](int index) {
-      zoom_update_pending_ = false;
-      zoom_pending_instance_.clear();
+      if (preset_popup_) preset_popup_->hide();
+      preset_popup_instance_.clear();
+      ++action_generation_;
       current_instance_ = index >= 0 ? camera_selector_->itemData(index).toString().toStdString() : "";
       renderSelected();
       requestRemoteRefresh();
@@ -438,9 +440,10 @@ class OpenStreamDock final : public QWidget {
     connect(white_balance_lock_, &QCheckBox::clicked, this, [this](bool enabled) {
       OpenStreamSettingsPatch patch; patch.white_balance_lock = enabled; sendSettings(std::move(patch), enabled ? "Locking white balance…" : "Unlocking white balance…");
     });
-    connect(zoom_, &QDoubleSpinBox::valueChanged, this, [this](double value) {
-      queueZoomUpdate(value);
+    connect(zoom_, &QDoubleSpinBox::editingFinished, this, [this] {
+      requestZoomTransition(zoom_->value());
     });
+    connect(zoom_presets_button_, &QPushButton::clicked, this, [this] { showPresetPopup(); });
     connect(stabilization_, &QComboBox::currentIndexChanged, this, [this](int) {
       OpenStreamSettingsPatch patch; patch.stabilization_mode = stabilization_->currentData().toString().toStdString(); sendSettings(std::move(patch), "Setting stabilization…");
     });
@@ -631,11 +634,14 @@ class OpenStreamDock final : public QWidget {
     const QSignalBlocker zoom_block(zoom_);
     const QSignalBlocker stabilization_block(stabilization_);
     const QSignalBlocker torch_block(torch_);
-    const bool local_zoom_update = zoom_update_in_flight_ && zoom_active_instance_ == camera.instance_id;
-    const bool pending_zoom_update = zoom_update_pending_ && zoom_pending_instance_ == camera.instance_id;
     if (caps.zoom_ratio.available) zoom_->setRange(caps.zoom_ratio.minimum, caps.zoom_ratio.maximum);
-    if (!local_zoom_update && !pending_zoom_update) zoom_->setValue(state.zoom_ratio);
-    zoom_->setEnabled((ready || local_zoom_update) && caps.zoom);
+    zoom_->setValue(state.zoom_ratio);
+    const bool smooth_zoom_ready = ready && caps.zoom && caps.zoom_transition;
+    zoom_->setEnabled(smooth_zoom_ready);
+    zoom_->setToolTip(smooth_zoom_ready ? QString() : "Smooth zoom requires an updated OpenStream Android app.");
+    zoom_presets_button_->setEnabled(ready && caps.zoom);
+    zoom_presets_button_->setToolTip(caps.zoom_transition ? QString() :
+        "Smooth zoom presets require an updated OpenStream Android app.");
     selectWireValue(stabilization_, state.stabilization_mode);
     stabilization_->setEnabled(ready && caps.stabilization);
     applySupportedModes(stabilization_, caps.stabilization_modes);
@@ -676,45 +682,138 @@ class OpenStreamDock final : public QWidget {
     runCommand(std::move(command), message);
   }
 
-  void queueZoomUpdate(double value) {
-    if (current_instance_.empty()) return;
-    zoom_pending_value_ = value;
-    zoom_pending_instance_ = current_instance_;
-    zoom_update_pending_ = true;
-    if (!zoom_update_in_flight_ && !zoom_update_timer_.isActive()) zoom_update_timer_.start();
+  bool presetSupported(const OpenStreamCameraSnapshot &camera, double ratio) const {
+    const auto &caps = camera.capabilities;
+    return caps.zoom && caps.zoom_transition && caps.zoom_ratio.available &&
+           std::isfinite(ratio) && ratio >= caps.zoom_ratio.minimum && ratio <= caps.zoom_ratio.maximum;
   }
 
-  void flushZoomUpdate() {
-    if (zoom_update_in_flight_ || !zoom_update_pending_) return;
-    if (zoom_pending_instance_ != current_instance_) {
-      zoom_update_pending_ = false;
-      zoom_pending_instance_.clear();
+  QString presetUnavailableReason(const OpenStreamCameraSnapshot &camera, double ratio) const {
+    if (!camera.capabilities.zoom_transition) return "Update the Android app to use smooth zoom presets.";
+    if (!camera.capabilities.zoom_ratio.available) return "This camera did not report a zoom range.";
+    return QString("Supported zoom range: %1×–%2×.")
+        .arg(camera.capabilities.zoom_ratio.minimum, 0, 'f', 2)
+        .arg(camera.capabilities.zoom_ratio.maximum, 0, 'f', 2);
+  }
+
+  void requestZoomTransition(double ratio) {
+    const auto camera = selected();
+    if (!camera || !presetSupported(*camera, ratio)) {
+      if (camera) feedback_text_ = presetUnavailableReason(*camera, ratio);
       renderSelected();
       return;
     }
-    const auto camera = selected();
-    if (!camera || camera->request_pending) {
-      zoom_update_timer_.start();
-      return;
-    }
-
-    zoom_update_pending_ = false;
-    zoom_update_in_flight_ = true;
-    zoom_active_instance_ = camera->instance_id;
-    OpenStreamSettingsPatch patch;
-    patch.zoom_ratio = zoom_pending_value_;
     OpenStreamCommand command;
-    command.type = OpenStreamCommandType::ApplySettings;
-    command.settings = std::move(patch);
-    runCommand(std::move(command), "Setting zoom…", [this] {
-      zoom_update_in_flight_ = false;
-      zoom_active_instance_.clear();
-      if (zoom_update_pending_) {
-        zoom_update_timer_.start();
-      } else {
-        renderSelected();
-      }
+    command.type = OpenStreamCommandType::ZoomTransition;
+    command.zoom_ratio = ratio;
+    command.zoom_duration_ms = camera->zoom_presets.duration_ms;
+    runCommand(std::move(command), QString("Zooming smoothly to %1×…").arg(ratio, 0, 'f', 2));
+  }
+
+  void persistPresetConfig() {
+    if (preset_popup_instance_.empty()) return;
+    preset_config_ = OpenStreamZoomPresetConfig{1, preset_config_.show_buttons,
+                                                preset_config_.duration_ms, preset_config_.ratios};
+    if (!openstream_save_zoom_presets(preset_popup_instance_, preset_config_)) {
+      feedback_text_ = "Could not save zoom presets for this source.";
+    }
+  }
+
+  void showPresetPopup() {
+    const auto camera = selected();
+    if (!camera) return;
+    preset_popup_instance_ = camera->instance_id;
+    preset_config_ = camera->zoom_presets;
+    if (!preset_popup_) {
+      preset_popup_ = new QMenu(this);
+      preset_popup_->setObjectName("openstreamZoomPresetsPopup");
+      preset_popup_->setToolTipsVisible(true);
+    }
+    preset_popup_->clear();
+    auto *content = new QWidget(preset_popup_);
+    content->setMinimumWidth(290);
+    auto *layout = new QVBoxLayout(content);
+    layout->setContentsMargins(10, 10, 10, 10);
+    layout->setSpacing(6);
+    auto *title = new QLabel(QString::fromStdString(camera->source_name), content);
+    title->setStyleSheet("font-weight: 650;");
+    layout->addWidget(title);
+    auto *show_buttons = new QCheckBox("Show preset buttons", content);
+    show_buttons->setChecked(preset_config_.show_buttons);
+    layout->addWidget(show_buttons);
+    auto *duration = new QSpinBox(content);
+    duration->setRange(250, 10000);
+    duration->setSingleStep(250);
+    duration->setSuffix(" ms");
+    duration->setValue(preset_config_.duration_ms);
+    auto *form = new QFormLayout;
+    form->addRow("Smooth zoom", duration);
+    layout->addLayout(form);
+    auto *rows = new QVBoxLayout;
+    layout->addLayout(rows);
+    for (size_t index = 0; index < preset_config_.ratios.size(); ++index) {
+      auto *row = new QHBoxLayout;
+      auto *ratio = new QDoubleSpinBox(content);
+      ratio->setRange(0.01, 1000.0);
+      ratio->setDecimals(2);
+      ratio->setSingleStep(0.1);
+      ratio->setSuffix("×");
+      ratio->setValue(preset_config_.ratios[index]);
+      auto *remove = new QPushButton("Remove", content);
+      remove->setEnabled(preset_config_.ratios.size() > 1);
+      row->addWidget(ratio, 1);
+      row->addWidget(remove);
+      rows->addLayout(row);
+      connect(ratio, &QDoubleSpinBox::editingFinished, this, [this, index, ratio] {
+        if (index >= preset_config_.ratios.size()) return;
+        preset_config_.ratios[index] = ratio->value();
+        persistPresetConfig();
+      });
+      connect(remove, &QPushButton::clicked, this, [this, index] {
+        if (index >= preset_config_.ratios.size() || preset_config_.ratios.size() <= 1) return;
+        preset_config_.ratios.erase(preset_config_.ratios.begin() + static_cast<std::ptrdiff_t>(index));
+        persistPresetConfig();
+        showPresetPopup();
+      });
+    }
+    auto *add = new QPushButton("Add preset", content);
+    add->setEnabled(preset_config_.ratios.size() < 8);
+    layout->addWidget(add);
+    connect(add, &QPushButton::clicked, this, [this] {
+      if (preset_config_.ratios.size() >= 8) return;
+      preset_config_.ratios.push_back(1.0);
+      persistPresetConfig();
+      showPresetPopup();
     });
+    if (preset_config_.show_buttons) {
+      auto *quick = new QHBoxLayout;
+      for (double value : preset_config_.ratios) {
+        auto *button = new QPushButton(QString::number(value, 'f', 2) + "×", content);
+        const bool supported = presetSupported(*camera, value);
+        button->setEnabled(supported);
+        if (!supported) button->setToolTip(presetUnavailableReason(*camera, value));
+        if (camera->state.zoom_transition_active &&
+            std::abs(camera->state.zoom_transition_target_ratio - value) < 0.005) {
+          button->setText(button->text() + "…");
+        }
+        quick->addWidget(button);
+        connect(button, &QPushButton::clicked, this, [this, value] { requestZoomTransition(value); });
+      }
+      layout->addLayout(quick);
+    }
+    connect(show_buttons, &QCheckBox::toggled, this, [this](bool value) {
+      preset_config_.show_buttons = value;
+      persistPresetConfig();
+      showPresetPopup();
+    });
+    connect(duration, &QSpinBox::valueChanged, this, [this](int value) {
+      preset_config_.duration_ms = value;
+      persistPresetConfig();
+    });
+    auto *action = new QWidgetAction(preset_popup_);
+    action->setDefaultWidget(content);
+    preset_popup_->addAction(action);
+    preset_popup_->popup(zoom_presets_button_->mapToGlobal(QPoint(0, zoom_presets_button_->height())));
   }
 
   void sendTally() {
@@ -743,17 +842,20 @@ class OpenStreamDock final : public QWidget {
     }
     if (command.expected_revision == 0) command.expected_revision = camera->state.revision;
     const std::string instance = camera->instance_id;
+    const uint64_t generation = ++action_generation_;
     if (!working.isEmpty()) feedback_text_ = working;
     renderSelected();
     QPointer<OpenStreamDock> guard(this);
     openstream_run_command_async(instance, std::move(command),
-                                 [guard, completed = std::move(completed)](OpenStreamCommandResponse response) mutable {
+                                 [guard, instance, generation, completed = std::move(completed)](OpenStreamCommandResponse response) mutable {
       if (!guard || !qApp) return;
-      QMetaObject::invokeMethod(qApp, [guard, response = std::move(response), completed = std::move(completed)]() mutable {
+      QMetaObject::invokeMethod(qApp, [guard, instance, generation, response = std::move(response), completed = std::move(completed)]() mutable {
         if (!guard) return;
-        guard->feedback_text_ = QString::fromStdString(response.message);
+        const bool still_current = guard->current_instance_ == instance;
+        const bool current_action = guard->action_generation_ == generation;
+        if (still_current && current_action) guard->feedback_text_ = QString::fromStdString(response.message);
         guard->refreshSnapshots();
-        if (completed) completed();
+        if (completed && still_current && current_action) completed();
       }, Qt::QueuedConnection);
     });
   }
@@ -787,6 +889,7 @@ class OpenStreamDock final : public QWidget {
   QSpinBox *tint_ = nullptr;
   QCheckBox *white_balance_lock_ = nullptr;
   QDoubleSpinBox *zoom_ = nullptr;
+  QPushButton *zoom_presets_button_ = nullptr;
   QComboBox *stabilization_ = nullptr;
   QCheckBox *torch_ = nullptr;
   QLabel *health_ = nullptr;
@@ -796,12 +899,10 @@ class OpenStreamDock final : public QWidget {
   std::string current_instance_;
   uint64_t subscription_id_ = 0;
   QTimer refresh_timer_;
-  QTimer zoom_update_timer_;
-  double zoom_pending_value_ = 1.0;
-  bool zoom_update_pending_ = false;
-  bool zoom_update_in_flight_ = false;
-  std::string zoom_pending_instance_;
-  std::string zoom_active_instance_;
+  QPointer<QMenu> preset_popup_;
+  std::string preset_popup_instance_;
+  OpenStreamZoomPresetConfig preset_config_;
+  uint64_t action_generation_ = 0;
 };
 
 FrontendApi g_frontend;

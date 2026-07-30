@@ -99,10 +99,12 @@ action. Unsupported controls are disabled with a reason derived from
 
 The source publishes immutable UI snapshots. State-change notifications queue
 updates onto the Qt UI thread; widgets are updated in place rather than being
-destroyed and rebuilt on a one-second timer. Continuous controls coalesce
-network commands to a bounded rate and send one final exact value on release.
-Only the selected camera owns an interactive preview, avoiding one OBS display
-per roster card.
+destroyed and rebuilt on a one-second timer. OBS zoom actions send one
+capability-gated `/v2/zoom-transition` command; Android owns timing and
+interpolation so network jitter cannot shape the ramp. Versioned preset
+settings are stored on the associated OBS source, and saving them does not
+restart its media worker. Only the selected camera owns an interactive preview,
+avoiding one OBS display per roster card.
 
 ## Control, authority, and failure handling
 

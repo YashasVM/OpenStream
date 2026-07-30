@@ -106,7 +106,7 @@ Use OBS as usual. Open **Docks → OpenStream Beta Control Room** to monitor eve
 | Area | Current support |
 |---|---|
 | **Phone OS** | Android 10+ with Camera2 and hardware MediaCodec support. |
-| **OBS host** | Windows x64 with OBS Studio and FFmpeg SRT support. |
+| **OBS host** | Windows x64 with OBS Studio 32.2.1 and its bundled FFmpeg SRT support. |
 | **Network** | Same LAN/subnet; guest Wi-Fi, VPNs, and client isolation can block discovery. |
 | **Release maturity** | Beta. Expect device-specific camera quirks and Wi-Fi-dependent latency. |
 

@@ -128,7 +128,7 @@ jobs:
 
       - name: Install OBS Studio
         shell: powershell
-        run: choco install obs-studio -y --no-progress
+        run: choco install obs-studio --version=32.2.1 -y --no-progress
 
       - name: Install OBS Qt 6 development bundle
         shell: powershell
@@ -150,6 +150,15 @@ jobs:
           set OPENSTREAM_PLUGIN_PACKAGE_DIR=%CD%\artifacts
           call build_plugin.bat
 
+      - name: Verify OBS 32 FFmpeg ABI dependencies and package layout
+        shell: powershell
+        run: |
+          $deps = & dumpbin /dependents "$PWD\obs-plugin\build\openstream-beta-obs.dll"
+          'avformat-62.dll','avcodec-62.dll','avutil-60.dll','swscale-9.dll' | ForEach-Object { if ($deps -notmatch [regex]::Escape($_)) { throw "Missing expected dependency $_" } }
+          Expand-Archive artifacts\openstream-beta-obs-windows-x64.zip "$env:RUNNER_TEMP\openstream-zip"
+          if (!(Test-Path "$env:RUNNER_TEMP\openstream-zip\data")) { throw 'ZIP data directory missing' }
+          & tools\installer\Test-OpenStreamPackage.ps1 -ZipPath "$PWD\artifacts\openstream-beta-obs-windows-x64.zip"
+
       - name: Install Inno Setup
         shell: powershell
         run: choco install innosetup -y --no-progress
@@ -168,6 +177,12 @@ jobs:
             "/DOutputDir=$PWD\artifacts" `
             "/DOutputBaseFilename=openstream-beta-obs-plugin-installer-windows-x64" `
             "/DOpenStreamVersion=$env:OPENSTREAM_VERSION"
+
+      - name: Smoke-test executable installer migration
+        shell: powershell
+        run: |
+          & tools\installer\Test-OpenStreamInnoInstaller.ps1 `
+            -InstallerPath "$PWD\artifacts\openstream-beta-obs-plugin-installer-windows-x64.exe"
 
       - name: Upload plugin artifact
         uses: actions/upload-artifact@v4

@@ -21,6 +21,7 @@
 
 #include <chrono>
 #include <atomic>
+#include <cmath>
 #include <charconv>
 #include <cstdint>
 #include <inttypes.h>
@@ -855,9 +856,48 @@ struct OpenStreamSource {
   std::string control_token;
   OpenStreamCameraCapabilities capabilities;
   OpenStreamCameraState camera_state;
+  OpenStreamZoomPresetConfig zoom_presets;
   std::string last_control_error;
   bool control_request_pending = false;
 };
+
+OpenStreamZoomPresetConfig sanitize_zoom_presets(const OpenStreamZoomPresetConfig &input) {
+  OpenStreamZoomPresetConfig result;
+  result.version = 1;
+  result.show_buttons = input.show_buttons;
+  result.duration_ms = std::clamp(input.duration_ms, 250, 10000);
+  result.duration_ms = (result.duration_ms / 250) * 250;
+  if (result.duration_ms < 250) result.duration_ms = 250;
+  result.ratios.clear();
+  for (double ratio : input.ratios) {
+    if (std::isfinite(ratio) && ratio > 0.0 && result.ratios.size() < 8) result.ratios.push_back(ratio);
+  }
+  if (result.ratios.empty()) result.ratios = {0.5, 1.0, 3.0, 5.0};
+  return result;
+}
+
+OpenStreamZoomPresetConfig parse_zoom_presets(const char *json) {
+  OpenStreamZoomPresetConfig parsed;
+  if (!json || !*json) return parsed;
+  const std::string value(json);
+  parsed.show_buttons = json_bool_value(value, "showButtons").value_or(parsed.show_buttons);
+  parsed.duration_ms = static_cast<int>(json_number_value(value, "durationMs").value_or(parsed.duration_ms));
+  parsed.ratios = json_number_array_value(value, "ratios");
+  return sanitize_zoom_presets(parsed);
+}
+
+std::string zoom_presets_json(const OpenStreamZoomPresetConfig &input) {
+  const auto config = sanitize_zoom_presets(input);
+  std::ostringstream json;
+  json << "{\"version\":1,\"showButtons\":" << (config.show_buttons ? "true" : "false")
+       << ",\"durationMs\":" << config.duration_ms << ",\"ratios\":[";
+  for (size_t index = 0; index < config.ratios.size(); ++index) {
+    if (index) json << ',';
+    json << config.ratios[index];
+  }
+  json << "]}";
+  return json.str();
+}
 
 void notify_camera_changed(const std::string &instance_id);
 
@@ -1777,6 +1817,7 @@ void openstream_update(void *data, obs_data_t *settings) {
   bool should_start = false;
   {
     std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    ctx->zoom_presets = parse_zoom_presets(obs_data_get_string(settings, "zoom_presets"));
     ctx->listener_enabled = obs_data_get_bool(settings, "listener_enabled");
     ctx->device_name = obs_data_get_string(settings, "device_name");
     int requested_port = static_cast<int>(obs_data_get_int(settings, "listener_port"));
@@ -1916,6 +1957,8 @@ void openstream_defaults(obs_data_t *settings) {
   obs_data_set_default_int(settings, "latency_ms", 120);
   obs_data_set_default_int(settings, "bitrate_mbps", 50);
   obs_data_set_default_double(settings, "cam_zoom", 1.0);
+  obs_data_set_default_string(settings, "zoom_presets",
+                              "{\"version\":1,\"showButtons\":true,\"durationMs\":2000,\"ratios\":[0.5,1,3,5]}");
   obs_data_set_default_string(settings, "control_token", "");
 }
 
@@ -2190,6 +2233,7 @@ OpenStreamCameraCapabilities parse_capabilities(const std::string &json) {
   caps.auto_white_balance = contains(caps.white_balance_modes, "auto");
   caps.manual_white_balance = data_bool(root, "manualWhiteBalance").value_or(false);
   caps.zoom = data_bool(root, "supportsZoomRatio").value_or(false);
+  caps.zoom_transition = data_bool(root, "supportsZoomTransition").value_or(false);
   caps.torch = data_bool(root, "supportsTorch").value_or(false);
   caps.lens_selection = false;
   caps.stabilization = contains(caps.stabilization_modes, "video") ||
@@ -2265,6 +2309,15 @@ OpenStreamCameraState parse_camera_state_object(obs_data_t *root) {
   state.white_balance_lock = data_bool(settings, "whiteBalanceLock").value_or(false);
   state.zoom_ratio = data_number(telemetry, "actualZoomRatio").value_or(
       data_number(settings, "zoomRatio").value_or(1.0));
+  if (data_has_type(root, "zoomTransition", OBS_DATA_OBJECT)) {
+    obs_data_t *transition = obs_data_get_obj(root, "zoomTransition");
+    if (transition) {
+      state.zoom_transition_active = data_bool(transition, "active").value_or(false);
+      state.zoom_transition_target_ratio = data_number(transition, "targetRatio").value_or(state.zoom_ratio);
+      state.zoom_transition_duration_ms = static_cast<int>(data_number(transition, "durationMs").value_or(0.0));
+      obs_data_release(transition);
+    }
+  }
   state.torch = data_bool(settings, "torch").value_or(false);
   state.stabilization_mode = data_string(settings, "stabilizationMode").value_or("off");
   state.program_tally = data_bool(tally, "program").value_or(false);
@@ -2376,6 +2429,7 @@ std::vector<OpenStreamCameraSnapshot> openstream_camera_snapshots() {
       item.last_control_error = ctx->last_control_error;
       item.capabilities = ctx->capabilities;
       item.state = ctx->camera_state;
+      item.zoom_presets = ctx->zoom_presets;
     }
     snapshots.push_back(std::move(item));
     obs_source_release(source);
@@ -2385,6 +2439,41 @@ std::vector<OpenStreamCameraSnapshot> openstream_camera_snapshots() {
     return left.slot_label < right.slot_label;
   });
   return snapshots;
+}
+
+OpenStreamZoomPresetConfig openstream_zoom_presets(const std::string &instance_id) {
+  obs_source_t *source = nullptr;
+  OpenStreamSource *ctx = find_camera_source(instance_id, &source);
+  if (!ctx || !source) return {};
+  OpenStreamZoomPresetConfig config;
+  {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    config = ctx->zoom_presets;
+  }
+  obs_source_release(source);
+  return config;
+}
+
+bool openstream_save_zoom_presets(const std::string &instance_id,
+                                  const OpenStreamZoomPresetConfig &input) {
+  obs_source_t *source = nullptr;
+  OpenStreamSource *ctx = find_camera_source(instance_id, &source);
+  if (!ctx || !source) return false;
+  const auto config = sanitize_zoom_presets(input);
+  obs_data_t *settings = obs_source_get_settings(source);
+  obs_data_set_string(settings, "zoom_presets", zoom_presets_json(config).c_str());
+  obs_source_update(source, settings);
+  obs_data_release(settings);
+  // `openstream_update` performs the same assignment, but retain this explicit
+  // update so the dock model is immediately consistent on OBS versions which
+  // defer source callbacks.
+  {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    ctx->zoom_presets = config;
+  }
+  obs_source_release(source);
+  notify_camera_changed(instance_id);
+  return true;
 }
 
 void openstream_run_command_async(const std::string &instance_id,
@@ -2520,6 +2609,15 @@ void openstream_run_command_async(const std::string &instance_id,
               path = "/v2/settings";
               body = settings_body(command);
               break;
+            case OpenStreamCommandType::ZoomTransition: {
+              path = "/v2/zoom-transition";
+              std::ostringstream payload;
+              payload << "{\"expectedRevision\":" << revision
+                      << ",\"zoomRatio\":" << command.zoom_ratio
+                      << ",\"durationMs\":" << command.zoom_duration_ms << '}';
+              body = payload.str();
+              break;
+            }
             case OpenStreamCommandType::FocusAt: {
               path = "/v2/focus";
               std::ostringstream payload;

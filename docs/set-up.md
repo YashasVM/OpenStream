@@ -67,13 +67,13 @@ C:\Program Files\obs-studio\obs-plugins\64bit\
 ```
 
 > [!IMPORTANT]
-> Close OBS before installing or replacing the plugin. Windows can keep the old DLL loaded while OBS is open.
+> Close OBS before installing or replacing the plugin. The installer refuses to continue while OBS is open. OpenStream supports OBS Studio 32.2.1 x64.
 
 ### Upgrading from an Older OpenStream Beta Plugin
 
 OpenStream Beta appears in OBS as `OpenStream Beta Camera`. Existing scene sources created with `OpenStream V7` are still supported, but the saved source names may remain `OpenStream V7` until you rename them in OBS.
 
-If OBS still shows an older OpenStream Beta source after installing V2, check these plugin locations and remove or replace stale copies:
+The installer automatically migrates legacy `openstream-obs.dll` and `openstream-beta-obs.dll` copies from these locations, then installs exactly one canonical `openstream-beta-obs.dll` and its OpenStream data directory. It does not remove OBS scene collections or OpenStream source settings:
 
 ```text
 C:\Program Files\obs-studio\obs-plugins\64bit\openstream-beta-obs.dll

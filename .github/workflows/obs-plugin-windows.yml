@@ -22,7 +22,7 @@ jobs:
 
       - name: Install OBS Studio
         shell: powershell
-        run: choco install obs-studio --version=32.1.2 -y --no-progress
+        run: choco install obs-studio --version=32.2.1 -y --no-progress
 
       - name: Install matching Qt development files
         shell: powershell
@@ -51,6 +51,22 @@ jobs:
           set OPENSTREAM_PLUGIN_PACKAGE_DIR=%CD%\artifacts
           call build_plugin.bat
 
+      - name: Verify OBS 32 FFmpeg ABI dependencies
+        shell: powershell
+        run: |
+          $dll = "$PWD\obs-plugin\build\openstream-beta-obs.dll"
+          $deps = & dumpbin /dependents $dll
+          'avformat-62.dll','avcodec-62.dll','avutil-60.dll','swscale-9.dll' | ForEach-Object { if ($deps -notmatch [regex]::Escape($_)) { throw "Missing expected dependency $_" } }
+          'avformat-61.dll','avcodec-61.dll','avutil-59.dll','swscale-8.dll' | ForEach-Object { if ($deps -match [regex]::Escape($_)) { throw "Obsolete dependency $_" } }
+
+      - name: Verify ZIP migration package
+        shell: powershell
+        run: |
+          Expand-Archive artifacts\openstream-beta-obs-windows-x64.zip "$env:RUNNER_TEMP\openstream-zip"
+          $stage = "$env:RUNNER_TEMP\openstream-zip"
+          if (!(Test-Path "$stage\openstream-beta-obs.dll") -or !(Test-Path "$stage\data")) { throw 'ZIP is missing canonical DLL or data directory' }
+          & tools\installer\Test-OpenStreamPackage.ps1 -ZipPath "$PWD\artifacts\openstream-beta-obs-windows-x64.zip"
+
       - name: Install Inno Setup
         shell: powershell
         run: choco install innosetup -y --no-progress
@@ -66,6 +82,12 @@ jobs:
             "/DOutputDir=$PWD\artifacts" `
             "/DOutputBaseFilename=openstream-beta-obs-plugin-installer-windows-x64" `
             "/DOpenStreamVersion=$env:OPENSTREAM_VERSION"
+
+      - name: Smoke-test executable installer migration
+        shell: powershell
+        run: |
+          & tools\installer\Test-OpenStreamInnoInstaller.ps1 `
+            -InstallerPath "$PWD\artifacts\openstream-beta-obs-plugin-installer-windows-x64.exe"
 
       - name: Upload plugin package and installer
         uses: actions/upload-artifact@v4

@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.24)
-project(openstream_obs_plugin VERSION 2.0.0 LANGUAGES CXX)
+project(openstream_obs_plugin VERSION 2.1.0 LANGUAGES CXX)
+
+# Releases are built against OBS Studio 32.2.1 x64.  Its bundled FFmpeg ABI is
+# avformat 62, avcodec 62, avutil 60 and swscale 9.  Keeping this declaration
+# here makes accidental ABI changes fail at configure time instead of at OBS
+# module-load time.
+set(OPENSTREAM_OBS_BASELINE "32.2.1")
+set(OPENSTREAM_FFMPEG_ABI "avformat-62;avcodec-62;avutil-60;swscale-9")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -62,6 +69,15 @@ find_library(SWSCALE_LIBRARY
     REQUIRED
 )
 
+if (WIN32 AND DEFINED OPENSTREAM_OBS_BIN)
+    foreach(_openstream_ffmpeg_dll IN LISTS OPENSTREAM_FFMPEG_ABI)
+        if (NOT EXISTS "${OPENSTREAM_OBS_BIN}/${_openstream_ffmpeg_dll}.dll" AND
+            NOT EXISTS "${OPENSTREAM_OBS_BIN}/${_openstream_ffmpeg_dll}.DLL")
+            message(FATAL_ERROR "OpenStream releases require OBS ${OPENSTREAM_OBS_BASELINE} x64 and ${_openstream_ffmpeg_dll}.dll")
+        endif()
+    endforeach()
+endif()
+
 find_library(OBS_LIBRARY
     NAMES obs libobs
     HINTS ${OBS_ROOT} ${FFMPEG_ROOT}
@@ -115,3 +131,4 @@ if (WIN32)
 endif()
 
 message(STATUS "Building OpenStream OBS source with FFmpeg SRT input support.")
+message(STATUS "OpenStream OBS baseline: ${OPENSTREAM_OBS_BASELINE}; FFmpeg ABI: ${OPENSTREAM_FFMPEG_ABI}")

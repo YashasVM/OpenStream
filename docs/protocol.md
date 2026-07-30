@@ -111,6 +111,10 @@ zoom-ratio range, torch support, and supported stream profiles. A client must
 not infer support from a device model name or display an enabled control for an
 absent capability.
 
+OBS enables zoom preset and zoom-spinbox actions only when
+`supportsZoomTransition` is `true`. Older V2 apps omit the field and remain
+compatible, but OBS does not fall back to instant remote zoom.
+
 ### State and revisions
 
 ```http
@@ -146,7 +150,12 @@ The response contains one authoritative `CameraState`:
     "wifiRssi": -48,
     "encoderState": "streaming"
   },
-  "tally": {"program":false,"preview":true}
+  "tally": {"program":false,"preview":true},
+  "zoomTransition": {
+    "active": true,
+    "targetRatio": 3.0,
+    "durationMs": 2000
+  }
 }
 ```
 
@@ -187,6 +196,24 @@ so changing torch, zoom, focus, or white balance cannot reset another control.
 Manual ISO and shutter require Camera2 `MANUAL_SENSOR`; shutter duration is
 clamped against the active frame duration. Manual Kelvin/tint is offered only
 when the device reports the required post-processing support.
+
+### Smooth remote zoom
+
+```http
+POST /v2/zoom-transition
+Authorization: Bearer <opaque-token>
+Content-Type: application/json
+
+{"expectedRevision":42,"zoomRatio":3.0,"durationMs":2000}
+```
+
+The target must be finite and inside the active camera's reported zoom range;
+duration is `250..10000` ms. Acceptance increments the revision once and records
+the requested target in canonical settings. Android performs the ease-in-out
+ramp on the Camera2 handler at roughly 50 ms intervals while telemetry reports
+the actual hardware zoom. A newer transition replaces the active one from its
+current effective position. Local zoom, lens changes, teardown, and camera
+errors cancel it.
 
 ### Focus and metering point
 

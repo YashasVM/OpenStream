@@ -8,7 +8,9 @@ Every candidate change must pass:
 - Android unit tests and lint
 - native-SRT Android debug build
 - Windows OBS plugin build
-- installer packaging smoke test (the installer UI itself is out of scope)
+- DLL dependency inspection (`avformat-62`, `avcodec-62`, `avutil-60`, `swscale-9`)
+- clean OBS 32.2.1 load smoke test with no OpenStream module-load error
+- installer and ZIP migration smoke tests: seed both legacy DLL names, require OBS closed, and assert exactly one canonical DLL plus data directory
 
 Python repository contracts guard architectural boundaries and wire shape.
 Kotlin tests own Camera2-independent state, revision, authority, coordinate, and

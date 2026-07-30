@@ -144,6 +144,7 @@ class CameraControlServer(
                 method == "GET" && path == "/v2/capabilities" -> handleV2Capabilities()
                 method == "GET" && path == "/v2/state" -> HttpResponse(200, stateJson(cameraProvider().currentState()).toString())
                 method == "POST" && path == "/v2/settings" -> handleV2Settings(body)
+                method == "POST" && path == "/v2/zoom-transition" -> handleV2ZoomTransition(body)
                 method == "POST" && path == "/v2/focus" -> handleV2Focus(body)
                 method == "POST" && path == "/v2/authority" -> handleV2Authority(body)
                 method == "POST" && path == "/v2/tally" -> handleV2Tally(body)
@@ -211,6 +212,17 @@ class CameraControlServer(
         return controlResponse(cameraProvider().applySettings(patch, expectedRevision, CameraActor.Obs))
     }
 
+    private fun handleV2ZoomTransition(body: String): HttpResponse {
+        val json = parseObject(body)
+        val expectedRevision = requiredLong(json, "expectedRevision")
+        val zoomRatio = requiredFiniteFloat(json, "zoomRatio")
+        val durationMs = requiredInt(json, "durationMs")
+        if (!cameraProvider().isReadyForZoomTransition()) {
+            return HttpResponse(503, errorJson("camera_not_ready", "Camera is not ready for smooth zoom"))
+        }
+        return controlResponse(cameraProvider().startZoomTransition(zoomRatio, durationMs, expectedRevision, CameraActor.Obs))
+    }
+
     private fun handleV2Focus(body: String): HttpResponse {
         val json = parseObject(body)
         val expectedRevision = requiredLong(json, "expectedRevision")
@@ -240,7 +252,7 @@ class CameraControlServer(
         is CameraControlResult.Applied -> HttpResponse(200, JSONObject().put("ok", true).put("state", stateJson(result.state)).toString())
         is CameraControlResult.Conflict -> HttpResponse(409, JSONObject().put("ok", false).put("error", "revision_conflict").put("state", stateJson(result.state)).toString())
         is CameraControlResult.Unsupported -> HttpResponse(422, controlError("unsupported", result.field, result.reason, result.state))
-        is CameraControlResult.Invalid -> HttpResponse(400, controlError("invalid_value", result.field, result.reason, result.state))
+        is CameraControlResult.Invalid -> HttpResponse(400, controlError("invalid_request", result.field, result.reason, result.state))
         is CameraControlResult.Locked -> HttpResponse(423, JSONObject().put("ok", false).put("error", "obs_locked").put("state", stateJson(result.state)).toString())
     }
 
@@ -261,6 +273,7 @@ class CameraControlServer(
         .put("supportsAeRegions", caps.supportsAeRegions)
         .put("supportsTorch", caps.supportsTorch)
         .put("supportsZoomRatio", caps.supportsZoomRatio)
+        .put("supportsZoomTransition", caps.supportsZoomTransition)
         .put("isoRange", caps.isoRange?.let { rangeJson(it.min, it.max) } ?: JSONObject.NULL)
         .put("shutterRangeNs", caps.shutterRangeNs?.let { rangeJson(it.min, it.max) } ?: JSONObject.NULL)
         .put("exposureCompensationRange", caps.exposureCompensationRange?.let { rangeJson(it.min, it.max) } ?: JSONObject.NULL)
@@ -279,6 +292,9 @@ class CameraControlServer(
         .put("tally", JSONObject().put("program", state.tally.program).put("preview", state.tally.preview))
         .put("settings", settingsJson(state.settings))
         .put("telemetry", telemetryJson(state.telemetry))
+        .put("zoomTransition", state.zoomTransition?.let {
+            JSONObject().put("active", true).put("targetRatio", it.targetRatio.toDouble()).put("durationMs", it.durationMs)
+        } ?: JSONObject.NULL)
 
     private fun settingsJson(value: CameraSettings): JSONObject = JSONObject()
         .put("exposureMode", value.exposureMode.wireValue)
@@ -375,9 +391,24 @@ class CameraControlServer(
         return json.getLong(name)
     }
 
+    private fun requiredInt(json: JSONObject, name: String): Int {
+        if (!json.has(name)) throw IllegalArgumentException("$name is required")
+        val value = json.getDouble(name)
+        if (!value.isFinite() || value < Int.MIN_VALUE || value > Int.MAX_VALUE || value != value.toInt().toDouble()) {
+            throw IllegalArgumentException("$name must be an integer")
+        }
+        return value.toInt()
+    }
+
     private fun requiredFloat(json: JSONObject, name: String): Float {
         if (!json.has(name)) throw IllegalArgumentException("$name is required")
         return json.getDouble(name).toFloat()
+    }
+
+    private fun requiredFiniteFloat(json: JSONObject, name: String): Float {
+        val value = requiredFloat(json, name)
+        if (!value.isFinite()) throw IllegalArgumentException("$name must be finite")
+        return value
     }
 
     private fun optionalInt(json: JSONObject, name: String): Int? = if (json.has(name) && !json.isNull(name)) json.getInt(name) else null

@@ -17,11 +17,14 @@ set "DEPS_DIR=%PLUGIN_DIR%\deps"
 set "OBS_SDK_DIR=%DEPS_DIR%\obs-sdk"
 set "FFMPEG_DIR=%DEPS_DIR%\ffmpeg"
 set "OBS_INSTALL=C:\Program Files\obs-studio"
-set "OBS_SDK_URL=https://github.com/obsproject/obs-studio/releases/download/32.1.2/OBS-Studio-32.1.2-Sources.tar.gz"
+set "OPENSTREAM_OBS_VERSION=32.2.1"
+set "OBS_SDK_URL=https://github.com/obsproject/obs-studio/releases/download/32.2.1/OBS-Studio-32.2.1-Sources.tar.gz"
+set "OBS_SDK_SHA256=6a2532b1094bc51bc2fdeb1068d5c19cfe04216191a5b35c8707625401a80bf4"
 set "OBS_SDK_ZIP=%DEPS_DIR%\obs-source.tar.gz"
-set "FFMPEG_HEADERS_URL=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-lgpl-shared-7.1.zip"
-set "FFMPEG_HEADERS_ZIP=%DEPS_DIR%\ffmpeg-headers.zip"
-set "FFMPEG_HEADERS_DIR=%DEPS_DIR%\ffmpeg-headers"
+set "OBS_DEPS_URL=https://github.com/obsproject/obs-deps/releases/download/2025-08-23/windows-deps-2025-08-23-x64.zip"
+set "OBS_DEPS_SHA256=8de229cff6f1981508c0eb646b35e644633a5855787b9f5d3b90ae2aeb87ffc1"
+set "OBS_DEPS_ZIP=%DEPS_DIR%\obs-deps.zip"
+set "OBS_DEPS_DIR=%DEPS_DIR%\obs-deps"
 set "OBS_BIN="
 set "PACKAGE_DIR="
 set "CMAKE_EXE=cmake"
@@ -68,6 +71,16 @@ if not defined OBS_BIN (
     echo ERROR: OBS Studio was not found at %OBS_INSTALL%.
     echo Set OPENSTREAM_OBS_INSTALL to the OBS install directory if it is elsewhere.
     exit /b 1
+)
+
+powershell -NoProfile -Command "$v=(Get-Item -LiteralPath '%OBS_BIN%\obs64.exe').VersionInfo.ProductVersion; if(-not $v.StartsWith('%OPENSTREAM_OBS_VERSION%')){ throw 'Expected OBS %OPENSTREAM_OBS_VERSION%, found '+$v }"
+if errorlevel 1 exit /b 1
+
+for %%F in (avformat-62.dll avcodec-62.dll avutil-60.dll swscale-9.dll) do (
+    if not exist "%OBS_BIN%\%%F" (
+        echo ERROR: OBS %OPENSTREAM_OBS_VERSION% x64 with %%F was required, but it was not found.
+        exit /b 1
+    )
 )
 
 if not defined QT_ROOT (
@@ -118,47 +131,43 @@ if not exist "%OBS_SDK_DIR%\libobs\obs-module.h" (
     echo [2/6] OBS source headers already present, skipping download.
 )
 
-echo [3/6] Setting up FFmpeg import libraries...
+echo [3/6] Setting up pinned OBS FFmpeg headers and import libraries...
+if not exist "%OBS_DEPS_DIR%\include\libavcodec\avcodec.h" (
+    if not exist "%OBS_DEPS_ZIP%" curl -L --retry 3 -o "%OBS_DEPS_ZIP%" "%OBS_DEPS_URL%"
+    if errorlevel 1 exit /b 1
+    for /f %%H in ('powershell -NoProfile -Command "(Get-FileHash -LiteralPath '%OBS_DEPS_ZIP%' -Algorithm SHA256).Hash.ToLowerInvariant()"') do set "OBS_DEPS_ACTUAL=%%H"
+    if /I not "!OBS_DEPS_ACTUAL!"=="%OBS_DEPS_SHA256%" (
+        echo ERROR: OBS dependency checksum mismatch.
+        exit /b 1
+    )
+    for /f %%H in ('powershell -NoProfile -Command "(Get-FileHash -LiteralPath '%OBS_SDK_ZIP%' -Algorithm SHA256).Hash.ToLowerInvariant()"') do set "OBS_SDK_ACTUAL=%%H"
+    if /I not "!OBS_SDK_ACTUAL!"=="%OBS_SDK_SHA256%" (
+        echo ERROR: OBS source checksum mismatch.
+        exit /b 1
+    )
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '%OBS_DEPS_ZIP%' -DestinationPath '%OBS_DEPS_DIR%' -Force"
+    if errorlevel 1 exit /b 1
+)
 if not exist "%FFMPEG_DIR%" mkdir "%FFMPEG_DIR%"
 if not exist "%FFMPEG_DIR%\include" mkdir "%FFMPEG_DIR%\include"
 if not exist "%FFMPEG_DIR%\lib" mkdir "%FFMPEG_DIR%\lib"
 
-if not exist "%FFMPEG_DIR%\include\libavcodec\avcodec.h" (
-    echo   Downloading FFmpeg headers...
-    if not exist "%FFMPEG_HEADERS_ZIP%" (
-        curl -L --retry 3 -o "%FFMPEG_HEADERS_ZIP%" "%FFMPEG_HEADERS_URL%"
-        if errorlevel 1 (
-            echo ERROR: Failed to download FFmpeg headers.
-            echo Download manually from: %FFMPEG_HEADERS_URL%
-            exit /b 1
-        )
-    )
+if not exist "%FFMPEG_DIR%\include\libavcodec\avcodec.h" xcopy /E /Y /I "%OBS_DEPS_DIR%\include\*" "%FFMPEG_DIR%\include\" >nul
 
-    if exist "%FFMPEG_HEADERS_DIR%" rmdir /S /Q "%FFMPEG_HEADERS_DIR%"
-    mkdir "%FFMPEG_HEADERS_DIR%"
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '%FFMPEG_HEADERS_ZIP%' -DestinationPath '%FFMPEG_HEADERS_DIR%' -Force"
-    if errorlevel 1 exit /b 1
-
-    for /d %%D in ("%FFMPEG_HEADERS_DIR%\ffmpeg-*") do (
-        if exist "%%D\include\libavcodec\avcodec.h" (
-            xcopy /E /Y /I "%%D\include\*" "%FFMPEG_DIR%\include\" >nul
-        )
-    )
-)
-
+rem OBS 32.2.1's published dependency preset still contains the previous
+rem FFmpeg import names. Generate only the import tables from the exact,
+rem version-checked OBS 32.2.1 DLLs above so the linker cannot retain that ABI.
 for %%F in (avcodec avformat avutil swscale) do (
-    if not exist "%FFMPEG_DIR%\lib\%%F.lib" (
-        for %%D in ("%OBS_BIN%\%%F-*.dll") do (
-            if exist "%%D" (
-                echo   Creating %%F.lib from %%~nxD...
-                dumpbin /exports "%%D" > "%DEPS_DIR%\%%F_exports.txt" 2>nul
-                echo LIBRARY %%~nxD> "%DEPS_DIR%\%%F.def"
-                echo EXPORTS>> "%DEPS_DIR%\%%F.def"
-                for /f "usebackq skip=19 tokens=4" %%E in ("%DEPS_DIR%\%%F_exports.txt") do (
-                    if not "%%E"=="" echo %%E>> "%DEPS_DIR%\%%F.def"
-                )
-                lib /def:"%DEPS_DIR%\%%F.def" /out:"%FFMPEG_DIR%\lib\%%F.lib" /machine:x64 >nul 2>&1
+    for %%D in ("%OBS_BIN%\%%F-*.dll") do (
+        if exist "%%D" (
+            echo   Creating %%F.lib from verified %%~nxD...
+            dumpbin /exports "%%D" > "%DEPS_DIR%\%%F_exports.txt" 2>nul
+            echo LIBRARY %%~nxD> "%DEPS_DIR%\%%F.def"
+            echo EXPORTS>> "%DEPS_DIR%\%%F.def"
+            for /f "usebackq skip=19 tokens=4" %%E in ("%DEPS_DIR%\%%F_exports.txt") do (
+                if not "%%E"=="" echo %%E>> "%DEPS_DIR%\%%F.def"
             )
+            lib /def:"%DEPS_DIR%\%%F.def" /out:"%FFMPEG_DIR%\lib\%%F.lib" /machine:x64 >nul 2>&1
         )
     )
 )
@@ -209,6 +218,7 @@ if not exist "%OBS_SDK_DIR%\libobs\obs-module.h" set "OBS_ROOT=%OBS_INSTALL%"
     -DCMAKE_BUILD_TYPE=Release ^
     -DCMAKE_PREFIX_PATH="%QT_ROOT%" ^
     -DOBS_ROOT="%OBS_ROOT%" ^
+    -DOPENSTREAM_OBS_BIN="%OBS_BIN%" ^
     -DFFMPEG_ROOT="%FFMPEG_DIR%" ^
     -DOPENSTREAM_VERSION="%OPENSTREAM_VERSION%"
 
@@ -236,6 +246,7 @@ if defined PACKAGE_DIR (
     if exist "!STAGE_DIR!" rmdir /S /Q "!STAGE_DIR!"
     mkdir "!STAGE_DIR!"
     copy /Y "%BUILD_DIR%\openstream-beta-obs.dll" "!STAGE_DIR!\openstream-beta-obs.dll" >nul
+    xcopy /E /Y /I "%PLUGIN_DIR%\data" "!STAGE_DIR!\data" >nul
     copy /Y "%SCRIPT_DIR%tools\installer\Install-OpenStreamBetaPlugin.ps1" "!STAGE_DIR!\Install-OpenStreamBetaPlugin.ps1" >nul
     copy /Y "%SCRIPT_DIR%tools\installer\install-openstream-beta-plugin.bat" "!STAGE_DIR!\install-openstream-beta-plugin.bat" >nul
     powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path '!STAGE_DIR!\*' -DestinationPath '%PACKAGE_DIR%\openstream-beta-obs-windows-x64.zip' -Force"

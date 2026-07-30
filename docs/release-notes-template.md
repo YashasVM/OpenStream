@@ -10,6 +10,7 @@ OpenStream Beta is focused on making the Android-to-OBS setup easier to understa
 | Upgrade path | Existing `OpenStream V7` scene sources keep loading through a compatibility source id. |
 | Pairing copy | OBS now explains the phone-side slot selection flow instead of leading with SRT details. |
 | Setup docs | The walkthrough now includes stale-plugin checks for Program Files, ProgramData, and per-user OBS plugin folders. |
+| OBS compatibility | Windows plugin releases target OBS Studio 32.2.1 x64 and its FFmpeg 62/62/60/9 ABI. |
 
 ## Downloads
 
@@ -36,6 +37,7 @@ For the screenshot walkthrough, read [`docs/set-up.md`](https://github.com/Yasha
 ## Notes
 
 - Windows OBS plugin only.
+- OBS-triggered smooth zoom controls require an Android app that advertises transition support; older apps remain usable for media but show an update-required control state.
 - Existing source names may still say `OpenStream V7`; rename them in OBS if you want the scene label to match V2.
 - Use 5 GHz or Wi-Fi 6 for best results.
 - Keep both devices on the same subnet.

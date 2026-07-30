@@ -314,7 +314,6 @@ def test_android_ui_state_and_settings_copy_cover_the_redesigned_workflow() -> N
         "settings_subtitle",
         "settings_connection_help",
         "control_torch",
-        "control_flip",
         "control_awake",
         "control_dim",
         "control_settings",
@@ -364,6 +363,7 @@ def test_android_v2_control_plane_requires_pairing_and_bearer_auth() -> None:
         "/v2/capabilities",
         "/v2/state",
         "/v2/settings",
+        "/v2/zoom-transition",
         "/v2/focus",
         "/v2/authority",
         "/v2/tally",
@@ -375,6 +375,8 @@ def test_android_v2_control_plane_requires_pairing_and_bearer_auth() -> None:
     assert '"revision_conflict"' in control
     assert '"unsupported"' in control
     assert '"obs_locked"' in control
+    assert '"supportsZoomTransition"' in control
+    assert '"zoomTransition"' in control
 
     assert "SecureRandom" in token_store
     assert "TOKEN_BYTES = 32" in token_store
@@ -443,15 +445,36 @@ def test_obs_dock_preserves_selector_during_model_refresh() -> None:
     assert "if (!user_requested && !isVisible()) return" in dock
 
 
-def test_obs_zoom_control_coalesces_live_updates() -> None:
+def test_obs_zoom_uses_capability_gated_smooth_transitions_and_presets() -> None:
+    api = read("obs-plugin/src/openstream-ui-api.hpp")
+    source = read("obs-plugin/src/openstream-source.cpp")
     dock = read("obs-plugin/src/openstream-dock.cpp")
-    assert "kZoomUpdateIntervalMs = 50" in dock
-    assert "&QDoubleSpinBox::valueChanged" in dock
-    assert "queueZoomUpdate(value)" in dock
-    assert "flushZoomUpdate" in dock
-    assert "zoom_update_in_flight_" in dock
-    assert "zoom_update_pending_" in dock
-    assert "zoom_pending_instance_ == camera.instance_id" in dock
+    assert "ZoomTransition" in api
+    assert "zoom_transition" in api
+    assert '"/v2/zoom-transition"' in source
+    assert '"durationMs"' in source
+    assert '"supportsZoomTransition"' in source
+    assert "Zoom presets…" in dock
+    assert "QMenu" in dock
+    assert "presetSupported" in dock
+    assert "requestZoomTransition(zoom_->value())" in dock
+    assert "queueZoomUpdate" not in dock
+    assert "flushZoomUpdate" not in dock
+
+
+def test_obs_zoom_presets_are_per_source_versioned_and_sanitized() -> None:
+    api = read("obs-plugin/src/openstream-ui-api.hpp")
+    source = read("obs-plugin/src/openstream-source.cpp")
+    dock = read("obs-plugin/src/openstream-dock.cpp")
+    assert "struct OpenStreamZoomPresetConfig" in api
+    assert "duration_ms = 2000" in api
+    assert "sanitize_zoom_presets" in source
+    assert "result.ratios.size() < 8" in source
+    assert "std::isfinite(ratio) && ratio > 0.0" in source
+    assert '"zoom_presets"' in source
+    assert "openstream_save_zoom_presets" in source
+    assert "action_generation_" in dock
+    assert "preset_popup_instance_" in dock
 
 
 def test_obs_status_tones_distinguish_tally_and_offline_states() -> None:
@@ -573,6 +596,9 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "OPENSTREAM_VERSION_CODE" in release_workflow
     assert "OPENSTREAM_SKIP_INSTALL=1" in obs_workflow
     assert "OPENSTREAM_PLUGIN_PACKAGE_DIR" in obs_workflow
+    assert "32.2.1" in obs_workflow
+    assert "avformat-62.dll" in obs_workflow
+    assert "Test-OpenStreamPackage.ps1" in obs_workflow
     assert "openstream-beta-obs-windows-x64.zip" in obs_workflow
     assert "gh release create" in release_workflow
     assert "docs/release-notes-template.md" in release_workflow
@@ -581,21 +607,28 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert '"apkSha256"' in release_workflow
     assert "Public releases require all Android signing secrets" in release_workflow
     assert "openstream-beta-obs-windows-x64.zip" in release_workflow
+    assert "32.2.1" in release_workflow
     assert "never publishes a debug-signed fallback" in release_docs
     assert "Android Signing Secrets" in release_docs
     assert "OPENSTREAM_SKIP_INSTALL" in plugin_builder
     assert "OPENSTREAM_PLUGIN_PACKAGE_DIR" in plugin_builder
     assert "Compress-Archive" in plugin_builder
+    assert "FFmpeg-Builds/releases/download/latest" not in plugin_builder
+    assert "avformat-62.dll" in plugin_builder
+    assert "OBS_DEPS_SHA256" in plugin_builder
     assert "org.gradle.java.home" not in gradle_properties
 
 
 def test_manual_obs_installer_replaces_known_plugin_copies() -> None:
     installer = read("tools/installer/Install-OpenStreamBetaPlugin.ps1")
 
-    assert "Get-OpenStreamPluginTargets" in installer
+    assert "Get-OpenStreamLegacyPaths" in installer
     assert "ProgramData" in installer
     assert "APPDATA" in installer
-    assert "OpenStream Beta Camera" in installer
+    assert "openstream-obs.dll" in installer
+    assert "OBS Studio is running" in installer
+    assert "Remove-Item" in installer
+    assert "OpenStream installed" in installer
 
 
 def test_release_build_fails_without_signing_and_keystores_are_ignored() -> None:
@@ -605,7 +638,7 @@ def test_release_build_fails_without_signing_and_keystores_are_ignored() -> None
     assert "Release builds require OPENSTREAM_RELEASE_KEYSTORE" in app_gradle
     assert "openstream.versionName" in app_gradle
     assert "openstream.versionCode" in app_gradle
-    assert '"2.0.0-beta"' in app_gradle
+    assert '"2.1.0-beta"' in app_gradle
     version_code = re.search(
         r"openStreamVersionCode.*?\.orElse\(\"(\d+)\"\)",
         app_gradle,
@@ -622,6 +655,6 @@ def test_v2_release_metadata_defaults_are_aligned() -> None:
     cmake = read("obs-plugin/CMakeLists.txt")
     installer = read("tools/installer/openstream-beta-obs-plugin.iss")
 
-    assert '"2.0.0-beta"' in app_gradle
-    assert "project(openstream_obs_plugin VERSION 2.0.0" in cmake
-    assert '#define OpenStreamVersion "2.0.0-beta"' in installer
+    assert '"2.1.0-beta"' in app_gradle
+    assert "project(openstream_obs_plugin VERSION 2.1.0" in cmake
+    assert '#define OpenStreamVersion "2.1.0-beta"' in installer
