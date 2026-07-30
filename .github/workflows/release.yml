@@ -160,7 +160,7 @@ jobs:
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Sort-Object FullName -Descending | Select-Object -First 1
           if (!$dumpbin) { throw "dumpbin.exe was not found" }
-          $deps = & $dumpbin.FullName /dependents "$PWD\obs-plugin\build\openstream-obs.dll"
+          $deps = (& $dumpbin.FullName /dependents "$PWD\obs-plugin\build\openstream-obs.dll") -join "`n"
           'avformat-62.dll','avcodec-62.dll','avutil-60.dll','swscale-9.dll' | ForEach-Object { if ($deps -notmatch [regex]::Escape($_)) { throw "Missing expected dependency $_" } }
           Expand-Archive artifacts\openstream-obs-windows-x64.zip "$env:RUNNER_TEMP\openstream-zip"
           if (!(Test-Path "$env:RUNNER_TEMP\openstream-zip\openstream-obs.dll")) { throw 'ZIP plugin DLL missing' }
