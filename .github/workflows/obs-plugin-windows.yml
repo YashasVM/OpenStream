@@ -26,7 +26,8 @@ jobs:
           $url = "https://github.com/obsproject/obs-studio/releases/download/32.2.1/OBS-Studio-32.2.1-Windows-x64.zip"
           $archive = "$env:RUNNER_TEMP\obs-studio.zip"
           $destination = "$env:RUNNER_TEMP\obs-studio"
-          Invoke-WebRequest -Uri $url -OutFile $archive
+          & curl.exe -L --fail --retry 3 -o $archive $url
+          if ($LASTEXITCODE -ne 0) { throw "OBS Studio download failed" }
           $actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
           $expected = "db64a2934f8261f85b1410b84be011207a0afda5400d008289f1f1e211bcc7de"
           if ($actual -ne $expected) { throw "OBS Studio checksum mismatch" }
