@@ -52,7 +52,10 @@ jobs:
         shell: powershell
         run: |
           $dll = "$PWD\obs-plugin\build\openstream-beta-obs.dll"
-          $deps = & dumpbin /dependents $dll
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          if (!$dumpbin) { throw "dumpbin.exe was not found" }
+          $deps = & $dumpbin.FullName /dependents $dll
           'avformat-62.dll','avcodec-62.dll','avutil-60.dll','swscale-9.dll' | ForEach-Object { if ($deps -notmatch [regex]::Escape($_)) { throw "Missing expected dependency $_" } }
           'avformat-61.dll','avcodec-61.dll','avutil-59.dll','swscale-8.dll' | ForEach-Object { if ($deps -match [regex]::Escape($_)) { throw "Obsolete dependency $_" } }
 
