@@ -5,8 +5,8 @@ import "./styles.css";
 const release = "https://github.com/YashasVM/OpenStream/releases/latest/download";
 const links = {
   apk: `${release}/openstream-android.apk`,
-  installer: `${release}/openstream-beta-obs-plugin-installer-windows-x64.exe`,
-  zip: `${release}/openstream-beta-obs-windows-x64.zip`,
+  installer: `${release}/openstream-obs-plugin-installer-windows-x64.exe`,
+  zip: `${release}/openstream-obs-windows-x64.zip`,
   release: "https://github.com/YashasVM/OpenStream/releases/latest",
   repo: "https://github.com/YashasVM/OpenStream",
   issues: "https://github.com/YashasVM/OpenStream/issues",

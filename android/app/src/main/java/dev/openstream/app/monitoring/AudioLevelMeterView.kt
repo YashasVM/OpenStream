@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
 import dev.openstream.app.audio.AudioLevel
@@ -56,8 +55,7 @@ class AudioLevelMeterView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val bounds = RectF(0f, 0f, width.toFloat(), height.toFloat())
-        canvas.drawRoundRect(bounds, 8f * density, 8f * density, backgroundPaint)
+        canvas.drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), 8f * density, 8f * density, backgroundPaint)
 
         val labelWidth = 36f * density
         val meterLeft = labelWidth
@@ -76,9 +74,8 @@ class AudioLevelMeterView @JvmOverloads constructor(
 
         repeat(segmentCount) { index ->
             val left = meterLeft + index * (segmentWidth + segmentGap)
-            val segment = RectF(left, meterTop, left + segmentWidth, meterBottom)
             val paint = if (index < litSegments) colorForSegment(index, segmentCount) else inactivePaint
-            canvas.drawRoundRect(segment, density, density, paint)
+            canvas.drawRoundRect(left, meterTop, left + segmentWidth, meterBottom, density, density, paint)
         }
 
         if (active) {

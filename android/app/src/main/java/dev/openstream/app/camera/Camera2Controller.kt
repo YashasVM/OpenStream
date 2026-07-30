@@ -16,7 +16,6 @@ import android.hardware.camera2.params.RggbChannelVector
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
-import android.os.SystemClock
 import android.util.Log
 import android.util.Range
 import android.util.Rational
@@ -51,8 +50,6 @@ class Camera2Controller(
     private var frontFacing: Boolean = false
     private var focusRegion: MeteringRectangle? = null
     private var lastTelemetryPublishNs = 0L
-    private var zoomTransitionRunnable: Runnable? = null
-    private var transitionZoomOverride: Float? = null
     @Volatile private var fallbackPreviewSurface: Surface? = null
     @Volatile private var preferFallbackPreviewSurface = false
 
@@ -62,7 +59,6 @@ class Camera2Controller(
 
     fun currentState(): CameraState = stateStore.snapshot()
     fun currentCapabilities(): CameraCapabilities? = stateStore.capabilities()
-    fun isReadyForZoomTransition(): Boolean = currentCapabilities() != null && camera != null && session != null
     fun addStateListener(listener: (CameraState) -> Unit): AutoCloseable = stateStore.addListener(listener)
 
     fun setFallbackPreviewSurface(surface: Surface?) {
@@ -147,7 +143,6 @@ class Camera2Controller(
     }
 
     fun switchLens(lens: CameraLens) {
-        cancelZoomTransition()
         val newId = selectCameraId(lens)
         val previousId = activeCameraId
         activeLens = lens
@@ -173,7 +168,6 @@ class Camera2Controller(
     }
 
     fun stop() {
-        cancelZoomTransition()
         closeCamera()
         streamingSurface = null
     }
@@ -183,7 +177,6 @@ class Camera2Controller(
         expectedRevision: Long? = null,
         actor: CameraActor = CameraActor.Camera,
     ): CameraControlResult {
-        if (patch.zoomRatio != null) cancelZoomTransition()
         val result = stateStore.applySettings(expectedRevision, actor, patch)
         if (result is CameraControlResult.Applied) rebuildRepeatingRequest()
         return result
@@ -220,24 +213,6 @@ class Camera2Controller(
 
     fun setTally(program: Boolean, preview: Boolean): CameraState = stateStore.setTally(program, preview)
 
-    fun startZoomTransition(
-        targetRatio: Float,
-        durationMs: Int,
-        expectedRevision: Long,
-        actor: CameraActor = CameraActor.Obs,
-    ): CameraControlResult {
-        if (!isReadyForZoomTransition()) {
-            return CameraControlResult.Unsupported("camera", "Camera is not ready", currentState())
-        }
-        val result = stateStore.startZoomTransition(expectedRevision, actor, targetRatio, durationMs)
-        if (result is CameraControlResult.Applied) {
-            val transition = result.state.zoomTransition ?: return result
-            ensureThread()
-            handler.post { runZoomTransition(transition) }
-        }
-        return result
-    }
-
     fun setZoom(ratio: Float): Float {
         val clamped = stateStore.capabilities()?.zoomRange?.clamp(ratio) ?: ratio.coerceAtLeast(1f)
         applySettings(CameraSettingsPatch(zoomRatio = clamped))
@@ -266,7 +241,6 @@ class Camera2Controller(
     }
 
     private fun closeCamera() {
-        cancelZoomTransition()
         session?.close()
         camera?.close()
         session = null
@@ -393,8 +367,7 @@ class Camera2Controller(
                 addTarget(preview)
                 if (encoded != null) addTarget(encoded)
             }
-            val state = currentState()
-            applyCompleteState(builder, state.settings.copy(zoomRatio = transitionZoomOverride ?: state.settings.zoomRatio))
+            applyCompleteState(builder, currentState().settings)
             activeSession.setRepeatingRequest(builder.build(), captureCallback, handler)
         }.onFailure { Log.w(TAG, "Failed to apply repeating camera request", it) }
     }
@@ -491,41 +464,6 @@ class Camera2Controller(
         } else {
             builder.set(CaptureRequest.SCALER_CROP_REGION, calculateCrop(value))
         }
-    }
-
-    private fun runZoomTransition(transition: ZoomTransition) {
-        zoomTransitionRunnable?.let(handler::removeCallbacks)
-        val caps = currentCapabilities() ?: return
-        val start = currentState().telemetry.actualZoomRatio
-            .takeIf { it.isFinite() && caps.zoomRange.contains(it) }
-            ?: transitionZoomOverride?.takeIf { caps.zoomRange.contains(it) }
-            ?: caps.zoomRange.clamp(currentState().settings.zoomRatio)
-        val startedAt = SystemClock.elapsedRealtime()
-        lateinit var frame: Runnable
-        frame = Runnable {
-            if (currentState().zoomTransition != transition || camera == null || session == null) return@Runnable
-            val elapsed = (SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(0L)
-            val progress = (elapsed.toFloat() / transition.durationMs).coerceIn(0f, 1f)
-            transitionZoomOverride = start + (transition.targetRatio - start) * easeInOutProgress(progress)
-            rebuildRepeatingRequest()
-            if (progress >= 1f) {
-                transitionZoomOverride = null
-                stateStore.cancelZoomTransition()
-                rebuildRepeatingRequest()
-                zoomTransitionRunnable = null
-            } else {
-                handler.postDelayed(frame, ZOOM_TRANSITION_FRAME_MS)
-            }
-        }
-        zoomTransitionRunnable = frame
-        frame.run()
-    }
-
-    private fun cancelZoomTransition() {
-        if (::handler.isInitialized) zoomTransitionRunnable?.let(handler::removeCallbacks)
-        zoomTransitionRunnable = null
-        transitionZoomOverride = null
-        stateStore.cancelZoomTransition()
     }
 
     private fun applyTorch(builder: CaptureRequest.Builder, enabled: Boolean) {
@@ -697,12 +635,6 @@ class Camera2Controller(
 
     companion object {
         private const val TAG = "OpenStreamCamera"
-        private const val ZOOM_TRANSITION_FRAME_MS = 50L
-
-        internal fun easeInOutProgress(progress: Float): Float {
-            val value = progress.coerceIn(0f, 1f)
-            return value * value * (3f - 2f * value)
-        }
         private const val DEFAULT_ISO = 400
         private const val DEFAULT_SHUTTER_NS = 16_666_667L
         private const val DEFAULT_KELVIN = 5_600

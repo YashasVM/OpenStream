@@ -18,8 +18,8 @@ OpenStream Beta is focused on making the Android-to-OBS setup easier to understa
 |---|---|
 | `openstream-android.apk` | Install this on your Android phone. |
 | `openstream-android.apk.sha256` | Verify the downloaded APK before installation. |
-| `openstream-beta-obs-plugin-installer-windows-x64.exe` | Recommended Windows installer for the OBS plugin. |
-| `openstream-beta-obs-windows-x64.zip` | Manual plugin package with DLL and install scripts. |
+| `openstream-obs-plugin-installer-windows-x64.exe` | Recommended Windows installer for the OBS plugin. |
+| `openstream-obs-windows-x64.zip` | Manual plugin package with DLL and install scripts. |
 
 > [!NOTE]
 > The Android APK is release-signed and includes SHA-256 metadata. Public releases fail instead of publishing a debug-signed fallback when signing inputs are unavailable.
@@ -37,7 +37,6 @@ For the screenshot walkthrough, read [`docs/set-up.md`](https://github.com/Yasha
 ## Notes
 
 - Windows OBS plugin only.
-- OBS-triggered smooth zoom controls require an Android app that advertises transition support; older apps remain usable for media but show an update-required control state.
 - Existing source names may still say `OpenStream V7`; rename them in OBS if you want the scene label to match V2.
 - Use 5 GHz or Wi-Fi 6 for best results.
 - Keep both devices on the same subnet.
