@@ -1,17 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
   <title id="title">OBS OpenStream source screenshot</title>
-  <desc id="desc">A screenshot-style OBS window showing the OpenStream source in the source list.</desc>
+  <desc id="desc">A screenshot-style OBS window showing an OpenStream camera-slot card in the persistent Cameras dock.</desc>
   <rect width="960" height="540" fill="#020617"/>
   <rect x="52" y="44" width="856" height="452" rx="8" fill="#1f2937"/>
   <rect x="80" y="76" width="528" height="300" rx="6" fill="#0f172a" stroke="#334155"/>
   <text x="286" y="232" font-family="Segoe UI, Arial, sans-serif" font-size="20" fill="#94a3b8">OpenStream waits for phone</text>
   <rect x="636" y="76" width="232" height="300" rx="6" fill="#111827" stroke="#334155"/>
-  <text x="660" y="112" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700" fill="#f8fafc">Sources</text>
-  <rect x="660" y="142" width="184" height="42" rx="6" fill="#064e3b" stroke="#10b981"/>
-  <text x="678" y="169" font-family="Segoe UI, Arial, sans-serif" font-size="16" fill="#ecfdf5">OpenStream</text>
+  <text x="650" y="112" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700" fill="#f8fafc">OpenStream Beta Control Room</text>
+  <rect x="650" y="136" width="204" height="104" rx="8" fill="#172033" stroke="#64748b"/>
+  <text x="666" y="163" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700" fill="#f8fafc">Main CAM</text>
+  <text x="666" y="187" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#fbbf24">Waiting for phone</text>
+  <rect x="666" y="199" width="82" height="28" rx="6" fill="#2563eb"/>
+  <text x="683" y="218" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff">Connect</text>
   <circle cx="674" cy="414" r="18" fill="#00a37a"/>
   <text x="668" y="421" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="700" fill="#ffffff">+</text>
-  <text x="708" y="419" font-family="Segoe UI, Arial, sans-serif" font-size="16" fill="#e5e7eb">Add source, choose OpenStream</text>
+  <text x="708" y="419" font-family="Segoe UI, Arial, sans-serif" font-size="16" fill="#e5e7eb">Add source, then use its camera card</text>
   <rect x="80" y="402" width="528" height="54" rx="6" fill="#111827" stroke="#334155"/>
-  <text x="104" y="435" font-family="Segoe UI, Arial, sans-serif" font-size="16" fill="#e5e7eb">Auto-connect: enabled | Port: 9000 | Latency: 120 ms</text>
+  <text x="104" y="435" font-family="Segoe UI, Arial, sans-serif" font-size="16" fill="#e5e7eb">Auto discovery ready · Manual setup: Advanced</text>
 </svg>

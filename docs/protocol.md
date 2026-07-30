@@ -1,290 +1,284 @@
-# OpenStream Protocol Specification
+# OpenStream Beta Protocol Specification
 
 ## Overview
 
-OpenStream V2 currently uses version 1 of its LAN wire protocol. Product
-version numbers and protocol versions are independent: `OPENSTREAM/1` and
-`OPENSTREAM_PHONE/1` below identify the protocol, not the app release.
+OpenStream Beta separates the camera media path from an authenticated control
+plane. The Android phone is the camera head; the OBS plugin is the control-room
+administrator. Both surfaces may operate the camera in `collaborative` mode,
+while OBS can select `obs_lock` to make its settings authoritative.
 
-OpenStream uses three communication channels between the Android phone and OBS:
+The product uses three channels:
 
-1. **Media Stream** - SRT/MPEG-TS for video + audio (phone -> OBS)
-2. **Discovery** - UDP multicast/broadcast beacons (bidirectional)
-3. **Control** - HTTP POST for remote camera commands (OBS -> phone)
+1. **Media** - SRT/MPEG-TS from Android to OBS.
+2. **Discovery** - UDP advertisements on the local network.
+3. **Control** - authenticated HTTP/JSON between OBS and Android.
 
----
+The media and discovery transports remain compatible with V1. Professional
+camera control is versioned under `/v2`; a V2 command is never silently
+downgraded to an unauthenticated V1 request.
 
-## Media Stream
+## Media stream
 
-V1 media transport uses SRT from Android caller to Windows listener.
-
-### SRT URLs
-
-Android caller:
-
-```text
-srt://<obs-pc-ip>:9000?mode=caller&latency=120
-```
-
-OBS listener:
+Android uses MediaCodec to encode HEVC/H.264 video and AAC audio, muxes the
+access units into MPEG-TS, and connects as an SRT caller. OBS listens through
+FFmpeg/libsrt and exposes decoded video and audio as one source.
 
 ```text
-srt://0.0.0.0:9000?mode=listener&latency=120
+Android: srt://<obs-ip>:9000?mode=caller&latency=120
+OBS:     srt://0.0.0.0:9000?mode=listener&latency=120
 ```
 
-The supported latency range is `80-200 ms`; both pairing links and the OBS
-source clamp values to that range.
+The normal latency range is 80-200 ms. The default profile is 1920x1080, with
+HEVC preferred, AVC fallback, AAC mono at 48 kHz, and a one-second keyframe
+interval. Resolution, codec, and FPS changes are disruptive: OBS must present
+them as **Apply & Reconnect**, not as live-safe camera commands.
 
-### Container Format
+## Discovery and pairing
 
-The Android app muxes encoded video and audio into **MPEG-TS** before sending
-over SRT. This ensures FFmpeg/OBS can read the phone stream as a standard
-transport stream.
+V1 discovery remains available during the compatibility window. OBS listener
+advertisements use `OPENSTREAM/1`; phone advertisements use
+`OPENSTREAM_PHONE/1`. Both use UDP port `51515`, multicast group
+`239.255.42.99`, subnet broadcasts, and a limited global-broadcast fallback.
 
-### Video Payload
-
-- Codec: `video/hevc` (preferred) or `video/avc` (fallback)
-- Source: MediaCodec hardware encoder
-- Resolution: 1920x1080 default
-- Frame rate: 60 fps default
-- Bitrate: 16 Mbps default
-- Keyframe interval: 1 second
-- No B-frame dependency in target encoder profile
-
-### Audio Payload
-
-- Codec: AAC
-- Source: MediaCodec audio encoder from device microphone
-- Sample rate: 48 kHz
-- Channels: Mono
-- Output: Separate OBS mixer channel for independent volume control
-
----
-
-## Discovery Protocol
-
-### OBS -> Phone (Listener Advertisement)
-
-When the OBS source listener starts, it broadcasts a UDP beacon every 1 second
-on port `51515`:
-
-**Broadcast destinations:**
-- Subnet broadcast addresses (computed from local interfaces)
-- Multicast group `239.255.42.99`
-- Fallback `255.255.255.255`
-
-**Beacon format:**
+An OBS advertisement contains the stable source identity, friendly camera
+name, SRT listener details, pairing URL, and busy state:
 
 ```text
-OPENSTREAM/1 {"type":"dev.openstream.listener","version":1,"name":"OpenStream","instanceId":"...","sourceInstanceId":"...","slotId":"...","slotLabel":"CAM A","pairingUrl":"openstream://connect?...","host":"<obs-ip>","listenerPort":9000,"latencyMs":120,"bitrateMbps":16,"busy":false}
+OPENSTREAM/1 {"type":"dev.openstream.listener","version":1,"name":"Camera 1","instanceId":"...","sourceInstanceId":"...","slotId":"...","slotLabel":"Camera 1","pairingUrl":"openstream://connect?...","host":"<obs-ip>","listenerPort":9000,"latencyMs":120,"bitrateMbps":50,"busy":false}
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `type` | string | Always `dev.openstream.listener` |
-| `version` | int | Protocol version (currently `1`) |
-| `name` | string | OBS source display name |
-| `instanceId` | string | Unique source instance identifier |
-| `sourceInstanceId` | string | Stable OBS source instance used for reservations |
-| `slotId` | string | OBS camera slot identifier |
-| `slotLabel` | string | Human-readable camera slot label, such as `CAM A` |
-| `pairingUrl` | string | Deep-link URL for QR/manual pairing, including the source control token |
-| `host` | string | OBS machine IP address |
-| `listenerPort` | int | SRT listener port |
-| `latencyMs` | int | Configured SRT latency |
-| `bitrateMbps` | int | Expected stream bitrate |
-| `busy` | bool | Whether the source is already receiving a stream |
-
-### Phone -> OBS (Phone Advertisement)
-
-The Android app advertises itself on the same multicast group:
-
-**Beacon format:**
+A phone advertisement includes its stable instance identity, control address,
+active media profile, reservation owner, and whether V2 control is supported:
 
 ```text
-OPENSTREAM_PHONE/1 {"type":"dev.openstream.phone","version":1,"name":"<device-name>","instanceId":"...","host":"<phone-ip>","listenerPort":9000,"controlPort":9001,"latencyMs":120,"codec":"video/hevc","width":1920,"height":1080,"fps":60,"bitrateMbps":16,"busy":false,"reservedBy":""}
+OPENSTREAM_PHONE/1 {"type":"dev.openstream.phone","version":1,"name":"Pixel 8 Pro","instanceId":"...","host":"<phone-ip>","listenerPort":9000,"controlPort":9001,"codec":"video/hevc","width":1920,"height":1080,"fps":60,"bitrateMbps":50,"busy":false,"reservedBy":"","controlVersion":2}
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `type` | string | Always `dev.openstream.phone` |
-| `version` | int | Protocol version (currently `1`) |
-| `name` | string | Device model name |
-| `instanceId` | string | Unique phone advertisement identifier |
-| `host` | string | Phone IP address |
-| `listenerPort` | int | Phone's SRT port |
-| `controlPort` | int | HTTP control server port |
-| `latencyMs` | int | Configured SRT latency |
-| `width` | int | Stream width in pixels |
-| `height` | int | Stream height in pixels |
-| `fps` | int | Stream frame rate |
-| `bitrateMbps` | int | Stream bitrate |
-| `busy` | bool | Whether the phone is already reserved or streaming |
-| `reservedBy` | string | OBS source instance that currently owns the reservation, or empty |
-
-OBS keeps a registry of discovered phones keyed by `instanceId`. Each
-OpenStream source has a `selected_phone_id` setting. `auto` selects the first
-non-busy phone; any other value binds that source to one specific phone.
-
-### Fallback Pairing
-
-If discovery is blocked, the OBS source exposes a deep-link URL:
-
-```text
-openstream://connect?slotId=<slot-id>&slotLabel=<slot-label>&sourceInstanceId=<source-id>&host=<obs-ip>&port=<port>&latency=<ms>&name=...
-```
-
-This can be encoded as a QR code or entered manually in the Android app.
-
----
-
-## Control Protocol
-
-The Android app runs a lightweight HTTP server on port `9001` for remote camera
-control from OBS. Requests, headers, and bodies are size-limited and parsed as
-UTF-8 bytes. Protocol V1 does not authenticate this channel, so discovery and
-camera control must be used only on a trusted LAN. Authentication must be added
-as a versioned, atomic Android-and-OBS protocol upgrade rather than enabled in
-only one component.
-
-### Reserve Phone
+The first V2 connection pairs an OBS source with the phone:
 
 ```http
-POST /reserve
+POST /v2/pair
 Content-Type: application/json
 
 {
   "sourceInstanceId": "openstream-...",
-  "slotId": "slot-a",
-  "slotLabel": "CAM A",
-  "bitrateMbps": 16
+  "sourceName": "Stage left",
+  "pairingCode": "123456"
 }
 ```
 
-Marks the phone as reserved before OBS opens the SRT stream. The phone rejects
-reservations from other source instances while reserved or streaming.
-`sourceInstanceId` is required. `slotId`, `slotLabel`, and `bitrateMbps` provide
-slot metadata and the requested streaming bitrate.
-
-### Release Phone
-
-```http
-POST /release
-Content-Type: application/json
-
-{"sourceInstanceId":"openstream-..."}
-```
-
-Clears the reservation after disconnect.
-
-### Endpoints
-
-#### Set Zoom
-
-```http
-POST /zoom
-Content-Type: application/json
-
-{"value": 2.5}
-```
-
-Sets the digital zoom level. Value range depends on the active camera lens.
-
-#### Toggle Torch
-
-```http
-POST /torch
-Content-Type: application/json
-
-{"enabled": true}
-```
-
-Turns the flashlight on (`true`) or off (`false`).
-
-#### Switch Lens
-
-```http
-POST /lens
-Content-Type: application/json
-
-{"lens": "1×"}
-```
-
-Switches to the specified camera lens. Known values:
-
-| Value | Camera |
-|-------|--------|
-| `"0.5×"` | Ultra-wide |
-| `"1×"` | Wide (default back camera) |
-| `"2×"` | Telephoto |
-| `"Front"` | Front-facing camera |
-
-Available lenses depend on the device hardware.
-
-#### Identify Phone
-
-```http
-POST /identify
-Content-Type: application/json
-
-{"label":"CAM A","subtitle":"Wide shot"}
-```
-
-Temporarily shows the OBS camera-slot label on the phone.
-
-#### Read Status
-
-```http
-GET /status
-```
-
-Returns the current zoom range, selected lens, available lenses, and
-reservation owner.
-
-### Response
-
-All control endpoints return HTTP `200 OK` on success. Successful `POST`
-responses contain `"ok": true` (and may include endpoint-specific fields), for
-example:
+A successful response returns a bearer token. Android displays a six-digit
+one-time pairing code and rotates it after successful use. Bearer tokens contain
+32 bytes of cryptographic randomness and are stored only in the Android app and
+the OBS source configuration.
 
 ```json
-{"ok":true}
+{"ok":true,"token":"<opaque-token>"}
 ```
 
-## Compatibility and Release Ordering
+Every other `/v2` request requires:
 
-Android and the OBS plugin are two halves of one protocol. Adding a required
-field, token, endpoint, or validation rule is a compatibility change even if
-the `OPENSTREAM/1` prefix remains unchanged. Such changes must be tested as an
-old/new client matrix and released atomically as one full release containing
-both artifacts.
+```http
+Authorization: Bearer <opaque-token>
+```
 
-Do not publish an enforcing Android update before the compatible OBS plugin is
-available to users. For example, a future Android build that requires a control
-token could not pair with older OBS beacons unless an explicit compatibility
-path were provided. Additive optional fields may be rolled out independently
-only when both older components demonstrably ignore them safely.
+Missing, malformed, or unknown credentials are rejected using a constant-time
+comparison. A pairing code is not a long-term control credential. V2 bearer
+authentication prevents accidental or unauthorized control, but plain HTTP on
+a trusted LAN is not transport confidentiality; production networks must be
+isolated until authenticated encryption is added to the control channel.
 
----
+When automatic discovery is unavailable, the same pairing target may be
+carried by the existing deep link or a QR code:
 
-## Telemetry
+```text
+openstream://connect?sourceInstanceId=<source-id>&host=<obs-ip>&port=<srt-port>&latency=<ms>&name=...
+```
 
-Telemetry is separate from media. The Android app samples:
+## V2 camera model
+
+### Capabilities
+
+```http
+GET /v2/capabilities
+Authorization: Bearer <opaque-token>
+```
+
+`CameraCapabilities` is the source of truth for which controls OBS displays.
+It reports the available cameras/lenses, supported AF/AWB/AE and stabilization
+modes, ISO and exposure-time ranges, compensation range, focus-distance range,
+zoom-ratio range, torch support, and supported stream profiles. A client must
+not infer support from a device model name or display an enabled control for an
+absent capability.
+
+### State and revisions
+
+```http
+GET /v2/state
+Authorization: Bearer <opaque-token>
+```
+
+The response contains one authoritative `CameraState`:
 
 ```json
 {
-  "deviceName": "Google Pixel",
-  "codec": "video/hevc",
-  "width": 1920,
-  "height": 1080,
-  "fps": 60,
-  "bitrate": 20000000,
-  "batteryPercent": 87,
-  "wifiRssi": -48,
-  "temperatureCelsius": null,
-  "encoderState": "streaming"
+  "revision": 42,
+  "authority": "collaborative",
+  "settings": {
+    "exposureMode": "manual",
+    "iso": 400,
+    "shutterNs": 10000000,
+    "exposureCompensation": 0,
+    "whiteBalanceMode": "manual",
+    "whiteBalanceKelvin": 5600,
+    "whiteBalanceTint": 0,
+    "whiteBalanceLock": false,
+    "focusMode": "continuous",
+    "focusDistanceDiopters": 0.0,
+    "zoomRatio": 1.0,
+    "torch": false,
+    "stabilizationMode": "standard",
+    "fps": 50
+  },
+  "telemetry": {
+    "batteryPercent": 87,
+    "temperatureCelsius": 39.2,
+    "wifiRssi": -48,
+    "encoderState": "streaming"
+  },
+  "tally": {"program":false,"preview":true}
 }
 ```
 
-V1 telemetry is used internally by the app. Future versions may expose it
-over the control HTTP channel or a WebSocket for OBS-side dashboards.
+Every successful state mutation increments `revision`. A mutating request must
+include `expectedRevision`; a stale revision is rejected with the current
+state instead of overwriting a newer operator change. Responses report the
+applied values because Camera2 may clamp a request to hardware limits.
+
+### Apply camera settings
+
+```http
+POST /v2/settings
+Authorization: Bearer <opaque-token>
+Content-Type: application/json
+
+{
+  "expectedRevision": 42,
+  "settings": {
+    "exposureMode": "manual",
+    "iso": 800,
+    "shutterNs": 20000000,
+    "whiteBalanceMode": "manual",
+    "whiteBalanceKelvin": 4300,
+    "whiteBalanceTint": -2,
+    "focusMode": "manual",
+    "focusDistanceDiopters": 1.25,
+    "zoomRatio": 2.0,
+    "torch": false,
+    "stabilizationMode": "standard",
+    "fps": 50
+  }
+}
+```
+
+The patch is atomic. Omitted settings retain their current values. The Android
+camera engine rebuilds the repeating request from the complete resulting state
+so changing torch, zoom, focus, or white balance cannot reset another control.
+Manual ISO and shutter require Camera2 `MANUAL_SENSOR`; shutter duration is
+clamped against the active frame duration. Manual Kelvin/tint is offered only
+when the device reports the required post-processing support.
+
+### Focus and metering point
+
+```http
+POST /v2/focus
+Authorization: Bearer <opaque-token>
+Content-Type: application/json
+
+{"expectedRevision":43,"x":0.35,"y":0.62,"mode":"auto"}
+```
+
+`x` and `y` are normalized coordinates in the transmitted frame, each in the
+inclusive range `0.0..1.0`; they are not Android view pixels or sensor pixels.
+Android maps the point through letterboxing/crop, device rotation, front-camera
+mirroring, active sensor crop, and zoom before creating Camera2 AF/AE regions.
+The same mapping is used for a tap on the Android preview and a click on the OBS
+preview. The focus action is `auto` (meter and focus) or `lock` (meter, focus,
+then hold). The persistent focus mode remains capability-driven
+(`continuous`, `single`, `manual`, or fixed focus). The response distinguishes
+pending, locked, and failed focus rather than treating command receipt as focus
+success.
+
+### Authority
+
+```http
+POST /v2/authority
+Authorization: Bearer <opaque-token>
+Content-Type: application/json
+
+{"expectedRevision":44,"mode":"obs_lock"}
+```
+
+- `collaborative`: Android and the paired OBS administrator may change camera
+  settings. Mutations still serialize through the revision contract.
+- `obs_lock`: authenticated OBS commands remain enabled; Android camera
+  controls become read-only. Android always retains emergency **Stop Camera**,
+  restore-display, and request-control actions.
+
+OBS is the only tally authority. A phone cannot independently promote itself
+to Program or Preview.
+
+### Tally
+
+```http
+POST /v2/tally
+Authorization: Bearer <opaque-token>
+Content-Type: application/json
+
+{"program":true,"preview":false}
+```
+
+Program red and Preview green are carried as separate booleans. If both are
+requested, Program wins and Android reports Preview false so the phone never
+shows conflicting tally.
+
+### Responses and errors
+
+Successful mutations return `ok` and the complete applied state. Errors use an
+HTTP status and stable code:
+
+| Status | Code | Meaning |
+|---|---|---|
+| 400 | `invalid_request` | Malformed JSON, coordinate, mode, or range |
+| 401 | `unauthorized` | Missing or invalid bearer token |
+| 423 | `obs_locked` | The actor cannot mutate in the current mode |
+| 409 | `revision_conflict` | `expectedRevision` is stale |
+| 422 | `unsupported` | The active camera cannot apply the requested setting |
+| 503 | `camera_not_ready` | Camera capabilities are not available yet |
+
+## Media encryption
+
+After V2 pairing, the 256-bit pairing token also becomes the SRT passphrase.
+Android configures `SRTO_PASSPHRASE` with a 32-byte key before accepting the
+caller, and OBS supplies the same secret to FFmpeg without placing it in the
+logged SRT URL. Pairing restarts the waiting Android listener so the first
+post-pair media session is encrypted. Pre-pair V1 discovery can still bootstrap
+an upgrade, but paired cameras require the bearer token even on legacy control
+routes.
+
+## Legacy V1 compatibility
+
+Existing source IDs, scenes, SRT URLs, discovery fields, reservations, and
+`openstream://connect` links remain readable. During the compatibility window,
+V1 phones may still expose `/reserve`, `/release`, `/zoom`, `/torch`, `/lens`,
+`/identify`, and `/status` on trusted LANs.
+
+V1 controls are explicitly compatibility-only: they are unauthenticated, have
+no revision conflict protection, and cannot claim `obs_lock`. OBS must identify
+such a phone as **Legacy control** and avoid showing professional controls that
+cannot be verified through capabilities. A paired V2 phone never falls back to
+V1 because authentication or authorization failed.
+
+Android and OBS are released atomically when a required protocol field or
+security rule changes. The previous/candidate compatibility matrix in
+`docs/testing.md` is a release gate.

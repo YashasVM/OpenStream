@@ -34,20 +34,34 @@ class SrtStreamClient {
     private val sendFailures = AtomicLong()
     private val lastPresentationTimeUs = AtomicLong()
 
-    fun connect(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
+    fun connect(
+        url: String,
+        codecMime: String,
+        width: Int,
+        height: Int,
+        fps: Int,
+        passphrase: String? = null,
+    ) {
         require(url.startsWith("srt://")) { "OpenStream V1 expects an SRT URL" }
         synchronized(operationLock) {
             establishSession("connection") {
-                SrtNativeBridge.connect(url, codecMime, width, height, fps)
+                SrtNativeBridge.connect(url, codecMime, width, height, fps, passphrase)
             }
         }
     }
 
-    fun listen(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
+    fun listen(
+        url: String,
+        codecMime: String,
+        width: Int,
+        height: Int,
+        fps: Int,
+        passphrase: String? = null,
+    ) {
         require(url.startsWith("srt://")) { "OpenStream V2 expects an SRT URL" }
         synchronized(operationLock) {
             establishSession("listener") {
-                SrtNativeBridge.listen(url, codecMime, width, height, fps)
+                SrtNativeBridge.listen(url, codecMime, width, height, fps, passphrase)
             }
         }
     }
@@ -130,8 +144,8 @@ private object SrtNativeBridge {
         System.loadLibrary("openstream_srt")
     }
 
-    external fun connect(url: String, codecMime: String, width: Int, height: Int, fps: Int): Boolean
-    external fun listen(url: String, codecMime: String, width: Int, height: Int, fps: Int): Boolean
+    external fun connect(url: String, codecMime: String, width: Int, height: Int, fps: Int, passphrase: String?): Boolean
+    external fun listen(url: String, codecMime: String, width: Int, height: Int, fps: Int, passphrase: String?): Boolean
     external fun sendVideo(data: ByteArray, presentationTimeUs: Long, flags: Int): Boolean
     external fun sendAudio(data: ByteArray, presentationTimeUs: Long, flags: Int): Boolean
     external fun disconnect()

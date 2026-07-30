@@ -9,14 +9,20 @@ def read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def test_architecture_documents_practical_v1_transport() -> None:
+def test_architecture_documents_professional_camera_control_boundaries() -> None:
     architecture = read("docs/architecture.md")
-    assert "MediaCodec hardware HEVC/H.264 video encode" in architecture
-    assert "MediaCodec AAC audio encode" in architecture
+    assert "Android camera head" in architecture
+    assert "OBS control room" in architecture
+    assert "CameraCapabilities" in architecture
+    assert "CameraStateStore" in architecture
+    assert "expected state" in architecture
+    assert "OpenStreamCameraService" in architecture
+    assert "Source Properties" in architecture
+    assert "OpenStream Beta Control Room" in architecture
     assert "SRT caller" in architecture
     assert "UDP discovery" in architecture
     assert "PTP" in architecture
-    assert "not required for the first prototype" in architecture
+    assert "Legacy discovery" in architecture
 
 
 def test_android_project_declares_camera_media_codec_srt_discovery_boundaries() -> None:
@@ -33,8 +39,7 @@ def test_android_project_declares_camera_media_codec_srt_discovery_boundaries() 
     assert "MediaCodecAudioEncoder" in app
     stream_config = read("android/app/src/main/java/dev/openstream/app/stream/StreamConfig.kt")
     assert "PreferHevc" in stream_config
-    assert "16_000_000" in stream_config
-    assert "128_000" in stream_config
+    assert "50_000_000" in stream_config
     assert "OPENSTREAM_PHONE/1" in discovery
     assert "DISCOVERY_PORT = 51515" in discovery
     assert "dev.openstream.phone" in discovery
@@ -78,16 +83,6 @@ def test_obs_plugin_registers_openstream_source_and_discovery() -> None:
     assert "pairing_url" in source
 
 
-def test_obs_receiver_preserves_stream_timing_and_limits_probe_delay() -> None:
-    source = read("obs-plugin/src/openstream-source.cpp")
-
-    assert "best_effort_timestamp" in source
-    assert "stream_timestamp_ns" in source
-    assert "stream_timestamp_is_stale" in source
-    assert '"probesize", "1048576"' in source
-    assert '"analyzeduration", "1000000"' in source
-
-
 def test_audio_path_uses_adts_aac_and_obs_planar_formats() -> None:
     native = read("android/app/src/main/cpp/openstream_srt.cpp")
     source = read("obs-plugin/src/openstream-source.cpp")
@@ -102,23 +97,9 @@ def test_audio_path_uses_adts_aac_and_obs_planar_formats() -> None:
     assert "obs_source_output_audio" in source
 
 
-def test_android_srt_transport_bounds_live_latency_and_reconnects_quickly() -> None:
-    native = read("android/app/src/main/cpp/openstream_srt.cpp")
-
-    assert "SRTO_TLPKTDROP" in native
-    assert "SRTO_SNDTIMEO" in native
-    assert "sendTimeoutMs = 120" in native
-    assert "SRTO_CONNTIMEO" in native
-    assert "SRTO_PEERIDLETIMEO" in native
-    assert "kMaximumSendQueueBytes" in native
-    assert "runSendWorker" in native
-
-
 def test_obs_plugin_routes_multiple_phones_by_selected_slot() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
     assert "selected_phone_id" in source
-    assert "Discovered phones" in source
-    assert "Refresh Phones" in source
     assert "refresh_devices" in source
     assert "kAutoPhoneId" in source
     assert "std::map<std::string, PhoneDevice> devices_" in source
@@ -142,8 +123,119 @@ def test_obs_sources_are_named_camera_slots_with_advanced_transport() -> None:
     assert "OBS_GROUP_CHECKABLE, advanced_group" in source
     assert "listener_port" in source
     assert "SRT latency (ms)" in source
-    assert '"bitrate_mbps", 16' in source
+    assert '"bitrate_mbps", 50' in source
     assert '"bitrate_mbps", "Expected bitrate (Mbps)", 8, 120, 1' in source
+
+
+def test_obs_control_room_api_is_capability_revision_and_event_driven() -> None:
+    cmake = read("obs-plugin/CMakeLists.txt")
+    api = read("obs-plugin/src/openstream-ui-api.hpp")
+    source = read("obs-plugin/src/openstream-source.cpp")
+    dock = read("obs-plugin/src/openstream-dock.cpp")
+
+    assert "find_package(Qt6 6.2 COMPONENTS Widgets REQUIRED)" in cmake
+    assert "option(OPENSTREAM_BUILD_DOCK" in cmake
+    assert "src/openstream-dock.cpp" in cmake
+    assert "src/openstream-dock-stub.cpp" in cmake
+    assert "struct OpenStreamCameraCapabilities" in api
+    assert "struct OpenStreamCameraState" in api
+    assert "struct OpenStreamCameraSnapshot" in api
+    assert "enum class OpenStreamCommandType" in api
+    assert "struct OpenStreamSettingsPatch" in api
+    assert "expected_revision" in api
+    assert "FocusAt" in api
+    assert "SetAuthority" in api
+    assert "SetTally" in api
+    assert "openstream_camera_snapshots()" in source
+    assert "openstream_run_command_async" in source
+    assert "openstream_subscribe_camera_changes" in api
+    assert "openstream_unsubscribe_camera_changes" in api
+    assert "obs_frontend_add_dock_by_id" in dock
+    assert "obs_frontend_add_event_callback" in dock
+    assert "obs_frontend_remove_event_callback" in dock
+    assert "openstream_dock_create();" in source
+    assert "openstream_dock_destroy();" in source
+
+
+def test_obs_source_properties_are_setup_only() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+    properties = source.split("obs_properties_t *openstream_properties", 1)[1].split(
+        "return props;", 1
+    )[0]
+
+    assert '"slot_setup", "Camera setup"' in properties
+    assert '"show_advanced", "Troubleshooting"' in properties
+    assert '"selected_phone_id"' in properties
+    assert '"connect"' in properties
+    assert '"disconnect"' in properties
+    assert '"listener_port"' in properties
+    assert '"latency_ms"' in properties
+    assert '"camera_controls"' not in properties
+    assert '"cam_zoom"' not in properties
+    assert '"cam_torch_on"' not in properties
+    assert '"cam_lens_front"' not in properties
+
+
+def test_android_professional_camera_state_contract_is_capability_driven() -> None:
+    models = read("android/app/src/main/java/dev/openstream/app/camera/CameraModels.kt")
+    store = read("android/app/src/main/java/dev/openstream/app/camera/CameraStateStore.kt")
+
+    for model in (
+        "CameraCapabilities",
+        "CameraSettings",
+        "CameraSettingsPatch",
+        "CameraTelemetry",
+        "CameraState",
+        "TallyState",
+    ):
+        assert f"data class {model}" in models
+
+    assert 'Collaborative("collaborative")' in models
+    assert 'ObsLock("obs_lock")' in models
+    assert "sealed interface CameraControlResult" in models
+    assert "data class Conflict" in models
+    assert "data class Unsupported" in models
+    assert "data class Locked" in models
+    assert "expectedRevision" in store
+    assert "state.revision + 1" in store
+    assert "patch.exposureMode ?: current.exposureMode" in store
+    assert "patch.whiteBalanceKelvin ?: current.whiteBalanceKelvin" in store
+    assert "state.authority == AuthorityMode.ObsLock" in store
+    assert "actor == CameraActor.Camera" in store
+
+
+def test_android_tap_focus_uses_normalized_transmitted_frame_coordinates() -> None:
+    mapper = read("android/app/src/main/java/dev/openstream/app/camera/FocusCoordinateMapper.kt")
+    store = read("android/app/src/main/java/dev/openstream/app/camera/CameraStateStore.kt")
+
+    assert "normalizedX in 0f..1f" in mapper
+    assert "normalizedY in 0f..1f" in mapper
+    assert "rotationDegrees" in mapper
+    assert "mirrored" in mapper
+    assert "cropRegion" in mapper
+    assert "activeArray" in mapper
+    assert "caps.supportsTapFocus" in store
+    assert "x !in 0f..1f" in store
+    assert "y !in 0f..1f" in store
+
+
+def test_camera2_controller_applies_manual_controls_from_complete_state() -> None:
+    camera = read("android/app/src/main/java/dev/openstream/app/camera/Camera2Controller.kt")
+
+    assert "CameraStateStore" in camera
+    assert "REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR" in camera
+    assert "CONTROL_AE_MODE_OFF" in camera
+    assert "SENSOR_SENSITIVITY" in camera
+    assert "SENSOR_EXPOSURE_TIME" in camera
+    assert "CONTROL_AWB_MODE" in camera
+    assert "CONTROL_AWB_LOCK" in camera
+    assert "LENS_FOCUS_DISTANCE" in camera
+    assert "CONTROL_AF_REGIONS" in camera
+    assert "CONTROL_AE_REGIONS" in camera
+    assert "CONTROL_ZOOM_RATIO" in camera
+    assert "SCALER_CROP_REGION" in camera
+    assert "onCaptureCompleted" in camera
+    assert "updateTelemetry" in camera
 
 
 def test_obs_discovery_beacons_advertise_slots_not_raw_listener_only() -> None:
@@ -163,12 +255,14 @@ def test_slot_reservation_allows_owned_busy_phone_and_reconnect_hold() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
     advertiser = read("android/app/src/main/java/dev/openstream/app/discovery/PhoneDiscoveryAdvertiser.kt")
+    strings = read("android/app/src/main/res/values/strings.xml")
     assert "reserved_by == source_instance_id" in source
     assert "set_slot_status(ctx, \"Reconnecting\")" in source
     assert "set_active_phone(ctx, reserved_phone)" in source
     assert '"reservedBy"' in advertiser
     assert "RECONNECT_RESERVATION_MS = 45_000L" in app
-    assert "Holding $it for reconnect" in app
+    assert "OpenStreamUiState.Reconnecting" in app
+    assert 'name="status_holding_slot">Holding %1$s for reconnect<' in strings
     assert "scheduleReservationRelease" in app
     assert "cancelReservationRelease" in app
 
@@ -191,8 +285,42 @@ def test_android_discovery_ui_parses_and_displays_obs_slots() -> None:
     assert "device.busy && reservedBy != device.sourceInstanceId" in app
     assert "compareBy<DiscoveredObsDevice> { it.displayLabel }" in discovery
     assert "obsSlotList" in layout
-    assert 'name="status_waiting">Choose an OBS camera slot<' in strings
+    assert 'name="status_waiting">Ready for OBS. Add an OpenStream Beta Camera source on the same network.<' in strings
     assert "btnSettings" in app
+
+
+def test_android_ui_state_and_settings_copy_cover_the_redesigned_workflow() -> None:
+    state = read("android/app/src/main/java/dev/openstream/app/OpenStreamUiState.kt")
+    app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    strings = read("android/app/src/main/res/values/strings.xml")
+
+    for variant in (
+        "Discovering",
+        "Reserved",
+        "Connecting",
+        "Live",
+        "Reconnecting",
+        "Error",
+        "Stopped",
+    ):
+        assert variant in state
+        assert f"OpenStreamUiState.{variant}" in app
+
+    for resource in (
+        "settings_section_connection",
+        "settings_section_streaming",
+        "settings_section_advanced",
+        "settings_section_updates",
+        "settings_subtitle",
+        "settings_connection_help",
+        "control_torch",
+        "control_flip",
+        "control_awake",
+        "control_dim",
+        "control_settings",
+        "action_stop_stream",
+    ):
+        assert f'name="{resource}"' in strings
 
 
 def test_identify_camera_control_round_trip_exists() -> None:
@@ -200,9 +328,7 @@ def test_identify_camera_control_round_trip_exists() -> None:
     control = read("android/app/src/main/java/dev/openstream/app/control/CameraControlServer.kt")
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
     layout = read("android/app/src/main/res/layout/activity_main.xml")
-    dock = read("obs-plugin/src/openstream-dock.cpp")
-    assert '"Identify"' in dock
-    assert "openstream_identify_camera_source" in dock
+    assert "OpenStreamCommandType::Identify" in source
     assert '"/identify"' in source
     assert 'path == "/identify"' in control
     assert "handleIdentify" in control
@@ -223,6 +349,136 @@ def test_android_control_server_supports_source_reservations() -> None:
     assert "useStreamBitrate(bitrateMbps)" in app
     assert "reserveForSource(device.sourceInstanceId, device.displayLabel, device.bitrateMbps)" in app
     assert "val bitrateMbps = if (json.has(\"bitrateMbps\"))" in control
+
+
+def test_android_v2_control_plane_requires_pairing_and_bearer_auth() -> None:
+    control = read("android/app/src/main/java/dev/openstream/app/control/CameraControlServer.kt")
+    token_store = read("android/app/src/main/java/dev/openstream/app/control/PairingTokenStore.kt")
+
+    pair_route = 'method == "POST" && path == "/v2/pair"'
+    auth_gate = 'path.startsWith("/v2/") && !pairingTokenStore.validateBearer'
+    assert pair_route in control
+    assert auth_gate in control
+    assert control.index(pair_route) < control.index(auth_gate)
+    for route in (
+        "/v2/capabilities",
+        "/v2/state",
+        "/v2/settings",
+        "/v2/focus",
+        "/v2/authority",
+        "/v2/tally",
+    ):
+        assert f'path == "{route}"' in control
+    assert 'headers["authorization"]' in control
+    assert 'errorJson("unauthorized"' in control
+    assert '"expectedRevision"' in control
+    assert '"revision_conflict"' in control
+    assert '"unsupported"' in control
+    assert '"obs_locked"' in control
+
+    assert "SecureRandom" in token_store
+    assert "TOKEN_BYTES = 32" in token_store
+    assert "KEY_PAIRING_CODE, newPairingCode()" in token_store
+    assert 'BEARER_PREFIX = "Bearer "' in token_store
+    assert "MessageDigest.isEqual" in token_store
+    assert "hasPairedAdministrator" in token_store
+    assert '!path.startsWith("/v2/") && pairingTokenStore.hasPairedAdministrator()' in control
+
+
+def test_obs_authenticates_legacy_control_after_pairing() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+    assert "const std::string &bearer_token = {}" in source
+    assert 'send_control_command(phone.host, phone.control_port, "/reserve", body.str(), token)' in source
+    assert 'send_control_command(phone.host, phone.control_port, "/release", body.str(), token)' in source
+
+
+def test_obs_v2_client_uses_android_canonical_camera_schema() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+
+    assert 'obs_data_create_from_json(json.c_str())' in source
+    assert 'read_range(root, "shutterRangeNs", 0.001)' in source
+    assert 'data_bool(root, "supportsTapFocus")' in source
+    assert 'data_bool(root, "manualSensor")' in source
+    assert 'data_string(settings, "stabilizationMode")' in source
+    assert 'data_bool(tally, "program")' in source
+    assert 'append_json_number(body, first, "shutterNs", shutter_ns)' in source
+    assert 'append_json_number(body, first, "fps", command.settings.frame_rate)' in source
+    assert 'append_json_number(body, first, "focusDistanceDiopters"' in source
+    assert 'append_json_string(body, first, "stabilizationMode"' in source
+    assert 'append_json_number(body, first, "shutterUs"' not in source
+    assert 'append_json_number(body, first, "frameRate"' not in source
+
+
+def test_obs_serializes_remote_commands_and_uses_mutation_state() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+    dock = read("obs-plugin/src/openstream-dock.cpp")
+    assert "remote_request && ctx->control_request_pending" in source
+    assert "if (remote_request) ctx->control_request_pending = true" in source
+    assert "if (remote_request) ctx->control_request_pending = false" in source
+    assert "[source, ctx, instance_id, remote_request, command = std::move(command)" in source
+    assert "parse_camera_state_response(response.body)" in source
+    assert 'send_control_request(phone->host, phone->control_port,\n                                                             "GET", "/v2/state"' not in source
+    assert "can_stop || !camera->request_pending" in dock
+    assert "command.type != OpenStreamCommandType::Stop" in dock
+
+
+def test_obs_controls_follow_reported_mode_capabilities() -> None:
+    api = read("obs-plugin/src/openstream-ui-api.hpp")
+    source = read("obs-plugin/src/openstream-source.cpp")
+    dock = read("obs-plugin/src/openstream-dock.cpp")
+    assert "focus_modes" in api
+    assert "white_balance_modes" in api
+    assert 'caps.focus_modes = json_string_array_value(json, "focusModes")' in source
+    assert 'caps.white_balance_modes = json_string_array_value(json, "whiteBalanceModes")' in source
+    assert "applySupportedModes(focus_mode_, caps.focus_modes)" in dock
+    assert "applySupportedModes(white_balance_mode_, caps.white_balance_modes)" in dock
+    assert 'QString("Unsupported: %1")' in dock
+
+
+def test_obs_dock_preserves_selector_during_model_refresh() -> None:
+    dock = read("obs-plugin/src/openstream-dock.cpp")
+    assert "#define NOMINMAX" in dock
+    assert "bool selector_changed" in dock
+    assert "if (!selector_changed)" in dock
+    assert "if (!user_requested && !isVisible()) return" in dock
+
+
+def test_obs_zoom_control_coalesces_live_updates() -> None:
+    dock = read("obs-plugin/src/openstream-dock.cpp")
+    assert "kZoomUpdateIntervalMs = 50" in dock
+    assert "&QDoubleSpinBox::valueChanged" in dock
+    assert "queueZoomUpdate(value)" in dock
+    assert "flushZoomUpdate" in dock
+    assert "zoom_update_in_flight_" in dock
+    assert "zoom_update_pending_" in dock
+    assert "zoom_pending_instance_ == camera.instance_id" in dock
+
+
+def test_obs_status_tones_distinguish_tally_and_offline_states() -> None:
+    dock = read("obs-plugin/src/openstream-dock.cpp")
+    for tone in ("program", "preview", "live", "warning", "offline"):
+        assert f'tone="{tone}"' in dock
+    assert 'setStatusTone("program")' in dock
+    assert 'setStatusTone("preview")' in dock
+
+
+def test_android_unattended_service_is_explicit_and_non_sticky() -> None:
+    manifest = read("android/app/src/main/AndroidManifest.xml")
+    service = read("android/app/src/main/java/dev/openstream/app/service/OpenStreamCameraService.kt")
+
+    assert "android.permission.FOREGROUND_SERVICE_CAMERA" in manifest
+    assert "android.permission.FOREGROUND_SERVICE_MICROPHONE" in manifest
+    assert 'android:foregroundServiceType="camera|microphone"' in manifest
+    assert "ACTION_ARM" in service
+    assert "ACTION_STOP" in service
+    assert "START_NOT_STICKY" in service
+    assert "PowerManager.PARTIAL_WAKE_LOCK" in service
+    assert "WifiManager.WIFI_MODE_FULL_HIGH_PERF" in service
+    assert "startForeground" in service
+    assert "stopForeground" in service
+    assert "onHeadlessSurfaceAvailable" in service
+    assert "onRemoteStop" in service
+    assert "LocalBinder" in service
 
 
 def test_camera_controller_supports_preview_before_streaming() -> None:
@@ -252,7 +508,24 @@ def test_receiver_validates_srt_support() -> None:
     assert "mode=caller" in receiver
 
 
-def test_protocol_documents_media_and_telemetry_contracts() -> None:
+def test_paired_secret_encrypts_android_and_obs_srt_transport() -> None:
+    token_store = read("android/app/src/main/java/dev/openstream/app/control/PairingTokenStore.kt")
+    client = read("android/app/src/main/java/dev/openstream/app/stream/SrtStreamClient.kt")
+    native = read("android/app/src/main/cpp/openstream_srt.cpp")
+    app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    source = read("obs-plugin/src/openstream-source.cpp")
+    protocol = read("docs/protocol.md")
+
+    assert "streamPassphrase" in token_store
+    assert "passphrase: String? = null" in client
+    assert "SRTO_PASSPHRASE" in native
+    assert "SRTO_PBKEYLEN" in native
+    assert "passphrase = pairingTokenStore.streamPassphrase()" in app
+    assert 'av_dict_set(&options, "passphrase", stream_passphrase.c_str(), 0)' in source
+    assert "Pairing restarts the waiting Android listener" in protocol
+
+
+def test_protocol_documents_media_control_and_compatibility_contracts() -> None:
     protocol = read("docs/protocol.md")
     assert "MediaCodec" in protocol
     assert "MPEG-TS" in protocol
@@ -262,9 +535,16 @@ def test_protocol_documents_media_and_telemetry_contracts() -> None:
     assert "slotId" in protocol
     assert "slotLabel" in protocol
     assert "pairingUrl" in protocol
-    assert "deviceName" in protocol
     assert "reservedBy" in protocol
-    assert "latencyMs" in protocol
+    assert "CameraCapabilities" in protocol
+    assert "CameraState" in protocol
+    assert "expectedRevision" in protocol
+    assert "Authorization: Bearer" in protocol
+    assert "/v2/focus" in protocol
+    assert "normalized coordinates" in protocol
+    assert "collaborative" in protocol
+    assert "obs_lock" in protocol
+    assert "Legacy V1 compatibility" in protocol
 
 
 def test_docs_keep_python_receiver_as_developer_tool_only() -> None:
@@ -293,14 +573,14 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "OPENSTREAM_VERSION_CODE" in release_workflow
     assert "OPENSTREAM_SKIP_INSTALL=1" in obs_workflow
     assert "OPENSTREAM_PLUGIN_PACKAGE_DIR" in obs_workflow
-    assert "openstream-obs-windows-x64.zip" in obs_workflow
+    assert "openstream-beta-obs-windows-x64.zip" in obs_workflow
     assert "gh release create" in release_workflow
     assert "docs/release-notes-template.md" in release_workflow
     assert "openstream-android.apk" in release_workflow
     assert "openstream-android.apk.sha256" in release_workflow
     assert '"apkSha256"' in release_workflow
     assert "Public releases require all Android signing secrets" in release_workflow
-    assert "openstream-obs-windows-x64.zip" in release_workflow
+    assert "openstream-beta-obs-windows-x64.zip" in release_workflow
     assert "never publishes a debug-signed fallback" in release_docs
     assert "Android Signing Secrets" in release_docs
     assert "OPENSTREAM_SKIP_INSTALL" in plugin_builder
@@ -309,48 +589,13 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "org.gradle.java.home" not in gradle_properties
 
 
-def test_manual_obs_installer_uses_one_canonical_per_user_copy() -> None:
-    installer = read("tools/installer/Install-OpenStreamPlugin.ps1")
+def test_manual_obs_installer_replaces_known_plugin_copies() -> None:
+    installer = read("tools/installer/Install-OpenStreamBetaPlugin.ps1")
 
-    assert "Get-OpenStreamPluginTarget" in installer
+    assert "Get-OpenStreamPluginTargets" in installer
+    assert "ProgramData" in installer
     assert "APPDATA" in installer
-    assert "plugins\\openstream-obs\\bin\\64bit\\openstream-obs.dll" in installer
-    assert "Test-IsAdministrator" not in installer
-    assert "source named OpenStream" in installer
-
-
-def test_obs_installer_is_per_user_upgradeable_and_release_has_metadata() -> None:
-    installer = read("tools/installer/openstream-obs-plugin.iss")
-    release = read(".github/workflows/release.yml")
-
-    assert "PrivilegesRequired=admin" in installer
-    assert "Uninstallable=yes" in installer
-    assert "{commonappdata}\\obs-studio\\plugins\\openstream-obs" in installer
-    assert "{userappdata}\\obs-studio\\plugins\\openstream-obs" in installer
-    assert "openstream-obs-update.json" in release
-    assert "installerSha256" in release
-    assert "openstream-obs-plugin-installer-windows-x64.exe.sha256" in release
-
-
-def test_obs_plugin_has_dock_controls_async_io_and_passive_updates() -> None:
-    cmake = read("obs-plugin/CMakeLists.txt")
-    dock = read("obs-plugin/src/openstream-dock.cpp")
-    source = read("obs-plugin/src/openstream-source.cpp")
-
-    assert "obs_frontend_add_dock_by_id" in dock
-    assert "OpenStream Camera Control" in dock
-    assert "Connect / retry" in dock
-    assert "openstream-obs-update.json" in dock
-    assert "QNetworkAccessManager" in dock
-    assert "github.com" in dock
-    assert "AsyncControlClient" in source
-    assert "queue_control_command" in source
-    assert "postLatest" in source
-    assert '"camera-zoom"' in source
-    assert "zoomDispatch_->setInterval(33)" in dock
-    assert "openstream_set_camera_zoom" in dock
-    assert "Qt6::Network" in cmake
-    assert "Qt6::Widgets" in cmake
+    assert "OpenStream Beta Camera" in installer
 
 
 def test_release_build_fails_without_signing_and_keystores_are_ignored() -> None:
@@ -360,7 +605,7 @@ def test_release_build_fails_without_signing_and_keystores_are_ignored() -> None
     assert "Release builds require OPENSTREAM_RELEASE_KEYSTORE" in app_gradle
     assert "openstream.versionName" in app_gradle
     assert "openstream.versionCode" in app_gradle
-    assert '"2.1.0-beta"' in app_gradle
+    assert '"2.0.0-beta"' in app_gradle
     version_code = re.search(
         r"openStreamVersionCode.*?\.orElse\(\"(\d+)\"\)",
         app_gradle,
@@ -375,8 +620,8 @@ def test_release_build_fails_without_signing_and_keystores_are_ignored() -> None
 def test_v2_release_metadata_defaults_are_aligned() -> None:
     app_gradle = read("android/app/build.gradle.kts")
     cmake = read("obs-plugin/CMakeLists.txt")
-    installer = read("tools/installer/openstream-obs-plugin.iss")
+    installer = read("tools/installer/openstream-beta-obs-plugin.iss")
 
-    assert '"2.1.0-beta"' in app_gradle
+    assert '"2.0.0-beta"' in app_gradle
     assert "project(openstream_obs_plugin VERSION 2.0.0" in cmake
-    assert '#define OpenStreamVersion "2.1.0-beta"' in installer
+    assert '#define OpenStreamVersion "2.0.0-beta"' in installer

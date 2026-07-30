@@ -2,59 +2,72 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/OpenStream-Turn_Your_Phone_Into_a_Wireless_OBS_Camera-00D4AA?style=for-the-badge&labelColor=0A0A0F">
-  <img alt="OpenStream Banner" src="https://img.shields.io/badge/OpenStream-Turn_Your_Phone_Into_a_Wireless_OBS_Camera-00D4AA?style=for-the-badge&labelColor=0A0A0F">
+  <img alt="OpenStream Beta Banner" src="https://img.shields.io/badge/OpenStream-Turn_Your_Phone_Into_a_Wireless_OBS_Camera-00D4AA?style=for-the-badge&labelColor=0A0A0F">
 </picture>
 
-### Turn any Android phone into a wireless camera source for OBS Studio.
+### Turn any Android phone into a wireless camera source for OBS Studio
 
 [![Status](https://img.shields.io/badge/status-beta-orange?style=flat-square&labelColor=1a1a2e)](https://github.com/YashasVM/OpenStream/releases)
-[![Release](https://img.shields.io/github/v/release/YashasVM/OpenStream?display_name=tag&style=flat-square&labelColor=1a1a2e&color=00D4AA)](https://github.com/YashasVM/OpenStream/releases/latest)
 [![Platform](https://img.shields.io/badge/platform-Android%20%2B%20Windows-green?style=flat-square&labelColor=1a1a2e)](https://github.com/YashasVM/OpenStream)
 [![OBS](https://img.shields.io/badge/OBS-Studio%20Plugin-purple?style=flat-square&labelColor=1a1a2e)](https://obsproject.com)
 [![Website](https://img.shields.io/badge/website-openstream.pages.dev-00D4AA?style=flat-square&labelColor=1a1a2e)](https://openstream.pages.dev)
 
-[ **Open-source** | **Low-latency** | **Hardware-accelerated** | **Local Wi-Fi** ]
+**Open-source** | **Low-latency** | **Hardware-accelerated** | **Local Wi-Fi**
 
 ---
 
 </div>
 
 > [!IMPORTANT]
-> OpenStream V2 is a beta release. It is ready for local Wi-Fi camera workflows, but device-specific camera behavior and network quality can still vary. Please report bugs in [GitHub Issues](https://github.com/YashasVM/OpenStream/issues).
-
-**[Download](#quick-downloads)** · **[Quick Start](#quick-start)** · **[Features](#features)** · **[Build](#building)** · **[Release Guide](docs/release.md)**
+> OpenStream Beta is a beta release. It is ready for local Wi-Fi camera workflows, but device-specific camera behavior and network quality can still vary. Please report bugs in [GitHub Issues](https://github.com/YashasVM/OpenStream/issues).
 
 ## Quick Downloads
 
 | Step | Download | Install on |
 |---|---|---|
 | 1 | [`openstream-android.apk`](https://github.com/YashasVM/OpenStream/releases/latest/download/openstream-android.apk) | Android phone |
-| 2 | [`openstream-obs-plugin-installer-windows-x64.exe`](https://github.com/YashasVM/OpenStream/releases/latest/download/openstream-obs-plugin-installer-windows-x64.exe) | Windows OBS PC |
-| Fallback | [`openstream-obs-windows-x64.zip`](https://github.com/YashasVM/OpenStream/releases/latest/download/openstream-obs-windows-x64.zip) | Manual OBS plugin install |
+| 2 | [`openstream-beta-obs-plugin-installer-windows-x64.exe`](https://github.com/YashasVM/OpenStream/releases/latest/download/openstream-beta-obs-plugin-installer-windows-x64.exe) | Windows OBS PC |
+| Fallback | [`openstream-beta-obs-windows-x64.zip`](https://github.com/YashasVM/OpenStream/releases/latest/download/openstream-beta-obs-windows-x64.zip) | Manual OBS plugin install |
 
 Need the non-technical walkthrough with screenshots? Start with [`docs/set-up.md`](docs/set-up.md).
 
 ---
 
-## What is OpenStream?
+## What is OpenStream Beta?
 
-OpenStream sends your Android phone camera directly into OBS Studio over local Wi-Fi. It uses Camera2, MediaCodec video/audio encoding, MPEG-TS muxing, SRT transport, two-way LAN discovery, source-slot pairing, and a native OBS source plugin.
+OpenStream Beta sends your Android phone camera directly into OBS Studio over local Wi-Fi. It uses Camera2, MediaCodec video/audio encoding, MPEG-TS muxing, SRT transport, two-way LAN discovery, source-slot pairing, and a native OBS source plugin.
 
 ```text
-Phone camera -> HEVC/H.264 + AAC -> SRT over Wi-Fi -> OpenStream camera slot in OBS
+Phone camera -> HEVC/H.264 + AAC -> SRT over Wi-Fi -> OpenStream Beta camera slot in OBS
 ```
 
-### Why OpenStream V2
+### What Changed in V2
 
-| Area | What you get |
+| Area | V2 improvement |
 |---|---|
-| **OBS-native workflow** | A dockable Camera Control panel keeps connection, lens, torch, smooth live zoom, and identify controls visible while you work. |
-| **Low-latency media** | Hardware video/audio encoding, SRT transport, bounded buffering, and stale-frame dropping keep the preview responsive. |
-| **Reliable pairing** | LAN discovery, stable camera slots, reservation handling, and fast reconnects keep phones attached to the right OBS source. |
-| **Upgrade safety** | Existing scene sources keep loading while new sources appear simply as `OpenStream`. |
-| **Clean delivery** | A signed Android release path, Windows installer, checksums, and update manifests keep upgrades consistent. |
+| **OBS setup** | The persistent OpenStream Beta Control Room dock brings every camera slot, connection state, and live control into one place. |
+| **Upgrade safety** | Existing `OpenStream V7` scene sources keep loading while new sources appear as `OpenStream Beta Camera`. |
+| **Pairing clarity** | OBS and Android both describe slots as production camera positions instead of raw listener ports. |
+| **Release polish** | Version defaults, release notes, and setup docs are aligned around the V2 beta release. |
 
-OpenStream is built for creators who want an inspectable, open-source, OBS-first phone camera pipeline without a separate desktop webcam client.
+### OpenStream Beta vs DroidCam
+
+DroidCam is a mature phone-as-webcam product with Wi-Fi, USB, desktop webcam clients, and an OBS plugin. OpenStream Beta is a beta open-source alternative focused on local OBS camera slots, SRT transport, high-bitrate video, and a repo-controlled release/update path.
+
+| Feature | OpenStream Beta | DroidCam / DroidCam OBS |
+|---|---|---|
+| **Project model** | Open-source repo with Android app, native OBS plugin, CI builds, and public release assets. | Commercial app/client/plugin from Dev47Apps with free SD usage and paid HD/pro features. |
+| **Primary workflow** | Turn Android phones into dedicated OBS camera sources over local Wi-Fi. | Use a phone as a webcam for video calls or as an OBS camera source. |
+| **OBS integration** | Native `OpenStream Beta Camera` source with camera slots, discovery, pairing URLs, and live controls. | Direct DroidCam OBS plugin; no separate desktop client needed for OBS use. |
+| **Transport** | SRT over LAN with MPEG-TS carrying HEVC/H.264 video and AAC audio. | Wi-Fi and USB transfer options; DroidCam OBS advertises hardware-accelerated video. |
+| **Video target** | `1080p60` default with high local bitrate and HEVC preference. | Standard-definition free mode; HD/Full-HD/4K options depend on DroidCam mode and pro upgrade. |
+| **Audio path** | AAC microphone audio into a separate OBS mixer channel, tuned for `48 kHz` live production. | Sound capture is supported, including webcam-style audio paths. |
+| **Multi-camera setup** | Source slots such as `CAM A` and `CAM B` reserve phones and recover reconnects into the same OBS source. | DroidCam OBS supports adding multiple devices as OBS sources. |
+| **Remote camera controls** | The OBS Cameras dock controls zoom, torch, lens switching, and the phone identification overlay. | Pro features include manual camera controls and PC remote controls. |
+| **Release updates** | GitHub Releases provide `openstream-android.apk` and updater metadata for in-app update prompts. | Updates are delivered through DroidCam's app/client/plugin distribution channels. |
+| **Best fit** | Builders and streamers who want an inspectable, hackable OBS-first camera pipeline. | Users who want a polished cross-app webcam product with mature USB and desktop-client options. |
+
+Sources: [DroidCam official site](https://droidcam.app/), [DroidCam OBS plugin](https://droidcam.app/obs/), and [DroidCam OBS usage notes](https://droidcam.app/obs/usage/).
 
 ---
 
@@ -66,22 +79,22 @@ Download the APK from the release, copy it to your Android phone, open it, and a
 
 ### 2. Install the OBS Plugin
 
-Close OBS, then download and run `openstream-obs-plugin-installer-windows-x64.exe`. One Windows administrator prompt lets it replace old system/user copies, keep one canonical plugin, and support clean upgrade, repair, and uninstall. Start OBS again after it finishes.
+Download and run `openstream-beta-obs-plugin-installer-windows-x64.exe` on the Windows PC that has OBS Studio installed. Restart OBS after the installer finishes.
 
 > [!NOTE]
-> If you prefer manual installation, download `openstream-obs-windows-x64.zip`, extract it, close OBS, and run `install-openstream-plugin.bat`.
+> If you prefer manual installation, download `openstream-beta-obs-windows-x64.zip`, extract it, and run `install-openstream-plugin.bat` as administrator.
 
 ### 3. Add Camera Slots in OBS
 
-In OBS, click `+` in Sources, choose `OpenStream`, keep the camera slot enabled, and press OK. Each source gets a slot such as `CAM A` or `CAM B`, so multi-phone setups can stay organized.
+In OBS, click `+` in Sources, choose `OpenStream Beta Camera`, keep the camera slot enabled, and press OK. Each source gets a slot such as `CAM A` or `CAM B`, so multi-phone setups can stay organized.
 
 ### 4. Pair the Phone
 
-Open the OpenStream Android app on the same Wi-Fi network as the PC. Tap an available OBS camera slot from the phone, or choose a discovered phone from the OBS source properties. The camera feed should appear in OBS within a few seconds.
+Open the OpenStream Beta Android app on the same Wi-Fi network as the PC. Its guided discovery panel lists available OBS camera slots; tap one to connect. The camera feed should appear in OBS within a few seconds.
 
 ### 5. Stream
 
-Use OBS as usual. Open `View > Docks > OpenStream Camera Control` to keep connection, lens, torch, zoom, and identify controls beside your preview. Phone audio appears as a separate OBS mixer channel, and the selected phone is held for quick reconnects if Wi-Fi drops briefly.
+Use OBS as usual. Open **Docks → OpenStream Beta Control Room** to monitor every slot and control zoom, torch, lens, and identification. Phone audio appears as a separate OBS mixer channel, and the selected phone is held for quick reconnects if Wi-Fi drops briefly.
 
 > [!TIP]
 > Use a 5 GHz or Wi-Fi 6 network, keep both devices on the same subnet, and disable VPNs or router client isolation during first setup.
@@ -113,7 +126,7 @@ Use OBS as usual. Open `View > Docks > OpenStream Camera Control` to keep connec
 | **Screen-Off Streaming Mode** | Dims the phone to a black overlay while keeping capture and streaming active. |
 | **Torch and Screen Controls** | Keeps the phone awake and can toggle torch while streaming. |
 | **OBS Slot Picker** | Shows available OBS camera slots on the phone and blocks busy slots from accidental reuse. |
-| **Auto-Discovery** | Finds OpenStream OBS listeners on the same LAN and advertises the phone back to OBS. |
+| **Auto-Discovery** | Finds OpenStream Beta OBS listeners on the same LAN and advertises the phone back to OBS. |
 | **Manual Connect** | Supports manual IP and port entry when discovery is blocked. |
 | **Live Stream Telemetry** | Shows frames, keyframes, transferred megabits, errors, and active lens while streaming. |
 | **Identify Overlay** | Displays a large slot label on the phone when triggered from OBS. |
@@ -123,17 +136,30 @@ Use OBS as usual. Open `View > Docks > OpenStream Camera Control` to keep connec
 
 | Feature | Details |
 |---|---|
-| **Native OBS Source** | Adds an `OpenStream` source type inside OBS Studio while preserving existing scenes. |
-| **One-Click Installer** | Windows installer removes stale legacy copies and supports clean install, upgrade, repair, and uninstall. |
+| **Native OBS Source** | Adds an `OpenStream Beta Camera` source type inside OBS Studio while preserving V7 scene compatibility. |
+| **Multi-Camera Dock** | Shows every OpenStream Beta source with state-aware connect, retry, stop, discovery, and live camera controls. |
+| **One-Click Installer** | Windows installer copies the plugin into the OBS plugin folder. |
 | **Camera Slots** | Gives each source a stable slot label such as `CAM A`, `CAM B`, or a custom slot name. |
 | **Phone Discovery** | Lists discovered Android phones, includes a refresh action, and can let the phone choose the OBS slot. |
 | **Auto-Connect** | Listens for the Android app and connects without typing IP addresses. |
 | **Deep-Link Pairing URL** | Exposes an `openstream://connect` pairing URL with slot, port, latency, and source identity. |
 | **Separate Audio Mixer** | Phone microphone audio gets its own OBS mixer channel. |
-| **Real-Time Remote Controls** | Adjust smooth zoom while dragging, toggle the torch, switch rear/front cameras, and show the phone slot label from OBS. |
-| **Dockable Control Panel** | Control any OpenStream source from an always-available native OBS dock instead of reopening source properties. |
-| **Update Notices** | Checks the latest release metadata and links to the installer when a newer plugin is available; the loaded DLL is never replaced in place. |
+| **Remote Controls** | Adjust zoom, torch, rear/front camera, and the phone slot label overlay from the persistent dock. |
 | **Reconnect Handling** | Reserves and releases phones per source so streams recover into the same OBS slot. |
+
+---
+
+## UX Flow
+
+| Moment | Experience |
+|---|---|
+| **First launch** | The phone explains camera/microphone access, then presents a guided discovery state over the camera preview. |
+| **OBS setup** | Add one `OpenStream Beta Camera` source per camera angle, name the production slots, and monitor them from the Cameras dock. |
+| **Pairing** | The phone scans for available OBS slots and provides refresh, empty-state recovery, and manual fallback. |
+| **Going live** | A `LIVE` badge, zoom chip, stream stats, and status text make the active connection visible at a glance. |
+| **Multi-camera work** | Busy and reserved slots prevent two phones from fighting over the same source. |
+| **On-set checks** | Use `Show Slot Label on Phone` in OBS to flash the slot label on the physical phone. |
+| **Battery and heat** | Use `DISPLAY` for a black screen-off overlay or `STAY` to keep the phone awake. |
 
 ---
 
@@ -147,11 +173,11 @@ Android phone
   MPEG-TS muxer
   libsrt sender
         |
-        | [SRT media stream on port 9000]
+        | SRT media stream on port 9000
         v
 Windows PC
   OBS Studio
-  OpenStream native source plugin
+  OpenStream Beta native source plugin
   FFmpeg SRT receive/decode
   OBS video frame + audio mixer output
 ```
@@ -165,7 +191,7 @@ Discovery uses UDP port `51515`. Camera remote controls use the phone HTTP contr
 | Resolution | `1920x1080` | Full HD capture target |
 | Frame rate | `60 fps` | 30-60 fps depending on device support |
 | Video codec | HEVC/H.265 | H.264 fallback |
-| Bitrate | `16 Mbps` | High-quality HEVC default with headroom for Wi-Fi retransmits |
+| Bitrate | `50 Mbps` | High-quality local Wi-Fi default; lower if the link drops frames |
 | SRT latency | `120 ms` | 80-200 ms useful range |
 | Discovery port | `51515/udp` | LAN discovery beacon |
 | SRT port | `9000` | Media stream |
@@ -174,18 +200,6 @@ Discovery uses UDP port `51515`. Camera remote controls use the phone HTTP contr
 ---
 
 ## Building
-
-### Website
-
-The source for [openstream.pages.dev](https://openstream.pages.dev) lives in [`website/`](website/).
-
-```powershell
-cd website
-npm install
-npm run dev
-```
-
-Run `npm run build` to create the static Cloudflare Pages output in `website/dist`.
 
 ### Android App
 
@@ -232,7 +246,7 @@ $env:OPENSTREAM_PLUGIN_PACKAGE_DIR = "$PWD\artifacts"
 .\build_plugin.bat
 ```
 
-The package output is `artifacts/openstream-obs-windows-x64.zip`.
+The package output is `artifacts/openstream-beta-obs-windows-x64.zip`.
 
 ---
 
@@ -243,8 +257,8 @@ GitHub Actions publishes:
 | Asset | Purpose |
 |---|---|
 | `openstream-android.apk` | Signed Android app install package |
-| `openstream-obs-plugin-installer-windows-x64.exe` | Recommended Windows OBS plugin installer |
-| `openstream-obs-windows-x64.zip` | Manual OBS plugin package |
+| `openstream-beta-obs-plugin-installer-windows-x64.exe` | Recommended Windows OBS plugin installer |
+| `openstream-beta-obs-windows-x64.zip` | Manual OBS plugin package |
 
 See [`docs/release.md`](docs/release.md) for release tagging and validation.
 
@@ -272,7 +286,7 @@ This is a developer/debug tool only. Normal users should install the OBS plugin.
 - [x] Audio streaming into the OBS mixer
 - [x] Remote camera controls from OBS
 - [x] Windows plugin installer
-- [x] Adaptive bitrate based on network conditions
+- [ ] Adaptive bitrate based on network conditions
 - [ ] QR pairing for restricted networks
 - [ ] GPU zero-copy receive path
 - [ ] macOS/Linux OBS plugin packages
@@ -283,7 +297,7 @@ This is a developer/debug tool only. Normal users should install the OBS plugin.
 
 | Link | URL |
 |---|---|
-| Website | [OpenStream.pages.dev](https://openstream.pages.dev) |
+| Website | [OpenStream Beta.pages.dev](https://openstream.pages.dev) |
 | Releases | [github.com/YashasVM/OpenStream/releases](https://github.com/YashasVM/OpenStream/releases) |
 | Issues | [github.com/YashasVM/OpenStream/issues](https://github.com/YashasVM/OpenStream/issues) |
 

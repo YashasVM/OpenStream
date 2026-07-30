@@ -5,18 +5,18 @@
 
     <!-- ── Core ── -->
     <color name="os_black">#FF000000</color>
-    <color name="os_background">#FF111111</color>
+    <color name="os_background">#FF090D12</color>
     <color name="os_white">#FFFFFFFF</color>
     <color name="os_transparent">#00000000</color>
     
     <!-- ── Accents ── -->
-    <color name="os_accent">#FFFFFFFF</color> <!-- Monochromatic accent -->
-    <color name="os_accent_dim">#B3FFFFFF</color>
-    <color name="os_accent_on">#FF000000</color>
+    <color name="os_accent">#FF65D6A6</color>
+    <color name="os_accent_dim">#B365D6A6</color>
+    <color name="os_accent_on">#FF07130F</color>
 
     <!-- ── Glassmorphism Surfaces ── -->
-    <color name="os_glass_surface">#26FFFFFF</color> <!-- 15% White -->
-    <color name="os_glass_border">#33FFFFFF</color>  <!-- 20% White -->
+    <color name="os_glass_surface">#D91A2028</color>
+    <color name="os_glass_border">#FF343D49</color>
     <color name="os_glass_surface_dark">#40000000</color> <!-- 25% Black -->
     
     <!-- ── Status Colors ── -->

@@ -10,183 +10,190 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="24dp"
-        android:paddingTop="56dp">
+        android:paddingStart="28dp"
+        android:paddingTop="28dp"
+        android:paddingEnd="28dp"
+        android:paddingBottom="32dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/settings_title"
+                android:textColor="@color/os_text_primary"
+                android:textSize="30sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnBackSettings"
+                style="@style/OpenStream.SecondaryButton"
+                android:layout_width="wrap_content"
+                android:minWidth="120dp"
+                android:text="@string/btn_back" />
+        </LinearLayout>
 
         <TextView
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/settings_title"
-            android:textColor="@color/os_text_primary"
-            android:textSize="32sp"
-            android:fontFamily="sans-serif-medium"
-            android:layout_marginBottom="40dp" />
-
-        <TextView
-            android:id="@+id/labelSettingsObsHost"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/settings_obs_host"
-            android:labelFor="@id/settingsObsHost"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="22dp"
+            android:text="@string/settings_subtitle"
             android:textColor="@color/os_text_secondary"
-            android:textSize="14sp"
-            android:layout_marginBottom="8dp" />
+            android:textSize="15sp" />
 
-        <EditText
-            android:id="@+id/settingsObsHost"
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:hint="@string/hint_obs_host"
-            android:textColor="@color/os_text_primary"
-            android:textColorHint="@color/os_text_tertiary"
-            android:textSize="16sp"
-            android:background="@drawable/bg_minimal_input"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:singleLine="true"
-            android:inputType="textUri"
-            android:layout_marginBottom="24dp" />
-
-        <TextView
-            android:id="@+id/labelSettingsObsPort"
-            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/settings_obs_port"
-            android:labelFor="@id/settingsObsPort"
-            android:textColor="@color/os_text_secondary"
-            android:textSize="14sp"
-            android:layout_marginBottom="8dp" />
+            android:baselineAligned="false"
+            android:orientation="horizontal">
 
-        <EditText
-            android:id="@+id/settingsObsPort"
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="10dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_hud_chip"
+                android:orientation="vertical"
+                android:padding="20dp">
+
+                <TextView
+                    style="@style/OpenStream.SectionTitle"
+                    android:text="@string/settings_section_default" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/settings_default_title"
+                    android:textColor="@color/os_text_primary"
+                    android:textSize="21sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/settings_default_help"
+                    android:textColor="@color/os_text_secondary"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_hud_chip"
+                android:orientation="vertical"
+                android:padding="20dp">
+
+                <TextView
+                    style="@style/OpenStream.SectionTitle"
+                    android:text="@string/settings_section_updates" />
+
+                <TextView
+                    android:id="@+id/settingsVersionInfo"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/os_text_primary"
+                    android:textSize="17sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/btnCheckUpdates"
+                    style="@style/OpenStream.SecondaryButton"
+                    android:layout_marginTop="14dp"
+                    android:text="@string/settings_check_updates" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnToggleAdvanced"
+            style="@style/OpenStream.SecondaryButton"
+            android:layout_marginTop="22dp"
+            android:text="@string/settings_show_advanced" />
+
+        <LinearLayout
+            android:id="@+id/advancedSettingsPanel"
             android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:hint="@string/hint_obs_port"
-            android:textColor="@color/os_text_primary"
-            android:textColorHint="@color/os_text_tertiary"
-            android:textSize="16sp"
-            android:inputType="number"
-            android:background="@drawable/bg_minimal_input"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:singleLine="true"
-            android:layout_marginBottom="24dp" />
-
-        <TextView
-            android:id="@+id/labelSettingsLatency"
-            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/settings_latency"
-            android:labelFor="@id/settingsLatency"
-            android:textColor="@color/os_text_secondary"
-            android:textSize="14sp"
-            android:layout_marginBottom="8dp" />
+            android:layout_marginTop="14dp"
+            android:background="@drawable/bg_hud_chip"
+            android:orientation="vertical"
+            android:padding="20dp"
+            android:visibility="gone">
 
-        <EditText
-            android:id="@+id/settingsLatency"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:hint="@string/hint_latency"
-            android:textColor="@color/os_text_primary"
-            android:textColorHint="@color/os_text_tertiary"
-            android:textSize="16sp"
-            android:inputType="number"
-            android:background="@drawable/bg_minimal_input"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:singleLine="true"
-            android:layout_marginBottom="24dp" />
+            <TextView
+                style="@style/OpenStream.SectionTitle"
+                android:text="@string/settings_section_advanced" />
 
-        <TextView
-            android:id="@+id/labelSettingsListeningPort"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/settings_listening_port"
-            android:labelFor="@id/settingsListeningPort"
-            android:textColor="@color/os_text_secondary"
-            android:textSize="14sp"
-            android:layout_marginBottom="8dp" />
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="@string/settings_advanced_help"
+                android:textColor="@color/os_text_secondary"
+                android:textSize="14sp" />
 
-        <EditText
-            android:id="@+id/settingsListeningPort"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:hint="@string/hint_listening_port"
-            android:textColor="@color/os_text_primary"
-            android:textColorHint="@color/os_text_tertiary"
-            android:textSize="16sp"
-            android:inputType="number"
-            android:background="@drawable/bg_minimal_input"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:singleLine="true"
-            android:layout_marginBottom="40dp" />
+            <TextView
+                android:id="@+id/labelSettingsObsHost"
+                style="@style/OpenStream.FieldLabel"
+                android:labelFor="@id/settingsObsHost"
+                android:text="@string/settings_obs_host" />
+            <EditText
+                android:id="@+id/settingsObsHost"
+                style="@style/OpenStream.Input"
+                android:hint="@string/hint_obs_host"
+                android:inputType="textUri" />
 
-        <!-- Check for Updates button -->
-        <Button
-            android:id="@+id/btnCheckUpdates"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:gravity="center"
-            android:background="@drawable/bg_minimal_btn_ghost"
-            android:text="@string/settings_check_updates"
-            android:textAllCaps="false"
-            android:textColor="@color/os_text_primary"
-            android:textSize="16sp"
-            android:fontFamily="sans-serif-medium"
-            android:layout_marginBottom="16dp" />
+            <TextView
+                android:id="@+id/labelSettingsObsPort"
+                style="@style/OpenStream.FieldLabel"
+                android:labelFor="@id/settingsObsPort"
+                android:text="@string/settings_obs_port" />
+            <EditText
+                android:id="@+id/settingsObsPort"
+                style="@style/OpenStream.Input"
+                android:hint="@string/hint_obs_port"
+                android:inputType="number" />
 
-        <!-- Save and connect button -->
-        <Button
-            android:id="@+id/btnSaveAndConnect"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:gravity="center"
-            android:background="@drawable/bg_minimal_btn"
-            android:text="@string/settings_save_connect"
-            android:textAllCaps="false"
-            android:textColor="@color/os_black"
-            android:textSize="16sp"
-            android:fontFamily="sans-serif-medium"
-            android:layout_marginBottom="16dp" />
+            <TextView
+                android:id="@+id/labelSettingsLatency"
+                style="@style/OpenStream.FieldLabel"
+                android:labelFor="@id/settingsLatency"
+                android:text="@string/settings_latency" />
+            <EditText
+                android:id="@+id/settingsLatency"
+                style="@style/OpenStream.Input"
+                android:hint="@string/hint_latency"
+                android:inputType="number" />
 
-        <!-- Save button -->
-        <Button
-            android:id="@+id/btnSaveSettings"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:gravity="center"
-            android:background="@drawable/bg_minimal_btn_ghost"
-            android:text="@string/settings_save"
-            android:textAllCaps="false"
-            android:textColor="@color/os_text_primary"
-            android:textSize="16sp"
-            android:fontFamily="sans-serif-medium"
-            android:layout_marginBottom="16dp" />
+            <TextView
+                android:id="@+id/labelSettingsListeningPort"
+                style="@style/OpenStream.FieldLabel"
+                android:labelFor="@id/settingsListeningPort"
+                android:text="@string/settings_listening_port" />
+            <EditText
+                android:id="@+id/settingsListeningPort"
+                style="@style/OpenStream.Input"
+                android:hint="@string/hint_listening_port"
+                android:inputType="number" />
 
-        <!-- Back button -->
-        <Button
-            android:id="@+id/btnBackSettings"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:gravity="center"
-            android:background="@drawable/bg_minimal_btn_ghost"
-            android:text="@string/btn_back"
-            android:textAllCaps="false"
-            android:textColor="@color/os_text_primary"
-            android:textSize="16sp"
-            android:fontFamily="sans-serif-medium"
-            android:layout_marginBottom="32dp" />
+            <Button
+                android:id="@+id/btnSaveSettings"
+                style="@style/OpenStream.SecondaryButton"
+                android:text="@string/settings_save" />
 
-        <TextView
-            android:id="@+id/settingsVersionInfo"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
-            android:textColor="@color/os_text_tertiary"
-            android:textSize="12sp"
-            android:fontFamily="sans-serif"
-            android:layout_marginBottom="16dp" />
-
+            <Button
+                android:id="@+id/btnSaveAndConnect"
+                style="@style/OpenStream.PrimaryButton"
+                android:layout_marginTop="10dp"
+                android:text="@string/settings_save_connect" />
+        </LinearLayout>
     </LinearLayout>
 </ScrollView>

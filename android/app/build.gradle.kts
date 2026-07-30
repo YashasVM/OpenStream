@@ -17,7 +17,7 @@ val hasReleaseSigning = listOf(
 ).all { !it.isNullOrBlank() }
 val openStreamVersionName = providers.gradleProperty("openstream.versionName")
     .orElse(providers.environmentVariable("OPENSTREAM_VERSION_NAME"))
-    .orElse("2.1.0-beta")
+    .orElse("2.0.0-beta")
     .map { it.removePrefix("v") }
 val openStreamVersionCode = providers.gradleProperty("openstream.versionCode")
     .orElse(providers.environmentVariable("OPENSTREAM_VERSION_CODE"))
