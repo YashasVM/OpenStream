@@ -4,18 +4,14 @@
 
 #include <algorithm>
 #include <array>
-#include <atomic>
 #include <charconv>
-#include <condition_variable>
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
-#include <deque>
 #include <map>
 #include <mutex>
 #include <optional>
 #include <string>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -486,14 +482,7 @@ std::optional<SrtUrl> parseSrtUrl(const std::string &url) {
 
 class NativeSender {
  public:
-  NativeSender() : sendWorker_(&NativeSender::runSendWorker, this) {}
-
-  ~NativeSender() {
-    stopSendWorker();
-    disconnect();
-  }
-
-  bool connect(const std::string &url) {
+  bool connect(const std::string &url, const std::string &passphrase) {
 #if OPENSTREAM_HAVE_LIBSRT
     disconnect();
     const auto parsed = parseSrtUrl(url);
@@ -517,22 +506,18 @@ class NativeSender {
     int yes = 1;
     int transportType = SRTT_LIVE;
     int payloadSize = 188 * 7;
-    // Never let a congested Wi-Fi link stall MediaCodec callbacks for half a
-    // second. SRT's live late-packet drop recovers latency instead of growing it.
-    int sendTimeoutMs = 120;
-    int tooLatePacketDrop = 1;
-    int connectTimeoutMs = 2000;
-    int peerIdleTimeoutMs = 4000;
+    int sendTimeoutMs = 500;
     srt_setsockopt(socket, 0, SRTO_TRANSTYPE, &transportType, sizeof transportType);
     srt_setsockopt(socket, 0, SRTO_SENDER, &yes, sizeof yes);
     srt_setsockopt(socket, 0, SRTO_PAYLOADSIZE, &payloadSize, sizeof payloadSize);
     srt_setsockopt(socket, 0, SRTO_SNDTIMEO, &sendTimeoutMs, sizeof sendTimeoutMs);
-    srt_setsockopt(socket, 0, SRTO_TLPKTDROP, &tooLatePacketDrop, sizeof tooLatePacketDrop);
-    srt_setsockopt(socket, 0, SRTO_CONNTIMEO, &connectTimeoutMs, sizeof connectTimeoutMs);
-    srt_setsockopt(socket, 0, SRTO_PEERIDLETIMEO, &peerIdleTimeoutMs, sizeof peerIdleTimeoutMs);
     const int latency = parsed->latencyMs;
     srt_setsockopt(socket, 0, SRTO_LATENCY, &latency, sizeof latency);
     srt_setsockopt(socket, 0, SRTO_PEERLATENCY, &latency, sizeof latency);
+    if (!configureEncryption(socket, passphrase)) {
+      closeSocket(socket);
+      return false;
+    }
 
     addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
@@ -562,12 +547,13 @@ class NativeSender {
     return true;
 #else
     (void)url;
+    (void)passphrase;
     logError("openstream_srt was built without libsrt. Rebuild with OPENSTREAM_ENABLE_LIBSRT=ON.");
     return false;
 #endif
   }
 
-  bool listen(const std::string &url) {
+  bool listen(const std::string &url, const std::string &passphrase) {
 #if OPENSTREAM_HAVE_LIBSRT
     disconnect();
     const auto parsed = parseSrtUrl(url);
@@ -591,19 +577,19 @@ class NativeSender {
     int yes = 1;
     int transportType = SRTT_LIVE;
     int payloadSize = 188 * 7;
-    int sendTimeoutMs = 120;
-    int tooLatePacketDrop = 1;
-    int peerIdleTimeoutMs = 4000;
+    int sendTimeoutMs = 500;
     const int latency = parsed->latencyMs;
     srt_setsockopt(listenerSocket, 0, SRTO_TRANSTYPE, &transportType, sizeof transportType);
     srt_setsockopt(listenerSocket, 0, SRTO_SENDER, &yes, sizeof yes);
     srt_setsockopt(listenerSocket, 0, SRTO_REUSEADDR, &yes, sizeof yes);
     srt_setsockopt(listenerSocket, 0, SRTO_PAYLOADSIZE, &payloadSize, sizeof payloadSize);
     srt_setsockopt(listenerSocket, 0, SRTO_SNDTIMEO, &sendTimeoutMs, sizeof sendTimeoutMs);
-    srt_setsockopt(listenerSocket, 0, SRTO_TLPKTDROP, &tooLatePacketDrop, sizeof tooLatePacketDrop);
-    srt_setsockopt(listenerSocket, 0, SRTO_PEERIDLETIMEO, &peerIdleTimeoutMs, sizeof peerIdleTimeoutMs);
     srt_setsockopt(listenerSocket, 0, SRTO_LATENCY, &latency, sizeof latency);
     srt_setsockopt(listenerSocket, 0, SRTO_PEERLATENCY, &latency, sizeof latency);
+    if (!configureEncryption(listenerSocket, passphrase)) {
+      closeListenerSocket(listenerSocket);
+      return false;
+    }
 
     sockaddr_in address{};
     address.sin_family = AF_INET;
@@ -632,19 +618,18 @@ class NativeSender {
       return false;
     }
     srt_setsockopt(acceptedSocket, 0, SRTO_SNDTIMEO, &sendTimeoutMs, sizeof sendTimeoutMs);
-    srt_setsockopt(acceptedSocket, 0, SRTO_TLPKTDROP, &tooLatePacketDrop, sizeof tooLatePacketDrop);
-    srt_setsockopt(acceptedSocket, 0, SRTO_PEERIDLETIMEO, &peerIdleTimeoutMs, sizeof peerIdleTimeoutMs);
     setSocket(acceptedSocket);
     logInfo("OBS connected to Android SRT listener");
     return true;
 #else
     (void)url;
+    (void)passphrase;
     logError("openstream_srt was built without libsrt. Rebuild with OPENSTREAM_ENABLE_LIBSRT=ON.");
     return false;
 #endif
   }
 
-  bool sendNow(const std::vector<uint8_t> &bytes) {
+  bool send(const std::vector<uint8_t> &bytes) {
 #if OPENSTREAM_HAVE_LIBSRT
     // Closing an SRT socket or tearing down libsrt while another codec thread
     // is inside srt_sendmsg is unsafe. Serialize the whole send with teardown,
@@ -680,35 +665,8 @@ class NativeSender {
 #endif
   }
 
-  bool send(const std::vector<uint8_t> &bytes) {
-#if OPENSTREAM_HAVE_LIBSRT
-    if (!healthy_.load()) return false;
-    {
-      std::lock_guard<std::mutex> lock(sendQueueMutex_);
-      if (sendWorkerStopping_ ||
-          sendQueueBytes_ + bytes.size() > kMaximumSendQueueBytes) {
-        healthy_ = false;
-        return false;
-      }
-      sendQueue_.push_back(bytes);
-      sendQueueBytes_ += bytes.size();
-    }
-    sendQueueWake_.notify_one();
-    return true;
-#else
-    (void)bytes;
-    return false;
-#endif
-  }
-
   void disconnect() {
 #if OPENSTREAM_HAVE_LIBSRT
-    healthy_ = false;
-    {
-      std::lock_guard<std::mutex> lock(sendQueueMutex_);
-      sendQueue_.clear();
-      sendQueueBytes_ = 0;
-    }
     std::lock_guard<std::mutex> ioLock(ioMutex_);
     const SRTSOCKET listenerSocket = takeListenerSocket();
     const SRTSOCKET socket = takeSocket();
@@ -723,40 +681,24 @@ class NativeSender {
   }
 
  private:
-  void runSendWorker() {
-    for (;;) {
-      std::vector<uint8_t> bytes;
-      {
-        std::unique_lock<std::mutex> lock(sendQueueMutex_);
-        sendQueueWake_.wait(lock, [this] {
-          return sendWorkerStopping_ || !sendQueue_.empty();
-        });
-        if (sendWorkerStopping_) return;
-        bytes = std::move(sendQueue_.front());
-        sendQueue_.pop_front();
-        sendQueueBytes_ -= bytes.size();
-      }
-      if (!sendNow(bytes)) {
-        healthy_ = false;
-        std::lock_guard<std::mutex> lock(sendQueueMutex_);
-        sendQueue_.clear();
-        sendQueueBytes_ = 0;
-      }
-    }
-  }
-
-  void stopSendWorker() {
-    {
-      std::lock_guard<std::mutex> lock(sendQueueMutex_);
-      sendWorkerStopping_ = true;
-      sendQueue_.clear();
-      sendQueueBytes_ = 0;
-    }
-    sendQueueWake_.notify_one();
-    if (sendWorker_.joinable()) sendWorker_.join();
-  }
-
 #if OPENSTREAM_HAVE_LIBSRT
+  bool configureEncryption(SRTSOCKET socket, const std::string &passphrase) {
+    if (passphrase.empty()) return true;
+    if (passphrase.size() < 10 || passphrase.size() > 79) {
+      logError("SRT passphrase must contain 10 to 79 characters");
+      return false;
+    }
+    int keyLength = 32;
+    if (srt_setsockopt(socket, 0, SRTO_PBKEYLEN, &keyLength, sizeof keyLength) == SRT_ERROR ||
+        srt_setsockopt(socket, 0, SRTO_PASSPHRASE, passphrase.data(),
+                       static_cast<int>(passphrase.size())) == SRT_ERROR) {
+      __android_log_print(ANDROID_LOG_ERROR, kTag, "Could not enable SRT encryption: %s",
+                          srt_getlasterror_str());
+      return false;
+    }
+    return true;
+  }
+
   SRTSOCKET currentSocket() const {
     std::lock_guard<std::mutex> lock(socketMutex_);
     return socket_;
@@ -765,7 +707,6 @@ class NativeSender {
   void setSocket(SRTSOCKET socket) {
     std::lock_guard<std::mutex> lock(socketMutex_);
     socket_ = socket;
-    healthy_ = true;
   }
 
   SRTSOCKET takeSocket() {
@@ -781,7 +722,6 @@ class NativeSender {
       std::lock_guard<std::mutex> lock(socketMutex_);
       if (socket_ == socket) {
         socket_ = SRT_INVALID_SOCK;
-        healthy_ = false;
         ownsSocket = true;
       }
     }
@@ -821,14 +761,6 @@ class NativeSender {
   SRTSOCKET socket_ = SRT_INVALID_SOCK;
   SRTSOCKET listener_socket_ = SRT_INVALID_SOCK;
 #endif
-  static constexpr size_t kMaximumSendQueueBytes = 768 * 1024;
-  std::atomic<bool> healthy_{false};
-  std::mutex sendQueueMutex_;
-  std::condition_variable sendQueueWake_;
-  std::deque<std::vector<uint8_t>> sendQueue_;
-  size_t sendQueueBytes_ = 0;
-  bool sendWorkerStopping_ = false;
-  std::thread sendWorker_;
 };
 
 struct StreamState {
@@ -852,13 +784,17 @@ Java_dev_openstream_app_stream_SrtNativeBridge_connect(
     jstring codec_mime,
     jint,
     jint,
-    jint) {
+    jint,
+    jstring passphrase) {
   const char *rawUrl = env->GetStringUTFChars(url, nullptr);
   const char *rawCodec = env->GetStringUTFChars(codec_mime, nullptr);
   const std::string urlString(rawUrl);
   const std::string codecString(rawCodec);
+  const char *rawPassphrase = passphrase ? env->GetStringUTFChars(passphrase, nullptr) : nullptr;
+  const std::string passphraseString = rawPassphrase ? rawPassphrase : "";
   env->ReleaseStringUTFChars(url, rawUrl);
   env->ReleaseStringUTFChars(codec_mime, rawCodec);
+  if (rawPassphrase) env->ReleaseStringUTFChars(passphrase, rawPassphrase);
 
   const auto codec = parseCodec(codecString);
   if (!codec) {
@@ -875,7 +811,7 @@ Java_dev_openstream_app_stream_SrtNativeBridge_connect(
     g_state.connected = false;
   }
   g_state.sender.disconnect();
-  const bool connected = g_state.sender.connect(urlString);
+  const bool connected = g_state.sender.connect(urlString, passphraseString);
   {
     std::lock_guard<std::mutex> lock(g_state.mediaMutex);
     g_state.connected = connected;
@@ -894,13 +830,17 @@ Java_dev_openstream_app_stream_SrtNativeBridge_listen(
     jstring codec_mime,
     jint,
     jint,
-    jint) {
+    jint,
+    jstring passphrase) {
   const char *rawUrl = env->GetStringUTFChars(url, nullptr);
   const char *rawCodec = env->GetStringUTFChars(codec_mime, nullptr);
   const std::string urlString(rawUrl);
   const std::string codecString(rawCodec);
+  const char *rawPassphrase = passphrase ? env->GetStringUTFChars(passphrase, nullptr) : nullptr;
+  const std::string passphraseString = rawPassphrase ? rawPassphrase : "";
   env->ReleaseStringUTFChars(url, rawUrl);
   env->ReleaseStringUTFChars(codec_mime, rawCodec);
+  if (rawPassphrase) env->ReleaseStringUTFChars(passphrase, rawPassphrase);
 
   const auto codec = parseCodec(codecString);
   if (!codec) {
@@ -917,7 +857,7 @@ Java_dev_openstream_app_stream_SrtNativeBridge_listen(
     g_state.connected = false;
   }
   g_state.sender.disconnect();
-  const bool connected = g_state.sender.listen(urlString);
+  const bool connected = g_state.sender.listen(urlString, passphraseString);
   {
     std::lock_guard<std::mutex> lock(g_state.mediaMutex);
     g_state.connected = connected;

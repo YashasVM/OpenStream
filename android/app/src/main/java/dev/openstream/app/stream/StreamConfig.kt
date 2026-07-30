@@ -22,28 +22,26 @@ data class StreamConfig(
             width = 1920,
             height = 1080,
             fps = 60,
-            // HEVC at 1080p60 remains visually strong at this rate while leaving
-            // enough headroom for retransmits on typical Wi-Fi links.
-            bitrate = 16_000_000,
+            bitrate = 50_000_000,
             keyframeIntervalSeconds = 1,
             latencyMs = 120,
             codecPreference = CodecPreference.PreferHevc,
             audioSampleRate = 48_000,
             audioChannelCount = 1,
-            audioBitrate = 128_000,
+            audioBitrate = 192_000,
         )
 
         val Fallback720p60 = StreamConfig(
             width = 1280,
             height = 720,
             fps = 60,
-            bitrate = 8_000_000,
+            bitrate = 25_000_000,
             keyframeIntervalSeconds = 1,
             latencyMs = 120,
             codecPreference = CodecPreference.PreferHevc,
             audioSampleRate = 48_000,
             audioChannelCount = 1,
-            audioBitrate = 128_000,
+            audioBitrate = 192_000,
         )
     }
 }
