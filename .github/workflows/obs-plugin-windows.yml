@@ -51,7 +51,7 @@ jobs:
       - name: Verify OBS 32 FFmpeg ABI dependencies
         shell: powershell
         run: |
-          $dll = "$PWD\obs-plugin\build\openstream-beta-obs.dll"
+          $dll = "$PWD\obs-plugin\build\openstream-obs.dll"
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Sort-Object FullName -Descending | Select-Object -First 1
           if (!$dumpbin) { throw "dumpbin.exe was not found" }
@@ -62,10 +62,10 @@ jobs:
       - name: Verify ZIP migration package
         shell: powershell
         run: |
-          Expand-Archive artifacts\openstream-beta-obs-windows-x64.zip "$env:RUNNER_TEMP\openstream-zip"
+          Expand-Archive artifacts\openstream-obs-windows-x64.zip "$env:RUNNER_TEMP\openstream-zip"
           $stage = "$env:RUNNER_TEMP\openstream-zip"
-          if (!(Test-Path "$stage\openstream-beta-obs.dll") -or !(Test-Path "$stage\data")) { throw 'ZIP is missing canonical DLL or data directory' }
-          & tools\installer\Test-OpenStreamPackage.ps1 -ZipPath "$PWD\artifacts\openstream-beta-obs-windows-x64.zip"
+          if (!(Test-Path "$stage\openstream-obs.dll")) { throw 'ZIP is missing canonical DLL' }
+          & tools\installer\Test-OpenStreamPackage.ps1 -ZipPath "$PWD\artifacts\openstream-obs-windows-x64.zip"
 
       - name: Install Inno Setup
         shell: powershell
@@ -77,24 +77,24 @@ jobs:
           OPENSTREAM_VERSION: ci
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          & $iscc "tools\installer\openstream-beta-obs-plugin.iss" `
-            "/DPluginDll=$PWD\obs-plugin\build\openstream-beta-obs.dll" `
+          & $iscc "tools\installer\openstream-obs-plugin.iss" `
+            "/DPluginDll=$PWD\obs-plugin\build\openstream-obs.dll" `
             "/DOutputDir=$PWD\artifacts" `
-            "/DOutputBaseFilename=openstream-beta-obs-plugin-installer-windows-x64" `
+            "/DOutputBaseFilename=openstream-obs-plugin-installer-windows-x64" `
             "/DOpenStreamVersion=$env:OPENSTREAM_VERSION"
 
       - name: Smoke-test executable installer migration
         shell: powershell
         run: |
           & tools\installer\Test-OpenStreamInnoInstaller.ps1 `
-            -InstallerPath "$PWD\artifacts\openstream-beta-obs-plugin-installer-windows-x64.exe"
+            -InstallerPath "$PWD\artifacts\openstream-obs-plugin-installer-windows-x64.exe"
 
       - name: Upload plugin package and installer
         uses: actions/upload-artifact@v4
         with:
-          name: openstream-beta-obs-windows-x64
+          name: openstream-obs-windows-x64
           path: |
-            artifacts/openstream-beta-obs-windows-x64.zip
-            artifacts/openstream-beta-obs-plugin-installer-windows-x64.exe
+            artifacts/openstream-obs-windows-x64.zip
+            artifacts/openstream-obs-plugin-installer-windows-x64.exe
           if-no-files-found: error
 

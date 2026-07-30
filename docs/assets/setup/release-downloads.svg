@@ -14,9 +14,9 @@
   <text x="124" y="259" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700" fill="#155e75">openstream-android.apk</text>
   <text x="650" y="259" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#0f766e">Android phone</text>
   <rect x="96" y="302" width="768" height="58" rx="8" fill="#ecfdf5" stroke="#10b981"/>
-  <text x="124" y="337" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700" fill="#065f46">openstream-beta-obs-plugin-installer-windows-x64.exe</text>
+  <text x="124" y="337" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700" fill="#065f46">openstream-obs-plugin-installer-windows-x64.exe</text>
   <text x="650" y="337" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#047857">Recommended</text>
   <rect x="96" y="380" width="768" height="58" rx="8" fill="#f8fafc" stroke="#94a3b8"/>
-  <text x="124" y="415" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700" fill="#334155">openstream-beta-obs-windows-x64.zip</text>
+  <text x="124" y="415" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700" fill="#334155">openstream-obs-windows-x64.zip</text>
   <text x="650" y="415" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#475569">Manual fallback</text>
 </svg>

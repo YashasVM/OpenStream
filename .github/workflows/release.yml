@@ -160,11 +160,11 @@ jobs:
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Sort-Object FullName -Descending | Select-Object -First 1
           if (!$dumpbin) { throw "dumpbin.exe was not found" }
-          $deps = & $dumpbin.FullName /dependents "$PWD\obs-plugin\build\openstream-beta-obs.dll"
+          $deps = & $dumpbin.FullName /dependents "$PWD\obs-plugin\build\openstream-obs.dll"
           'avformat-62.dll','avcodec-62.dll','avutil-60.dll','swscale-9.dll' | ForEach-Object { if ($deps -notmatch [regex]::Escape($_)) { throw "Missing expected dependency $_" } }
-          Expand-Archive artifacts\openstream-beta-obs-windows-x64.zip "$env:RUNNER_TEMP\openstream-zip"
-          if (!(Test-Path "$env:RUNNER_TEMP\openstream-zip\data")) { throw 'ZIP data directory missing' }
-          & tools\installer\Test-OpenStreamPackage.ps1 -ZipPath "$PWD\artifacts\openstream-beta-obs-windows-x64.zip"
+          Expand-Archive artifacts\openstream-obs-windows-x64.zip "$env:RUNNER_TEMP\openstream-zip"
+          if (!(Test-Path "$env:RUNNER_TEMP\openstream-zip\openstream-obs.dll")) { throw 'ZIP plugin DLL missing' }
+          & tools\installer\Test-OpenStreamPackage.ps1 -ZipPath "$PWD\artifacts\openstream-obs-windows-x64.zip"
 
       - name: Install Inno Setup
         shell: powershell
@@ -179,25 +179,25 @@ jobs:
             $env:OPENSTREAM_VERSION = "manual"
           }
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          & $iscc "tools\installer\openstream-beta-obs-plugin.iss" `
-            "/DPluginDll=$PWD\obs-plugin\build\openstream-beta-obs.dll" `
+          & $iscc "tools\installer\openstream-obs-plugin.iss" `
+            "/DPluginDll=$PWD\obs-plugin\build\openstream-obs.dll" `
             "/DOutputDir=$PWD\artifacts" `
-            "/DOutputBaseFilename=openstream-beta-obs-plugin-installer-windows-x64" `
+            "/DOutputBaseFilename=openstream-obs-plugin-installer-windows-x64" `
             "/DOpenStreamVersion=$env:OPENSTREAM_VERSION"
 
       - name: Smoke-test executable installer migration
         shell: powershell
         run: |
           & tools\installer\Test-OpenStreamInnoInstaller.ps1 `
-            -InstallerPath "$PWD\artifacts\openstream-beta-obs-plugin-installer-windows-x64.exe"
+            -InstallerPath "$PWD\artifacts\openstream-obs-plugin-installer-windows-x64.exe"
 
       - name: Upload plugin artifact
         uses: actions/upload-artifact@v4
         with:
-          name: openstream-beta-obs-windows-x64
+          name: openstream-obs-windows-x64
           path: |
-            artifacts/openstream-beta-obs-windows-x64.zip
-            artifacts/openstream-beta-obs-plugin-installer-windows-x64.exe
+            artifacts/openstream-obs-windows-x64.zip
+            artifacts/openstream-obs-plugin-installer-windows-x64.exe
           if-no-files-found: error
 
   publish:
@@ -224,8 +224,8 @@ jobs:
           test -f dist/openstream-android.apk
           test -f dist/openstream-android.apk.sha256
           test -f dist/openstream-android-update.json
-          test -f dist/openstream-beta-obs-plugin-installer-windows-x64.exe
-          test -f dist/openstream-beta-obs-windows-x64.zip
+          test -f dist/openstream-obs-plugin-installer-windows-x64.exe
+          test -f dist/openstream-obs-windows-x64.zip
 
       - name: Create release
         env:
@@ -237,8 +237,8 @@ jobs:
             dist/openstream-android.apk \
             dist/openstream-android.apk.sha256 \
             dist/openstream-android-update.json \
-            dist/openstream-beta-obs-plugin-installer-windows-x64.exe \
-            dist/openstream-beta-obs-windows-x64.zip \
+            dist/openstream-obs-plugin-installer-windows-x64.exe \
+            dist/openstream-obs-windows-x64.zip \
             --target "$GITHUB_SHA" \
             --title "OpenStream ${TAG_NAME}" \
             --notes-file docs/release-notes-template.md

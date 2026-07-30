@@ -30,7 +30,6 @@ class CameraStateStore(
                 revision = state.revision + 1,
                 lastActor = CameraActor.System,
                 settings = defaults,
-                zoomTransition = null,
             )
             state
         }
@@ -69,7 +68,6 @@ class CameraStateStore(
                 revision = state.revision + 1,
                 lastActor = actor,
                 settings = updatedSettings,
-                zoomTransition = if (patch.zoomRatio != null) null else state.zoomTransition,
             )
             CameraControlResult.Applied(state)
         }
@@ -98,47 +96,6 @@ class CameraStateStore(
         }
         if (result is CameraControlResult.Applied) notifyListeners(result.state)
         return result
-    }
-
-    fun startZoomTransition(
-        expectedRevision: Long?,
-        actor: CameraActor,
-        targetRatio: Float,
-        durationMs: Int,
-    ): CameraControlResult {
-        val result = synchronized(this) {
-            gate(expectedRevision, actor)?.let { return@synchronized it }
-            val caps = capabilities
-                ?: return@synchronized CameraControlResult.Unsupported("camera", "Camera is not ready", state)
-            if (!caps.supportsZoomTransition) {
-                return@synchronized CameraControlResult.Unsupported("zoomTransition", "Smooth zoom is unavailable on this camera", state)
-            }
-            if (!targetRatio.isFinite() || !caps.zoomRange.contains(targetRatio)) {
-                return@synchronized CameraControlResult.Invalid("zoomRatio", "Zoom must be ${caps.zoomRange.min}..${caps.zoomRange.max}", state)
-            }
-            if (durationMs !in MIN_ZOOM_TRANSITION_MS..MAX_ZOOM_TRANSITION_MS) {
-                return@synchronized CameraControlResult.Invalid("durationMs", "Duration must be $MIN_ZOOM_TRANSITION_MS..$MAX_ZOOM_TRANSITION_MS ms", state)
-            }
-            state = state.copy(
-                revision = state.revision + 1,
-                lastActor = actor,
-                settings = state.settings.copy(zoomRatio = targetRatio),
-                zoomTransition = ZoomTransition(targetRatio, durationMs),
-            )
-            CameraControlResult.Applied(state)
-        }
-        if (result is CameraControlResult.Applied) notifyListeners(result.state)
-        return result
-    }
-
-    fun cancelZoomTransition(): CameraState? {
-        val updated = synchronized(this) {
-            if (state.zoomTransition == null) return@synchronized null
-            state = state.copy(zoomTransition = null)
-            state
-        }
-        updated?.let(::notifyListeners)
-        return updated
     }
 
     fun setAuthority(
@@ -311,10 +268,5 @@ class CameraStateStore(
 
     private fun notifyListeners(value: CameraState) {
         listeners.forEach { listener -> runCatching { listener(value) } }
-    }
-
-    companion object {
-        const val MIN_ZOOM_TRANSITION_MS = 250
-        const val MAX_ZOOM_TRANSITION_MS = 10_000
     }
 }

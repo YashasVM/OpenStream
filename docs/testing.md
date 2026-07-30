@@ -78,27 +78,17 @@ Pro and Galaxy S24 Ultra certification profiles.
 - Thermal warning and critical states reach both surfaces and recommend or
   apply only the documented degradation policy.
 
-## OBS Control Room acceptance
+## OBS Camera Control acceptance
 
 Test OBS light and dark themes at narrow and wide dock widths, Windows scaling
 at 100%, 150%, and 200%, keyboard-only operation, and a screen reader.
 
-- Source Properties contains setup, phone binding, connection actions, and
-  collapsed troubleshooting only; live ISO/WB/focus/zoom controls are not
-  duplicated there.
-- The Control Room roster tracks add, remove, rename, scene collection change,
-  reconnect, reservation, and unload without recreating the dock.
-- Exposure, Focus, Color, Lens, and Health groups bind to the selected camera's
-  capabilities and current revision.
-- Preview click-to-focus maps to normalized transmitted-frame coordinates;
-  keyboard reticle control reaches the same command path.
-- Slider input is coalesced to a bounded command rate and sends the exact final
-  value on release. Delayed commands cannot overwrite a newer revision.
-- Disruptive FPS/codec/resolution/lens changes show **Apply & Reconnect**, warn
-  on Program, and recover on a fresh keyframe.
-- Multi-camera preset preview reports skipped unsupported settings before apply.
-- Status, progress, warning, tally, focus state, and errors never rely on color
-  alone. Focus order remains stable while state changes.
+- Source Properties exposes the original v2.1 setup, slot, connection, and
+  transport controls.
+- The Camera Control dock tracks OpenStream sources without leaking source
+  references as sources are added, removed, or renamed.
+- Zoom, torch, lens, focus, and exposure commands target the selected source.
+- Status text remains legible and keyboard focus order remains stable.
 
 ## Media, network, and recovery acceptance
 

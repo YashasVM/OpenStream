@@ -6,7 +6,7 @@
   <rect x="80" y="76" width="528" height="300" rx="6" fill="#0f172a" stroke="#334155"/>
   <text x="286" y="232" font-family="Segoe UI, Arial, sans-serif" font-size="20" fill="#94a3b8">OpenStream waits for phone</text>
   <rect x="636" y="76" width="232" height="300" rx="6" fill="#111827" stroke="#334155"/>
-  <text x="650" y="112" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700" fill="#f8fafc">OpenStream Beta Control Room</text>
+  <text x="650" y="112" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700" fill="#f8fafc">OpenStream Camera Control</text>
   <rect x="650" y="136" width="204" height="104" rx="8" fill="#172033" stroke="#64748b"/>
   <text x="666" y="163" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700" fill="#f8fafc">Main CAM</text>
   <text x="666" y="187" font-family="Segoe UI, Arial, sans-serif" font-size="14" fill="#fbbf24">Waiting for phone</text>

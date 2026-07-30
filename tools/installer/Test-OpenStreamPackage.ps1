@@ -18,10 +18,10 @@ try {
             Set-Content -LiteralPath $path -Value legacy
         }
     }
-    & (Join-Path $stage 'Install-OpenStreamBetaPlugin.ps1') -ObsInstallDir $obs -ProgramDataRoot $programData -AppDataRoot $appData
-    $canonical = Join-Path $obs 'obs-plugins\64bit\openstream-beta-obs.dll'
-    if (!(Test-Path $canonical) -or !(Test-Path (Join-Path $obs 'data\obs-plugins\openstream-beta-obs'))) { throw 'Canonical package layout was not installed.' }
-    $remaining = Get-ChildItem -Path $obs,$programData,$appData -Filter 'openstream-obs.dll' -Recurse -ErrorAction SilentlyContinue
+    & (Join-Path $stage 'Install-OpenStreamPlugin.ps1') -ObsInstallDir $obs -ProgramDataRoot $programData -AppDataRoot $appData
+    $canonical = Join-Path $obs 'obs-plugins\64bit\openstream-obs.dll'
+    if (!(Test-Path $canonical)) { throw 'Canonical package DLL was not installed.' }
+    $remaining = Get-ChildItem -Path $obs,$programData,$appData -Filter 'openstream-beta-obs.dll' -Recurse -ErrorAction SilentlyContinue
     if ($remaining) { throw "Legacy plugin survived migration: $($remaining.FullName -join ', ')" }
     Write-Host 'ZIP migration smoke test passed.'
 } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }

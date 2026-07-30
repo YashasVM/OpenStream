@@ -29,7 +29,7 @@ set "OBS_BIN="
 set "PACKAGE_DIR="
 set "CMAKE_EXE=cmake"
 set "QT_ROOT=%OPENSTREAM_QT_ROOT%"
-if not defined OPENSTREAM_VERSION set "OPENSTREAM_VERSION=2.1.1-beta"
+if not defined OPENSTREAM_VERSION set "OPENSTREAM_VERSION=2.1.0-beta"
 
 if defined OPENSTREAM_OBS_INSTALL set "OBS_INSTALL=%OPENSTREAM_OBS_INSTALL%"
 if defined OPENSTREAM_PLUGIN_BUILD_DIR set "BUILD_DIR=%OPENSTREAM_PLUGIN_BUILD_DIR%"
@@ -227,29 +227,28 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [5/6] Building OpenStream Beta plugin...
+echo [5/6] Building OpenStream plugin...
 "%CMAKE_EXE%" --build "%BUILD_DIR%" --config Release
 if errorlevel 1 (
     echo ERROR: Build failed.
     exit /b 1
 )
 
-if not exist "%BUILD_DIR%\openstream-beta-obs.dll" (
-    echo ERROR: Build output not found: %BUILD_DIR%\openstream-beta-obs.dll
+if not exist "%BUILD_DIR%\openstream-obs.dll" (
+    echo ERROR: Build output not found: %BUILD_DIR%\openstream-obs.dll
     exit /b 1
 )
 
 if defined PACKAGE_DIR (
     echo [6/6] Packaging plugin artifact...
     if not exist "%PACKAGE_DIR%" mkdir "%PACKAGE_DIR%"
-    set "STAGE_DIR=%PACKAGE_DIR%\openstream-beta-obs-windows-x64"
+    set "STAGE_DIR=%PACKAGE_DIR%\openstream-obs-windows-x64"
     if exist "!STAGE_DIR!" rmdir /S /Q "!STAGE_DIR!"
     mkdir "!STAGE_DIR!"
-    copy /Y "%BUILD_DIR%\openstream-beta-obs.dll" "!STAGE_DIR!\openstream-beta-obs.dll" >nul
-    xcopy /E /Y /I "%PLUGIN_DIR%\data" "!STAGE_DIR!\data" >nul
-    copy /Y "%SCRIPT_DIR%tools\installer\Install-OpenStreamBetaPlugin.ps1" "!STAGE_DIR!\Install-OpenStreamBetaPlugin.ps1" >nul
-    copy /Y "%SCRIPT_DIR%tools\installer\install-openstream-beta-plugin.bat" "!STAGE_DIR!\install-openstream-beta-plugin.bat" >nul
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path '!STAGE_DIR!\*' -DestinationPath '%PACKAGE_DIR%\openstream-beta-obs-windows-x64.zip' -Force"
+    copy /Y "%BUILD_DIR%\openstream-obs.dll" "!STAGE_DIR!\openstream-obs.dll" >nul
+    copy /Y "%SCRIPT_DIR%tools\installer\Install-OpenStreamPlugin.ps1" "!STAGE_DIR!\Install-OpenStreamPlugin.ps1" >nul
+    copy /Y "%SCRIPT_DIR%tools\installer\install-openstream-plugin.bat" "!STAGE_DIR!\install-openstream-plugin.bat" >nul
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path '!STAGE_DIR!\*' -DestinationPath '%PACKAGE_DIR%\openstream-obs-windows-x64.zip' -Force"
     if errorlevel 1 exit /b 1
 ) else (
     echo [6/6] Packaging skipped.
@@ -257,7 +256,7 @@ if defined PACKAGE_DIR (
 
 if /I "%OPENSTREAM_SKIP_INSTALL%"=="1" (
     echo Install skipped because OPENSTREAM_SKIP_INSTALL=1.
-    echo Built plugin: %BUILD_DIR%\openstream-beta-obs.dll
+    echo Built plugin: %BUILD_DIR%\openstream-obs.dll
     endlocal
     exit /b 0
 )
@@ -265,7 +264,9 @@ if /I "%OPENSTREAM_SKIP_INSTALL%"=="1" (
 echo Installing plugin to OBS...
 set "DEST=%OBS_INSTALL%\obs-plugins\64bit"
 if not exist "%DEST%" mkdir "%DEST%"
-copy /Y "%BUILD_DIR%\openstream-beta-obs.dll" "%DEST%\openstream-beta-obs.dll"
+del /Q "%DEST%\openstream-beta-obs.dll" 2>nul
+del /Q "%DEST%\openstream-obs.dll" 2>nul
+copy /Y "%BUILD_DIR%\openstream-obs.dll" "%DEST%\openstream-obs.dll"
 if errorlevel 1 (
     echo ERROR: Failed to copy plugin to %DEST%.
     exit /b 1
@@ -273,10 +274,10 @@ if errorlevel 1 (
 
 echo.
 echo =====================================================
-echo   SUCCESS! OpenStream Beta plugin installed.
+echo   SUCCESS! OpenStream plugin installed.
 echo =====================================================
 echo.
-echo   Plugin: %DEST%\openstream-beta-obs.dll
+echo   Plugin: %DEST%\openstream-obs.dll
 echo.
 echo Restart OBS Studio, then add an OpenStream source.
 echo.

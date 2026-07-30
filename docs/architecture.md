@@ -90,21 +90,10 @@ OBS **Source Properties** is setup-only: bind or change the phone, name the
 camera, connect/retry/stop the source, or open collapsed diagnostics and manual
 network settings. Camera image controls are never duplicated there.
 
-Day-to-day camera operation lives in one custom Qt **OpenStream Beta Control Room**
-dock. The dock has a camera roster and selected-camera preview, followed by
-Exposure, Focus, Color, Lens, and Health groups. It exposes tally,
-collaborative/OBS Lock authority, presets, Identify, Retry, and a guarded Stop
-action. Unsupported controls are disabled with a reason derived from
-`CameraCapabilities`.
-
-The source publishes immutable UI snapshots. State-change notifications queue
-updates onto the Qt UI thread; widgets are updated in place rather than being
-destroyed and rebuilt on a one-second timer. OBS zoom actions send one
-capability-gated `/v2/zoom-transition` command; Android owns timing and
-interpolation so network jitter cannot shape the ramp. Versioned preset
-settings are stored on the associated OBS source, and saving them does not
-restart its media worker. Only the selected camera owns an interactive preview,
-avoiding one OBS display per roster card.
+Day-to-day camera operation lives in the original Qt **OpenStream Camera Control**
+dock. It enumerates OpenStream sources and sends the original v2.1 camera
+commands for zoom, torch, lens selection, focus, and exposure. Connection and
+transport settings remain in Source Properties.
 
 ## Control, authority, and failure handling
 

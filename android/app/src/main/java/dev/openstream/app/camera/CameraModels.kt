@@ -120,12 +120,6 @@ data class CameraCapabilities(
     val focusModes: Set<FocusMode>,
     val whiteBalanceModes: Set<WhiteBalanceMode>,
     val stabilizationModes: Set<StabilizationMode>,
-    val supportsZoomTransition: Boolean = true,
-)
-
-data class ZoomTransition(
-    val targetRatio: Float,
-    val durationMs: Int,
 )
 
 data class CameraSettings(
@@ -187,7 +181,6 @@ data class CameraState(
     val tally: TallyState = TallyState(),
     val settings: CameraSettings = CameraSettings(),
     val telemetry: CameraTelemetry = CameraTelemetry(),
-    val zoomTransition: ZoomTransition? = null,
 )
 
 sealed interface CameraControlResult {
