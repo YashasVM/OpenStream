@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(openstream_obs_plugin VERSION 2.1.0 LANGUAGES CXX)
+project(openstream_obs_plugin VERSION 2.1.1 LANGUAGES CXX)
 
 # Releases are built against OBS Studio 32.2.1 x64.  Its bundled FFmpeg ABI is
 # avformat 62, avcodec 62, avutil 60 and swscale 9.  Keeping this declaration

@@ -20,9 +20,18 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install OBS Studio
+      - name: Install OBS Studio 32.2.1
         shell: powershell
-        run: choco install obs-studio --version=32.2.1 -y --no-progress
+        run: |
+          $url = "https://github.com/obsproject/obs-studio/releases/download/32.2.1/OBS-Studio-32.2.1-Windows-x64.zip"
+          $archive = "$env:RUNNER_TEMP\obs-studio.zip"
+          $destination = "$env:RUNNER_TEMP\obs-studio"
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          $actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = "db64a2934f8261f85b1410b84be011207a0afda5400d008289f1f1e211bcc7de"
+          if ($actual -ne $expected) { throw "OBS Studio checksum mismatch" }
+          Expand-Archive -Path $archive -DestinationPath $destination
+          "OPENSTREAM_OBS_INSTALL=$destination" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Install matching Qt development files
         shell: powershell
