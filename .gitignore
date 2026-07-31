@@ -16,6 +16,7 @@ android/app/.cxx/
 
 build/
 out/
+CMakeUserPresets.json
 
 __pycache__/
 *.py[cod]

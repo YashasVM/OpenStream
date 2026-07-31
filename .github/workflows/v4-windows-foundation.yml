@@ -1,0 +1,47 @@
+name: V4 Windows Foundation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Configure, build, and test Windows x64
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Bootstrap pinned vcpkg
+        shell: powershell
+        run: |
+          $root = & cmake/bootstrap-vcpkg.ps1 | Select-Object -Last 1
+          "VCPKG_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Configure
+        run: cmake --preset windows-x64-release
+
+      - name: Build
+        run: cmake --build --preset windows-x64-release
+
+      - name: Test
+        run: ctest --preset windows-x64-release
+
+      - name: Emit dependency licenses and hashes
+        shell: powershell
+        run: cmake/write-third-party-notices.ps1 -InstalledDirectory out/vcpkg_installed/windows-x64-release
+
+      - name: Upload dependency provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: v4-windows-dependency-provenance
+          path: out/provenance
+          if-no-files-found: error
