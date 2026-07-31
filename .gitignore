@@ -41,3 +41,5 @@ artifacts-local/
 website/node_modules/
 website/dist/
 aqtinstall.log
+/.phase0-smoke/
+/.phase0-smoke-*.log

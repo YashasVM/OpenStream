@@ -1,0 +1,17 @@
+{
+  "schema_version": 4,
+  "commit": "",
+  "candidate": "srt-au|rtp-srtp",
+  "decoder": "media-foundation|ffmpeg-d3d11",
+  "codec": "h264|hevc",
+  "profile": {"width": 1920, "height": 1080, "fps": 30, "streams": 4, "bitrate_mbps_per_stream": 16},
+  "impairment": {"seed": 1, "loss_percent": 0, "burst_length": 1, "jitter_ms": 0, "reorder_percent": 0, "outage_ms": 0, "disconnect_session": null},
+  "queues": [
+    {"name": "received_datagrams", "capacity": 2048, "overflow_policy": "drop_past_deadline"},
+    {"name": "assembled_video", "capacity": 120, "overflow_policy": "drop_oldest_non_key"},
+    {"name": "iso_writer", "capacity": 256, "overflow_policy": "unsafe_no_silent_drop"}
+  ],
+  "duration_seconds": 600,
+  "warmup_seconds": 60,
+  "result": "NOT_RUN"
+}
