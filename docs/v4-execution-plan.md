@@ -1,6 +1,6 @@
 # OpenStream V4 architecture and execution ledger
 
-Status: proposed architecture; Phase 0 harness complete, Wave A ready
+Status: proposed architecture; Phase 0 harness complete, Wave A in progress
 Last updated: 2026-08-01
 Central owner: lead/orchestrator thread only
 
