@@ -25,6 +25,18 @@ def generate(streams: int, fps: int, seconds: int, bitrate_mbps: float):
             }
 
 
+def expected_manifest(streams: int, fps: int, seconds: int) -> dict:
+    """Describe every source sequence expected by a generated corpus."""
+    last_sequence = fps * seconds - 1
+    return {
+        "version": 4,
+        "sessions": [
+            {"session": session, "first_sequence": 0, "last_sequence": last_sequence}
+            for session in range(1, streams + 1)
+        ],
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--streams", type=int, choices=(2, 4), default=4)
@@ -43,6 +55,10 @@ def main() -> int:
     with args.output.open("w", encoding="utf-8", newline="\n") as output:
         for unit in generate(args.streams, args.fps, args.seconds, args.bitrate_mbps):
             output.write(json.dumps(unit, separators=(",", ":")) + "\n")
+    args.output.with_suffix(args.output.suffix + ".manifest.json").write_text(
+        json.dumps(expected_manifest(args.streams, args.fps, args.seconds), indent=2) + "\n",
+        encoding="utf-8",
+    )
     return 0
 
 

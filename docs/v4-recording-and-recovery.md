@@ -26,6 +26,6 @@ The standard phone encoder fans the same access units to transport and fragmente
 
 ## Prototype validation
 
-`tools/recording-validator/validate.py` uses `ffprobe` to verify readable streams, codecs, start/duration, monotonic packet timestamps, and declared gaps. It emits machine-readable JSON and returns non-zero for unreadable media, timestamp regression, or undeclared sequence gaps.
+`tools/recording-validator/validate.py` uses `ffprobe` to verify readable streams, codecs, start/duration, monotonic packet timestamps, and declared gaps. Access-unit validation also requires an explicit `<recording>.manifest.json` declaring each expected session and its inclusive sequence range, so leading, trailing, and fully absent sessions cannot evade gap detection. It emits machine-readable JSON and returns non-zero for unreadable media, timestamp regression, or undeclared sequence gaps.
 
 One-hour acceptance requires every completed segment to open, zero video re-encodes, all expected tracks, all missing ranges declared, stable queue memory, and successful reconstruction of the injected 500 ms outage.

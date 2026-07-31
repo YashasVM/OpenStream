@@ -1,14 +1,14 @@
 # V4 Phase 0 status
 
-## Proven at this checkpoint
+## Checked-in evidence at this checkpoint
 
 - Base commit: `b1eea06e995ce5cc699336217e2e6c3fba190f1d`.
 - Branch: `spike/v4-media-pipeline`.
 - Legacy Android/OBS production code is unchanged.
 - Deterministic four-stream 1080p30 and two-stream 1080p60 AU workload generation passes.
 - Deterministic loss, burst, jitter, reorder, outage, and isolated-session-disconnect injection records source timestamps and missing sequences.
-- Four-stream 1080p30 H.264 and two-stream 1080p60 HEVC NVENC smoke corpora were stream-copied into segmented MKV; all six segments passed FFprobe readability, codec, packet-count, and monotonic-PTS validation.
-- Local capability probes found FFmpeg 8.0.1 with SRT, Media Foundation, D3D11VA, NVDEC and NVENC, plus an RTX 4050 Laptop GPU.
+- [Reproducible one-second NVENC/remux smoke evidence](evidence/v4-00-media-smoke.md) records the exact commands, host/FFmpeg environment, output hashes, and validator output for four 1080p30 H.264 and two 1080p60 HEVC segments. It is only a local smoke; it does not establish performance or production readiness.
+- Local capability probes found FFmpeg 8.0.1 with SRT, Media Foundation, D3D11VA, NVDEC and NVENC, plus an RTX 4050 Laptop GPU. These are capability observations, not performance claims.
 
 ## Not yet proven
 
