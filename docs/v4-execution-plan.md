@@ -119,6 +119,11 @@ certificate. Long-term device credentials are protected with Android Keystore
 and Windows DPAPI. The channel carries commands, applied state, tally, health,
 time exchanges, key rotation and reconnect state. It never carries video.
 
+Pairing is exposed only during an operator-opened two-minute window. A secret is
+consumed by the first successful authentication, is never logged, and cannot be
+replayed. The engine permits at most five failed attempts per source and window,
+then applies an exponential cooldown and emits visible security telemetry.
+
 The wire format remains boring: a 32-bit length prefix plus UTF-8 JSON with a
 required protocol version, message type, request ID and session ID. Golden
 fixtures and strict validation are required before either endpoint ships. High
@@ -156,6 +161,13 @@ virtual-camera delivery and programme encode stay on one D3D11 adapter. Normal
 operation has no GPU-to-CPU-to-GPU frame route. A decoder output that becomes a
 software pixel format fails the hardware gate and produces a user-visible
 warning before any fallback is enabled.
+
+Adapter selection records the DXGI adapter LUID and requires decode, processing,
+shared-resource and encode support needed by the active mode. Device removal
+stops affected GPU consumers while network ingress and compressed ISO recording
+continue, recreates the complete GPU graph on the same LUID when it is still
+present, and otherwise enters a visible recoverable failure state. The engine
+never silently switches adapters or opens cross-adapter texture paths.
 
 Each microphone remains an independent 48 kHz source and an independent ISO
 track. Programme audio has one explicit selected source, with optional
@@ -250,7 +262,7 @@ the primary checkout.
 | V4-01 | Planned | `spike/v4-transport-decision` | `OpenStream-wt-v4-01-transport` | V4-00 | `spikes/transport`, transport result docs | Terra Medium |
 | V4-02 | Planned | `spike/v4-gpu-decision` | `OpenStream-wt-v4-02-gpu` | V4-00 | `spikes/gpu`, GPU result docs | Terra Medium |
 | V4-03 | Planned | `spike/v4-studio-framework` | `OpenStream-wt-v4-03-ui` | V4-00 | `spikes/studio-shell`, UI result docs | Terra Medium |
-| V4-04 | Planned | `feat/v4-wire-contract` | `OpenStream-wt-v4-04-wire` | V4-00 | `protocol/v4`, golden fixtures/tests | Luna Max |
+| V4-04 | Planned | `feat/v4-wire-contract` | `OpenStream-wt-v4-04-wire` | V4-00, V4-01 | `protocol/v4`, golden fixtures/tests | Luna Max |
 | V4-05 | Planned | `build/v4-windows-foundation` | `OpenStream-wt-v4-05-build` | V4-00 | root/CMake presets, `cmake`, dependency/build scripts | Luna Max |
 | V4-06 | Planned | `feat/v4-engine-runtime` | `OpenStream-wt-v4-06-engine` | V4-04, V4-05 | `engine/app`, `engine/core`, `engine/ipc` | Terra Medium |
 | V4-07 | Planned | `feat/v4-android-session-core` | `OpenStream-wt-v4-07-android-session` | V4-04 | `android/.../v4/session`, service/manifest tests | Terra Medium |
@@ -260,25 +272,26 @@ the primary checkout.
 | V4-10A | Planned | `feat/v4-android-transport` | `OpenStream-wt-v4-10a-android-transport` | V4-01, V4-08B, V4-09 | `android/.../v4/transport` | Terra Medium |
 | V4-10B | Planned | `feat/v4-engine-transport` | `OpenStream-wt-v4-10b-engine-transport` | V4-01, V4-08A, V4-06 | `engine/transport`, receiver tests | Terra Medium |
 | V4-11 | Planned | `feat/v4-iso-recorder` | `OpenStream-wt-v4-11-iso` | V4-04, V4-05 | `engine/recording` | Terra Medium |
-| V4-12 | Planned | `feat/v4-gpu-decode` | `OpenStream-wt-v4-12-decode` | V4-02, V4-06, V4-10B | `engine/video/decode`, D3D device code | Terra Medium |
+| V4-11A | Planned | `feat/v4-au-routing` | `OpenStream-wt-v4-11a-au-routing` | V4-06, V4-10B, V4-11 | `engine/media`, engine session AU fan-out wiring | Terra Medium |
+| V4-12 | Planned | `feat/v4-gpu-decode` | `OpenStream-wt-v4-12-decode` | V4-02, V4-11A | `engine/video/decode`, D3D device code | Terra Medium |
 | V4-13 | Planned | `feat/v4-sync-audio` | `OpenStream-wt-v4-13-sync` | V4-09, V4-10A/B, V4-12 | `engine/sync`, `engine/audio`, Android V4 timestamp plumbing | Terra Medium |
 | V4-14 | Planned | `feat/v4-gpu-compositor` | `OpenStream-wt-v4-14-compositor` | V4-02, V4-12, V4-13 | `engine/video/compositor` | Terra Medium |
 | V4-15 | Planned | `feat/v4-phone-safety-recording` | `OpenStream-wt-v4-15-safety` | V4-09 | `android/.../v4/recording` | Terra Medium |
-| V4-16 | Planned | `feat/v4-gap-recovery` | `OpenStream-wt-v4-16-recovery` | V4-10A/B, V4-11, V4-15 | `engine/recovery`, recovery protocol handlers | Terra Medium |
+| V4-16 | Planned | `feat/v4-gap-recovery` | `OpenStream-wt-v4-16-recovery` | V4-10A/B, V4-11A, V4-15 | `engine/recovery`, recovery protocol handlers | Terra Medium |
 | V4-17 | Planned | `feat/v4-studio-shell` | `OpenStream-wt-v4-17-studio-shell` | V4-03, V4-06 | `studio/app`, `studio/ipc`, design tokens | Luna Max |
 | V4-18 | Planned | `feat/v4-program-switcher` | `OpenStream-wt-v4-18-switcher` | V4-13, V4-14 | `engine/program` state/edit decisions | Terra Medium |
 | V4-19 | Planned | `feat/v4-studio-operator-ui` | `OpenStream-wt-v4-19-studio-ui` | V4-17, V4-18 | `studio/views`, `studio/viewmodels` | Luna Max |
-| V4-20 | Planned | `feat/v4-program-recording` | `OpenStream-wt-v4-20-program-record` | V4-11, V4-18 | `engine/program/encode`, programme muxing | Terra Medium |
+| V4-20 | Planned | `feat/v4-program-recording` | `OpenStream-wt-v4-20-program-record` | V4-11A, V4-18 | `engine/program/encode`, programme muxing | Terra Medium |
 | V4-21 | Planned | `feat/v4-virtual-camera` | `OpenStream-wt-v4-21-vcam` | V4-14, V4-18 | `virtual-camera`, engine virtual-camera adapter | Terra Medium |
 | V4-22 | Planned | `feat/v4-obs-adapter` | `OpenStream-wt-v4-22-obs` | V4-06, V4-13, V4-14, V4-18 | new `obs-adapter`; legacy `obs-plugin` only for ID adapters | Terra Medium |
-| V4-23 | Planned | `test/v4-end-to-end` | `OpenStream-wt-v4-23-e2e` | V4-08--V4-22 | `tests/e2e`, soak/failure scripts and reports | Terra Medium |
+| V4-23 | Planned | `test/v4-end-to-end` | `OpenStream-wt-v4-23-e2e` | V4-08A, V4-08B, V4-09, V4-10A, V4-10B, V4-11, V4-11A, V4-12, V4-13, V4-14, V4-15, V4-16, V4-17, V4-18, V4-19, V4-20, V4-21, V4-22 | `tests/e2e`, soak/failure scripts and reports | Terra Medium |
 | V4-24 | Planned | `release/v4-windows` | `OpenStream-wt-v4-24-release` | V4-23 | packaging, CI, migration/release docs | Luna Max |
 
 Useful parallel waves after dependencies merge:
 
-- Wave A: V4-01, V4-02, V4-03, V4-04, V4-05.
+- Wave A: V4-01, V4-02, V4-03 and V4-05; then V4-04 after V4-01.
 - Wave B: V4-06 and V4-07; then V4-08A, V4-08B, V4-09, V4-11.
-- Wave C: V4-10A, V4-10B, V4-15; then V4-12 and V4-16 where ready.
+- Wave C: V4-10A, V4-10B and V4-15; then V4-11A; then V4-12 and V4-16 where ready.
 - Wave D: V4-13; then V4-14 and V4-17; then V4-18.
 - Wave E: V4-19, V4-20, V4-21 and V4-22.
 - Wave F: V4-23, then V4-24.
@@ -302,14 +315,16 @@ Terra Medium thread reviews each PR before merge.
 - **V4-02:** both decoder candidates yield texture-backed D3D11 frames for both
   codecs; native four-way composition and one hardware encode run for one hour;
   PIX/ETW plus counters prove the copy ledger; CPU/GPU/memory are reported; an
-  ADR chooses the production decoder and explicit fallback.
+  ADR chooses the production decoder, adapter-selection policy by LUID, device-
+  removal recovery policy and explicit fallback.
 - **V4-03:** equivalent four-preview shells are measured on the target PC;
   100/150/200% DPI, resize, keyboard, screen reader and dark/light checks are
   recorded; installed size/startup/private-bytes data choose one framework.
 - **V4-04:** schemas cover hello/pair/auth/state/command/event/tally/time-sync,
-  media metadata, errors, reconnect and compatibility; malformed/oversize/
-  unknown-version messages fail; Kotlin and C++ fixtures round-trip identically;
-  nullable patch fields can distinguish omitted from cleared.
+  media metadata, the V4-01-selected binary AU envelope, errors, reconnect and
+  compatibility; malformed/oversize/unknown-version messages fail; Kotlin and
+  C++ fixtures round-trip identically; nullable patch fields can distinguish
+  omitted from cleared.
 - **V4-05:** clean Windows x64 configure/build/test works from documented pinned
   dependencies; licenses/SHA256s are emitted; no OBS dependency enters engine;
   cache and artifacts are ignored.
@@ -323,8 +338,10 @@ Terra Medium thread reviews each PR before merge.
   states require re-arm; no real media change is hidden in this PR.
 - **V4-08A/B:** TLS 1.3, certificate pinning, one-time high-entropy pairing,
   Keystore/DPAPI storage, credential rotation, replay/request limits, bounded
-  send queues and reconnect are tested; no legacy six-digit credential is used
-  for V4; media continues during control reconnect.
+  send queues and reconnect are tested; the two-minute pairing window, single-
+  use consumption, five-attempt rate limit, cooldown and no-secret-logging rule
+  are enforced; no legacy six-digit credential is used for V4; media continues
+  during control reconnect.
 - **V4-09:** service-owned Camera2 feeds exactly one hardware surface encoder;
   H.264 baseline and capability-gated HEVC report actual codec; sensor/readout,
   encoder and audio capture timestamps plus orientation are emitted; codec
@@ -338,10 +355,17 @@ Terra Medium thread reviews each PR before merge.
   video decode/encode; crash/reconnect/codec/orientation roll segments; journal
   recovery and disk-full/slow-disk states are visible; every gap is logged;
   queue saturation becomes unsafe instead of silently dropping.
+- **V4-11A:** every validated AU is reference-fanned to the recorder before the
+  decoder, retaining sequence, timestamps and codec-config generation. Decoder
+  overload cannot starve ISO; recorder saturation becomes a visible unsafe state
+  with declared gaps while live decode continues; either branch can fail without
+  cancelling the receiver or the other branch.
 - **V4-12:** chosen decoder returns NV12/P010 D3D11 textures on the engine
-  adapter; four sessions remain isolated; software output warns and is excluded
-  until explicitly allowed; no ordinary readback/upload; copy counters and
-  30-minute resource evidence are attached.
+  adapter identified by LUID; four sessions remain isolated; software output
+  warns and is excluded until explicitly allowed; no ordinary readback/upload;
+  device removal never causes a silent adapter switch and cannot stop ingress or
+  compressed ISO recording; copy counters and 30-minute resource evidence are
+  attached.
 - **V4-13:** Camera2 and AudioTimestamp domains map to engine monotonic time with
   bounded filters/outlier rejection/confidence; reconnect never rewrites old
   mapping; selected programme audio drift is corrected without abrupt samples;
@@ -351,10 +375,12 @@ Terra Medium thread reviews each PR before merge.
   aspect-correct portrait/landscape transforms; preview queues are bounded and
   newest-frame biased; no CPU frame path; 4x30 and 2x60 meet frame-time/resource
   budgets and expose shared keyed handles.
-- **V4-15:** the standard encoder AUs are stream-copied into short fMP4 safety
-  segments with hashes/indexes; there is no second video encoder; disk-full,
-  process death and roll boundaries are surfaced; two-hour screen-off evidence
-  includes heat, battery, dropped frames and segment validation.
+- **V4-15:** pinned `androidx.media3:media3-muxer:1.10.1`
+  `FragmentedMp4Muxer` stream-copies the standard encoder AUs into short fMP4
+  safety segments with hashes/indexes; there is no second video encoder;
+  fMP4 structure, codec-config, disk-full, process death and roll boundaries are
+  tested; two-hour screen-off evidence includes heat, battery, dropped frames
+  and segment validation.
 - **V4-16:** only declared missing ranges are requested; live traffic has
   priority and recovery queues are bounded; hashes/timestamps/provenance are
   validated; original ISO files stay immutable; 500 ms and 5 s injected gaps
@@ -410,7 +436,7 @@ Create branch spike/v4-transport-decision in worktree OpenStream-wt-v4-01-transp
 ### V4-02 — decoder/GPU decision — Terra Medium
 
 ```text
-Create branch spike/v4-gpu-decision in worktree OpenStream-wt-v4-02-gpu from current main after V4-00. Build isolated C++20 probes under spikes/gpu comparing Media Foundation hardware MFT decode with FFmpeg AV_PIX_FMT_D3D11 on the same adapter and corpus, plus native D3D11 2x2 composition and one hardware programme encode. Prove texture types and the copy ledger with counters plus PIX/ETW, run both codecs/profiles including one hour, publish CPU/GPU/memory/raw results, and write an ADR choosing production decode and explicit fallback. Do not build engine features. Follow AGENTS.md and the V4-02 acceptance criteria, then commit/push/open a focused PR. Do not edit docs/v4-execution-plan.md. Model: Terra Medium.
+Create branch spike/v4-gpu-decision in worktree OpenStream-wt-v4-02-gpu from current main after V4-00. Build isolated C++20 probes under spikes/gpu comparing Media Foundation hardware MFT decode with FFmpeg AV_PIX_FMT_D3D11 on the same adapter and corpus, plus native D3D11 2x2 composition and one hardware programme encode. Select and report the adapter by DXGI LUID; inject device removal and prove no silent adapter switch or cross-adapter texture path. Prove texture types and the copy ledger with counters plus PIX/ETW, run both codecs/profiles including one hour, publish CPU/GPU/memory/raw results, and write an ADR choosing production decode, adapter/device-loss policy and explicit fallback. Do not build engine features. Follow AGENTS.md and the V4-02 acceptance criteria, then commit/push/open a focused PR. Do not edit docs/v4-execution-plan.md. Model: Terra Medium.
 ```
 
 ### V4-03 — Studio framework decision — Terra Medium
@@ -422,7 +448,7 @@ Create branch spike/v4-studio-framework in worktree OpenStream-wt-v4-03-ui after
 ### V4-04 — wire contract — Luna Max
 
 ```text
-Create branch feat/v4-wire-contract in worktree OpenStream-wt-v4-04-wire after V4-00. Implement only protocol/v4 schemas, limits, golden JSON/binary fixtures and Kotlin/C++ contract tests for discovery, pairing/auth, state/commands/events, tally, time sync, media metadata, errors, reconnect and compatibility. Distinguish omitted nullable patch values from explicit clear; reject malformed, oversize and unknown versions. Do not implement networking. Follow AGENTS.md and V4-04 acceptance, run checks, commit/push/open a focused PR, and do not edit docs/v4-execution-plan.md. Model: Luna Max.
+Create branch feat/v4-wire-contract in worktree OpenStream-wt-v4-04-wire after V4-00 and V4-01. Implement only protocol/v4 schemas, limits, golden JSON fixtures, the transport-ADR-selected binary AU envelope fixtures, and Kotlin/C++ contract tests for discovery, pairing/auth, state/commands/events, tally, time sync, media metadata, errors, reconnect and compatibility. Distinguish omitted nullable patch values from explicit clear; reject malformed, oversize and unknown versions. Do not implement networking. Follow AGENTS.md and V4-04 acceptance, run checks, commit/push/open a focused PR, and do not edit docs/v4-execution-plan.md. Model: Luna Max.
 ```
 
 ### V4-05 — Windows build foundation — Luna Max
@@ -446,13 +472,13 @@ Create branch feat/v4-android-session-core in worktree OpenStream-wt-v4-07-andro
 ### V4-08A — engine secure control — Terra Medium
 
 ```text
-Create branch feat/v4-engine-control in worktree OpenStream-wt-v4-08a-engine-control after V4-06. Implement only the engine side of the V4 outbound-phone TLS 1.3 control channel with Schannel, certificate/fingerprint lifecycle, high-entropy one-time pairing, DPAPI credentials, framed wire messages, request/replay/size limits, bounded queues, reconnect and fake-client tests. Keep media independent and keep all I/O off client UI threads. Meet V4-08A, commit/push/open a focused PR; do not edit the central ledger. Model: Terra Medium.
+Create branch feat/v4-engine-control in worktree OpenStream-wt-v4-08a-engine-control after V4-06. Implement only the engine side of the V4 outbound-phone TLS 1.3 control channel with Schannel, certificate/fingerprint lifecycle, high-entropy one-time pairing, DPAPI credentials, framed wire messages, request/replay/size limits, bounded queues, reconnect and fake-client tests. Enforce the operator-opened two-minute pairing window, single-use secret consumption, five failed attempts per source/window followed by exponential cooldown, and no secret logging. Keep media independent and keep all I/O off client UI threads. Meet V4-08A, commit/push/open a focused PR; do not edit the central ledger. Model: Terra Medium.
 ```
 
 ### V4-08B — Android secure control — Terra Medium
 
 ```text
-Create branch feat/v4-android-control in worktree OpenStream-wt-v4-08b-android-control after V4-04 and V4-07. Implement only the Android outbound TLS 1.3 control client: QR fingerprint/one-time-secret pairing, certificate pinning, Keystore credentials, framed protocol, limits, bounded queues, reconnect and applied-state tests. It must remain service-owned and media-independent; do not reuse the six-digit V1 secret for V4. Meet V4-08B, commit/push/open a focused PR; do not edit the central ledger. Model: Terra Medium.
+Create branch feat/v4-android-control in worktree OpenStream-wt-v4-08b-android-control after V4-04 and V4-07. Implement only the Android outbound TLS 1.3 control client: QR fingerprint/one-time-secret pairing, certificate pinning, Keystore credentials, framed protocol, limits, bounded queues, reconnect and applied-state tests. Pair only inside the operator-opened two-minute window; never persist or log the one-time secret after successful consumption, and surface rate-limit/cooldown errors. It must remain service-owned and media-independent; do not reuse the six-digit V1 secret for V4. Meet V4-08B, commit/push/open a focused PR; do not edit the central ledger. Model: Terra Medium.
 ```
 
 ### V4-09 — Android capture and single encoder — Terra Medium
@@ -479,10 +505,16 @@ Create branch feat/v4-engine-transport in worktree OpenStream-wt-v4-10b-engine-t
 Create branch feat/v4-iso-recorder in worktree OpenStream-wt-v4-11-iso after V4-04 and V4-05. Implement engine/recording as a bounded compressed-AU-to-segmented-MKV writer with journal, immutable gap metadata, preflight, roll rules, crash repair and visible slow/disk-full unsafe states. Test H.264/HEVC/AAC, reconnect/config/orientation changes and injected gaps; prove zero video decode/re-encode with hashes/ffprobe. No transport or UI. Meet V4-11, commit/push/open a focused PR; do not edit the central ledger. Model: Terra Medium.
 ```
 
+### V4-11A — validated-AU routing integration — Terra Medium
+
+```text
+Create branch feat/v4-au-routing in worktree OpenStream-wt-v4-11a-au-routing after V4-06, V4-10B and V4-11. Wire each validated encoded AU through a bounded reference-counted engine/media fan-out that enqueues the recorder branch before the decoder branch while preserving sequence, timestamps and codec-config generation. Recorder saturation must stop/mark ISO unsafe and declare gaps rather than silently drop; decoder overload uses its documented live policy and cannot starve ISO. Prove receiver, recorder and decoder-queue failures remain isolated and that no decode/re-encode precedes ISO. Do not implement a decoder or UI. Meet V4-11A, commit/push/open a focused PR; do not edit the central ledger. Model: Terra Medium.
+```
+
 ### V4-12 — production GPU decode — Terra Medium
 
 ```text
-Create branch feat/v4-gpu-decode in worktree OpenStream-wt-v4-12-decode after V4-02, V4-06 and V4-10B. Implement only the decoder selected by the ADR plus its explicitly approved fallback. Return NV12/P010 D3D11 textures on the engine adapter, use bounded surface pools, isolate four sessions, expose copy/fallback telemetry, and never silently accept a software format. Attach 4x30/2x60 resource/copy evidence and behavioural tests. Meet V4-12, commit/push/open a focused PR; do not edit the central ledger. Model: Terra Medium.
+Create branch feat/v4-gpu-decode in worktree OpenStream-wt-v4-12-decode after V4-02 and V4-11A. Implement only the decoder selected by the ADR plus its explicitly approved fallback. Return NV12/P010 D3D11 textures on the engine adapter identified by DXGI LUID, use bounded surface pools, isolate four sessions, expose copy/fallback telemetry, and never silently accept a software format. Handle device removal with the selected ADR policy, keep ingress and compressed ISO recording alive, and never silently switch adapters or create cross-adapter texture paths. Attach 4x30/2x60 resource/copy evidence and behavioural tests. Meet V4-12, commit/push/open a focused PR; do not edit the central ledger. Model: Terra Medium.
 ```
 
 ### V4-13 — clock mapping, sync and audio routing — Terra Medium
@@ -500,13 +532,13 @@ Create branch feat/v4-gpu-compositor in worktree OpenStream-wt-v4-14-compositor 
 ### V4-15 — phone safety recording — Terra Medium
 
 ```text
-Create branch feat/v4-phone-safety-recording in worktree OpenStream-wt-v4-15-safety after V4-09. Implement Android v4/recording to stream-copy the same standard encoder AUs into bounded short fragmented-MP4 safety segments with index/hash metadata. Never create a second video encoder. Test codec-config/roll/disk-full/process-death behaviour and attach a two-hour screen-off device report with validation, heat, battery and drops. No recovery transfer yet. Meet V4-15, commit/push/open a focused PR; do not edit the central ledger. Model: Terra Medium.
+Create branch feat/v4-phone-safety-recording in worktree OpenStream-wt-v4-15-safety after V4-09. Pin `androidx.media3:media3-muxer:1.10.1` and use `FragmentedMp4Muxer` under Android v4/recording to stream-copy the same standard encoder AUs into bounded short fragmented-MP4 safety segments with index/hash metadata. Never create a second video encoder. Test fMP4 structure, codec-config, roll, disk-full and process-death behaviour and attach a two-hour screen-off device report with validation, heat, battery and drops. No recovery transfer yet. Meet V4-15, commit/push/open a focused PR; do not edit the central ledger. Model: Terra Medium.
 ```
 
 ### V4-16 — gap recovery — Terra Medium
 
 ```text
-Create branch feat/v4-gap-recovery in worktree OpenStream-wt-v4-16-recovery after V4-10A/B, V4-11 and V4-15. Implement bounded, live-traffic-lower-priority gap negotiation/transfer and engine recovery manifests. Request only ranges overlapping declared gaps, validate hashes/timestamps/provenance, keep original ISO immutable, and make unresolved gaps visible. Prove 500 ms/5 s recovery and interrupted recovery. Meet V4-16, commit/push/open a focused PR; do not edit the central ledger. Model: Terra Medium.
+Create branch feat/v4-gap-recovery in worktree OpenStream-wt-v4-16-recovery after V4-10A/B, V4-11A and V4-15. Implement bounded, live-traffic-lower-priority gap negotiation/transfer and engine recovery manifests. Request only ranges overlapping declared gaps, validate hashes/timestamps/provenance, keep original ISO immutable, and make unresolved gaps visible. Prove 500 ms/5 s recovery and interrupted recovery. Meet V4-16, commit/push/open a focused PR; do not edit the central ledger. Model: Terra Medium.
 ```
 
 ### V4-17 — Studio shell — Luna Max
@@ -530,7 +562,7 @@ Create branch feat/v4-studio-operator-ui in worktree OpenStream-wt-v4-19-studio-
 ### V4-20 — programme hardware recording — Terra Medium
 
 ```text
-Create branch feat/v4-program-recording in worktree OpenStream-wt-v4-20-program-record after V4-11 and V4-18. Implement one hardware programme encoder consuming the compositor texture plus programme muxing with the explicitly selected audio. Enforce at most one session, warn before software fallback, keep ISO independent, and test cuts/dissolves, crash, stop and disk-full. Attach before/after CPU/GPU/copy evidence. No UI/virtual-camera/OBS work. Meet V4-20, commit/push/open a focused PR; do not edit the central ledger. Model: Terra Medium.
+Create branch feat/v4-program-recording in worktree OpenStream-wt-v4-20-program-record after V4-11A and V4-18. Implement one hardware programme encoder consuming the compositor texture plus programme muxing with the explicitly selected audio. Enforce at most one session, warn before software fallback, keep ISO independent, and test cuts/dissolves, crash, stop and disk-full. Attach before/after CPU/GPU/copy evidence. No UI/virtual-camera/OBS work. Meet V4-20, commit/push/open a focused PR; do not edit the central ledger. Model: Terra Medium.
 ```
 
 ### V4-21 — Windows virtual camera — Terra Medium
@@ -558,7 +590,7 @@ Create branch release/v4-windows in worktree OpenStream-wt-v4-24-release only af
 ## 8. Final integration and end-to-end testing prompt
 
 ```text
-Create branch test/v4-end-to-end in worktree OpenStream-wt-v4-23-e2e from current main only after V4-08 through V4-22 are merged. Use Terra Medium. Read AGENTS.md, docs/v4-execution-plan.md, every selected ADR and the compatibility matrix. Do not add product features; add only test orchestration, failure injection, diagnostics and narrowly necessary testability hooks in tests/e2e.
+Create branch test/v4-end-to-end in worktree OpenStream-wt-v4-23-e2e from current main only after V4-08A, V4-08B, V4-09, V4-10A, V4-10B, V4-11, V4-11A, V4-12, V4-13, V4-14, V4-15, V4-16, V4-17, V4-18, V4-19, V4-20, V4-21 and V4-22 are merged. Use Terra Medium. Read AGENTS.md, docs/v4-execution-plan.md, every selected ADR and the compatibility matrix. Do not add product features; add only test orchestration, failure injection, diagnostics and narrowly necessary testability hooks in tests/e2e.
 
 Build release-equivalent Windows and Android artifacts from one commit. On the target Windows 11 i5-13420H/16 GB/RTX 4050/AX211 system and real Android devices, run three deterministic seeds for 4x1080p30 and 2x1080p60, H.264 and supported HEVC. Record one-second CPU, private bytes, GPU decode/encode/3D/copy, disk, network, queue depth/high-water/overflow, latency, mapped A/V error, dropped/missing/recovered frames, reconnects, heat and battery. Separate warm-up and run the leading configurations for one hour; run phone screen-off for two hours.
 
@@ -573,12 +605,14 @@ Publish raw machine-readable logs, environment fingerprint, exact commands, summ
 
 1. Review PR #16 as a harness and merge V4-00 without pretending its
    `NOT_RUN` cells are decisions.
-2. Merge V4-04 and V4-05 when independently green. Review V4-01, V4-02 and
-   V4-03 with Terra Medium and merge only with raw evidence and accepted ADRs.
+2. Review V4-01, V4-02 and V4-03 with Terra Medium and merge only with raw
+   evidence and accepted ADRs. Merge V4-04 only after V4-01, and merge V4-05
+   independently when green.
 3. Merge V4-06 and V4-07; then V4-08A, V4-08B, V4-09 and V4-11. Rebase every
    branch after its dependencies land.
 4. Merge both selected transport endpoints only after cross-endpoint fixtures
-   pass; then V4-12, V4-15 and V4-16 in dependency order.
+   pass; merge V4-11A after V4-10B and V4-11, then V4-12, V4-15 and V4-16 in
+   dependency order.
 5. Merge V4-13 before V4-14. Merge V4-17 independently once its framework and
    IPC dependencies are present. Merge V4-18 after compositor/sync.
 6. Merge V4-19, V4-20, V4-21 and V4-22 one at a time, running the growing smoke
@@ -600,6 +634,8 @@ above so rollback aligns with subsystem boundaries.
   <https://developer.android.com/reference/android/hardware/camera2/CameraCharacteristics>
 - Android captured-frame audio timestamps:
   <https://developer.android.com/reference/android/media/AudioTimestamp>
+- AndroidX Media3 `FragmentedMp4Muxer` API and ownership rules:
+  <https://developer.android.com/reference/androidx/media3/muxer/FragmentedMp4Muxer>
 - SRT live/message options and latency/buffer constraints:
   <https://github.com/Haivision/srt/blob/master/docs/API/API-socket-options.md>
 - FFmpeg D3D11 hardware frame context:
