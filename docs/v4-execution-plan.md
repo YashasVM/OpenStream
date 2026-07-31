@@ -259,11 +259,11 @@ the primary checkout.
 | ID | Status | Branch | Worktree directory | Depends on | Primary ownership | Model |
 |---|---|---|---|---|---|---|
 | V4-00 | Complete (PR #16, `592c33c`) | `spike/v4-media-pipeline` | `OpenStream-wt-v4-00-evidence` | `main` | `tools/{stream-simulator,network-impairment,recording-validator}`, Phase 0 docs/tests | Terra Medium |
-| V4-01 | Ready | `spike/v4-transport-decision` | `OpenStream-wt-v4-01-transport` | V4-00 | `spikes/transport`, transport result docs | Terra Medium |
-| V4-02 | Ready | `spike/v4-gpu-decision` | `OpenStream-wt-v4-02-gpu` | V4-00 | `spikes/gpu`, GPU result docs | Terra Medium |
-| V4-03 | Ready | `spike/v4-studio-framework` | `OpenStream-wt-v4-03-ui` | V4-00 | `spikes/studio-shell`, UI result docs | Terra Medium |
+| V4-01 | In progress | `spike/v4-transport-decision` | `OpenStream-wt-v4-01-transport` | V4-00 | `spikes/transport`, transport result docs | Terra Medium |
+| V4-02 | In progress | `spike/v4-gpu-decision` | `OpenStream-wt-v4-02-gpu` | V4-00 | `spikes/gpu`, GPU result docs | Terra Medium |
+| V4-03 | In progress | `spike/v4-studio-framework` | `OpenStream-wt-v4-03-ui` | V4-00 | `spikes/studio-shell`, UI result docs | Terra Medium |
 | V4-04 | Planned | `feat/v4-wire-contract` | `OpenStream-wt-v4-04-wire` | V4-00, V4-01 | `protocol/v4`, golden fixtures/tests | Luna Max |
-| V4-05 | Ready | `build/v4-windows-foundation` | `OpenStream-wt-v4-05-build` | V4-00 | root/CMake presets, `cmake`, dependency/build scripts | Luna Max |
+| V4-05 | In progress | `build/v4-windows-foundation` | `OpenStream-wt-v4-05-build` | V4-00 | root/CMake presets, `cmake`, dependency/build scripts | Luna Max |
 | V4-06 | Planned | `feat/v4-engine-runtime` | `OpenStream-wt-v4-06-engine` | V4-04, V4-05 | `engine/app`, `engine/core`, `engine/ipc` | Terra Medium |
 | V4-07 | Planned | `feat/v4-android-session-core` | `OpenStream-wt-v4-07-android-session` | V4-04 | `android/.../v4/session`, service/manifest tests | Terra Medium |
 | V4-08A | Planned | `feat/v4-engine-control` | `OpenStream-wt-v4-08a-engine-control` | V4-06 | `engine/control`, Windows control tests | Terra Medium |
