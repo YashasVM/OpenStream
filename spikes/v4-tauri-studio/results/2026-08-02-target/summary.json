@@ -1,0 +1,8 @@
+{
+  "trials": 3,
+  "launchResponsiveMs": { "min": 660.92, "mean": 876.54, "max": 1122.53 },
+  "privateBytes": { "min": 193126400, "mean": 196227072, "max": 198045696 },
+  "idleCpuPercentMean": 0.369,
+  "resizeSequenceMsMean": 23.38,
+  "pipeConnectionsPassed": 0
+}

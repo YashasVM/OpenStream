@@ -42,6 +42,14 @@ artifacts-local/
 /artifacts/
 website/node_modules/
 website/dist/
+spikes/v4-tauri-studio/node_modules/
+spikes/v4-tauri-studio/dist/
+spikes/v4-tauri-studio/src-tauri/target/
+spikes/v4-tauri-studio/results/local/
+spikes/v4-tauri-studio/test-results/
+spikes/v4-tauri-studio/playwright-report/
+spikes/v4-tauri-studio/*.tsbuildinfo
+spikes/v4-tauri-studio/src-tauri/gen/
 aqtinstall.log
 /.phase0-smoke/
 /.phase0-smoke-*.log

@@ -1,0 +1,1 @@
+READY \\.\pipe\openstream-v4-studio-spike-S-1-5-21-399773274-1772005713-2252464672-1001

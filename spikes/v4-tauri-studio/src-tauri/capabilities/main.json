@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-window",
+  "description": "Minimum local capability for the feasibility spike.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
