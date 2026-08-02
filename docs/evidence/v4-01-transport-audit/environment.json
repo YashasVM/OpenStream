@@ -1,0 +1,78 @@
+{
+  "schema_version": 4,
+  "commit": "6c65476a7245e479a0cc9c2bfa6bd167d6cbd875",
+  "platform": "Windows-10-10.0.26200-SP0",
+  "python": "3.11.9",
+  "ffmpeg": "ffmpeg version 8.0.1-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers",
+  "cmake": "cmake version 4.2.3",
+  "vcpkg_root": null,
+  "queues": [
+    {
+      "name": "encoded_au_ingress_per_session",
+      "capacity": 120,
+      "deadline_ms": 150,
+      "overflow_policy": "reject_past_deadline_and_declare_gap"
+    },
+    {
+      "name": "received_datagrams_per_session",
+      "capacity": 2048,
+      "deadline_ms": 150,
+      "overflow_policy": "discard_past_deadline_and_declare_gap"
+    },
+    {
+      "name": "fragment_reassembly_per_session",
+      "capacity": 120,
+      "capacity_bytes": 67108864,
+      "max_fragments_per_au": 4096,
+      "deadline_ms": 150,
+      "overflow_policy": "expire_incomplete_au_and_declare_gap"
+    },
+    {
+      "name": "assembled_video_per_session",
+      "capacity": 120,
+      "deadline_ms": 150,
+      "overflow_policy": "drop_oldest_non_key_request_keyframe_declare_gap"
+    },
+    {
+      "name": "retransmit_cache_per_session",
+      "capacity": 4096,
+      "deadline_ms": 120,
+      "overflow_policy": "expire_oldest_past_deadline_and_count_range"
+    },
+    {
+      "name": "telemetry",
+      "capacity": 1024,
+      "deadline_ms": 1000,
+      "overflow_policy": "coalesce_gauges_retain_fault_transitions"
+    }
+  ],
+  "prerequisites": [
+    {
+      "gate": "pinned_windows_libsrt",
+      "pass": false,
+      "detail": "VCPKG_ROOT is unset"
+    },
+    {
+      "gate": "pinned_windows_libsrtp2",
+      "pass": false,
+      "detail": "VCPKG_ROOT is unset"
+    },
+    {
+      "gate": "native_both_candidate_probe",
+      "pass": false,
+      "detail": "native probe absent"
+    },
+    {
+      "gate": "identical_real_au_corpus",
+      "pass": false,
+      "detail": "no --corpus supplied"
+    },
+    {
+      "gate": "target_wifi_impairment_topology",
+      "pass": false,
+      "detail": "no --topology supplied"
+    }
+  ],
+  "inputs_declared": false,
+  "decision": "NOT_RUN"
+}
