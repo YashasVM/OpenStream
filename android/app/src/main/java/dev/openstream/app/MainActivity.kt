@@ -84,6 +84,7 @@ class MainActivity : Activity() {
     private lateinit var btnScreenOff: TextView
     private lateinit var btnTorch: TextView
     private lateinit var btnSettings: TextView
+    private lateinit var btnStart: TextView
     private lateinit var btnStop: TextView
     private lateinit var screenOffOverlay: View
     private lateinit var identifyOverlay: TextView
@@ -452,6 +453,7 @@ class MainActivity : Activity() {
         btnScreenOff = findViewById(R.id.btnScreenOff)
         btnTorch = findViewById(R.id.btnTorch)
         btnSettings = findViewById(R.id.btnSettings)
+        btnStart = findViewById(R.id.btnStart)
         btnStop = findViewById(R.id.btnStop)
         screenOffOverlay = findViewById(R.id.screenOffOverlay)
         identifyOverlay = findViewById(R.id.identifyOverlay)
@@ -505,6 +507,13 @@ class MainActivity : Activity() {
             @Suppress("DEPRECATION")
             startActivityForResult(intent, SETTINGS_REQUEST_CODE)
         }
+        btnStart.setOnClickListener {
+            if (!OperatorActionPolicy.canStart(phoneServerRunning, uiState is OpenStreamUiState.Live)) {
+                return@setOnClickListener
+            }
+            startPreviewIfAllowed()
+            startPhoneServerIfAllowed()
+        }
         btnStop.setOnClickListener {
             stopPhoneServer(clearReservation = true)
             disarmRemoteOperation()
@@ -515,7 +524,7 @@ class MainActivity : Activity() {
         btnExposurePanel.setOnClickListener { showCameraPalette(CameraPalette.Exposure) }
         btnFocusPanel.setOnClickListener { showCameraPalette(CameraPalette.Focus) }
         btnColorPanel.setOnClickListener { showCameraPalette(CameraPalette.Color) }
-        btnLensPanel.setOnClickListener { showCameraPalette(CameraPalette.Lens) }
+        btnLensPanel.setOnClickListener { selectNextLens() }
         hudFps.setOnClickListener { showCameraPalette(CameraPalette.Exposure) }
         hudShutter.setOnClickListener { showCameraPalette(CameraPalette.Exposure) }
         hudIso.setOnClickListener { showCameraPalette(CameraPalette.Exposure) }
@@ -902,6 +911,7 @@ class MainActivity : Activity() {
         paletteHelp.text = "Choose a physical lens, frame with zoom, then select stabilization supported by this camera."
         lensSelectorRow.visibility = View.VISIBLE
         buildLensButtons()
+        btnLensPanel.text = "LENS ${currentLens.shortLabel}"
         setupModes("Off", "EIS", "OIS")
         selectMode(when (state.settings.stabilizationMode) {
             StabilizationMode.Off -> 0
@@ -1041,7 +1051,11 @@ class MainActivity : Activity() {
         btnArmRemote.text = getString(if (remoteArmed) R.string.remote_armed else R.string.remote_disarmed)
         btnArmRemote.isSelected = remoteArmed
         btnArmRemote.setTextColor(getColor(if (remoteArmed) R.color.os_black else R.color.os_text_primary))
-        btnStop.visibility = if (remoteArmed || uiState is OpenStreamUiState.Live) View.VISIBLE else View.GONE
+        btnStop.visibility = if (OperatorActionPolicy.shouldShowStop(remoteArmed, uiState is OpenStreamUiState.Live)) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
     }
 
     private fun formatShutter(shutterNs: Long): String {
@@ -1127,6 +1141,13 @@ class MainActivity : Activity() {
             mainHandler.postDelayed(restart, LENS_RESTART_DELAY_MS)
         }
         buildLensButtons()
+        btnLensPanel.text = "LENS ${currentLens.shortLabel}"
+    }
+
+    private fun selectNextLens() {
+        if (availableLenses.size < 2) return
+        val currentIndex = availableLenses.indexOf(currentLens).coerceAtLeast(0)
+        selectLens(availableLenses[(currentIndex + 1) % availableLenses.size])
     }
 
     private fun cancelLensRestart() {
@@ -1739,7 +1760,7 @@ class MainActivity : Activity() {
         val dismissBtn = dialog.findViewById<TextView>(R.id.dialogUpdateDismiss)
 
         title.text = "OpenStream ready"
-        message.text = "You are running OpenStream v$versionName.\nFuture updates can be checked from Settings."
+        message.text = "You are running OpenStream v$versionName. Updates are checked automatically."
         progress.visibility = View.GONE
         progressText.visibility = View.GONE
         actionBtn.text = "GOT IT"

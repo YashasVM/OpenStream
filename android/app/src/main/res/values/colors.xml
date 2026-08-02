@@ -4,20 +4,25 @@
          Deep blacks, pure whites, and transparent overlays. -->
 
     <!-- ── Core ── -->
-    <color name="os_black">#FF000000</color>
-    <color name="os_background">#FF090D12</color>
+    <color name="os_black">#FF0A0A0A</color>
+    <color name="os_background">#FF0A0A0A</color>
     <color name="os_white">#FFFFFFFF</color>
     <color name="os_transparent">#00000000</color>
     
     <!-- ── Accents ── -->
-    <color name="os_accent">#FF65D6A6</color>
-    <color name="os_accent_dim">#B365D6A6</color>
-    <color name="os_accent_on">#FF07130F</color>
+    <color name="os_accent">#FFA0C3EC</color>
+    <color name="os_accent_dim">#80A0C3EC</color>
+    <color name="os_accent_on">#FF0A0A0A</color>
+    <color name="os_sunset">#FFFF7A17</color>
+    <color name="os_dusk">#FF7C3AED</color>
 
     <!-- ── Glassmorphism Surfaces ── -->
-    <color name="os_glass_surface">#D91A2028</color>
-    <color name="os_glass_border">#FF343D49</color>
-    <color name="os_glass_surface_dark">#40000000</color> <!-- 25% Black -->
+    <color name="os_surface_soft">#FF1A1C20</color>
+    <color name="os_surface_card">#FF191919</color>
+    <color name="os_hairline">#FF212327</color>
+    <color name="os_glass_surface">#FF191919</color>
+    <color name="os_glass_border">#FF212327</color>
+    <color name="os_glass_surface_dark">#CC0A0A0A</color>
     
     <!-- ── Status Colors ── -->
     <color name="os_live_red">#FFFF3B30</color>
@@ -27,11 +32,11 @@
 
     <!-- ── Text ── -->
     <color name="os_text_primary">#FFFFFFFF</color>
-    <color name="os_text_secondary">#99FFFFFF</color> <!-- 60% White -->
-    <color name="os_text_tertiary">#4DFFFFFF</color>  <!-- 30% White -->
+    <color name="os_text_secondary">#FFDADBDF</color>
+    <color name="os_text_tertiary">#FF7D8187</color>
 
     <!-- ── Overlays ── -->
-    <color name="os_overlay_dark">#B3000000</color>
-    <color name="os_scrim_top">#80000000</color>
-    <color name="os_scrim_bottom">#CC000000</color>
+    <color name="os_overlay_dark">#CC0A0A0A</color>
+    <color name="os_scrim_top">#B30A0A0A</color>
+    <color name="os_scrim_bottom">#E60A0A0A</color>
 </resources>

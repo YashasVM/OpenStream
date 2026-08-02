@@ -72,15 +72,15 @@
 
     <!-- Settings labels -->
     <string name="settings_title">Camera setup</string>
-    <string name="settings_subtitle">OpenStream Beta is ready for normal use without network configuration.</string>
+    <string name="settings_subtitle">Set the receiver connection for this camera.</string>
     <string name="settings_section_default">RECOMMENDED</string>
     <string name="settings_default_title">Automatic OBS discovery</string>
     <string name="settings_default_help">Keep the phone and OBS on the same trusted network. Add an OpenStream Beta Camera source in OBS, enter the pairing code shown on the camera, and control it from the Control Room.</string>
-    <string name="settings_section_connection">MANUAL CONNECTION</string>
+    <string name="settings_section_connection">CONNECTION &amp; STREAM</string>
+    <string name="settings_connection_help">Connect this camera to your receiver. Leave a field blank to use the safe default.</string>
     <string name="settings_section_streaming">STREAMING</string>
     <string name="settings_section_advanced">ADVANCED TROUBLESHOOTING</string>
     <string name="settings_section_updates">UPDATES &amp; ABOUT</string>
-    <string name="settings_connection_help">Leave the host empty to keep using automatic discovery.</string>
     <string name="settings_advanced_help">Use these only when automatic discovery is blocked by VLANs, firewalls, or a custom SRT topology. Incorrect values can prevent connection.</string>
     <string name="settings_show_advanced">Advanced troubleshooting</string>
     <string name="settings_hide_advanced">Hide advanced troubleshooting</string>

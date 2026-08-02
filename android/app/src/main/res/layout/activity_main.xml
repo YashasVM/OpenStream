@@ -60,7 +60,7 @@
         android:paddingStart="20dp"
         android:paddingTop="18dp"
         android:paddingEnd="20dp"
-        android:paddingBottom="34dp">
+            android:paddingBottom="34dp">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -69,8 +69,19 @@
             android:orientation="horizontal">
 
             <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:gravity="center_vertical"
+                android:text="OPERATOR"
+                android:textColor="@color/os_text_primary"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.12" />
+
+            <TextView
                 android:id="@+id/tallyBadge"
                 style="@style/OpenStream.HudStatus"
+                android:layout_marginStart="8dp"
                 android:text="PROGRAM"
                 android:visibility="gone" />
 
@@ -105,7 +116,8 @@
                 android:id="@+id/authorityBadge"
                 style="@style/OpenStream.HudStatus"
                 android:layout_marginStart="8dp"
-                android:text="COLLABORATIVE" />
+                android:text="COLLABORATIVE"
+                android:visibility="gone" />
 
             <TextView
                 android:id="@+id/streamInfoChip"
@@ -145,14 +157,14 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal">
 
-                <TextView android:id="@+id/hudFps" style="@style/OpenStream.HudControl" android:text="FPS 60" />
-                <TextView android:id="@+id/hudShutter" style="@style/OpenStream.HudControl" android:text="SHUTTER AUTO" />
-                <TextView android:id="@+id/hudIso" style="@style/OpenStream.HudControl" android:text="ISO AUTO" />
-                <TextView android:id="@+id/hudWb" style="@style/OpenStream.HudControl" android:text="WB AUTO" />
-                <TextView android:id="@+id/hudFocus" style="@style/OpenStream.HudControl" android:text="AF-C" />
+                <TextView android:id="@+id/hudFps" style="@style/OpenStream.HudControl" android:text="FPS 60" android:visibility="gone" />
+                <TextView android:id="@+id/hudShutter" style="@style/OpenStream.HudControl" android:text="SHUTTER AUTO" android:visibility="gone" />
+                <TextView android:id="@+id/hudIso" style="@style/OpenStream.HudControl" android:text="ISO AUTO" android:visibility="gone" />
+                <TextView android:id="@+id/hudWb" style="@style/OpenStream.HudControl" android:text="WB AUTO" android:visibility="gone" />
+                <TextView android:id="@+id/hudFocus" style="@style/OpenStream.HudControl" android:text="AF-C" android:visibility="gone" />
                 <TextView android:id="@+id/hudBattery" style="@style/OpenStream.HudStatus" android:layout_marginEnd="8dp" android:text="BAT --%" />
                 <TextView android:id="@+id/hudThermal" style="@style/OpenStream.HudStatus" android:layout_marginEnd="8dp" android:text="THERMAL --" />
-                <TextView android:id="@+id/hudNetwork" style="@style/OpenStream.HudStatus" android:layout_marginEnd="8dp" android:text="NETWORK --" />
+                <TextView android:id="@+id/hudNetwork" style="@style/OpenStream.HudStatus" android:layout_marginEnd="8dp" android:text="NETWORK --" android:visibility="gone" />
                 <TextView android:id="@+id/btnFrameGuides" style="@style/OpenStream.HudControl" android:contentDescription="@string/frame_guides_description" android:text="GUIDES 3×3" />
                 <TextView android:id="@+id/btnZebra" style="@style/OpenStream.HudControl" android:contentDescription="@string/zebra_description" android:text="ZEBRA 95" />
             </LinearLayout>
@@ -185,7 +197,8 @@
             android:text="@string/status_ready"
             android:textColor="@color/os_text_primary"
             android:textSize="20sp"
-            android:textStyle="bold" />
+            android:fontFamily="sans-serif"
+            android:letterSpacing="-0.02" />
 
         <TextView
             android:id="@+id/statusDetail"
@@ -203,11 +216,11 @@
             android:gravity="center"
             android:orientation="horizontal">
 
-            <TextView android:id="@+id/btnExposurePanel" style="@style/OpenStream.Control" android:text="Exposure" />
-            <TextView android:id="@+id/btnFocusPanel" style="@style/OpenStream.Control" android:text="Focus" />
-            <TextView android:id="@+id/btnColorPanel" style="@style/OpenStream.Control" android:text="Color" />
+            <TextView android:id="@+id/btnExposurePanel" style="@style/OpenStream.Control" android:text="Exposure" android:visibility="gone" />
+            <TextView android:id="@+id/btnFocusPanel" style="@style/OpenStream.Control" android:text="Focus" android:visibility="gone" />
+            <TextView android:id="@+id/btnColorPanel" style="@style/OpenStream.Control" android:text="Color" android:visibility="gone" />
             <TextView android:id="@+id/btnLensPanel" style="@style/OpenStream.Control" android:text="Lens" />
-            <TextView android:id="@+id/btnArmRemote" style="@style/OpenStream.Control" android:text="Arm remote" />
+            <TextView android:id="@+id/btnArmRemote" style="@style/OpenStream.Control" android:text="Arm remote" android:visibility="gone" />
         </LinearLayout>
 
         <LinearLayout
@@ -217,8 +230,14 @@
             android:gravity="center"
             android:orientation="horizontal">
 
-            <TextView android:id="@+id/btnTorch" style="@style/OpenStream.Control" android:text="@string/control_torch" />
-            <TextView android:id="@+id/btnScreenOff" style="@style/OpenStream.Control" android:text="Screen off" />
+            <TextView android:id="@+id/btnTorch" style="@style/OpenStream.Control" android:text="@string/control_torch" android:visibility="gone" />
+            <TextView android:id="@+id/btnScreenOff" style="@style/OpenStream.Control" android:text="Screen off" android:visibility="gone" />
+            <TextView
+                android:id="@+id/btnStart"
+                style="@style/OpenStream.Control"
+                android:background="@drawable/bg_minimal_btn"
+                android:text="Start"
+                android:textColor="@color/os_accent_on" />
             <TextView android:id="@+id/btnSettings" style="@style/OpenStream.Control" android:text="Settings" />
             <TextView
                 android:id="@+id/btnStop"
@@ -256,7 +275,8 @@
                 android:text="Exposure"
                 android:textColor="@color/os_text_primary"
                 android:textSize="22sp"
-                android:textStyle="bold" />
+                android:fontFamily="sans-serif"
+                android:letterSpacing="-0.02" />
 
             <TextView
                 android:id="@+id/paletteClose"

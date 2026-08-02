@@ -10,7 +10,7 @@
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowTranslucentStatus">true</item>
         <item name="android:windowTranslucentNavigation">true</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:fontFamily">sans-serif</item>
     </style>
 
     <style name="MinimalDialogTheme" parent="android:style/Theme.Material.Dialog.NoActionBar">
@@ -30,7 +30,9 @@
         <item name="android:background">@drawable/bg_minimal_pill</item>
         <item name="android:textColor">@color/os_text_primary</item>
         <item name="android:textSize">12sp</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:letterSpacing">0.04</item>
         <item name="android:minWidth">48dp</item>
         <item name="android:minHeight">48dp</item>
     </style>
@@ -42,7 +44,8 @@
         <item name="android:paddingHorizontal">13dp</item>
         <item name="android:textColor">@color/os_text_primary</item>
         <item name="android:textSize">12sp</item>
-        <item name="android:textStyle">bold</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:letterSpacing">0.08</item>
         <item name="android:minWidth">48dp</item>
     </style>
     <style name="OpenStream.HudControl" parent="OpenStream.HudStatus">
@@ -51,6 +54,7 @@
         <item name="android:focusable">true</item>
         <item name="android:minHeight">48dp</item>
         <item name="android:textColor">@color/os_text_primary</item>
+        <item name="android:visibility">gone</item>
     </style>
     <style name="OpenStream.PaletteMode" parent="OpenStream.Control">
         <item name="android:layout_height">48dp</item>
@@ -61,8 +65,10 @@
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginTop">18dp</item>
-        <item name="android:textColor">@color/os_text_secondary</item>
+        <item name="android:textColor">@color/os_text_tertiary</item>
         <item name="android:textSize">13sp</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:letterSpacing">0.08</item>
     </style>
     <style name="OpenStream.PaletteValue" parent="">
         <item name="android:layout_width">match_parent</item>
@@ -70,7 +76,7 @@
         <item name="android:layout_marginTop">2dp</item>
         <item name="android:textColor">@color/os_text_primary</item>
         <item name="android:textSize">22sp</item>
-        <item name="android:textStyle">bold</item>
+        <item name="android:fontFamily">sans-serif</item>
     </style>
     <style name="OpenStream.PaletteSlider" parent="@android:style/Widget.Material.SeekBar">
         <item name="android:layout_width">match_parent</item>
@@ -80,13 +86,13 @@
     </style>
     <style name="OpenStream.SectionTitle" parent="">
         <item name="android:layout_width">match_parent</item><item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_marginBottom">8dp</item><item name="android:textColor">@color/os_accent</item>
-        <item name="android:textSize">12sp</item><item name="android:textStyle">bold</item><item name="android:letterSpacing">0.08</item>
+        <item name="android:layout_marginBottom">8dp</item><item name="android:textColor">@color/os_text_primary</item>
+        <item name="android:textSize">12sp</item><item name="android:fontFamily">monospace</item><item name="android:letterSpacing">0.12</item>
     </style>
     <style name="OpenStream.FieldLabel" parent="">
         <item name="android:layout_width">match_parent</item><item name="android:layout_height">wrap_content</item>
         <item name="android:layout_marginTop">10dp</item><item name="android:layout_marginBottom">7dp</item>
-        <item name="android:textColor">@color/os_text_secondary</item><item name="android:textSize">13sp</item>
+        <item name="android:textColor">@color/os_text_tertiary</item><item name="android:textSize">13sp</item><item name="android:fontFamily">monospace</item><item name="android:letterSpacing">0.08</item>
     </style>
     <style name="OpenStream.Input" parent="">
         <item name="android:layout_width">match_parent</item><item name="android:layout_height">56dp</item>
@@ -97,7 +103,7 @@
     <style name="OpenStream.PrimaryButton" parent="">
         <item name="android:layout_width">match_parent</item><item name="android:layout_height">56dp</item><item name="android:layout_marginTop">6dp</item>
         <item name="android:background">@drawable/bg_minimal_btn</item><item name="android:textAllCaps">false</item>
-        <item name="android:textColor">@color/os_accent_on</item><item name="android:textSize">16sp</item><item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/os_accent_on</item><item name="android:textSize">16sp</item><item name="android:fontFamily">sans-serif</item>
     </style>
     <style name="OpenStream.SecondaryButton" parent="OpenStream.PrimaryButton">
         <item name="android:background">@drawable/bg_minimal_btn_ghost</item><item name="android:textColor">@color/os_text_primary</item>
