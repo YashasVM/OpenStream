@@ -16,6 +16,7 @@ android/app/.cxx/
 
 build/
 out/
+CMakeUserPresets.json
 
 __pycache__/
 *.py[cod]
@@ -38,6 +39,7 @@ local.properties
 obs-plugin/build/
 obs-plugin/deps/
 artifacts-local/
+/artifacts/
 website/node_modules/
 website/dist/
 aqtinstall.log

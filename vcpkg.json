@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "openstream",
+  "version-string": "4.0.0-dev",
+  "description": "Pinned native dependencies for the OpenStream V4 Windows product",
+  "supports": "windows & x64",
+  "builtin-baseline": "cd61e1e26a038e82d6550a3ebbe0fbbfe7da78e3",
+  "dependencies": [
+    {
+      "name": "nlohmann-json",
+      "version>=": "3.12.0"
+    }
+  ]
+}
