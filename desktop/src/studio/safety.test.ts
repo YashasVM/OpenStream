@@ -1,0 +1,2 @@
+import{expect,it}from'vitest';import{DeterministicStudioAdapter}from'./simulator';
+it('rejects taking an offline camera and preserves Program',async()=>{const a=new DeterministicStudioAdapter();let s=a.getSnapshot();await a.dispatch({type:'simulate.failure',cameraId:'3',expectedRevision:s.revision});s=a.getSnapshot();const select=await a.dispatch({type:'preview.set',cameraId:'3',expectedRevision:s.revision});expect(select.status).toBe('rejected');expect(a.getSnapshot().programId).toBe('1')});
