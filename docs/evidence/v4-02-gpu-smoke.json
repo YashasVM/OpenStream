@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "status": "SMOKE_ONLY",
+  "commit_tested": "6c65476a7245e479a0cc9c2bfa6bd167d6cbd875",
+  "environment": {
+    "os": "Microsoft Windows 11 Home Single Language 10.0.26200 build 26200",
+    "cpu": "13th Gen Intel(R) Core(TM) i5-13420H",
+    "logical_processors": 12,
+    "adapter": "NVIDIA GeForce RTX 4050 Laptop GPU",
+    "adapter_luid_decimal": 92467,
+    "adapter_luid_hex": "0x0:0x16933",
+    "nvidia_driver": "32.0.15.9282",
+    "secondary_adapter": "Intel(R) UHD Graphics",
+    "secondary_driver": "32.0.101.5542",
+    "power_plan": "Balanced",
+    "runtime_ffmpeg": "8.0.1-full_build-www.gyan.dev",
+    "native_probe_ffmpeg_sdk": "BtbN ffmpeg-master-latest-win64-gpl-shared, downloaded 2026-08-02"
+  },
+  "command": "spikes/gpu/run-benchmark.ps1 -CorpusRoot out/gpu-corpus -OutputDirectory out/gpu-smoke-results -MediaFoundationProbe out/gpu-ninja/openstream_mf_gpu_probe.exe -FfmpegProbe out/gpu-ninja/openstream_ffmpeg_d3d11_probe.exe -AdapterLuid 92467 -DurationSeconds 5 -WarmupSeconds 1",
+  "workloads": [
+    {
+      "id": "four-1080p30-h264",
+      "corpus_sha256": ["CA92B26DDAA387FE8FA3FA01A80CE4F290CB14A52301288292F6375A56EADD5E", "1633BF9B19809AF250FF3C2FFDC11CE8ABD8B0670D24B05D039B9A5CBD62489F", "0B6659626082284FE4FE5159EE40B1BF0E0530373D740C986EC5C711F1E53998", "7C0A847783CDCDB306FBEA2D0E1AB029BEC3390A751635934B8284D8BF2C8C34"],
+      "media_foundation": {"result": "SMOKE_PASS", "frames": 604, "composition_frames": 152, "layout": "2x2", "texture_type": "IMFDXGIBuffer/ID3D11Texture2D", "ordinary_cpu_frame_copies": 0},
+      "ffmpeg_d3d11": {"result": "SMOKE_PASS", "frames": 596, "texture_type": "AV_PIX_FMT_D3D11/ID3D11Texture2D", "ordinary_cpu_frame_copies": 0, "av_hwframe_transfer_data_calls": 0}
+    },
+    {
+      "id": "four-1080p30-hevc",
+      "corpus_sha256": ["690BCA5931E1664591D14C96D7D8FA2BE98F12B88BB07DF54354746B49DF577B", "91BE40F42413EDA6F7CC2E5EE9FA9173E829A795C155A464917A62B1DDDAD0D2", "EEA7439A446EEDFA1B0A06C8CA5E937D821B71B1D8C2EB3EC8BDC379558A7334", "66C1D29D1E926166CACF48892CDFCFA5ED73C560D21CEB53DCA7915171536FFC"],
+      "media_foundation": {"result": "SMOKE_PASS", "frames": 604, "composition_frames": 152, "layout": "2x2", "texture_type": "IMFDXGIBuffer/ID3D11Texture2D", "ordinary_cpu_frame_copies": 0},
+      "ffmpeg_d3d11": {"result": "SMOKE_PASS", "frames": 596, "texture_type": "AV_PIX_FMT_D3D11/ID3D11Texture2D", "ordinary_cpu_frame_copies": 0, "av_hwframe_transfer_data_calls": 0}
+    },
+    {
+      "id": "two-1080p60-h264",
+      "corpus_sha256": ["719BAA7C2F5CCC6F5634F0BB13DFB387E76C8D754DDA6E352A655D23167B6744", "3901065CB71E1154754AA7218545AB6D7660247140DFF3A70E320E078FF867B2"],
+      "media_foundation": {"result": "SMOKE_PASS", "frames": 602, "composition_frames": 302, "layout": "2x1", "texture_type": "IMFDXGIBuffer/ID3D11Texture2D", "ordinary_cpu_frame_copies": 0},
+      "ffmpeg_d3d11": {"result": "SMOKE_PASS", "frames": 598, "texture_type": "AV_PIX_FMT_D3D11/ID3D11Texture2D", "ordinary_cpu_frame_copies": 0, "av_hwframe_transfer_data_calls": 0}
+    },
+    {
+      "id": "two-1080p60-hevc",
+      "corpus_sha256": ["0A751D426776566E896BF2E41C3D9C14F050670942094F6557DA9B19D363B1D7", "754772E2842050C956A8C0E2010242D2453C633FFE83FBA7D7B0BA662203DF03"],
+      "media_foundation": {"result": "SMOKE_PASS", "frames": 602, "composition_frames": 302, "layout": "2x1", "texture_type": "IMFDXGIBuffer/ID3D11Texture2D", "ordinary_cpu_frame_copies": 0},
+      "ffmpeg_d3d11": {"result": "SMOKE_PASS", "frames": 596, "texture_type": "AV_PIX_FMT_D3D11/ID3D11Texture2D", "ordinary_cpu_frame_copies": 0, "av_hwframe_transfer_data_calls": 0}
+    }
+  ],
+  "reporting_correction": "The original two-stream probe summary mislabeled its two-input layout as 2x2. The evidence records the actual 2x1 input layout, and the probe now emits layout dynamically.",
+  "not_run": {
+    "one_hour_matrix": "NOT_RUN: lead timebox stopped execution after native smoke; only 1.95 GB was free before corpus generation, so large per-cell corpora were not materialized. The probes support in-process corpus looping for a future long-lived run.",
+    "cpu_gpu_memory_latency_decision_metrics": "NOT_RUN: five-second smoke samples are not statistically usable and the wrapper returned incomplete private-byte/GPU samples for several short-lived processes.",
+    "etw_copy_corroboration": "NOT_RUN: no elevated ETW capture/review was completed; WPR commands are checked in, but counter-only copy claims are not promoted to acceptance evidence.",
+    "device_removal_ingress_iso": "NOT_RUN: Graphics Tools/dxcap was absent and no genuine device-removal injection was performed. Logical teardown was rejected as insufficient evidence.",
+    "hardware_programme_encode": "NOT_RUN: the spike did not add a programme encoder; no product compositor or encoder was implemented.",
+    "decoder_selection": "NOT_RUN: required soak, trace, device-loss, and resource gates are incomplete."
+  }
+}

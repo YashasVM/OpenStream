@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "workloads": [
+    {"id": "four-1080p30-h264", "codec": "h264", "width": 1920, "height": 1080, "fps": 30, "streams": 4},
+    {"id": "four-1080p30-hevc", "codec": "hevc", "width": 1920, "height": 1080, "fps": 30, "streams": 4},
+    {"id": "two-1080p60-h264", "codec": "h264", "width": 1920, "height": 1080, "fps": 60, "streams": 2},
+    {"id": "two-1080p60-hevc", "codec": "hevc", "width": 1920, "height": 1080, "fps": 60, "streams": 2}
+  ],
+  "decoded_preview_queue": {"capacity": 4, "overflow_policy": "replace_oldest_non_presented"},
+  "programme_queue": {"capacity": 4, "overflow_policy": "replace_oldest_before_deadline"},
+  "ingress_queue_per_stream": {"capacity": 120, "overflow_policy": "drop_oldest_non_key"},
+  "iso_queue_per_stream": {"capacity": 256, "overflow_policy": "unsafe_no_silent_drop"}
+}
