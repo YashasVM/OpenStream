@@ -15,6 +15,15 @@ second copy of OBS/FFmpeg DLLs.
 | `openstream-obs-plugin-installer-windows-x64.exe` | Windows OBS users | Recommended one-click OBS plugin installer. |
 | `openstream-obs-windows-x64.zip` | Technical users | Manual plugin package with DLL and install scripts. |
 
+### Android compatibility note
+
+The release APK is a universal signed APK with `minSdk 29` and native libraries
+for `arm64-v8a`, `armeabi-v7a`, `x86`, and `x86_64`. It is therefore suitable for
+modern ARM64 phones such as the Samsung Galaxy S24 Ultra. The Android updater
+surface is intentionally absent from this build; no update installer permission,
+updater class, or in-app update dialog is shipped. Camera lens availability and
+device-specific Camera2 behavior should still be verified on the target phone.
+
 ## Automated Release
 
 Create and push the V1.0.0 release tag:
