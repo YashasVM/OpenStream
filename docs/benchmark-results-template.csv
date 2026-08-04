@@ -1,3 +1,0 @@
-commit,candidate,codec,width,height,fps,streams,case,seed,duration_s,bitrate_mbps,cpu_avg_pct,cpu_peak_pct,gpu_decode_avg_pct,gpu_encode_avg_pct,memory_peak_mib,memory_slope_mib_min,latency_p50_ms,latency_p95_ms,recovered_frames,unrecoverable_frames,bandwidth_overhead_pct,audio_gaps,queue_capacity,queue_high_water,queue_overflows,reconnect_ms,copy_ledger_result,result,notes
-,srt-au,h264,1920,1080,30,4,clean,1,3600,,,,,,,,,,,,,,,,,,,NOT_RUN,
-,rtp-srtp,h264,1920,1080,30,4,clean,1,3600,,,,,,,,,,,,,,,,,,,NOT_RUN,

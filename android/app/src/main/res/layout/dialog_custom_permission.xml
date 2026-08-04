@@ -33,35 +33,34 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center">
+            android:gravity="end">
 
             <TextView
                 android:id="@+id/dialogPermissionDismiss"
-                android:layout_width="0dp"
+                android:layout_width="wrap_content"
                 android:layout_height="48dp"
-                android:layout_marginEnd="6dp"
-                android:layout_weight="1"
                 android:gravity="center"
                 android:background="@drawable/bg_minimal_btn_ghost"
                 android:text="Cancel"
                 android:textColor="@color/os_text_secondary"
                 android:textSize="14sp"
                 android:fontFamily="sans-serif-medium"
-                android:maxLines="1" />
+                android:paddingStart="24dp"
+                android:paddingEnd="24dp"
+                android:layout_marginEnd="12dp" />
 
             <TextView
                 android:id="@+id/dialogPermissionAction"
-                android:layout_width="0dp"
+                android:layout_width="wrap_content"
                 android:layout_height="48dp"
-                android:layout_marginStart="6dp"
-                android:layout_weight="1"
                 android:gravity="center"
                 android:background="@drawable/bg_minimal_btn"
                 android:text="Settings"
                 android:textColor="@color/os_black"
                 android:textSize="14sp"
                 android:fontFamily="sans-serif-medium"
-                android:maxLines="1" />
+                android:paddingStart="24dp"
+                android:paddingEnd="24dp" />
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>

@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- OpenStream — Minimalist UI.
+     Full screen camera preview with floating glassmorphic controls. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/os_black"
-    android:keepScreenOn="true">
+    android:background="@color/os_black">
 
+    <!-- ====== BACKGROUND CAMERA PREVIEW ====== -->
     <FrameLayout
         android:id="@+id/previewContainer"
         android:layout_width="match_parent"
@@ -14,75 +16,51 @@
             android:id="@+id/cameraPreview"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:layout_gravity="center"
-            android:contentDescription="@string/camera_preview_description" />
+            android:layout_gravity="center" />
 
-        <dev.openstream.app.monitoring.MonitoringOverlayView
-            android:id="@+id/monitoringOverlay"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:importantForAccessibility="no"
-            android:clickable="false"
-            android:focusable="false" />
-
-        <TextView
-            android:id="@+id/focusReticle"
-            android:layout_width="64dp"
-            android:layout_height="64dp"
-            android:background="@drawable/bg_focus_reticle"
-            android:gravity="center"
-            android:text="AF"
-            android:textColor="@color/os_accent"
-            android:textSize="11sp"
-            android:textStyle="bold"
-            android:visibility="gone"
-            android:importantForAccessibility="no" />
-
+        <!-- IDENTIFY OVERLAY -->
         <TextView
             android:id="@+id/identifyOverlay"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:background="@color/os_overlay_dark"
-            android:fontFamily="sans-serif-light"
             android:gravity="center"
             android:textColor="@color/os_text_primary"
-            android:textSize="48sp"
+            android:textSize="54sp"
+            android:fontFamily="sans-serif-light"
+            android:lineSpacingExtra="10dp"
             android:visibility="gone" />
     </FrameLayout>
 
-    <LinearLayout
-        android:id="@+id/topHud"
+    <!-- ====== TOP OVERLAY (Status) ====== -->
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
         android:background="@drawable/scrim_top"
-        android:orientation="vertical"
-        android:paddingStart="20dp"
-        android:paddingTop="18dp"
-        android:paddingEnd="20dp"
-        android:paddingBottom="34dp">
+        android:paddingStart="@dimen/os_spacing_lg"
+        android:paddingEnd="@dimen/os_spacing_lg"
+        android:paddingTop="56dp"
+        android:paddingBottom="32dp">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-            <TextView
-                android:id="@+id/tallyBadge"
-                style="@style/OpenStream.HudStatus"
-                android:text="PROGRAM"
-                android:visibility="gone" />
-
+            <!-- LIVE badge -->
             <LinearLayout
                 android:id="@+id/liveBadge"
                 android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:layout_marginStart="8dp"
-                android:background="@drawable/bg_hud_chip"
-                android:gravity="center_vertical"
+                android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:paddingHorizontal="14dp"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_minimal_pill"
+                android:paddingStart="12dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
                 android:visibility="gone">
 
                 <View
@@ -94,238 +72,219 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:text="@string/live"
+                    android:text="LIVE"
                     android:textColor="@color/os_live_red"
                     android:textSize="12sp"
-                    android:textStyle="bold" />
+                    android:fontFamily="sans-serif-medium"
+                    android:layout_marginStart="8dp" />
             </LinearLayout>
 
-            <TextView
-                android:id="@+id/authorityBadge"
-                style="@style/OpenStream.HudStatus"
-                android:layout_marginStart="8dp"
-                android:text="COLLABORATIVE" />
-
+            <!-- Stream info chip -->
             <TextView
                 android:id="@+id/streamInfoChip"
-                style="@style/OpenStream.HudStatus"
-                android:layout_marginStart="8dp"
-                android:textColor="@color/os_text_secondary"
-                android:visibility="gone" />
-
-            <Space
-                android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_weight="1" />
-
-            <TextView
-                android:id="@+id/pairingCodeText"
-                style="@style/OpenStream.HudStatus"
-                android:contentDescription="@string/pairing_code_description"
-                android:text="PAIR 000000" />
-
-            <TextView
-                android:id="@+id/zoomLabel"
-                style="@style/OpenStream.HudStatus"
-                android:layout_marginStart="8dp"
-                android:text="1.0x"
-                android:visibility="gone" />
-        </LinearLayout>
-
-        <HorizontalScrollView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:clipToPadding="false"
-            android:scrollbars="none">
-
-            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal">
+                android:background="@drawable/bg_minimal_pill"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:textColor="@color/os_text_secondary"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginStart="@dimen/os_spacing_sm"
+                android:visibility="gone" />
 
-                <TextView android:id="@+id/hudFps" style="@style/OpenStream.HudControl" android:text="FPS 60" />
-                <TextView android:id="@+id/hudShutter" style="@style/OpenStream.HudControl" android:text="SHUTTER AUTO" />
-                <TextView android:id="@+id/hudIso" style="@style/OpenStream.HudControl" android:text="ISO AUTO" />
-                <TextView android:id="@+id/hudWb" style="@style/OpenStream.HudControl" android:text="WB AUTO" />
-                <TextView android:id="@+id/hudFocus" style="@style/OpenStream.HudControl" android:text="AF-C" />
-                <TextView android:id="@+id/hudBattery" style="@style/OpenStream.HudStatus" android:layout_marginEnd="8dp" android:text="BAT --%" />
-                <TextView android:id="@+id/hudThermal" style="@style/OpenStream.HudStatus" android:layout_marginEnd="8dp" android:text="THERMAL --" />
-                <TextView android:id="@+id/hudNetwork" style="@style/OpenStream.HudStatus" android:layout_marginEnd="8dp" android:text="NETWORK --" />
-                <TextView android:id="@+id/btnFrameGuides" style="@style/OpenStream.HudControl" android:contentDescription="@string/frame_guides_description" android:text="GUIDES 3×3" />
-                <TextView android:id="@+id/btnZebra" style="@style/OpenStream.HudControl" android:contentDescription="@string/zebra_description" android:text="ZEBRA 95" />
-            </LinearLayout>
-        </HorizontalScrollView>
+            <View
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
 
-        <dev.openstream.app.monitoring.AudioLevelMeterView
-            android:id="@+id/audioLevelMeter"
-            android:layout_width="match_parent"
-            android:layout_height="58dp"
-            android:layout_marginTop="8dp" />
-    </LinearLayout>
+            <!-- Zoom label -->
+            <TextView
+                android:id="@+id/zoomLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_minimal_pill"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:textColor="@color/os_text_primary"
+                android:textSize="14sp"
+                android:fontFamily="sans-serif-medium"
+                android:visibility="gone" />
+        </LinearLayout>
+    </FrameLayout>
 
+    <!-- ====== BOTTOM CONTROLS ====== -->
     <LinearLayout
         android:id="@+id/bottomControls"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
+        android:orientation="vertical"
         android:background="@drawable/scrim_bottom"
-        android:fitsSystemWindows="true"
-        android:orientation="vertical"
-        android:paddingStart="20dp"
-        android:paddingTop="38dp"
-        android:paddingEnd="20dp"
-        android:paddingBottom="18dp">
+        android:paddingStart="@dimen/os_spacing_lg"
+        android:paddingEnd="@dimen/os_spacing_lg"
+        android:paddingTop="32dp"
+        android:paddingBottom="@dimen/os_spacing_xl"
+        android:fitsSystemWindows="true">
 
-        <TextView
-            android:id="@+id/statusText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/status_ready"
-            android:textColor="@color/os_text_primary"
-            android:textSize="20sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/statusDetail"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="3dp"
-            android:layout_marginBottom="12dp"
-            android:text="@string/status_waiting"
-            android:textColor="@color/os_text_secondary"
-            android:textSize="14sp" />
-
+        <!-- Status Block -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center"
-            android:orientation="horizontal">
-
-            <TextView android:id="@+id/btnExposurePanel" style="@style/OpenStream.Control" android:text="Exposure" />
-            <TextView android:id="@+id/btnFocusPanel" style="@style/OpenStream.Control" android:text="Focus" />
-            <TextView android:id="@+id/btnColorPanel" style="@style/OpenStream.Control" android:text="Color" />
-            <TextView android:id="@+id/btnLensPanel" style="@style/OpenStream.Control" android:text="Lens" />
-            <TextView android:id="@+id/btnArmRemote" style="@style/OpenStream.Control" android:text="Arm remote" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:gravity="center"
-            android:orientation="horizontal">
-
-            <TextView android:id="@+id/btnTorch" style="@style/OpenStream.Control" android:text="@string/control_torch" />
-            <TextView android:id="@+id/btnScreenOff" style="@style/OpenStream.Control" android:text="Screen off" />
-            <TextView android:id="@+id/btnSettings" style="@style/OpenStream.Control" android:text="Settings" />
-            <TextView
-                android:id="@+id/btnStop"
-                style="@style/OpenStream.Control"
-                android:background="@drawable/bg_minimal_btn_danger"
-                android:text="Stop camera"
-                android:visibility="gone" />
-        </LinearLayout>
-
-        <!-- Compatibility-only container retained for legacy rendering code. -->
-        <LinearLayout android:id="@+id/obsSlotList" android:layout_width="0dp" android:layout_height="0dp" android:orientation="vertical" android:visibility="gone" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:id="@+id/controlPalette"
-        android:layout_width="420dp"
-        android:layout_height="match_parent"
-        android:layout_gravity="end"
-        android:background="@drawable/bg_camera_palette"
-        android:orientation="vertical"
-        android:padding="20dp"
-        android:visibility="gone">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:orientation="vertical"
+            android:layout_marginBottom="@dimen/os_spacing_md">
 
             <TextView
-                android:id="@+id/paletteTitle"
-                android:layout_width="0dp"
+                android:id="@+id/statusText"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Exposure"
+                android:text="@string/status_ready"
                 android:textColor="@color/os_text_primary"
-                android:textSize="22sp"
-                android:textStyle="bold" />
+                android:textSize="20sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginBottom="4dp" />
 
             <TextView
-                android:id="@+id/paletteClose"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="@drawable/bg_hud_chip"
-                android:contentDescription="@string/close_controls"
-                android:gravity="center"
-                android:text="Close"
-                android:textColor="@color/os_text_primary"
-                android:textSize="12sp" />
+                android:id="@+id/statusDetail"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/os_text_secondary"
+                android:textSize="14sp"
+                android:fontFamily="sans-serif" />
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/paletteHelp"
+        <!-- OBS Slot List (populated programmatically) -->
+        <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:layout_marginBottom="16dp"
-            android:textColor="@color/os_text_secondary"
-            android:textSize="14sp" />
+            android:scrollbars="none"
+            android:clipToPadding="false"
+            android:layout_marginBottom="@dimen/os_spacing_md">
 
-        <LinearLayout
-            android:id="@+id/paletteModeRow"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
+            <LinearLayout
+                android:id="@+id/obsSlotList"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical" />
+        </HorizontalScrollView>
 
-            <TextView android:id="@+id/paletteModeA" style="@style/OpenStream.PaletteMode" android:text="Auto" />
-            <TextView android:id="@+id/paletteModeB" style="@style/OpenStream.PaletteMode" android:text="Manual" />
-            <TextView android:id="@+id/paletteModeC" style="@style/OpenStream.PaletteMode" android:text="Lock" />
-        </LinearLayout>
-
+        <!-- Lens Selector Row -->
         <LinearLayout
             android:id="@+id/lensSelectorRow"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="@dimen/os_spacing_lg">
+            <!-- Lens buttons added programmatically -->
+        </LinearLayout>
+
+        <!-- Utility Button Row -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:visibility="gone" />
+            android:gravity="center_vertical">
 
-        <TextView android:id="@+id/paletteSlider1Label" style="@style/OpenStream.PaletteLabel" android:text="ISO" />
-        <TextView android:id="@+id/paletteSlider1Value" style="@style/OpenStream.PaletteValue" android:text="400" />
-        <SeekBar android:id="@+id/paletteSlider1" style="@style/OpenStream.PaletteSlider" />
+            <!-- Screen off -->
+            <TextView
+                android:id="@+id/btnScreenOff"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="@dimen/os_control_btn_height"
+                android:gravity="center"
+                android:background="@drawable/bg_minimal_pill"
+                android:text="Screen"
+                android:textColor="@color/os_text_primary"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginEnd="@dimen/os_spacing_xs" />
 
-        <TextView android:id="@+id/paletteSlider2Label" style="@style/OpenStream.PaletteLabel" android:text="Shutter" />
-        <TextView android:id="@+id/paletteSlider2Value" style="@style/OpenStream.PaletteValue" android:text="1/50" />
-        <SeekBar android:id="@+id/paletteSlider2" style="@style/OpenStream.PaletteSlider" />
+            <!-- Stay -->
+            <TextView
+                android:id="@+id/btnKeepScreenOn"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="@dimen/os_control_btn_height"
+                android:gravity="center"
+                android:background="@drawable/bg_minimal_pill"
+                android:text="Stay"
+                android:textColor="@color/os_text_primary"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginEnd="@dimen/os_spacing_xs" />
 
-        <TextView android:id="@+id/paletteSlider3Label" style="@style/OpenStream.PaletteLabel" android:text="Exposure compensation" />
-        <TextView android:id="@+id/paletteSlider3Value" style="@style/OpenStream.PaletteValue" android:text="0" />
-        <SeekBar android:id="@+id/paletteSlider3" style="@style/OpenStream.PaletteSlider" />
+            <!-- Torch -->
+            <TextView
+                android:id="@+id/btnTorch"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="@dimen/os_control_btn_height"
+                android:gravity="center"
+                android:background="@drawable/bg_minimal_pill"
+                android:text="Torch"
+                android:textColor="@color/os_text_primary"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginEnd="@dimen/os_spacing_xs" />
 
-        <TextView
-            android:id="@+id/paletteAction"
-            style="@style/OpenStream.SecondaryButton"
-            android:layout_marginTop="20dp"
-            android:gravity="center"
-            android:text="Focus center" />
+            <!-- Flip -->
+            <TextView
+                android:id="@+id/btnFlipCamera"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="@dimen/os_control_btn_height"
+                android:gravity="center"
+                android:background="@drawable/bg_minimal_pill"
+                android:text="Flip"
+                android:textColor="@color/os_text_primary"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginEnd="@dimen/os_spacing_xs" />
+
+            <!-- Settings -->
+            <TextView
+                android:id="@+id/btnSettings"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="@dimen/os_control_btn_height"
+                android:gravity="center"
+                android:background="@drawable/bg_minimal_pill"
+                android:text="Config"
+                android:textColor="@color/os_text_primary"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginEnd="@dimen/os_spacing_xs" />
+
+            <!-- Stop -->
+            <TextView
+                android:id="@+id/btnStop"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="@dimen/os_control_btn_height"
+                android:gravity="center"
+                android:background="@drawable/bg_minimal_btn_danger"
+                android:text="Stop"
+                android:textColor="@color/os_text_primary"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
+                android:visibility="gone" />
+        </LinearLayout>
     </LinearLayout>
 
+    <!-- Last child so screen-off mode covers status and controls as advertised. -->
     <View
         android:id="@+id/screenOffOverlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="@color/os_black"
-        android:clickable="true"
         android:contentDescription="@string/screen_off_overlay_description"
-        android:focusable="true"
-        android:visibility="gone" />
+        android:visibility="gone"
+        android:clickable="true"
+        android:focusable="true" />
 </FrameLayout>

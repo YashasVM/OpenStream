@@ -13,8 +13,6 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.os.Process
 import android.util.Log
-import dev.openstream.app.audio.AudioLevel
-import dev.openstream.app.audio.Pcm16AudioLevel
 import java.nio.ByteBuffer
 import kotlin.math.max
 
@@ -26,9 +24,8 @@ class MediaCodecAudioEncoder(
     context: Context,
     private val sampleRate: Int = 48_000,
     private val channelCount: Int = 1,
-    private val bitrate: Int = 128_000,
+    private val bitrate: Int = 192_000,
     private val onEncodedAccessUnit: (EncodedAccessUnit) -> Unit,
-    private val onAudioLevel: (AudioLevel) -> Unit = {},
 ) {
     private val context = context.applicationContext
     private var codec: MediaCodec? = null
@@ -69,9 +66,7 @@ class MediaCodecAudioEncoder(
             sampleRate, channelConfig, AudioFormat.ENCODING_PCM_16BIT
         )
         check(minBufferSize > 0) { "AudioRecord does not support $sampleRate Hz / $channelCount ch PCM16" }
-        // A large AudioRecord queue conceals capture stalls as audible latency.
-        // Keep enough buffering for scheduler jitter without banking 250 ms.
-        val bufferSize = max(minBufferSize * 2, bytesForDurationMs(80))
+        val bufferSize = max(minBufferSize * 4, bytesForDurationMs(250))
 
         val recorder = createRecorder(channelConfig, bufferSize)
         audioRecord = recorder
@@ -82,7 +77,6 @@ class MediaCodecAudioEncoder(
             Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
             val pcmBuffer = ByteArray(bytesForDurationMs(20))
             var capturedSamples = 0L
-            var lastLevelCallbackNs = 0L
             val startPresentationTimeUs = System.nanoTime() / 1000
             while (running) {
                 val bytesRead = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -92,15 +86,7 @@ class MediaCodecAudioEncoder(
                     recorder.read(pcmBuffer, 0, pcmBuffer.size)
                 }
                 if (bytesRead > 0) {
-                    if (!running) break
-                    val nowNs = System.nanoTime()
-                    if (nowNs - lastLevelCallbackNs >= LEVEL_CALLBACK_INTERVAL_NS) {
-                        lastLevelCallbackNs = nowNs
-                        onAudioLevel(Pcm16AudioLevel.measure(pcmBuffer, bytesRead))
-                    }
                     val samplesRead = bytesRead / bytesPerSampleFrame()
-                    // Reclaim output buffers before asking the codec for another PCM input slot.
-                    drainEncoder(encoder)
                     val inputIndex = encoder.dequeueInputBuffer(10_000)
                     if (inputIndex >= 0) {
                         val inputBuffer = encoder.getInputBuffer(inputIndex)
@@ -112,7 +98,6 @@ class MediaCodecAudioEncoder(
                             encoder.queueInputBuffer(inputIndex, 0, bytesRead, presentationTimeUs, 0)
                         }
                     }
-                    // Keep timestamps aligned to the audio capture clock even if MediaCodec drops a buffer.
                     capturedSamples += samplesRead
                     drainEncoder(encoder)
                 } else if (bytesRead < 0) {
@@ -129,12 +114,11 @@ class MediaCodecAudioEncoder(
 
     fun stop() {
         running = false
-        val recorder = audioRecord
-        audioRecord = null
-        // READ_BLOCKING must be released before waiting for the capture thread.
-        runCatching { recorder?.stop() }
         captureThread?.join(500)
         captureThread = null
+        val recorder = audioRecord
+        audioRecord = null
+        runCatching { recorder?.stop() }
         runCatching { recorder?.release() }
 
         val encoder = codec
@@ -243,6 +227,5 @@ class MediaCodecAudioEncoder(
     companion object {
         private const val TAG = "OpenStreamAudioEncoder"
         private const val BYTES_PER_PCM16_SAMPLE = 2
-        private const val LEVEL_CALLBACK_INTERVAL_NS = 33_000_000L
     }
 }
