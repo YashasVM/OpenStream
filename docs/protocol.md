@@ -2,7 +2,7 @@
 
 ## Overview
 
-OpenStream V1.0.0 currently uses version 1 of its LAN wire protocol. Product
+OpenStream V1.0.1 currently uses version 1 of its LAN wire protocol. Product
 version numbers and protocol versions are independent: `OPENSTREAM/1` and
 `OPENSTREAM_PHONE/1` below identify the protocol, not the app release.
 

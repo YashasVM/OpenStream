@@ -17,11 +17,11 @@ val hasReleaseSigning = listOf(
 ).all { !it.isNullOrBlank() }
 val openStreamVersionName = providers.gradleProperty("openstream.versionName")
     .orElse(providers.environmentVariable("OPENSTREAM_VERSION_NAME"))
-    .orElse("1.0.0")
+    .orElse("1.0.1")
     .map { it.removePrefix("v") }
 val openStreamVersionCode = providers.gradleProperty("openstream.versionCode")
     .orElse(providers.environmentVariable("OPENSTREAM_VERSION_CODE"))
-    .orElse("1")
+    .orElse("2")
     .map { it.toInt() }
 
 android {

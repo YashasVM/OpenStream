@@ -1,6 +1,6 @@
-# OpenStream V1.0.0
+# OpenStream V1.0.1
 
-OpenStream V1.0.0 provides a direct Android-to-OBS camera workflow with V8 source naming, V7 scene compatibility, Android camera streaming, and install downloads for both surfaces.
+OpenStream V1.0.1 is a fixed Android-to-OBS camera release with V8 source naming, V7 scene compatibility, universal Android packaging, and install downloads for both surfaces.
 
 ## What's New
 
@@ -37,7 +37,7 @@ For the screenshot walkthrough, read [`docs/set-up.md`](https://github.com/Yasha
 ## Notes
 
 - Windows OBS plugin only.
-- Existing source names may still say `OpenStream V7`; rename them in OBS if you want the scene label to match V1.0.0.
+- Existing source names may still say `OpenStream V7`; rename them in OBS if you want the scene label to match V1.0.1.
 - Use 5 GHz or Wi-Fi 6 for best results.
 - Keep both devices on the same subnet.
 - Please report issues on GitHub.

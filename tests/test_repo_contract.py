@@ -16,7 +16,7 @@ def test_architecture_documents_practical_v1_transport() -> None:
     assert "SRT caller" in architecture
     assert "UDP discovery" in architecture
     assert "PTP" in architecture
-    assert "not required for the first prototype" in architecture
+    assert "## Research Track" not in architecture
 
 
 def test_android_project_declares_camera_media_codec_srt_discovery_boundaries() -> None:
@@ -301,7 +301,7 @@ def test_release_build_fails_without_signing_and_keystores_are_ignored() -> None
     assert "Release builds require OPENSTREAM_RELEASE_KEYSTORE" in app_gradle
     assert "openstream.versionName" in app_gradle
     assert "openstream.versionCode" in app_gradle
-    assert '"1.0.0"' in app_gradle
+    assert '"1.0.1"' in app_gradle
     version_code = re.search(
         r"openStreamVersionCode.*?\.orElse\(\"(\d+)\"\)",
         app_gradle,
@@ -318,6 +318,6 @@ def test_legacy_android_and_restored_obs_metadata_are_explicit() -> None:
     cmake = read("obs-plugin/CMakeLists.txt")
     installer = read("tools/installer/openstream-obs-plugin.iss")
 
-    assert '"1.0.0"' in app_gradle
-    assert "project(openstream_obs_plugin VERSION 1.0.0" in cmake
-    assert '#define OpenStreamVersion "1.0.0"' in installer
+    assert '"1.0.1"' in app_gradle
+    assert "project(openstream_obs_plugin VERSION 1.0.1" in cmake
+    assert '#define OpenStreamVersion "1.0.1"' in installer

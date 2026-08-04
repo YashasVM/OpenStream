@@ -1,6 +1,6 @@
 # OpenStream Repository Rules
 
-These rules apply to every OpenStream V4 change.
+These rules apply to every OpenStream change.
 
 1. Never replace source timestamps with arrival time.
 2. Never re-encode ISO video.
@@ -14,14 +14,13 @@ These rules apply to every OpenStream V4 change.
 10. Never create a second phone video encoder in standard mode.
 11. Never mix all microphones automatically.
 12. Never promise genlock or guaranteed frame-perfect sync.
-13. Never combine multiple major phases into one PR.
+13. Keep unrelated changes in separate PRs.
 14. Every performance change must include before-and-after measurements.
 15. Every media change must include behavioural tests.
 16. Every queue must declare its capacity and overflow policy.
 17. Every recording gap must be surfaced and logged.
 18. Hardware acceleration must have an explicit fallback and warning.
 19. Preserve legacy compatibility through adapters, not core contamination.
-20. Virtual microphone work is outside the initial V4 release.
 
 ## Completion workflow
 
