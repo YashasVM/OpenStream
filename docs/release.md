@@ -10,18 +10,25 @@ second copy of OBS/FFmpeg DLLs.
 
 | Asset | Audience | Purpose |
 |---|---|---|
-| `openstream-android.apk` | Android users | Signed install package for the OpenStream V1.0.0 camera app. |
+| `openstream-android.apk` | Android users | Signed install package for the OpenStream V1.0.1 camera app. |
 | `openstream-android.apk.sha256` | Android users and automation | SHA-256 checksum for the exact APK in the release. |
 | `openstream-obs-plugin-installer-windows-x64.exe` | Windows OBS users | Recommended one-click OBS plugin installer. |
 | `openstream-obs-windows-x64.zip` | Technical users | Manual plugin package with DLL and install scripts. |
 
+### Android compatibility note
+
+The V1.0.1 APK is a universal signed APK with `minSdk 29` and native libraries
+for `arm64-v8a`, `armeabi-v7a`, `x86`, and `x86_64`. It is therefore suitable for
+modern ARM64 phones such as the Samsung Galaxy S24 Ultra. Camera lens availability
+and device-specific Camera2 behavior should still be verified on the target phone.
+
 ## Automated Release
 
-Create and push the V1.0.0 release tag:
+Create and push the V1.0.1 release tag:
 
 ```powershell
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.0.1
+git push origin v1.0.1
 ```
 
 The `Release` workflow builds:
@@ -38,7 +45,7 @@ artifacts, normalizes the APK name, writes its SHA-256 sidecar, and runs
 `gh release create`.
 
 You can also run the `Release` workflow manually from GitHub Actions with the
-tag `v1.0.0`.
+tag `v1.0.1`.
 
 The Android job passes the release tag into Gradle as the APK `versionName` and
 uses the release commit timestamp as `versionCode`.

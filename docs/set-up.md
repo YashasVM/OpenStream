@@ -1,6 +1,6 @@
 # OpenStream Set-Up Guide
 
-This guide is the slower, screenshot-led path for installing OpenStream V1.0.0 on an Android phone and a Windows OBS Studio PC.
+This guide is the slower, screenshot-led path for installing OpenStream V1.0.1 on an Android phone and a Windows OBS Studio PC.
 
 For the fast technical version, use the [README quick start](../README.md#quick-start).
 
@@ -13,7 +13,7 @@ For the fast technical version, use the [README quick start](../README.md#quick-
 | Android phone | Android 10 or newer is recommended. The phone must support Camera2. |
 | Windows PC | OBS Studio installed on Windows x64. |
 | Same network | Phone and PC must be on the same Wi-Fi or LAN subnet. |
-| Release files | V1.0.0 APK for the phone, installer EXE for the OBS plugin. |
+| Release files | V1.0.1 APK for the phone, installer EXE for the OBS plugin. |
 
 > [!TIP]
 > If discovery does not work, temporarily disable VPNs, guest Wi-Fi, and router client isolation.
@@ -22,7 +22,7 @@ For the fast technical version, use the [README quick start](../README.md#quick-
 
 ## 1. Download the Release Files
 
-Open the latest OpenStream V1.0.0 release and download:
+Open the latest OpenStream V1.0.1 release and download:
 
 | File | Install on | Use |
 |---|---|---|
@@ -71,9 +71,9 @@ C:\Program Files\obs-studio\obs-plugins\64bit\
 
 ### Upgrading from an Older OpenStream Plugin
 
-OpenStream V1.0.0 appears in OBS as `OpenStream V8`. Existing scene sources created with `OpenStream V7` are still supported, but the saved source names may remain `OpenStream V7` until you rename them in OBS.
+OpenStream V1.0.1 appears in OBS as `OpenStream V8`. Existing scene sources created with `OpenStream V7` are still supported, but the saved source names may remain `OpenStream V7` until you rename them in OBS.
 
-If OBS still shows an older OpenStream source after installing V1.0.0, check these plugin locations and remove or replace stale copies:
+If OBS still shows an older OpenStream source after installing V1.0.1, check these plugin locations and remove or replace stale copies:
 
 ```text
 C:\Program Files\obs-studio\obs-plugins\64bit\openstream-obs.dll
@@ -157,7 +157,7 @@ In OBS:
 | Installer cannot find OBS | Re-run it and choose the folder that contains `bin\64bit\obs64.exe`. |
 | Windows blocks the EXE | Use `More info` then `Run anyway`, or use the manual zip install. |
 | OpenStream V8 is missing in OBS | Confirm `openstream-obs.dll` is in one of the plugin folders above, remove stale older copies, then restart OBS. |
-| Old OpenStream source is still visible | OBS may be loading an older all-users DLL from `C:\ProgramData\obs-studio\plugins\openstream-obs\bin\64bit\`. Replace it with the V1.0.0 DLL or remove it. |
+| Old OpenStream source is still visible | OBS may be loading an older all-users DLL from `C:\ProgramData\obs-studio\plugins\openstream-obs\bin\64bit\`. Replace it with the V1.0.1 DLL or remove it. |
 | Phone cannot see OBS | Put both devices on the same Wi-Fi, disable VPNs, and check guest/client isolation. |
 | Camera stays blank | Start with port `9000`, latency `120 ms`, and one phone only. |
 | Audio is missing | Grant microphone permission on Android and check the OBS mixer channel. |

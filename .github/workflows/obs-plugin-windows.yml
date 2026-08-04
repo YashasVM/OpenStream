@@ -74,7 +74,7 @@ jobs:
       - name: Build plugin installer
         shell: powershell
         env:
-          OPENSTREAM_VERSION: ci
+          OPENSTREAM_VERSION: 1.0.1
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           & $iscc "tools\installer\openstream-obs-plugin.iss" `

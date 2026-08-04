@@ -11,7 +11,7 @@
 #endif
 
 #ifndef OpenStreamVersion
-  #define OpenStreamVersion "1.0.0"
+  #define OpenStreamVersion "1.0.1"
 #endif
 
 [Setup]

@@ -50,7 +50,7 @@ jobs:
       - name: Run Android unit tests and lint, then build APK
         working-directory: android
         env:
-          OPENSTREAM_VERSION_NAME: 1.0.0
+          OPENSTREAM_VERSION_NAME: 1.0.1
           OPENSTREAM_VERSION_CODE: ${{ steps.version.outputs.code }}
         run: |
           chmod +x ./gradlew

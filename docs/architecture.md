@@ -111,15 +111,3 @@ The Android app publishes:
 
 Telemetry is intentionally separate from the media path so OBS property
 panels can evolve independently.
-
-## Research Track
-
-The following are explicitly not required for the first prototype:
-
-- Raw `YUV_420_888` over network
-- zstd lossless frame transport
-- PTP-grade synchronization
-- GPU zero-copy receive path
-- ML Kit auto-framing
-- Multi-network bonding
-- Predictive auto-switching
