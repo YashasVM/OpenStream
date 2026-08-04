@@ -14,9 +14,7 @@ android/build/
 android/app/build/
 android/app/.cxx/
 
-build/
 out/
-CMakeUserPresets.json
 
 __pycache__/
 *.py[cod]
@@ -43,5 +41,3 @@ artifacts-local/
 website/node_modules/
 website/dist/
 aqtinstall.log
-/.phase0-smoke/
-/.phase0-smoke-*.log

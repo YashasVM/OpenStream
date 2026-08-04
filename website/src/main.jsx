@@ -24,14 +24,14 @@ function Icon({ children }) {
 function Header() {
   return (
     <header className="site-header">
-      <a className="brand" href="#top" aria-label="OpenStream home"><Mark /><strong>OPENSTREAM</strong><span>V2.1</span></a>
+      <a className="brand" href="#top" aria-label="OpenStream home"><Mark /><strong>OPENSTREAM</strong><span>V1.0.0</span></a>
       <nav aria-label="Main navigation">
         <a href="#features">Features</a>
         <a href="#downloads">Downloads</a>
         <a href="#setup">Setup</a>
         <a href={links.repo}>GitHub</a>
       </nav>
-      <a className="button button-dark header-cta" href="#downloads">Download V2</a>
+      <a className="button button-dark header-cta" href="#downloads">Download V1.0.0</a>
     </header>
   );
 }
@@ -116,11 +116,11 @@ function DownloadRow({ icon, title, meta, children }) {
 function Downloads() {
   return (
     <section className="section downloads" id="downloads">
-      <div><h2>Install both sides.<br/>Start shooting.</h2><p>Install OpenStream on your phone and the native plugin on your OBS computer. Both update paths come from the same verified release.</p><a className="text-link" href={links.release}>View V2.1 release notes →</a></div>
+      <div><h2>Install both sides.<br/>Start shooting.</h2><p>Install OpenStream on your phone and the native plugin on your OBS computer from the same verified V1.0.0 release.</p><a className="text-link" href={links.release}>View V1.0.0 release notes →</a></div>
       <div className="download-stack">
         <DownloadRow icon="◆" title="OpenStream for Android" meta="Android 10+ · Signed release APK"><a className="button button-dark" href={links.apk}>Download signed APK</a></DownloadRow>
         <DownloadRow icon="⊞" title="OpenStream OBS Plugin" meta="Windows x64 · OBS Studio"><a className="button button-dark" href={links.installer}>Download installer</a><a className="button button-light" href={links.zip}>Manual ZIP</a></DownloadRow>
-        <div className="trust-note"><Icon>◇</Icon><p><strong>Release integrity included.</strong><br/>SHA-256 checksums and update manifests are published alongside every V2 release.</p></div>
+        <div className="trust-note"><Icon>◇</Icon><p><strong>Release integrity included.</strong><br/>SHA-256 checksums are published alongside the V1.0.0 release.</p></div>
       </div>
     </section>
   );
@@ -158,14 +158,14 @@ function Compatibility() {
   return (
     <section className="section compatibility">
       <div><h2>Built for a strong LAN.</h2><p>Use 5 GHz or Wi-Fi 6, keep both devices on the same subnet, and disable VPN or client isolation during first setup.</p></div>
-      <ul><li><strong>Phone</strong><span>Android 10+ with Camera2 and hardware MediaCodec</span></li><li><strong>Computer</strong><span>Windows x64 with OBS Studio</span></li><li><strong>Network</strong><span>Same LAN; guest networks may block discovery</span></li><li><strong>Current limits</strong><span>Beta software; macOS/Linux packages and adaptive bitrate are planned</span></li></ul>
+      <ul><li><strong>Phone</strong><span>Android 10+ with Camera2 and hardware MediaCodec</span></li><li><strong>Computer</strong><span>Windows x64 with OBS Studio</span></li><li><strong>Network</strong><span>Same LAN; guest networks may block discovery</span></li><li><strong>Current limits</strong><span>V1.0.0 supports Android and Windows; macOS/Linux packages and adaptive bitrate are not included</span></li></ul>
     </section>
   );
 }
 
 function Footer() {
   return (
-    <footer><a className="brand" href="#top"><Mark /><strong>OPENSTREAM</strong></a><p>Open-source phone camera streaming for OBS.</p><nav aria-label="Footer links"><a href={links.repo}>Source</a><a href={links.release}>Releases</a><a href={links.issues}>Issues</a><a href={links.setup}>Setup</a></nav><p className="copyright">Made by YashasVM · V2.1 beta</p></footer>
+    <footer><a className="brand" href="#top"><Mark /><strong>OPENSTREAM</strong></a><p>Open-source phone camera streaming for OBS.</p><nav aria-label="Footer links"><a href={links.repo}>Source</a><a href={links.release}>Releases</a><a href={links.issues}>Issues</a><a href={links.setup}>Setup</a></nav><p className="copyright">Made by YashasVM · V1.0.0</p></footer>
   );
 }
 

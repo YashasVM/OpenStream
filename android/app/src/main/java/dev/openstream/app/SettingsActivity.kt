@@ -4,13 +4,11 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import android.view.View
 import android.view.WindowInsets
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import dev.openstream.app.stream.ConnectionTarget
-import dev.openstream.app.update.AppUpdater
 
 class SettingsActivity : Activity() {
 
@@ -21,11 +19,7 @@ class SettingsActivity : Activity() {
     private lateinit var btnSave: TextView
     private lateinit var btnSaveAndConnect: TextView
     private lateinit var btnBack: TextView
-    private lateinit var btnCheckUpdates: TextView
-    private lateinit var btnToggleAdvanced: TextView
-    private lateinit var advancedSettingsPanel: View
     private lateinit var versionInfo: TextView
-    private lateinit var appUpdater: AppUpdater
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,37 +32,14 @@ class SettingsActivity : Activity() {
         btnSave = findViewById(R.id.btnSaveSettings)
         btnSaveAndConnect = findViewById(R.id.btnSaveAndConnect)
         btnBack = findViewById(R.id.btnBackSettings)
-        btnCheckUpdates = findViewById(R.id.btnCheckUpdates)
-        btnToggleAdvanced = findViewById(R.id.btnToggleAdvanced)
-        advancedSettingsPanel = findViewById(R.id.advancedSettingsPanel)
         versionInfo = findViewById(R.id.settingsVersionInfo)
-
-        appUpdater = AppUpdater(this)
-        appUpdater.register()
 
         loadSettings()
         showVersionInfo()
-        renderAdvancedVisibility(manualSettingsInUse())
 
         btnSave.setOnClickListener { saveSettings(connectAfterSave = false) }
         btnSaveAndConnect.setOnClickListener { saveSettings(connectAfterSave = true) }
         btnBack.setOnClickListener { finish() }
-        btnCheckUpdates.setOnClickListener {
-            appUpdater.checkForUpdates(showAlreadyCurrent = true)
-        }
-        btnToggleAdvanced.setOnClickListener {
-            renderAdvancedVisibility(advancedSettingsPanel.visibility != View.VISIBLE)
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        appUpdater.resumePendingInstallIfAllowed()
-    }
-
-    override fun onDestroy() {
-        appUpdater.dispose()
-        super.onDestroy()
     }
 
     private fun loadSettings() {
@@ -86,7 +57,7 @@ class SettingsActivity : Activity() {
         clearValidationErrors()
         val host = inputObsHost.text.toString().trim()
         if (!SettingsValidator.isValidHost(host, required = connectAfterSave)) {
-            inputObsHost.error = getString(R.string.error_invalid_host)
+            inputObsHost.error = "Enter a valid OBS host or IP address"
             inputObsHost.requestFocus()
             return
         }
@@ -116,7 +87,7 @@ class SettingsActivity : Activity() {
             .putInt(KEY_LISTENING_PORT, listenPort)
             .apply()
 
-        Toast.makeText(this, R.string.settings_saved, Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Settings saved", Toast.LENGTH_SHORT).show()
         setResult(
             RESULT_OK,
             Intent().putExtra(EXTRA_CONNECT_AFTER_SAVE, connectAfterSave),
@@ -159,19 +130,6 @@ class SettingsActivity : Activity() {
             }
             versionInfo.text = "OpenStream v${info.versionName} (${code})"
         }
-    }
-
-    private fun manualSettingsInUse(): Boolean {
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        return !prefs.getString(KEY_OBS_HOST, "").isNullOrBlank() ||
-            prefs.getInt(KEY_OBS_PORT, ConnectionTarget.DEFAULT_PORT) != ConnectionTarget.DEFAULT_PORT ||
-            prefs.getInt(KEY_LATENCY, ConnectionTarget.DEFAULT_LATENCY_MS) != ConnectionTarget.DEFAULT_LATENCY_MS ||
-            prefs.getInt(KEY_LISTENING_PORT, ConnectionTarget.DEFAULT_PORT) != ConnectionTarget.DEFAULT_PORT
-    }
-
-    private fun renderAdvancedVisibility(visible: Boolean) {
-        advancedSettingsPanel.visibility = if (visible) View.VISIBLE else View.GONE
-        btnToggleAdvanced.setText(if (visible) R.string.settings_hide_advanced else R.string.settings_show_advanced)
     }
 
     companion object {

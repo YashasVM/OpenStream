@@ -482,7 +482,7 @@ std::optional<SrtUrl> parseSrtUrl(const std::string &url) {
 
 class NativeSender {
  public:
-  bool connect(const std::string &url, const std::string &passphrase) {
+  bool connect(const std::string &url) {
 #if OPENSTREAM_HAVE_LIBSRT
     disconnect();
     const auto parsed = parseSrtUrl(url);
@@ -514,10 +514,6 @@ class NativeSender {
     const int latency = parsed->latencyMs;
     srt_setsockopt(socket, 0, SRTO_LATENCY, &latency, sizeof latency);
     srt_setsockopt(socket, 0, SRTO_PEERLATENCY, &latency, sizeof latency);
-    if (!configureEncryption(socket, passphrase)) {
-      closeSocket(socket);
-      return false;
-    }
 
     addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
@@ -547,13 +543,12 @@ class NativeSender {
     return true;
 #else
     (void)url;
-    (void)passphrase;
     logError("openstream_srt was built without libsrt. Rebuild with OPENSTREAM_ENABLE_LIBSRT=ON.");
     return false;
 #endif
   }
 
-  bool listen(const std::string &url, const std::string &passphrase) {
+  bool listen(const std::string &url) {
 #if OPENSTREAM_HAVE_LIBSRT
     disconnect();
     const auto parsed = parseSrtUrl(url);
@@ -586,10 +581,6 @@ class NativeSender {
     srt_setsockopt(listenerSocket, 0, SRTO_SNDTIMEO, &sendTimeoutMs, sizeof sendTimeoutMs);
     srt_setsockopt(listenerSocket, 0, SRTO_LATENCY, &latency, sizeof latency);
     srt_setsockopt(listenerSocket, 0, SRTO_PEERLATENCY, &latency, sizeof latency);
-    if (!configureEncryption(listenerSocket, passphrase)) {
-      closeListenerSocket(listenerSocket);
-      return false;
-    }
 
     sockaddr_in address{};
     address.sin_family = AF_INET;
@@ -623,7 +614,6 @@ class NativeSender {
     return true;
 #else
     (void)url;
-    (void)passphrase;
     logError("openstream_srt was built without libsrt. Rebuild with OPENSTREAM_ENABLE_LIBSRT=ON.");
     return false;
 #endif
@@ -682,23 +672,6 @@ class NativeSender {
 
  private:
 #if OPENSTREAM_HAVE_LIBSRT
-  bool configureEncryption(SRTSOCKET socket, const std::string &passphrase) {
-    if (passphrase.empty()) return true;
-    if (passphrase.size() < 10 || passphrase.size() > 79) {
-      logError("SRT passphrase must contain 10 to 79 characters");
-      return false;
-    }
-    int keyLength = 32;
-    if (srt_setsockopt(socket, 0, SRTO_PBKEYLEN, &keyLength, sizeof keyLength) == SRT_ERROR ||
-        srt_setsockopt(socket, 0, SRTO_PASSPHRASE, passphrase.data(),
-                       static_cast<int>(passphrase.size())) == SRT_ERROR) {
-      __android_log_print(ANDROID_LOG_ERROR, kTag, "Could not enable SRT encryption: %s",
-                          srt_getlasterror_str());
-      return false;
-    }
-    return true;
-  }
-
   SRTSOCKET currentSocket() const {
     std::lock_guard<std::mutex> lock(socketMutex_);
     return socket_;
@@ -784,17 +757,13 @@ Java_dev_openstream_app_stream_SrtNativeBridge_connect(
     jstring codec_mime,
     jint,
     jint,
-    jint,
-    jstring passphrase) {
+    jint) {
   const char *rawUrl = env->GetStringUTFChars(url, nullptr);
   const char *rawCodec = env->GetStringUTFChars(codec_mime, nullptr);
   const std::string urlString(rawUrl);
   const std::string codecString(rawCodec);
-  const char *rawPassphrase = passphrase ? env->GetStringUTFChars(passphrase, nullptr) : nullptr;
-  const std::string passphraseString = rawPassphrase ? rawPassphrase : "";
   env->ReleaseStringUTFChars(url, rawUrl);
   env->ReleaseStringUTFChars(codec_mime, rawCodec);
-  if (rawPassphrase) env->ReleaseStringUTFChars(passphrase, rawPassphrase);
 
   const auto codec = parseCodec(codecString);
   if (!codec) {
@@ -811,7 +780,7 @@ Java_dev_openstream_app_stream_SrtNativeBridge_connect(
     g_state.connected = false;
   }
   g_state.sender.disconnect();
-  const bool connected = g_state.sender.connect(urlString, passphraseString);
+  const bool connected = g_state.sender.connect(urlString);
   {
     std::lock_guard<std::mutex> lock(g_state.mediaMutex);
     g_state.connected = connected;
@@ -830,17 +799,13 @@ Java_dev_openstream_app_stream_SrtNativeBridge_listen(
     jstring codec_mime,
     jint,
     jint,
-    jint,
-    jstring passphrase) {
+    jint) {
   const char *rawUrl = env->GetStringUTFChars(url, nullptr);
   const char *rawCodec = env->GetStringUTFChars(codec_mime, nullptr);
   const std::string urlString(rawUrl);
   const std::string codecString(rawCodec);
-  const char *rawPassphrase = passphrase ? env->GetStringUTFChars(passphrase, nullptr) : nullptr;
-  const std::string passphraseString = rawPassphrase ? rawPassphrase : "";
   env->ReleaseStringUTFChars(url, rawUrl);
   env->ReleaseStringUTFChars(codec_mime, rawCodec);
-  if (rawPassphrase) env->ReleaseStringUTFChars(passphrase, rawPassphrase);
 
   const auto codec = parseCodec(codecString);
   if (!codec) {
@@ -857,7 +822,7 @@ Java_dev_openstream_app_stream_SrtNativeBridge_listen(
     g_state.connected = false;
   }
   g_state.sender.disconnect();
-  const bool connected = g_state.sender.listen(urlString, passphraseString);
+  const bool connected = g_state.sender.listen(urlString);
   {
     std::lock_guard<std::mutex> lock(g_state.mediaMutex);
     g_state.connected = connected;

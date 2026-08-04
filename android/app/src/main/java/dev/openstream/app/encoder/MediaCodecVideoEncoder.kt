@@ -6,7 +6,6 @@ import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Handler
 import android.os.HandlerThread
-import android.os.Build
 import android.util.Log
 import android.view.Surface
 import java.io.ByteArrayOutputStream
@@ -64,18 +63,8 @@ class MediaCodecVideoEncoder(
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, keyframeIntervalSeconds)
             setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                // Tell hardware encoders to provision for real-time throughput.
-                setInteger(MediaFormat.KEY_PRIORITY, 0)
-                setFloat(MediaFormat.KEY_OPERATING_RATE, fps.toFloat())
-            }
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 setInteger(MediaFormat.KEY_LATENCY, 0)
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // B-frames add presentation reordering and are undesirable for a
-                // live camera whose receiver is on the same local network.
-                setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
             }
         }
         encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)

@@ -1,12 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">OpenStream Beta</string>
-    <string name="live">LIVE</string>
-    <string name="control_torch">Torch</string>
-    <string name="control_awake">Awake</string>
-    <string name="control_dim">Dim</string>
-    <string name="control_settings">Settings</string>
-    <string name="action_stop_stream">Stop stream</string>
+    <string name="app_name">OpenStream</string>
 
     <!-- Camera controls -->
     <string name="lens_back_wide">1×</string>
@@ -17,6 +11,7 @@
     <!-- Buttons -->
     <string name="btn_screen_on">Screen</string>
     <string name="btn_screen_on_active">Screen ✓</string>
+    <string name="btn_flip_camera">FLIP</string>
     <string name="btn_connect">CONNECT</string>
     <string name="btn_stop">STOP</string>
     <string name="btn_settings">SETTINGS</string>
@@ -24,21 +19,11 @@
     <string name="btn_back">BACK</string>
 
     <!-- Status -->
-    <string name="status_ready">Ready to connect</string>
-    <string name="status_waiting">Ready for OBS. Add an OpenStream Beta Camera source on the same network.</string>
+    <string name="status_ready">READY</string>
+    <string name="status_waiting">Choose an OBS camera slot</string>
     <string name="status_streaming">LIVE → %1$s</string>
     <string name="status_stopped">STOPPED</string>
-    <string name="status_no_slots">Scanning for OBS… Keep OBS and this phone on the same network.</string>
-    <string name="status_paired">Paired to %1$s</string>
-    <string name="status_waiting_for_obs">Waiting for OBS to go live</string>
-    <string name="status_connecting">Connecting…</string>
-    <string name="status_connecting_detail">%1$s → %2$s</string>
-    <string name="status_reconnecting">Reconnecting…</string>
-    <string name="status_holding_slot">Holding %1$s for reconnect</string>
-    <string name="status_connection_issue">Connection issue</string>
-    <string name="status_preview_active">Camera preview remains active</string>
-    <string name="obs_slot_fallback">OBS slot</string>
-    <string name="error_unknown">Unknown error</string>
+    <string name="status_no_slots">NO OBS CAMERA SLOTS FOUND</string>
 
     <!-- Sections -->
     <string name="section_connection">CONNECTION</string>
@@ -58,54 +43,13 @@
     <!-- Zoom -->
     <string name="zoom_label">%1$.1f×</string>
 
-    <!-- Update dialog -->
-    <string name="update_title">UPDATE AVAILABLE</string>
-    <string name="update_message">Version %1$s is ready.\nDownload and install it now?</string>
-    <string name="update_action">UPDATE NOW</string>
-    <string name="update_dismiss">LATER</string>
-
-    <!-- Permission dialog -->
-    <string name="permission_title">INSTALL PERMISSION</string>
-    <string name="permission_message">OpenStream Beta needs permission to install its downloaded APK update.</string>
-    <string name="permission_action">OPEN SETTINGS</string>
-    <string name="permission_dismiss">CANCEL</string>
-
     <!-- Settings labels -->
-    <string name="settings_title">Camera setup</string>
-    <string name="settings_subtitle">OpenStream Beta is ready for normal use without network configuration.</string>
-    <string name="settings_section_default">RECOMMENDED</string>
-    <string name="settings_default_title">Automatic OBS discovery</string>
-    <string name="settings_default_help">Keep the phone and OBS on the same trusted network. Add an OpenStream Beta Camera source in OBS, enter the pairing code shown on the camera, and control it from the Control Room.</string>
-    <string name="settings_section_connection">MANUAL CONNECTION</string>
-    <string name="settings_section_streaming">STREAMING</string>
-    <string name="settings_section_advanced">ADVANCED TROUBLESHOOTING</string>
-    <string name="settings_section_updates">UPDATES &amp; ABOUT</string>
-    <string name="settings_connection_help">Leave the host empty to keep using automatic discovery.</string>
-    <string name="settings_advanced_help">Use these only when automatic discovery is blocked by VLANs, firewalls, or a custom SRT topology. Incorrect values can prevent connection.</string>
-    <string name="settings_show_advanced">Advanced troubleshooting</string>
-    <string name="settings_hide_advanced">Hide advanced troubleshooting</string>
+    <string name="settings_title">Settings</string>
     <string name="settings_obs_host">OBS HOST</string>
     <string name="settings_obs_port">OBS PORT</string>
     <string name="settings_latency">LATENCY (ms)</string>
     <string name="settings_listening_port">LISTENING PORT</string>
-    <string name="settings_check_updates">CHECK FOR UPDATES</string>
     <string name="screen_off_overlay_description">Screen dimmed. Tap to restore controls.</string>
     <string name="settings_save_connect">Save &amp; Connect</string>
     <string name="settings_save">Save Settings</string>
-    <string name="settings_saved">Settings saved</string>
-    <string name="error_invalid_host">Enter a valid OBS host or IP address</string>
-    <string name="camera_service_channel_name">Camera session</string>
-    <string name="camera_service_channel_description">Keeps an armed OpenStream Beta camera available to OBS</string>
-    <string name="camera_service_title">OpenStream Beta camera armed</string>
-    <string name="camera_service_text">Remote controls and streaming stay available while the screen is off.</string>
-    <string name="camera_service_stop">Stop camera</string>
-    <string name="camera_preview_description">Live camera preview. Tap to focus and pinch to zoom.</string>
-    <string name="pairing_code_description">One-time OBS pairing code</string>
-    <string name="close_controls">Close camera controls</string>
-    <string name="remote_armed">Remote camera armed</string>
-    <string name="remote_disarmed">Arm remote</string>
-    <string name="control_locked_by_obs">Controls are locked by OBS</string>
-    <string name="tap_focus_unavailable">Tap focus is unavailable on this camera</string>
-    <string name="frame_guides_description">Cycle preview frame guides</string>
-    <string name="zebra_description">Toggle 95 percent exposure zebra warnings</string>
 </resources>
