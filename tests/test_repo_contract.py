@@ -273,7 +273,7 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "docs/release-notes-template.md" in release_workflow
     assert "openstream-android.apk" in release_workflow
     assert "openstream-android.apk.sha256" in release_workflow
-    assert '"apkSha256"' in release_workflow
+    assert "sha256sum openstream-android.apk" in release_workflow
     assert "Public releases require all Android signing secrets" in release_workflow
     assert "openstream-obs-windows-x64.zip" in release_workflow
     assert "never publishes a debug-signed fallback" in release_docs
@@ -301,7 +301,7 @@ def test_release_build_fails_without_signing_and_keystores_are_ignored() -> None
     assert "Release builds require OPENSTREAM_RELEASE_KEYSTORE" in app_gradle
     assert "openstream.versionName" in app_gradle
     assert "openstream.versionCode" in app_gradle
-    assert '"2.0.0-beta"' in app_gradle
+    assert '"1.0.0"' in app_gradle
     version_code = re.search(
         r"openStreamVersionCode.*?\.orElse\(\"(\d+)\"\)",
         app_gradle,
@@ -318,6 +318,6 @@ def test_legacy_android_and_restored_obs_metadata_are_explicit() -> None:
     cmake = read("obs-plugin/CMakeLists.txt")
     installer = read("tools/installer/openstream-obs-plugin.iss")
 
-    assert '"2.0.0-beta"' in app_gradle
-    assert "project(openstream_obs_plugin VERSION 2.1.0" in cmake
-    assert '#define OpenStreamVersion "2.1.0-beta"' in installer
+    assert '"1.0.0"' in app_gradle
+    assert "project(openstream_obs_plugin VERSION 1.0.0" in cmake
+    assert '#define OpenStreamVersion "1.0.0"' in installer

@@ -37,7 +37,6 @@ import dev.openstream.app.stream.ConnectionTarget
 import dev.openstream.app.stream.StreamConfig
 import dev.openstream.app.stream.SrtStreamClient
 import dev.openstream.app.telemetry.TelemetrySampler
-import dev.openstream.app.update.AppUpdater
 
 class MainActivity : Activity() {
 
@@ -71,7 +70,6 @@ class MainActivity : Activity() {
     private lateinit var phoneAdvertiser: PhoneDiscoveryAdvertiser
     private lateinit var obsDiscoveryClient: ObsDiscoveryClient
     private lateinit var controlServer: CameraControlServer
-    private lateinit var appUpdater: AppUpdater
 
     private val streamConfig = StreamConfig.Default1080p60
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -125,8 +123,6 @@ class MainActivity : Activity() {
 
         streamClient = SrtStreamClient()
         telemetry = TelemetrySampler(this)
-        appUpdater = AppUpdater(this)
-        appUpdater.register()
         phoneAdvertiser = PhoneDiscoveryAdvertiser(
             context = this,
             config = streamConfig,
@@ -201,8 +197,6 @@ class MainActivity : Activity() {
         setupButtons()
         setupNavBarInsets()
         handlePairingIntent(intent)
-        showVersionInstalledDialogOnce()
-        mainHandler.postDelayed({ appUpdater.checkForUpdates() }, UPDATE_CHECK_DELAY_MS)
     }
 
     override fun onStart() {
@@ -217,7 +211,6 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        appUpdater.resumePendingInstallIfAllowed()
         // Reload listening port from settings if it changed
         val settingsPrefs = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
         val savedPort = settingsPrefs.getInt(SettingsActivity.KEY_LISTENING_PORT, currentPort)
@@ -245,7 +238,6 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         clearReservation()
         mainHandler.removeCallbacksAndMessages(null)
-        appUpdater.dispose()
         super.onDestroy()
     }
 
@@ -955,45 +947,6 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showVersionInstalledDialogOnce() {
-        val packageInfo = packageManager.getPackageInfo(packageName, 0)
-        val versionName = packageInfo.versionName ?: "2"
-        val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            packageInfo.longVersionCode
-        } else {
-            @Suppress("DEPRECATION")
-            packageInfo.versionCode.toLong()
-        }
-        val dialogKey = "$versionName-$versionCode"
-        val prefs = getSharedPreferences(APP_PREFS_NAME, MODE_PRIVATE)
-        if (prefs.getString(PREF_LAST_VERSION_DIALOG, "") == dialogKey) return
-
-        val dialog = android.app.Dialog(this, R.style.MinimalDialogTheme)
-        dialog.setContentView(R.layout.dialog_custom_update)
-        dialog.setCancelable(true)
-
-        val message = dialog.findViewById<TextView>(R.id.dialogUpdateMessage)
-        val actionBtn = dialog.findViewById<TextView>(R.id.dialogUpdateAction)
-        val dismissBtn = dialog.findViewById<TextView>(R.id.dialogUpdateDismiss)
-
-        message.text = "You are running OpenStream v$versionName.\nFuture updates can be checked from Settings."
-        actionBtn.text = "GOT IT"
-        dismissBtn.visibility = View.GONE
-
-        actionBtn.setOnClickListener {
-            prefs.edit()
-                .putString(PREF_LAST_VERSION_DIALOG, dialogKey)
-                .apply()
-            dialog.dismiss()
-        }
-        dialog.setOnCancelListener {
-            prefs.edit()
-                .putString(PREF_LAST_VERSION_DIALOG, dialogKey)
-                .apply()
-        }
-        dialog.show()
-    }
-
     private fun connectionTargetFromSettings(): ConnectionTarget {
         val settingsPrefs = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
         val host = settingsPrefs.getString(SettingsActivity.KEY_OBS_HOST, ConnectionTarget.DEFAULT_HOST)
@@ -1121,14 +1074,11 @@ class MainActivity : Activity() {
     companion object {
         private const val RECONNECT_RESERVATION_MS = 45_000L
         private const val IDENTIFY_OVERLAY_MS = 3_000L
-        private const val UPDATE_CHECK_DELAY_MS = 2_500L
         private const val LENS_RESTART_DELAY_MS = 500L
         private const val LISTENER_POLL_MS = 250L
         private const val LISTENER_RETRY_MS = 750L
         private const val LISTENER_STOP_TIMEOUT_MS = 2_000L
         private const val SETTINGS_REQUEST_CODE = 200
-        private const val APP_PREFS_NAME = "openstream_app"
-        private const val PREF_LAST_VERSION_DIALOG = "last_version_dialog"
         private val REQUIRED_PERMISSIONS = arrayOf(
             Manifest.permission.CAMERA,
             Manifest.permission.RECORD_AUDIO,

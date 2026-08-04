@@ -43,25 +43,12 @@
     <!-- Zoom -->
     <string name="zoom_label">%1$.1f×</string>
 
-    <!-- Update dialog -->
-    <string name="update_title">UPDATE AVAILABLE</string>
-    <string name="update_message">Version %1$s is ready.\nDownload and install it now?</string>
-    <string name="update_action">UPDATE NOW</string>
-    <string name="update_dismiss">LATER</string>
-
-    <!-- Permission dialog -->
-    <string name="permission_title">INSTALL PERMISSION</string>
-    <string name="permission_message">OpenStream needs permission to install its downloaded APK update.</string>
-    <string name="permission_action">OPEN SETTINGS</string>
-    <string name="permission_dismiss">CANCEL</string>
-
     <!-- Settings labels -->
     <string name="settings_title">Settings</string>
     <string name="settings_obs_host">OBS HOST</string>
     <string name="settings_obs_port">OBS PORT</string>
     <string name="settings_latency">LATENCY (ms)</string>
     <string name="settings_listening_port">LISTENING PORT</string>
-    <string name="settings_check_updates">CHECK FOR UPDATES</string>
     <string name="screen_off_overlay_description">Screen dimmed. Tap to restore controls.</string>
     <string name="settings_save_connect">Save &amp; Connect</string>
     <string name="settings_save">Save Settings</string>

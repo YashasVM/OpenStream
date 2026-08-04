@@ -9,7 +9,6 @@ import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import dev.openstream.app.stream.ConnectionTarget
-import dev.openstream.app.update.AppUpdater
 
 class SettingsActivity : Activity() {
 
@@ -20,9 +19,7 @@ class SettingsActivity : Activity() {
     private lateinit var btnSave: TextView
     private lateinit var btnSaveAndConnect: TextView
     private lateinit var btnBack: TextView
-    private lateinit var btnCheckUpdates: TextView
     private lateinit var versionInfo: TextView
-    private lateinit var appUpdater: AppUpdater
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -35,11 +32,7 @@ class SettingsActivity : Activity() {
         btnSave = findViewById(R.id.btnSaveSettings)
         btnSaveAndConnect = findViewById(R.id.btnSaveAndConnect)
         btnBack = findViewById(R.id.btnBackSettings)
-        btnCheckUpdates = findViewById(R.id.btnCheckUpdates)
         versionInfo = findViewById(R.id.settingsVersionInfo)
-
-        appUpdater = AppUpdater(this)
-        appUpdater.register()
 
         loadSettings()
         showVersionInfo()
@@ -47,19 +40,6 @@ class SettingsActivity : Activity() {
         btnSave.setOnClickListener { saveSettings(connectAfterSave = false) }
         btnSaveAndConnect.setOnClickListener { saveSettings(connectAfterSave = true) }
         btnBack.setOnClickListener { finish() }
-        btnCheckUpdates.setOnClickListener {
-            appUpdater.checkForUpdates(showAlreadyCurrent = true)
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        appUpdater.resumePendingInstallIfAllowed()
-    }
-
-    override fun onDestroy() {
-        appUpdater.dispose()
-        super.onDestroy()
     }
 
     private fun loadSettings() {

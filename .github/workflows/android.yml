@@ -50,7 +50,7 @@ jobs:
       - name: Run Android unit tests and lint, then build APK
         working-directory: android
         env:
-          OPENSTREAM_VERSION_NAME: 2.0.0-beta.${{ steps.version.outputs.code }}
+          OPENSTREAM_VERSION_NAME: 1.0.0
           OPENSTREAM_VERSION_CODE: ${{ steps.version.outputs.code }}
         run: |
           chmod +x ./gradlew
@@ -61,13 +61,7 @@ jobs:
           mkdir -p dist
           cp android/app/build/outputs/apk/debug/app-debug.apk dist/openstream-android.apk
           (cd dist && sha256sum openstream-android.apk > openstream-android.apk.sha256)
-          APK_SHA256="$(cut -d ' ' -f 1 dist/openstream-android.apk.sha256)"
-          printf 'debug-signed-beta\n' > dist/android-signing.txt
-          printf '{\n  "versionName": "2.0.0-beta.%s",\n  "versionCode": %s,\n  "apkAsset": "openstream-android.apk",\n  "apkSha256": "%s"\n}\n' \
-            "${{ steps.version.outputs.code }}" \
-            "${{ steps.version.outputs.code }}" \
-            "$APK_SHA256" \
-            > dist/openstream-android-update.json
+          printf 'debug-signed\n' > dist/android-signing.txt
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -77,5 +71,4 @@ jobs:
             dist/openstream-android.apk
             dist/openstream-android.apk.sha256
             dist/android-signing.txt
-            dist/openstream-android-update.json
           if-no-files-found: error

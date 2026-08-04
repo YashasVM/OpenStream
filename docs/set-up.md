@@ -1,6 +1,6 @@
-# OpenStream Beta Set-Up Guide
+# OpenStream Set-Up Guide
 
-This guide is the slower, screenshot-led path for installing OpenStream Beta on an Android phone and a Windows OBS Studio PC.
+This guide is the slower, screenshot-led path for installing OpenStream V1.0.0 on an Android phone and a Windows OBS Studio PC.
 
 For the fast technical version, use the [README quick start](../README.md#quick-start).
 
@@ -13,7 +13,7 @@ For the fast technical version, use the [README quick start](../README.md#quick-
 | Android phone | Android 10 or newer is recommended. The phone must support Camera2. |
 | Windows PC | OBS Studio installed on Windows x64. |
 | Same network | Phone and PC must be on the same Wi-Fi or LAN subnet. |
-| Release files | V2 APK for the phone, installer EXE for the OBS plugin. |
+| Release files | V1.0.0 APK for the phone, installer EXE for the OBS plugin. |
 
 > [!TIP]
 > If discovery does not work, temporarily disable VPNs, guest Wi-Fi, and router client isolation.
@@ -22,7 +22,7 @@ For the fast technical version, use the [README quick start](../README.md#quick-
 
 ## 1. Download the Release Files
 
-Open the latest OpenStream Beta release and download:
+Open the latest OpenStream V1.0.0 release and download:
 
 | File | Install on | Use |
 |---|---|---|
@@ -42,7 +42,7 @@ Open the latest OpenStream Beta release and download:
 1. Move `openstream-android.apk` to your Android phone.
 2. Open the APK from your Downloads app or file manager.
 3. If Android blocks the install, allow installs from that app when prompted.
-4. Open `OpenStream Beta`.
+4. Open `OpenStream`.
 5. Allow camera and microphone permissions.
 
 The app should open directly into a camera preview.
@@ -67,18 +67,18 @@ C:\Program Files\obs-studio\obs-plugins\64bit\
 ```
 
 > [!IMPORTANT]
-> Close OBS before installing or replacing the plugin. The installer refuses to continue while OBS is open. OpenStream supports OBS Studio 32.2.1 x64.
+> Close OBS before installing or replacing the plugin. Windows can keep the old DLL loaded while OBS is open.
 
-### Upgrading from an Older OpenStream Beta Plugin
+### Upgrading from an Older OpenStream Plugin
 
-OpenStream appears in OBS as `OpenStream V8`. Existing scene sources created with `OpenStream V7` are still supported, but saved source names may remain `OpenStream V7` until you rename them in OBS.
+OpenStream V1.0.0 appears in OBS as `OpenStream V8`. Existing scene sources created with `OpenStream V7` are still supported, but the saved source names may remain `OpenStream V7` until you rename them in OBS.
 
-The installer removes stale `openstream-obs.dll` and `openstream-beta-obs.dll` copies from legacy locations, then installs exactly one canonical `openstream-obs.dll`. It does not remove OBS scene collections or OpenStream source settings:
+If OBS still shows an older OpenStream source after installing V1.0.0, check these plugin locations and remove or replace stale copies:
 
 ```text
 C:\Program Files\obs-studio\obs-plugins\64bit\openstream-obs.dll
-C:\ProgramData\obs-studio\plugins\openstream-beta-obs\bin\64bit\openstream-beta-obs.dll
-%APPDATA%\obs-studio\plugins\openstream-beta-obs\bin\64bit\openstream-beta-obs.dll
+C:\ProgramData\obs-studio\plugins\openstream-obs\bin\64bit\openstream-obs.dll
+%APPDATA%\obs-studio\plugins\openstream-obs\bin\64bit\openstream-obs.dll
 ```
 
 ### Manual Plugin Install
@@ -99,43 +99,34 @@ openstream-obs.dll -> C:\Program Files\obs-studio\obs-plugins\64bit\openstream-o
 
 ---
 
-## 4. Add OpenStream Beta in OBS
+## 4. Add OpenStream in OBS
 
 1. Open OBS Studio.
 2. In `Sources`, click `+`.
 3. Choose `OpenStream V8`.
-4. Keep automatic phone selection enabled for the first test.
-5. Give the source a production label such as `Main CAM` or `Desk CAM`.
-6. Click OK. Use **OpenStream Camera Control** for connection and camera controls.
-7. If the dock is hidden, enable it from OBS's **Docks** menu.
+4. In `1. Camera Slot`, keep `Let the phone choose this slot` selected for the first test.
+5. Rename `OBS slot name` if you want a production label such as `Main CAM` or `Desk CAM`.
+6. Use `Refresh Phones` if your Android device appears after the properties window is already open.
+7. Leave `3. Network & Pairing (Advanced)` collapsed unless discovery fails.
+8. Click OK.
 
 ![OBS source screenshot](assets/setup/obs-source.svg)
 
-The card shows **Waiting** until a phone connects. This is normal: the status,
-primary action, and available camera controls update as the slot moves through
-pairing, connecting, live, or recovery states. Source properties remain
-available for setup and diagnostics; manual network fields are under
-**Advanced**.
+The source can stay blank until a phone connects. That is normal.
 
 ---
 
 ## 5. Connect the Phone
 
 1. Put the phone and PC on the same Wi-Fi network.
-2. Open OpenStream Beta on the phone.
-3. Allow camera and microphone access. If access was permanently denied, use
-   the app's **Open settings** action and enable it in Android system settings.
-4. In **Available OBS slots**, wait for a slot such as `CAM A`, `Main CAM`, or
-   `Backup cam` to appear.
-5. Tap an available slot to reserve it and connect.
-6. Watch the status progress from connecting to live. The phone camera should
-   appear in OBS.
+2. Open OpenStream on the phone.
+3. Wait for the OBS device to appear.
+4. Tap the discovered OBS slot, such as `CAM A`, `Main CAM`, or `Backup cam`.
+5. The phone camera should appear in OBS.
 
 ![Android connect screenshot](assets/setup/android-connect.svg)
 
-If no slots appear, use **Refresh** and follow the on-screen Wi-Fi checks. For
-networks that block discovery, open **Settings > Connection**, enable manual
-configuration, and enter:
+If the phone does not find OBS, use manual connect:
 
 | Value | Default |
 |---|---|
@@ -147,18 +138,15 @@ configuration, and enter:
 
 ## 6. Confirm Audio and Controls
 
-In the **OpenStream Camera Control** dock:
+In OBS:
 
-1. Look for the OpenStream Beta audio channel in the mixer.
-2. Find the card whose status is **Live**.
-3. Try the zoom control.
-4. Try torch on/off if the selected phone camera supports it.
-5. Switch rear/front camera from the dock or phone UI.
-6. Use **Identify** to show the slot label on the connected phone.
-
-Controls that the selected phone or lens cannot perform remain visibly
-disabled. A command that is still running shows progress on its card; failures
-appear inline and can be retried without reopening source properties.
+1. Look for the OpenStream audio channel in the mixer.
+2. Open the OpenStream source properties.
+3. Use `2. Live Camera Controls`.
+4. Try the zoom slider.
+5. Try torch on/off if the selected phone camera supports it.
+6. Switch rear/front camera from the source properties or phone UI.
+7. Use `Show Slot Label on Phone` to confirm which physical phone belongs to the OBS source.
 
 ---
 
@@ -168,11 +156,10 @@ appear inline and can be retried without reopening source properties.
 |---|---|
 | Installer cannot find OBS | Re-run it and choose the folder that contains `bin\64bit\obs64.exe`. |
 | Windows blocks the EXE | Use `More info` then `Run anyway`, or use the manual zip install. |
-| OpenStream Camera is missing in OBS | Confirm `openstream-obs.dll` is in the OBS plugin folder above, remove stale older copies, then restart OBS. |
-| Old OpenStream Beta source is still visible | OBS may be loading an older all-users DLL from `C:\ProgramData\obs-studio\plugins\openstream-beta-obs\bin\64bit\`. Replace it with the V2 DLL or remove it. |
+| OpenStream V8 is missing in OBS | Confirm `openstream-obs.dll` is in one of the plugin folders above, remove stale older copies, then restart OBS. |
+| Old OpenStream source is still visible | OBS may be loading an older all-users DLL from `C:\ProgramData\obs-studio\plugins\openstream-obs\bin\64bit\`. Replace it with the V1.0.0 DLL or remove it. |
 | Phone cannot see OBS | Put both devices on the same Wi-Fi, disable VPNs, and check guest/client isolation. |
-| Slot says Busy | Another phone owns that slot. Choose an available card or stop/release the current phone first. |
-| Camera stays blank | Use **Retry** on the slot card. For manual setup, start with port `9000`, latency `120 ms`, and one phone only. |
+| Camera stays blank | Start with port `9000`, latency `120 ms`, and one phone only. |
 | Audio is missing | Grant microphone permission on Android and check the OBS mixer channel. |
 | Stream stutters | Use 5 GHz or Wi-Fi 6, move closer to the router, and avoid congested networks. |
 

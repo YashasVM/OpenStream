@@ -2,7 +2,7 @@
 
 ## Overview
 
-OpenStream V2 currently uses version 1 of its LAN wire protocol. Product
+OpenStream V1.0.0 currently uses version 1 of its LAN wire protocol. Product
 version numbers and protocol versions are independent: `OPENSTREAM/1` and
 `OPENSTREAM_PHONE/1` below identify the protocol, not the app release.
 
@@ -259,11 +259,9 @@ the `OPENSTREAM/1` prefix remains unchanged. Such changes must be tested as an
 old/new client matrix and released atomically as one full release containing
 both artifacts.
 
-Do not publish an enforcing Android update before the compatible OBS plugin is
-available to users. For example, a future Android build that requires a control
-token could not pair with older OBS beacons unless an explicit compatibility
-path were provided. Additive optional fields may be rolled out independently
-only when both older components demonstrably ignore them safely.
+Keep required protocol changes in one release containing both the Android APK
+and OBS plugin. Additive optional fields may be rolled out independently only
+when both older components demonstrably ignore them safely.
 
 ---
 

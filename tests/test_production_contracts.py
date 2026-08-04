@@ -144,25 +144,38 @@ def test_release_workflow_requires_signed_android_apk_and_digest() -> None:
     assert "Public releases require all Android signing secrets" in release_workflow
     assert "dist/openstream-android.apk" in release_workflow
     assert "dist/openstream-android.apk.sha256" in release_workflow
-    assert '"apkSha256"' in release_workflow
+    assert "sha256sum openstream-android.apk" in release_workflow
 
 
-def test_android_updates_follow_atomic_full_releases() -> None:
+def test_android_and_obs_release_artifacts_stay_atomic() -> None:
     android_workflow = read(".github/workflows/android.yml")
     release_workflow = read(".github/workflows/release.yml")
-    updater = read("android/app/src/main/java/dev/openstream/app/update/AppUpdater.kt")
     release_docs = read("docs/release.md")
 
-    assert "publish-android-update" not in android_workflow
     assert "gh release create" not in android_workflow
     assert "python -m pytest -q" in android_workflow
     assert ":app:lintDebug" in android_workflow
     assert "openstream-android.apk.sha256" in android_workflow
     assert "git log -1 --format=%ct" in android_workflow
     assert "git log -1 --format=%ct" in release_workflow
-    assert "releases/latest" in updater
+    assert "openstream-android-update.json" not in android_workflow
+    assert "openstream-android-update.json" not in release_workflow
+    assert not (ROOT / "android/app/src/main/java/dev/openstream/app/update/AppUpdater.kt").exists()
     assert "/releases/latest/download/" in read("README.md")
-    assert "come from the same commit" in release_docs
+    assert "Android APK and OBS artifacts" in release_docs
+
+
+def test_android_update_surface_is_removed() -> None:
+    manifest = read("android/app/src/main/AndroidManifest.xml")
+    main_activity = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    settings_activity = read("android/app/src/main/java/dev/openstream/app/SettingsActivity.kt")
+    settings_layout = read("android/app/src/main/res/layout/activity_settings.xml")
+
+    assert "REQUEST_INSTALL_PACKAGES" not in manifest
+    assert "AppUpdater" not in main_activity
+    assert "AppUpdater" not in settings_activity
+    assert "btnCheckUpdates" not in settings_layout
+    assert "dialog_custom_update" not in main_activity
 
 
 def test_android_pr_builds_do_not_receive_signing_secrets_or_write_token() -> None:

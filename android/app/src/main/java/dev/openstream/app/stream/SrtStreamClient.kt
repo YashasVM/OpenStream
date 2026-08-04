@@ -44,7 +44,7 @@ class SrtStreamClient {
     }
 
     fun listen(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
-        require(url.startsWith("srt://")) { "OpenStream V2 expects an SRT URL" }
+        require(url.startsWith("srt://")) { "OpenStream expects an SRT URL" }
         synchronized(operationLock) {
             establishSession("listener") {
                 SrtNativeBridge.listen(url, codecMime, width, height, fps)

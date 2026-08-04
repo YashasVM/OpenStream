@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag, for example v0.1.0
+        description: Release tag, for example v1.0.0
         required: true
         type: string
 
@@ -90,21 +90,10 @@ jobs:
           ./gradlew --no-daemon :app:assembleRelease
 
       - name: Normalize Android APK artifact
-        env:
-          RELEASE_VERSION_NAME: ${{ inputs.tag || github.ref_name }}
-          RELEASE_VERSION_CODE: ${{ steps.version.outputs.code }}
         run: |
           mkdir -p dist
           cp android/app/build/outputs/apk/release/app-release.apk dist/openstream-android.apk
           (cd dist && sha256sum openstream-android.apk > openstream-android.apk.sha256)
-          APK_SHA256="$(cut -d ' ' -f 1 dist/openstream-android.apk.sha256)"
-          VERSION_NAME="$RELEASE_VERSION_NAME"
-          VERSION_NAME="${VERSION_NAME#v}"
-          printf '{\n  "versionName": "%s",\n  "versionCode": %s,\n  "apkAsset": "openstream-android.apk",\n  "apkSha256": "%s"\n}\n' \
-            "$VERSION_NAME" \
-            "$RELEASE_VERSION_CODE" \
-            "$APK_SHA256" \
-            > dist/openstream-android-update.json
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -113,7 +102,6 @@ jobs:
           path: |
             dist/openstream-android.apk
             dist/openstream-android.apk.sha256
-            dist/openstream-android-update.json
           if-no-files-found: error
 
   obs-plugin:
@@ -223,7 +211,6 @@ jobs:
         run: |
           test -f dist/openstream-android.apk
           test -f dist/openstream-android.apk.sha256
-          test -f dist/openstream-android-update.json
           test -f dist/openstream-obs-plugin-installer-windows-x64.exe
           test -f dist/openstream-obs-windows-x64.zip
 
@@ -236,7 +223,6 @@ jobs:
           gh release create "$TAG_NAME" \
             dist/openstream-android.apk \
             dist/openstream-android.apk.sha256 \
-            dist/openstream-android-update.json \
             dist/openstream-obs-plugin-installer-windows-x64.exe \
             dist/openstream-obs-windows-x64.zip \
             --target "$GITHUB_SHA" \

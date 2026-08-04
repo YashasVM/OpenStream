@@ -1,6 +1,6 @@
 # Release Guide
 
-OpenStream Beta releases should give users direct installable assets instead of making them use GitHub source-code archives.
+OpenStream releases should give users direct installable assets instead of making them use GitHub source-code archives.
 
 The Windows plugin baseline is OBS Studio **32.2.1 x64**. Its package contains only
 `openstream-obs.dll`; it deliberately does not ship a
@@ -10,51 +10,43 @@ second copy of OBS/FFmpeg DLLs.
 
 | Asset | Audience | Purpose |
 |---|---|---|
-| `openstream-android.apk` | Android users | Signed install package for the OpenStream Beta camera app. |
+| `openstream-android.apk` | Android users | Signed install package for the OpenStream V1.0.0 camera app. |
 | `openstream-android.apk.sha256` | Android users and automation | SHA-256 checksum for the exact APK in the release. |
-| `openstream-android-update.json` | Android app updater | Version metadata used by the in-app update prompt. |
 | `openstream-obs-plugin-installer-windows-x64.exe` | Windows OBS users | Recommended one-click OBS plugin installer. |
 | `openstream-obs-windows-x64.zip` | Technical users | Manual plugin package with DLL and install scripts. |
 
 ## Automated Release
 
-Create and push a version tag. The V2 beta release uses `v2.0.0-beta`:
+Create and push the V1.0.0 release tag:
 
 ```powershell
-git tag v2.0.0-beta
-git push origin v2.0.0-beta
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
 The `Release` workflow builds:
 
 | Job | Output |
 |---|---|
-| Android APK | `openstream-android.apk`, `openstream-android-update.json` |
+| Android APK | `openstream-android.apk`, `openstream-android.apk.sha256` |
 | OBS plugin package | `openstream-obs-windows-x64.zip` |
 | OBS plugin installer | `openstream-obs-plugin-installer-windows-x64.exe` |
 
 The publish job runs only after the repository tests, Android unit tests and
 lint, signed Android build, and OBS plugin build succeed. It downloads the
-artifacts, normalizes the APK name, writes its SHA-256 checksum into both a
-sidecar file and the Android update metadata, and runs `gh release create`.
+artifacts, normalizes the APK name, writes its SHA-256 sidecar, and runs
+`gh release create`.
 
-You can also run the `Release` workflow manually from GitHub Actions and provide a tag such as `v2.0.0-beta`.
+You can also run the `Release` workflow manually from GitHub Actions with the
+tag `v1.0.0`.
 
-The Android job passes the release tag into Gradle as the APK `versionName` and uses the release commit timestamp as `versionCode`, so update ordering stays monotonic across full releases.
+The Android job passes the release tag into Gradle as the APK `versionName` and
+uses the release commit timestamp as `versionCode`.
 
 Public releases require all Android signing secrets. Missing or incomplete
 signing inputs fail the workflow; it never publishes a debug-signed fallback.
 Debug APKs remain available only as pull-request and local development
 artifacts.
-
-## In-App Updates
-
-The `Android APK` workflow runs pytest, Android unit tests, lint, and a debug
-streaming build for pull requests and pushes. It publishes CI artifacts only.
-
-In-app updates follow GitHub's latest full release. The APK, checksum metadata,
-Windows OBS installer, and plugin zip therefore come from the same commit. The
-app verifies the APK SHA-256 digest before opening the package installer.
 
 ### Android and OBS compatibility gate
 
@@ -69,8 +61,7 @@ wire contract.
 
 ### Android Signing Secrets
 
-Configure all of these GitHub Actions secrets before publishing an Android
-update or full release:
+Configure all of these GitHub Actions secrets before publishing a full release:
 
 | Secret | Purpose |
 |---|---|
@@ -124,14 +115,14 @@ $env:OPENSTREAM_RELEASE_KEY_PASSWORD = "<key-password>"
 
 Do not pass `-Popenstream.nonStreamingCiBuild=true` for release artifacts. If
 signing secrets are unavailable, use `:app:assembleDebug` for local validation
-only; do not publish that APK as an update or release.
+only; do not publish that APK as a release.
 
 ## Release Checklist
 
 - Confirm the README links point to the release tag being published.
 - Confirm the setup guide links to the same APK, installer EXE, and plugin zip.
 - Confirm pytest, Android unit tests, lint, and both production builds passed.
-- Confirm `openstream-android.apk.sha256` matches the APK and the `apkSha256` metadata field.
+- Confirm `openstream-android.apk.sha256` matches the APK.
 - Confirm OBS lists `OpenStream V8` and can still load saved `openstream_phone_v7_source` scenes.
 - Confirm the dependency report names `avformat-62.dll`, `avcodec-62.dll`, `avutil-60.dll`, and `swscale-9.dll`, and the clean OBS 32.2.1 log has no OpenStream module-load error.
 - Seed `openstream-obs.dll`, run both installer forms, and confirm stale Program Files, ProgramData, and AppData copies were migrated without touching OBS settings or scenes.

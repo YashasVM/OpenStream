@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(openstream_obs_plugin VERSION 2.1.0 LANGUAGES CXX)
+project(openstream_obs_plugin VERSION 1.0.0 LANGUAGES CXX)
 set(OPENSTREAM_VERSION "${PROJECT_VERSION}" CACHE STRING "Version embedded in the OBS plugin")
 
 # Releases are built against OBS Studio 32.2.1 x64.  Its bundled FFmpeg ABI is
