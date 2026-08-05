@@ -119,6 +119,16 @@ def test_usb_mode_uses_rndis_gateway_and_not_adb_forwarding() -> None:
     assert "adb forward" not in source.lower()
 
 
+def test_openstream_usb_source_is_connect_only() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+
+    assert '"OpenStream USB"' in source
+    assert '"openstream_usb_source"' in source
+    assert 'obs_data_set_bool(settings, "usb_mode", true)' in source
+    assert '"usb_connect"' in source
+    assert '"usb_disconnect"' in source
+
+
 def test_obs_plugin_routes_multiple_phones_by_selected_slot() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
     assert "selected_phone_id" in source

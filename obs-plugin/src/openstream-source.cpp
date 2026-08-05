@@ -2186,6 +2186,77 @@ obs_properties_t *openstream_properties(void *data) {
   return props;
 }
 
+const char *openstream_usb_get_name(void *) {
+  return "OpenStream USB";
+}
+
+void openstream_usb_defaults(obs_data_t *settings) {
+  openstream_defaults(settings);
+  obs_data_set_default_string(settings, "device_name", "OpenStream USB");
+  obs_data_set_default_string(
+      settings,
+      "usb_help",
+      "Enable USB tethering on Android, connect the cable, then click Connect USB.");
+  obs_data_set_default_bool(settings, "usb_mode", true);
+  obs_data_set_default_bool(settings, "listener_enabled", true);
+}
+
+void openstream_usb_update(void *data, obs_data_t *settings) {
+  // This source has one job: connect over USB. Keep the transport forced even
+  // when an old scene collection carries Wi-Fi-era settings.
+  obs_data_set_bool(settings, "usb_mode", true);
+  obs_data_set_string(settings, "srt_url", "openstream:auto");
+  openstream_update(data, settings);
+}
+
+obs_properties_t *openstream_usb_properties(void *data) {
+  obs_properties_t *props = obs_properties_create();
+  obs_property_t *status = obs_properties_add_text(
+      props, "slot_status", "Connection", OBS_TEXT_INFO);
+  obs_property_text_set_info_word_wrap(status, true);
+  obs_property_set_long_description(
+      status,
+      "OpenStream USB connects to the phone over Android USB tethering/RNDIS using the existing A/V stream.");
+
+  obs_property_t *host = obs_properties_add_text(
+      props, "usb_host", "USB phone IP (optional)", OBS_TEXT_DEFAULT);
+  obs_property_set_long_description(
+      host,
+      "Leave blank to detect the Windows USB/RNDIS gateway automatically.");
+  obs_properties_add_int(
+      props, "listener_port", "Phone SRT port", 1024, 65535, 1);
+
+  obs_properties_add_text(
+      props,
+      "usb_help",
+      "Setup",
+      OBS_TEXT_INFO);
+  obs_property_t *connect = obs_properties_add_button(
+      props,
+      "usb_connect",
+      "Connect USB",
+      [](obs_properties_t *, obs_property_t *, void *data) {
+        auto *ctx = static_cast<OpenStreamSource *>(data);
+        if (!ctx) return false;
+        openstream_start_worker(ctx);
+        return true;
+      });
+  obs_property_set_long_description(
+      connect,
+      "Connects this source over USB tethering. Enable USB tethering on Android first.");
+  obs_properties_add_button(
+      props,
+      "usb_disconnect",
+      "Disconnect",
+      [](obs_properties_t *, obs_property_t *, void *data) {
+        auto *ctx = static_cast<OpenStreamSource *>(data);
+        if (!ctx) return false;
+        openstream_stop_worker(ctx);
+        return true;
+      });
+  return props;
+}
+
 obs_source_info openstream_source_info = {
     .id = "openstream_phone_v8_source",
     .type = OBS_SOURCE_TYPE_INPUT,
@@ -2208,6 +2279,18 @@ obs_source_info openstream_legacy_source_info = {
     .get_defaults = openstream_defaults,
     .get_properties = openstream_properties,
     .update = openstream_update,
+};
+
+obs_source_info openstream_usb_source_info = {
+    .id = "openstream_usb_source",
+    .type = OBS_SOURCE_TYPE_INPUT,
+    .output_flags = OBS_SOURCE_ASYNC_VIDEO | OBS_SOURCE_AUDIO,
+    .get_name = openstream_usb_get_name,
+    .create = openstream_create,
+    .destroy = openstream_destroy,
+    .get_defaults = openstream_usb_defaults,
+    .get_properties = openstream_usb_properties,
+    .update = openstream_usb_update,
 };
 }  // namespace
 
@@ -2284,6 +2367,7 @@ bool obs_module_load(void) {
 #endif
   obs_register_source(&openstream_source_info);
   obs_register_source(&openstream_legacy_source_info);
+  obs_register_source(&openstream_usb_source_info);
   openstream_register_dock();
   blog(LOG_INFO, "[OpenStream] OBS plugin loaded: V8 — video + audio + remote controls (Made by @yashas.vm)");
   return true;
