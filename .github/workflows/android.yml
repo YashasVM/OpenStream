@@ -50,6 +50,21 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      - name: Warm Gradle wrapper with retries
+        working-directory: android
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          for attempt in 1 2 3 4; do
+            if ./gradlew --version; then
+              exit 0
+            fi
+            echo "Gradle wrapper download failed on attempt ${attempt}; retrying"
+            rm -rf "$HOME/.gradle/wrapper/dists/gradle-8.9-bin"
+            sleep $((attempt * 10))
+          done
+          exit 1
+
       - name: Phase 1 - Wi-Fi media clock
         run: |
           set -euo pipefail
@@ -60,8 +75,13 @@ jobs:
           /tmp/openstream-media-clock-test
           (
             cd android
-            chmod +x ./gradlew
-            ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+            for attempt in 1 2 3; do
+              if ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug; then
+                exit 0
+              fi
+              [ "$attempt" -eq 3 ] && exit 1
+              sleep $((attempt * 10))
+            done
           )
           git add -A
           git commit -m "Fix Wi-Fi media timing and recovery safety"
@@ -75,7 +95,13 @@ jobs:
           python -m pytest -q
           (
             cd android
-            ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+            for attempt in 1 2 3; do
+              if ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug; then
+                exit 0
+              fi
+              [ "$attempt" -eq 3 ] && exit 1
+              sleep $((attempt * 10))
+            done
           )
           git add -A
           git commit -m "Reduce Android thermal and encoder load"
@@ -91,7 +117,13 @@ jobs:
           /tmp/openstream-media-clock-test
           (
             cd android
-            ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+            for attempt in 1 2 3; do
+              if ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug; then
+                exit 0
+              fi
+              [ "$attempt" -eq 3 ] && exit 1
+              sleep $((attempt * 10))
+            done
           )
           git add -A
           git commit -m "Bound live backpressure and reconnect delay"
