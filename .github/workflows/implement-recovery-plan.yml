@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - automation/openstream-recovery-implementation
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
