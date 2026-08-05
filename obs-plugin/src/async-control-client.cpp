@@ -4,14 +4,15 @@ AsyncControlClient::AsyncControlClient() : worker_(&AsyncControlClient::run, thi
 
 AsyncControlClient::~AsyncControlClient() { stop(); }
 
-void AsyncControlClient::post(std::function<void()> command) {
-  if (!command) return;
+bool AsyncControlClient::post(std::function<void()> command) {
+  if (!command) return false;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (stopping_) return;
+    if (stopping_ || commands_.size() >= kQueueCapacity) return false;
     commands_.push(std::move(command));
   }
   wake_.notify_one();
+  return true;
 }
 
 void AsyncControlClient::stop() {
@@ -28,15 +29,33 @@ void AsyncControlClient::stop() {
   if (worker_.joinable()) worker_.join();
 }
 
+bool AsyncControlClient::post_urgent(std::function<void()> command) {
+  if (!command) return false;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (stopping_ || urgent_command_) return false;
+    urgent_command_ = std::move(command);
+  }
+  wake_.notify_one();
+  return true;
+}
+
 void AsyncControlClient::run() {
   for (;;) {
     std::function<void()> command;
     {
       std::unique_lock<std::mutex> lock(mutex_);
-      wake_.wait(lock, [this] { return stopping_ || !commands_.empty(); });
-      if (stopping_) return;
-      command = std::move(commands_.front());
-      commands_.pop();
+      wake_.wait(lock, [this] {
+        return stopping_ || urgent_command_ || !commands_.empty();
+      });
+      if (urgent_command_) {
+        command = std::move(urgent_command_);
+      } else if (stopping_) {
+        return;
+      } else {
+        command = std::move(commands_.front());
+        commands_.pop();
+      }
     }
     command();
   }

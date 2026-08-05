@@ -21,6 +21,10 @@
 > [!IMPORTANT]
 > OpenStream V1.0.1 is a fixed patch release for local Wi-Fi camera workflows. Device-specific camera behavior and network quality can still vary; please report bugs in [GitHub Issues](https://github.com/YashasVM/OpenStream/issues).
 
+The supported V1.0.1 path is the legacy Android app plus the legacy OBS camera
+source/dock over local Wi-Fi. USB transport and USB camera-source support are
+not included in this release.
+
 ## Quick Downloads
 
 | Step | Download | Install on |
@@ -38,7 +42,7 @@ Need the non-technical walkthrough with screenshots? Start with [`docs/set-up.md
 OpenStream V1.0.1 sends your Android phone camera directly into OBS Studio over local Wi-Fi. It uses Camera2, MediaCodec video/audio encoding, MPEG-TS muxing, SRT transport, two-way LAN discovery, source-slot pairing, and a native OBS source plugin.
 
 ```text
-Phone camera -> HEVC/H.264 + AAC -> SRT over Wi-Fi -> OpenStream camera slot in OBS
+Phone camera -> hardware AVC/H.264 + AAC -> SRT over Wi-Fi -> OpenStream camera slot in OBS
 ```
 
 ### V1.0.1 Release
@@ -97,8 +101,8 @@ Use OBS as usual. Open **Docks → OpenStream Camera Control** for the camera co
 
 | Feature | Details |
 |---|---|
-| **Full HD Streaming** | Streams a 1080p camera feed at up to 60 fps over SRT. |
-| **Hardware Encoding** | Uses MediaCodec HEVC/H.265 with H.264 fallback. |
+| **Full HD Streaming** | Streams a sustainable 1080p30 camera feed over SRT, with a 720p30 fallback profile. |
+| **Hardware Encoding** | Uses an explicit hardware AVC/H.264 surface encoder; unsupported hardware is reported instead of silently using software video encoding. |
 | **Audio Streaming** | Sends microphone audio with the video stream as AAC. |
 | **Multi-Lens Switching** | Supports rear, ultrawide, telephoto, and front cameras when available. |
 | **Pinch-to-Zoom** | Smooth digital zoom with a live zoom indicator. |
@@ -147,7 +151,7 @@ Use OBS as usual. Open **Docks → OpenStream Camera Control** for the camera co
 ```text
 Android phone
   Camera2 preview/capture
-  MediaCodec HEVC/H.264 video
+  MediaCodec hardware AVC/H.264 video
   MediaCodec AAC audio
   MPEG-TS muxer
   libsrt sender
@@ -168,9 +172,9 @@ Discovery uses UDP port `51515`. Camera remote controls use the phone HTTP contr
 | Parameter | Default | Notes |
 |---|---|---|
 | Resolution | `1920x1080` | Full HD capture target |
-| Frame rate | `60 fps` | 30-60 fps depending on device support |
-| Video codec | HEVC/H.265 | H.264 fallback |
-| Bitrate | `50 Mbps` | High-quality local Wi-Fi default; lower if the link drops frames |
+| Frame rate | `30 fps` | Bounded default to reduce heat and receiver backlog |
+| Video codec | AVC/H.264 | Explicit hardware surface path |
+| Bitrate | `12 Mbps` | Valid tuning range is `8-50 Mbps`; lower to 720p30 if a phone still runs hot |
 | SRT latency | `120 ms` | 80-200 ms useful range |
 | Discovery port | `51515/udp` | LAN discovery beacon |
 | SRT port | `9000` | Media stream |

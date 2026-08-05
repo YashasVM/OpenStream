@@ -228,7 +228,7 @@ OpenStreamDock *g_dock = nullptr;
 void openstream_register_dock() {
   if (g_dock) return;
   g_dock = new OpenStreamDock();
-  // OBS 30+ owns the dock wrapper; the plugin retains/deletes the widget on unload.
+  // OBS 30+ owns the dock wrapper and the widget after registration.
   if (!obs_frontend_add_dock_by_id("openstream-camera-control",
                                    "OpenStream Camera Control", g_dock)) {
     delete g_dock;
@@ -238,7 +238,8 @@ void openstream_register_dock() {
 
 void openstream_unregister_dock() {
   if (!g_dock) return;
-  obs_frontend_remove_dock("openstream-camera-control");
-  delete g_dock;
+  // OBS owns the QDockWidget wrapper and destroys the child widget when the
+  // dock is removed. Clear our non-owning pointer before triggering teardown.
   g_dock = nullptr;
+  obs_frontend_remove_dock("openstream-camera-control");
 }

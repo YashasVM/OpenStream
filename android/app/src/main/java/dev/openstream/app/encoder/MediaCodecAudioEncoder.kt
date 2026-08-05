@@ -8,6 +8,7 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
+import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.media.MediaRecorder
 import android.os.Build
@@ -24,7 +25,7 @@ class MediaCodecAudioEncoder(
     context: Context,
     private val sampleRate: Int = 48_000,
     private val channelCount: Int = 1,
-    private val bitrate: Int = 192_000,
+    private val bitrate: Int = 128_000,
     private val onEncodedAccessUnit: (EncodedAccessUnit) -> Unit,
 ) {
     private val context = context.applicationContext
@@ -52,7 +53,7 @@ class MediaCodecAudioEncoder(
             }
         }
 
-        val encoder = MediaCodec.createEncoderByType(mime)
+        val encoder = createAudioCodec(mime)
         codec = encoder
         encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         encoder.start()
@@ -66,7 +67,9 @@ class MediaCodecAudioEncoder(
             sampleRate, channelConfig, AudioFormat.ENCODING_PCM_16BIT
         )
         check(minBufferSize > 0) { "AudioRecord does not support $sampleRate Hz / $channelCount ch PCM16" }
-        val bufferSize = max(minBufferSize * 4, bytesForDurationMs(250))
+        // Keep capture buffering below 80 ms. READ_BLOCKING applies backpressure
+        // once this capacity is reached instead of allowing audio to trail video.
+        val bufferSize = max(minBufferSize * 2, bytesForDurationMs(MAX_CAPTURE_BUFFER_MS))
 
         val recorder = createRecorder(channelConfig, bufferSize)
         audioRecord = recorder
@@ -114,12 +117,12 @@ class MediaCodecAudioEncoder(
 
     fun stop() {
         running = false
-        captureThread?.join(500)
-        captureThread = null
         val recorder = audioRecord
         audioRecord = null
         runCatching { recorder?.stop() }
         runCatching { recorder?.release() }
+        captureThread?.join(500)
+        captureThread = null
 
         val encoder = codec
         codec = null
@@ -185,6 +188,22 @@ class MediaCodecAudioEncoder(
         return bytes.takeIf { it.isNotEmpty() }
     }
 
+    private fun createAudioCodec(mime: String): MediaCodec {
+        val hardware = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
+            .firstOrNull { info ->
+                info.isEncoder &&
+                    info.isHardwareAccelerated &&
+                    !info.isSoftwareOnly &&
+                    info.supportedTypes.any { it.equals(mime, ignoreCase = true) }
+            }
+        if (hardware != null) {
+            Log.i(TAG, "Using hardware audio encoder ${hardware.name} for $mime")
+            return MediaCodec.createByCodecName(hardware.name)
+        }
+        Log.w(TAG, "No hardware AAC encoder is available; explicitly using the platform software encoder")
+        return MediaCodec.createEncoderByType(mime)
+    }
+
     @SuppressLint("MissingPermission")
     private fun createRecorder(channelConfig: Int, bufferSize: Int): AudioRecord {
         val sources = buildList {
@@ -227,5 +246,6 @@ class MediaCodecAudioEncoder(
     companion object {
         private const val TAG = "OpenStreamAudioEncoder"
         private const val BYTES_PER_PCM16_SAMPLE = 2
+        private const val MAX_CAPTURE_BUFFER_MS = 80
     }
 }

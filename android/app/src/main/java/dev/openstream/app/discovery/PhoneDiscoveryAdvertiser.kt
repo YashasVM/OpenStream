@@ -21,10 +21,12 @@ class PhoneDiscoveryAdvertiser(
     private val reservedByProvider: () -> String? = { null },
 ) {
     private val running = AtomicBoolean(false)
-    private var worker: Thread? = null
+    @Volatile private var worker: Thread? = null
     private val instanceId = UUID.randomUUID().toString()
 
     fun start() {
+        if (running.get()) return
+        if (worker?.isAlive == true) return
         if (!running.compareAndSet(false, true)) return
         worker = Thread(::run, "OpenStreamPhoneAdvertiser").apply {
             isDaemon = true
@@ -34,27 +36,46 @@ class PhoneDiscoveryAdvertiser(
 
     fun stop() {
         running.set(false)
-        worker = null
+        val thread = worker
+        thread?.interrupt()
+        if (thread != null && thread !== Thread.currentThread()) {
+            runCatching { thread.join(STOP_TIMEOUT_MS) }
+                .onFailure { Thread.currentThread().interrupt() }
+        }
+        if (worker === thread && thread?.isAlive != true) worker = null
     }
 
     private fun run() {
-        val socket = DatagramSocket().apply {
-            broadcast = true
+        val socket = runCatching {
+            DatagramSocket().apply { broadcast = true }
+        }.getOrElse {
+            running.set(false)
+            if (worker === Thread.currentThread()) worker = null
+            return
         }
-        val destinations = listOf(
-            InetAddress.getByName("255.255.255.255"),
-            InetAddress.getByName(DISCOVERY_MULTICAST_ADDRESS),
-        )
-        while (running.get()) {
-            val bytes = beaconPayload().toByteArray(StandardCharsets.UTF_8)
-            destinations.forEach { destination ->
-                runCatching {
-                    socket.send(DatagramPacket(bytes, bytes.size, destination, DISCOVERY_PORT))
+        try {
+            val destinations = listOf(
+                InetAddress.getByName("255.255.255.255"),
+                InetAddress.getByName(DISCOVERY_MULTICAST_ADDRESS),
+            )
+            while (running.get()) {
+                val bytes = beaconPayload().toByteArray(StandardCharsets.UTF_8)
+                destinations.forEach { destination ->
+                    runCatching {
+                        socket.send(DatagramPacket(bytes, bytes.size, destination, DISCOVERY_PORT))
+                    }
+                }
+                try {
+                    Thread.sleep(1_000)
+                } catch (_: InterruptedException) {
+                    break
                 }
             }
-            Thread.sleep(1_000)
+        } finally {
+            socket.close()
+            if (worker === Thread.currentThread()) worker = null
+            running.set(false)
         }
-        socket.close()
     }
 
     private fun beaconPayload(): String {
@@ -94,5 +115,6 @@ class PhoneDiscoveryAdvertiser(
         const val DISCOVERY_MULTICAST_ADDRESS = "239.255.42.99"
         const val PREFIX = "OPENSTREAM_PHONE/1"
         const val TYPE = "dev.openstream.phone"
+        private const val STOP_TIMEOUT_MS = 1_000L
     }
 }

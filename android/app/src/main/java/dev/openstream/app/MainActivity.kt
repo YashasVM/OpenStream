@@ -71,7 +71,7 @@ class MainActivity : Activity() {
     private lateinit var obsDiscoveryClient: ObsDiscoveryClient
     private lateinit var controlServer: CameraControlServer
 
-    private val streamConfig = StreamConfig.Default1080p60
+    private val streamConfig = StreamConfig.Default1080p30
     private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile private var activeTargetName: String? = null
     @Volatile private var phoneServerRunning = false
@@ -79,6 +79,8 @@ class MainActivity : Activity() {
     @Volatile private var reservedBy: String? = null
     @Volatile private var reservedSlotLabel: String? = null
     @Volatile private var listenerThread: Thread? = null
+    @Volatile private var callerConnectThread: Thread? = null
+    @Volatile private var callerGeneration = 0L
     @Volatile private var pendingListenerStart = false
     @Volatile private var listenerGeneration = 0L
     @Volatile private var activityStarted = false
@@ -97,6 +99,7 @@ class MainActivity : Activity() {
     private var pendingConnectAfterSettings = false
     private var currentDevices: List<DiscoveredObsDevice> = emptyList()
     private var activeStreamBitrate: Int = streamConfig.bitrate
+    private val callerLifecycleLock = Any()
 
     private val statsTicker = object : Runnable {
         override fun run() {
@@ -144,13 +147,16 @@ class MainActivity : Activity() {
             channelCount = streamConfig.audioChannelCount,
             bitrate = streamConfig.audioBitrate,
             onEncodedAccessUnit = { accessUnit ->
-                streamClient.sendAudioAccessUnit(accessUnit)
+                if (!streamClient.sendAudioAccessUnit(accessUnit)) {
+                    handleMediaTransportFailure()
+                }
             },
         )
         camera = Camera2Controller(
             context = this,
             previewSurfaceProvider = { cameraPreview.holder.surface },
             lensProvider = { currentLens },
+            targetFps = streamConfig.fps,
         )
         controlServer = CameraControlServer(
             cameraProvider = { camera },
@@ -332,16 +338,36 @@ class MainActivity : Activity() {
             onEncodedAccessUnit = { accessUnit ->
                 val sent = streamClient.sendVideoAccessUnit(accessUnit)
                 if (!sent) {
-                    phoneConnected = false
-                    runOnUiThread { renderStreamStats(forceFailure = true) }
+                    handleMediaTransportFailure()
                 }
             },
         )
     }
 
+    private fun handleMediaTransportFailure() {
+        phoneConnected = false
+        mainHandler.post {
+            if (phoneServerRunning) {
+                if (activeTargetName != null) {
+                    statusText.text = "Connection lost"
+                    statusText.setTextColor(getColor(R.color.os_warning))
+                    statusDetail.text = "Waiting for OBS to reconnect"
+                }
+                return@post
+            }
+            if (activeTargetName == null && callerConnectThread == null) return@post
+            stopStream(updateStatus = false)
+            startPreviewIfAllowed()
+            startPhoneServerIfAllowed()
+            statusText.text = "Connection lost"
+            statusText.setTextColor(getColor(R.color.os_warning))
+            statusDetail.text = getString(R.string.status_waiting)
+        }
+    }
+
     private fun useStreamBitrate(bitrateMbps: Int?) {
         val nextBitrate = (bitrateMbps ?: streamConfig.bitrateMbps)
-            .coerceIn(1, 200) * 1_000_000
+            .coerceIn(StreamConfig.MIN_BITRATE_MBPS, StreamConfig.MAX_BITRATE_MBPS) * 1_000_000
         if (activeStreamBitrate == nextBitrate) return
         activeStreamBitrate = nextBitrate
         if (activeTargetName == null) {
@@ -598,7 +624,8 @@ class MainActivity : Activity() {
         val sourceInstanceId = uri.getQueryParameter("sourceInstanceId")?.trim().orEmpty()
         if (sourceInstanceId.isNotBlank()) {
             val slotLabel = uri.getQueryParameter("slotLabel")?.trim().orEmpty()
-            val bitrateMbps = uri.getQueryParameter("bitrateMbps")?.toIntOrNull()?.coerceIn(1, 200)
+            val bitrateMbps = uri.getQueryParameter("bitrateMbps")?.toIntOrNull()
+                ?.coerceIn(StreamConfig.MIN_BITRATE_MBPS, StreamConfig.MAX_BITRATE_MBPS)
             if (reserveForSource(sourceInstanceId, slotLabel, bitrateMbps)) {
                 statusText.text = "Paired to ${slotLabel.ifBlank { "OBS slot" }}"
                 statusDetail.text = "Waiting for OBS to go live"
@@ -610,34 +637,61 @@ class MainActivity : Activity() {
     }
 
     private fun startStream(target: ConnectionTarget) {
+        stopStream(updateStatus = false)
         // Caller mode and listener mode share one native SRT transport. Fully
         // stop the listener before opening a manual caller connection.
         stopPhoneServer(clearReservation = true, updateStatus = false)
         useStreamBitrate(target.bitrateMbps)
         statusText.text = "Connecting…"
         statusDetail.text = "${currentLens.displayName} → ${target.name}"
-        runCatching {
-            streamClient.connect(
-                url = target.toSrtCallerUrl(),
-                codecMime = encoder.codecName,
-                width = streamConfig.width,
-                height = streamConfig.height,
-                fps = streamConfig.fps,
-            )
-            encoder.start()
-            startAudioIfAllowed()
-            camera.startStreaming(encoder.inputSurface())
-            activeTargetName = target.name
-            mainHandler.removeCallbacks(statsTicker)
-            mainHandler.post(statsTicker)
-            showLiveState(target.name)
-        }.onFailure { error ->
-            stopStream()
-            startPreviewIfAllowed()
-            startPhoneServerIfAllowed()
-            statusText.text = "Connection failed"
-            statusDetail.text = error.message ?: "Unknown error"
+        val generation = callerGeneration + 1
+        callerGeneration = generation
+        val thread = Thread({
+            try {
+                streamClient.connect(
+                    url = target.toSrtCallerUrl(),
+                    codecMime = encoder.codecName,
+                    width = streamConfig.width,
+                    height = streamConfig.height,
+                    fps = streamConfig.fps,
+                )
+                synchronized(callerLifecycleLock) {
+                    check(callerGeneration == generation) { "SRT caller connection was cancelled" }
+                    encoder.start()
+                    startAudioIfAllowed()
+                    camera.startStreaming(encoder.inputSurface())
+                }
+                mainHandler.post {
+                    if (callerGeneration != generation) return@post
+                    activeTargetName = target.name
+                    mainHandler.removeCallbacks(statsTicker)
+                    mainHandler.post(statsTicker)
+                    showLiveState(target.name)
+                }
+            } catch (error: Throwable) {
+                synchronized(callerLifecycleLock) {
+                    if (callerGeneration == generation) {
+                        streamClient.disconnect()
+                        stopActiveEncoding(updateStatus = false)
+                    }
+                }
+                mainHandler.post {
+                    if (callerGeneration != generation) return@post
+                    startPreviewIfAllowed()
+                    startPhoneServerIfAllowed()
+                    statusText.text = "Connection failed"
+                    statusDetail.text = error.message ?: "Unknown error"
+                }
+            } finally {
+                if (callerConnectThread === Thread.currentThread()) {
+                    callerConnectThread = null
+                }
+            }
+        }, "OpenStreamPhoneSrtCaller").apply {
+            isDaemon = true
         }
+        callerConnectThread = thread
+        thread.start()
     }
 
     private fun startAudioIfAllowed() {
@@ -759,6 +813,8 @@ class MainActivity : Activity() {
         clearReservation: Boolean = true,
         updateStatus: Boolean = true,
     ) {
+        callerGeneration += 1
+        callerConnectThread?.interrupt()
         pendingListenerStart = false
         listenerGeneration += 1
         phoneServerRunning = false
@@ -778,17 +834,23 @@ class MainActivity : Activity() {
         } else if (listenerThread === thread) {
             listenerThread = null
         }
-        stopActiveEncoding(updateStatus)
+        synchronized(callerLifecycleLock) {
+            stopActiveEncoding(updateStatus)
+        }
         hideLiveState()
         btnStop.visibility = View.GONE
     }
 
     private fun stopStream(updateStatus: Boolean = true) {
+        callerGeneration += 1
+        callerConnectThread?.interrupt()
         activeTargetName = null
         mainHandler.removeCallbacks(statsTicker)
         phoneConnected = false
         streamClient.disconnect()
-        stopActiveEncoding(updateStatus)
+        synchronized(callerLifecycleLock) {
+            stopActiveEncoding(updateStatus)
+        }
         hideLiveState()
     }
 

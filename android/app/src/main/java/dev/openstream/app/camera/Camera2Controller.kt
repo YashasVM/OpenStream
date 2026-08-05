@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
+import android.util.Range
 import android.view.Surface
 
 /**
@@ -27,6 +28,7 @@ class Camera2Controller(
     private val context: Context,
     private val previewSurfaceProvider: () -> Surface,
     private val lensProvider: () -> CameraLens = { CameraLens.Back },
+    private val targetFps: Int = 30,
 ) {
     private val cameraManager = context.getSystemService(CameraManager::class.java)
     private val thread = HandlerThread("OpenStreamCamera")
@@ -43,6 +45,7 @@ class Camera2Controller(
     private var minZoomRatio = 1.0f
     private var sensorRect: Rect? = null
     private var supportsZoomRatioKey = false
+    private var captureFpsRange: Range<Int>? = null
 
     // Torch state
     private var torchEnabled = false
@@ -228,6 +231,10 @@ class Camera2Controller(
 
     private fun loadZoomCapabilities(cameraId: String) {
         val chars = cameraManager.getCameraCharacteristics(cameraId)
+        captureFpsRange = chars
+            .get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
+            ?.filter { range -> range.upper <= targetFps }
+            ?.maxWithOrNull(compareBy<Range<Int>> { it.upper }.thenBy { it.lower })
         sensorRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -272,6 +279,7 @@ class Camera2Controller(
                         set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
                         set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
                         set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+                        applyFrameRate(this)
                         applyZoom(this)
                         applyTorch(this)
                     }.build()
@@ -303,6 +311,12 @@ class Camera2Controller(
         }
     }
 
+    private fun applyFrameRate(builder: CaptureRequest.Builder) {
+        captureFpsRange?.let { range ->
+            builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, range)
+        }
+    }
+
     private fun applyTorch(builder: CaptureRequest.Builder) {
         if (torchEnabled) {
             builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH)
@@ -327,6 +341,7 @@ class Camera2Controller(
                 set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
                 set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
                 set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+                applyFrameRate(this)
                 applyZoom(this)
                 applyTorch(this)
             }.build()

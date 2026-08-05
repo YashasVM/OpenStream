@@ -53,7 +53,9 @@ class SrtStreamClient {
     }
 
     fun sendVideoAccessUnit(accessUnit: EncodedAccessUnit): Boolean {
-        if (!connected) return false
+        val generation = synchronized(stateLock) {
+            if (!connected) null else sessionGeneration.get()
+        } ?: return false
         val sent = SrtNativeBridge.sendVideo(accessUnit.data, accessUnit.presentationTimeUs, accessUnit.flags)
         val isCodecConfig = (accessUnit.flags and BUFFER_FLAG_CODEC_CONFIG) != 0
         if (sent) {
@@ -69,13 +71,21 @@ class SrtStreamClient {
             }
         } else {
             sendFailures.incrementAndGet()
+            markSendFailure(generation)
         }
         return sent
     }
 
     fun sendAudioAccessUnit(accessUnit: EncodedAccessUnit): Boolean {
-        if (!connected) return false
-        return SrtNativeBridge.sendAudio(accessUnit.data, accessUnit.presentationTimeUs, accessUnit.flags)
+        val generation = synchronized(stateLock) {
+            if (!connected) null else sessionGeneration.get()
+        } ?: return false
+        val sent = SrtNativeBridge.sendAudio(accessUnit.data, accessUnit.presentationTimeUs, accessUnit.flags)
+        if (!sent) {
+            sendFailures.incrementAndGet()
+            markSendFailure(generation)
+        }
+        return sent
     }
 
     fun disconnect() {
@@ -117,6 +127,14 @@ class SrtStreamClient {
         bytesSent.set(0)
         sendFailures.set(0)
         lastPresentationTimeUs.set(0)
+    }
+
+    private fun markSendFailure(generation: Long) {
+        synchronized(stateLock) {
+            if (sessionGeneration.get() == generation) {
+                connected = false
+            }
+        }
     }
 
     companion object {

@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(openstream_obs_plugin VERSION 1.0.1 LANGUAGES CXX)
+include(CTest)
+find_package(Threads REQUIRED)
 set(OPENSTREAM_VERSION "${PROJECT_VERSION}" CACHE STRING "Version embedded in the OBS plugin")
 
 # Releases are built against OBS Studio 32.2.1 x64.  Its bundled FFmpeg ABI is
@@ -21,6 +23,16 @@ add_library(openstream-obs MODULE
     src/openstream-dock.cpp
     src/openstream-source.cpp
 )
+
+if (BUILD_TESTING)
+    add_executable(openstream-obs-contract-tests
+        tests/test_contracts.cpp
+        src/async-control-client.cpp
+    )
+    target_include_directories(openstream-obs-contract-tests PRIVATE src)
+    target_link_libraries(openstream-obs-contract-tests PRIVATE Threads::Threads)
+    add_test(NAME openstream-obs-contract-tests COMMAND openstream-obs-contract-tests)
+endif()
 
 find_package(Qt6 6.2 COMPONENTS Network Widgets REQUIRED)
 find_path(OBS_FRONTEND_INCLUDE_DIR NAMES obs-frontend-api.h

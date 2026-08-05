@@ -34,7 +34,8 @@ data class ConnectionTarget(
             if (host.isBlank()) return null
             val port = uri.getQueryParameter("port")?.toIntOrNull()?.coerceIn(1, 65535) ?: DEFAULT_PORT
             val latencyMs = uri.getQueryParameter("latency")?.toIntOrNull()?.coerceIn(80, 200) ?: DEFAULT_LATENCY_MS
-            val bitrateMbps = uri.getQueryParameter("bitrateMbps")?.toIntOrNull()?.coerceIn(1, 200)
+            val bitrateMbps = uri.getQueryParameter("bitrateMbps")?.toIntOrNull()
+                ?.coerceIn(StreamConfig.MIN_BITRATE_MBPS, StreamConfig.MAX_BITRATE_MBPS)
             val name = uri.getQueryParameter("name")?.ifBlank { DEFAULT_NAME } ?: DEFAULT_NAME
             return ConnectionTarget(
                 name = name,

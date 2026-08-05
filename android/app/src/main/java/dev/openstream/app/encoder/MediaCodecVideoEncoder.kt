@@ -29,6 +29,11 @@ data class EncodedAccessUnit(
     val flags: Int,
 )
 
+private data class EncoderSelection(
+    val mimeType: String,
+    val codecName: String,
+)
+
 class MediaCodecVideoEncoder(
     private val preference: CodecPreference,
     private val width: Int,
@@ -38,7 +43,8 @@ class MediaCodecVideoEncoder(
     private val keyframeIntervalSeconds: Int,
     private val onEncodedAccessUnit: (EncodedAccessUnit) -> Unit,
 ) {
-    private var mimeType = chooseMimeType(preference)
+    private var selection = chooseEncoder(preference)
+    private var mimeType = selection.mimeType
     private var codec: MediaCodec? = null
     private val thread = HandlerThread("OpenStreamEncoder")
     private lateinit var handler: Handler
@@ -54,8 +60,10 @@ class MediaCodecVideoEncoder(
         if (codec != null) {
             stop()
         }
-        mimeType = chooseMimeType(preference)
-        val encoder = MediaCodec.createEncoderByType(mimeType)
+        selection = chooseEncoder(preference)
+        mimeType = selection.mimeType
+        Log.i("OpenStreamEncoder", "Using hardware encoder ${selection.codecName} for $mimeType")
+        val encoder = MediaCodec.createByCodecName(selection.codecName)
         codec = encoder
         val format = MediaFormat.createVideoFormat(mimeType, width, height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
@@ -67,8 +75,15 @@ class MediaCodecVideoEncoder(
                 setInteger(MediaFormat.KEY_LATENCY, 0)
             }
         }
-        encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-        surface = encoder.createInputSurface()
+        try {
+            encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            surface = encoder.createInputSurface()
+        } catch (error: Throwable) {
+            codec = null
+            surface = null
+            runCatching { encoder.release() }
+            throw error
+        }
 
         if (!thread.isAlive) {
             thread.start()
@@ -116,7 +131,14 @@ class MediaCodecVideoEncoder(
                 }
             }
         }, handler)
-        encoder.start()
+        try {
+            encoder.start()
+        } catch (error: Throwable) {
+            codec = null
+            surface = null
+            runCatching { encoder.release() }
+            throw error
+        }
     }
 
     fun stop() {
@@ -127,14 +149,45 @@ class MediaCodecVideoEncoder(
         runCatching { encoder.release() }
     }
 
-    private fun chooseMimeType(preference: CodecPreference): String {
-        if (preference == CodecPreference.ForceAvc) {
-            return MediaFormat.MIMETYPE_VIDEO_AVC
+    private fun chooseEncoder(preference: CodecPreference): EncoderSelection {
+        val mimeTypes = when (preference) {
+            CodecPreference.ForceAvc -> listOf(MediaFormat.MIMETYPE_VIDEO_AVC)
+            CodecPreference.PreferHevc -> listOf(
+                MediaFormat.MIMETYPE_VIDEO_HEVC,
+                MediaFormat.MIMETYPE_VIDEO_AVC,
+            )
         }
-        val hasHevc = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.any { info ->
-            info.isEncoder && info.supportedTypes.any { it.equals(MediaFormat.MIMETYPE_VIDEO_HEVC, true) }
+        val infos = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
+        for (mime in mimeTypes) {
+            val info = infos.firstOrNull { candidate ->
+                candidate.isEncoder &&
+                    candidate.isHardwareAccelerated &&
+                    !candidate.isSoftwareOnly &&
+                    candidate.supportedTypes.any { it.equals(mime, true) } &&
+                    runCatching {
+                        candidate.getCapabilitiesForType(mime).colorFormats.contains(
+                            MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface,
+                        )
+                    }.getOrDefault(false)
+            } ?: continue
+            if (preference == CodecPreference.PreferHevc &&
+                mime == MediaFormat.MIMETYPE_VIDEO_AVC
+            ) {
+                Log.w(
+                    "OpenStreamEncoder",
+                    "Hardware HEVC is unavailable; explicitly falling back to hardware AVC",
+                )
+            }
+            return EncoderSelection(mime, info.name)
         }
-        return if (hasHevc) MediaFormat.MIMETYPE_VIDEO_HEVC else MediaFormat.MIMETYPE_VIDEO_AVC
+
+        Log.e(
+            "OpenStreamEncoder",
+            "No hardware surface video encoder is available; refusing a silent software fallback",
+        )
+        throw IllegalStateException(
+            "OpenStream needs a hardware AVC/HEVC surface encoder on this phone",
+        )
     }
 
     private fun codecConfigFrom(format: MediaFormat): ByteArray? {

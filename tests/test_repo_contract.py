@@ -11,7 +11,7 @@ def read(path: str) -> str:
 
 def test_architecture_documents_practical_v1_transport() -> None:
     architecture = read("docs/architecture.md")
-    assert "MediaCodec hardware HEVC/H.264 video encode" in architecture
+    assert "MediaCodec hardware AVC/H.264 video encode" in architecture
     assert "MediaCodec AAC audio encode" in architecture
     assert "SRT caller" in architecture
     assert "UDP discovery" in architecture
@@ -31,6 +31,9 @@ def test_android_project_declares_camera_media_codec_srt_discovery_boundaries() 
     assert "startPreviewIfAllowed" in app
     assert "startPhoneServerIfAllowed" in app
     assert "MediaCodecAudioEncoder" in app
+    camera = read("android/app/src/main/java/dev/openstream/app/camera/Camera2Controller.kt")
+    assert "CONTROL_AE_TARGET_FPS_RANGE" in camera
+    assert "targetFps" in camera
     stream_config = read("android/app/src/main/java/dev/openstream/app/stream/StreamConfig.kt")
     assert "Default1080p30" in stream_config
     assert "codecPreference = CodecPreference.ForceAvc" in stream_config

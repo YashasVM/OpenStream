@@ -54,7 +54,7 @@ function ObsPreview() {
     <div className="obs" aria-label="OBS Studio with OpenStream source and control dock mockup">
       <div className="obs-bar"><span className="obs-dot">●</span> OBS Studio <span>— □ ×</span></div>
       <div className="obs-menu">File &nbsp; Edit &nbsp; View &nbsp; Docks &nbsp; Profile &nbsp; Scene Collection</div>
-      <div className="obs-video"><div className="signal-corners" /><strong>OPENSTREAM / CAM A</strong><span>LIVE · 60 FPS</span></div>
+      <div className="obs-video"><div className="signal-corners" /><strong>OPENSTREAM / CAM A</strong><span>LIVE · 30 FPS</span></div>
       <div className="obs-panels"><div>Scenes<br/><b>Camera</b><br/>Overlay</div><div>Sources<br/><b>OpenStream</b><br/>Audio</div><div className="mixer">Audio Mixer<br/><b>▮▮▮▮▮▯▯</b><br/>OpenStream AAC</div></div>
       <div className="dock-mini"><div className="dock-title"><Mark /> OpenStream Camera Control <span>● Connected</span></div><div className="dock-actions"><span>Rear</span><span>Front</span><span>Torch</span><span>Identify</span></div><div className="dock-zoom">Zoom <i><b /></i><strong>1.8×</strong></div></div>
     </div>
@@ -147,7 +147,7 @@ function Setup() {
 function Pipeline() {
   return (
     <section className="pipeline">
-      <div><h2>Local network.<br/>Explicit pipes.</h2><p>Your media stays on the LAN. Camera2 and MediaCodec handle capture, MPEG-TS carries HEVC/H.264 plus AAC, and SRT delivers it to the native OBS source.</p></div>
+      <div><h2>Local network.<br/>Explicit pipes.</h2><p>Your media stays on the LAN. Camera2 and MediaCodec handle capture, MPEG-TS carries hardware AVC/H.264 plus AAC, and SRT delivers it to the native OBS source.</p></div>
       <div className="flow" aria-label="OpenStream media pipeline"><span>ANDROID CAMERA<small>Camera2 + MediaCodec</small></span><b>→</b><span>SRT STREAM<small>MPEG-TS · port 9000</small></span><b>→</b><span>OBS SOURCE<small>FFmpeg decode + mixer</small></span></div>
       <dl><div><dt>Media</dt><dd>SRT :9000</dd></div><div><dt>Discovery</dt><dd>UDP :51515</dd></div><div><dt>Control</dt><dd>HTTP :9001</dd></div><div><dt>Default bitrate</dt><dd>16 Mbps</dd></div></dl>
     </section>

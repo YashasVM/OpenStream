@@ -3,6 +3,7 @@ package dev.openstream.app.control
 import android.util.Log
 import dev.openstream.app.camera.Camera2Controller
 import dev.openstream.app.camera.CameraLens
+import dev.openstream.app.stream.StreamConfig
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.OutputStreamWriter
@@ -18,7 +19,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * - POST /zoom       {"value": 2.5}
  * - POST /torch      {"enabled": true}
  * - POST /lens       {"lens": "Back"}
- * - POST /reserve    {"sourceInstanceId": "...", "bitrateMbps": 50}
+ * - POST /reserve    {"sourceInstanceId": "...", "bitrateMbps": 12}
  * - POST /release    {"sourceInstanceId": "..."}
  * - POST /identify   {"label": "CAM B", "subtitle": "Close-up"}
  * - GET  /status     Returns current camera state
@@ -36,10 +37,16 @@ class CameraControlServer(
     private val onIdentify: (String, String) -> Unit,
 ) {
     private val running = AtomicBoolean(false)
-    private var serverSocket: ServerSocket? = null
-    private var worker: Thread? = null
+    @Volatile private var serverSocket: ServerSocket? = null
+    @Volatile private var activeClient: Socket? = null
+    @Volatile private var worker: Thread? = null
 
     fun start() {
+        if (running.get()) return
+        if (worker?.isAlive == true) {
+            Log.w(TAG, "Control server worker is still stopping; delaying restart")
+            return
+        }
         if (!running.compareAndSet(false, true)) return
         worker = Thread(::run, "OpenStreamControlServer").apply {
             isDaemon = true
@@ -50,13 +57,23 @@ class CameraControlServer(
     fun stop() {
         running.set(false)
         runCatching { serverSocket?.close() }
+        runCatching { activeClient?.close() }
+        val thread = worker
+        thread?.interrupt()
+        if (thread != null && thread !== Thread.currentThread()) {
+            runCatching { thread.join(STOP_TIMEOUT_MS) }
+                .onFailure { Thread.currentThread().interrupt() }
+        }
+        if (worker === thread && thread?.isAlive != true) worker = null
         serverSocket = null
-        worker = null
+        activeClient = null
     }
 
     private fun run() {
+        var openedSocket: ServerSocket? = null
         try {
             val socket = ServerSocket(port)
+            openedSocket = socket
             serverSocket = socket
             socket.soTimeout = 1000
             Log.i(TAG, "Camera control server listening on port $port")
@@ -70,10 +87,22 @@ class CameraControlServer(
                     if (running.get()) Log.w(TAG, "Socket error", e)
                     break
                 }
-                handleClient(client)
+                activeClient = client
+                try {
+                    handleClient(client)
+                } finally {
+                    activeClient = null
+                }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Control server error", e)
+            if (running.get()) Log.e(TAG, "Control server error", e)
+        } finally {
+            runCatching { openedSocket?.close() }
+            if (serverSocket === openedSocket) serverSocket = null
+            if (worker === Thread.currentThread()) {
+                worker = null
+            }
+            running.set(false)
         }
     }
 
@@ -230,7 +259,12 @@ class CameraControlServer(
         val sourceInstanceId = json.optString("sourceInstanceId").trim()
         if (sourceInstanceId.isEmpty()) return """{"error":"missing sourceInstanceId"}"""
         val slotLabel = json.optString("slotLabel", "")
-        val bitrateMbps = if (json.has("bitrateMbps")) json.optInt("bitrateMbps").coerceIn(1, 200) else null
+        val bitrateMbps = if (json.has("bitrateMbps")) {
+            json.optInt("bitrateMbps").coerceIn(
+                StreamConfig.MIN_BITRATE_MBPS,
+                StreamConfig.MAX_BITRATE_MBPS,
+            )
+        } else null
         val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)
         return if (accepted) {
             JSONObject()
@@ -268,5 +302,6 @@ class CameraControlServer(
         private const val MAX_HEADER_LINE_BYTES = 2_048
         private const val MAX_HEADER_BYTES = 8_192
         private const val MAX_BODY_BYTES = 8_192
+        private const val STOP_TIMEOUT_MS = 1_000L
     }
 }
