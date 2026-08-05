@@ -14,6 +14,7 @@ import java.net.NetworkInterface
 import java.net.SocketTimeoutException
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 class ObsDiscoveryClient(
     private val context: Context,
@@ -21,6 +22,8 @@ class ObsDiscoveryClient(
     private val nowMs: () -> Long = { System.currentTimeMillis() },
 ) {
     private val running = AtomicBoolean(false)
+    private val generation = AtomicLong()
+    private val socketLock = Any()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val devices = linkedMapOf<String, DiscoveredObsDevice>()
     private var socket: MulticastSocket? = null
@@ -29,8 +32,9 @@ class ObsDiscoveryClient(
 
     fun start() {
         if (!running.compareAndSet(false, true)) return
+        val runGeneration = generation.incrementAndGet()
         acquireMulticastLock()
-        worker = Thread(::receiveLoop, "OpenStreamDiscovery").apply {
+        worker = Thread({ receiveLoop(runGeneration) }, "OpenStreamDiscovery").apply {
             isDaemon = true
             start()
         }
@@ -38,8 +42,11 @@ class ObsDiscoveryClient(
 
     fun stop() {
         if (!running.compareAndSet(true, false)) return
-        socket?.close()
-        socket = null
+        generation.incrementAndGet()
+        synchronized(socketLock) {
+            socket?.close()
+            socket = null
+        }
         worker = null
         synchronized(devices) {
             devices.clear()
@@ -65,17 +72,23 @@ class ObsDiscoveryClient(
         multicastLock = null
     }
 
-    private fun receiveLoop() {
+    private fun receiveLoop(runGeneration: Long) {
         val udp = MulticastSocket(null).apply {
             reuseAddress = true
             soTimeout = 500
             bind(InetSocketAddress(DISCOVERY_PORT))
         }
-        socket = udp
+        synchronized(socketLock) {
+            if (!running.get() || generation.get() != runGeneration) {
+                udp.close()
+                return
+            }
+            socket = udp
+        }
         joinDiscoveryMulticast(udp)
         val buffer = ByteArray(4096)
 
-        while (running.get()) {
+        while (running.get() && generation.get() == runGeneration) {
             try {
                 val packet = DatagramPacket(buffer, buffer.size)
                 udp.receive(packet)
@@ -92,7 +105,7 @@ class ObsDiscoveryClient(
                     publishDevices()
                 }
             } catch (_: Exception) {
-                if (running.get()) {
+                if (running.get() && generation.get() == runGeneration) {
                     if (pruneExpired()) {
                         publishDevices()
                     }
@@ -100,6 +113,9 @@ class ObsDiscoveryClient(
             }
         }
         udp.close()
+        synchronized(socketLock) {
+            if (socket === udp) socket = null
+        }
     }
 
     private fun joinDiscoveryMulticast(socket: MulticastSocket) {

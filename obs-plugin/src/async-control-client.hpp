@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <condition_variable>
 #include <functional>
 #include <mutex>
@@ -11,12 +12,14 @@
 // wait for its network timeouts.
 class AsyncControlClient {
  public:
+  static constexpr size_t kQueueCapacity = 16;
+
   AsyncControlClient();
   ~AsyncControlClient();
   AsyncControlClient(const AsyncControlClient &) = delete;
   AsyncControlClient &operator=(const AsyncControlClient &) = delete;
 
-  void post(std::function<void()> command);
+  bool post(std::function<void()> command);
   void stop();
 
  private:

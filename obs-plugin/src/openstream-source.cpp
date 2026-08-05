@@ -17,6 +17,7 @@
 #include <obs-module.h>
 
 #include "async-control-client.hpp"
+#include "media-clock.hpp"
 #include "openstream-control-api.hpp"
 #include <util/platform.h>
 
@@ -788,6 +789,7 @@ struct OpenStreamSource {
   std::string active_selected_phone_id = PhoneDiscoveryReceiver::kAutoPhoneId;
   std::optional<PhoneDevice> active_phone;
   uint64_t frames_output = 0;
+  std::atomic<uint64_t> bgra_fallback_count = 0;
   double last_cam_zoom = 1.0;
   std::shared_ptr<AsyncControlClient> camera_controls =
       std::make_shared<AsyncControlClient>();
@@ -805,12 +807,11 @@ bool queue_control_command(OpenStreamSource *ctx, const std::string &path,
   const auto client = ctx->camera_controls;
   const std::string host = phone->host;
   const int port = phone->control_port;
-  client->post([host, port, path, body] {
+  return client->post([host, port, path, body] {
     if (!send_control_command(host, port, path, body)) {
       blog(LOG_WARNING, "[OpenStream] Camera command %s failed", path.c_str());
     }
   });
-  return true;
 }
 
 void set_slot_status(OpenStreamSource *ctx, std::string status) {
@@ -1161,6 +1162,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
                           AVStream *stream,
                           AVCodecContext *decoder_ctx,
                           AVFrame *decoded_frame,
+                          uint64_t timestamp_ns,
                           SwsContextPtr *sws_ctx,
                           std::vector<uint8_t> *bgra_buffer) {
   if (decoded_frame->width <= 0 || decoded_frame->height <= 0) {
@@ -1182,7 +1184,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
     yuv_frame.format = can_output_i420 ? VIDEO_FORMAT_I420 : VIDEO_FORMAT_NV12;
     yuv_frame.width = static_cast<uint32_t>(width);
     yuv_frame.height = static_cast<uint32_t>(height);
-    yuv_frame.timestamp = os_gettime_ns();
+    yuv_frame.timestamp = timestamp_ns;
     yuv_frame.range = obs_range_for_frame(decoded_frame, source_format);
     yuv_frame.trc = static_cast<uint8_t>(obs_trc_for_frame(decoded_frame));
     yuv_frame.flip = false;
@@ -1218,6 +1220,15 @@ bool output_decoded_frame(OpenStreamSource *ctx,
            format_name ? format_name : "unknown");
     }
     return true;
+  }
+
+  const uint64_t fallback_count = ++ctx->bgra_fallback_count;
+  if (fallback_count == 1 || fallback_count % 300 == 0) {
+    const char *format_name = av_get_pix_fmt_name(source_format);
+    blog(LOG_WARNING,
+         "[OpenStream] BGRA fallback count=%" PRIu64 " source format=%s",
+         fallback_count,
+         format_name ? format_name : "unknown");
   }
 
   SwsContext *current_sws = sws_ctx->get();
@@ -1267,7 +1278,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
   obs_frame.format = VIDEO_FORMAT_BGRA;
   obs_frame.width = static_cast<uint32_t>(width);
   obs_frame.height = static_cast<uint32_t>(height);
-  obs_frame.timestamp = os_gettime_ns();
+  obs_frame.timestamp = timestamp_ns;
   obs_frame.data[0] = bgra_buffer->data();
   obs_frame.linesize[0] = static_cast<uint32_t>(linesize);
   obs_frame.flip = false;
@@ -1342,10 +1353,73 @@ void decode_packets(OpenStreamSource *ctx,
   SwsContextPtr sws_ctx(nullptr);
   std::vector<uint8_t> bgra_buffer;
   AVStream *video_stream = format_ctx->streams[video_stream_index];
+  AVStream *audio_stream =
+      audio_stream_index >= 0 ? format_ctx->streams[audio_stream_index] : nullptr;
+  MediaClock media_clock;
+  ctx->frames_output = 0;
+  ctx->bgra_fallback_count = 0;
   uint64_t audio_frames_output = 0;
+  uint64_t video_frames_decoded = 0;
+  uint64_t video_decode_total_ns = 0;
+  uint64_t video_decode_max_ns = 0;
+  uint64_t last_frame_received_ns = os_gettime_ns();
+  uint64_t last_metrics_log_ns = last_frame_received_ns;
+  uint64_t previous_live_lag_ns = 0;
+  std::optional<int64_t> latest_video_source_ns;
+  std::optional<int64_t> latest_audio_source_ns;
+  std::optional<uint64_t> latest_video_obs_ns;
+  std::optional<uint64_t> latest_audio_obs_ns;
+
+  const auto source_timestamp_ns = [](const AVFrame *decoded,
+                                      const AVStream *stream) -> std::optional<int64_t> {
+    const int64_t timestamp = decoded->best_effort_timestamp != AV_NOPTS_VALUE
+                                  ? decoded->best_effort_timestamp
+                                  : decoded->pts;
+    if (!stream || timestamp == AV_NOPTS_VALUE) return std::nullopt;
+    return av_rescale_q(timestamp, stream->time_base, AVRational{1, 1000000000});
+  };
+
+  const auto log_timing_metrics = [&](uint64_t now_ns) {
+    if (now_ns - last_metrics_log_ns < 1000000000ULL) return;
+    const int64_t av_skew_ns =
+        latest_video_source_ns && latest_audio_source_ns
+            ? *latest_video_source_ns - *latest_audio_source_ns
+            : 0;
+    const uint64_t newest_obs_ns = std::max(latest_video_obs_ns.value_or(0),
+                                            latest_audio_obs_ns.value_or(0));
+    const uint64_t live_lag_ns = newest_obs_ns > 0 && now_ns > newest_obs_ns
+                                     ? now_ns - newest_obs_ns
+                                     : 0;
+    const bool falling_behind =
+        previous_live_lag_ns > 0 && live_lag_ns > previous_live_lag_ns + 33000000ULL;
+    const uint64_t average_decode_ns =
+        video_frames_decoded > 0 ? video_decode_total_ns / video_frames_decoded : 0;
+    blog(LOG_INFO,
+         "[OpenStream] timing source_video_ns=%" PRId64
+         " source_audio_ns=%" PRId64 " mapped_video_ns=%" PRIu64
+         " mapped_audio_ns=%" PRIu64 " av_skew_ms=%.2f decode_avg_ms=%.2f"
+         " decode_max_ms=%.2f decoded=%" PRIu64 " output=%" PRIu64
+         " bgra=%" PRIu64 " since_frame_ms=%.2f live_lag_ms=%.2f falling_behind=%s",
+         latest_video_source_ns.value_or(-1),
+         latest_audio_source_ns.value_or(-1),
+         latest_video_obs_ns.value_or(0),
+         latest_audio_obs_ns.value_or(0),
+         static_cast<double>(av_skew_ns) / 1000000.0,
+         static_cast<double>(average_decode_ns) / 1000000.0,
+         static_cast<double>(video_decode_max_ns) / 1000000.0,
+         video_frames_decoded,
+         ctx->frames_output,
+         ctx->bgra_fallback_count.load(),
+         static_cast<double>(now_ns - last_frame_received_ns) / 1000000.0,
+         static_cast<double>(live_lag_ns) / 1000000.0,
+         falling_behind ? "true" : "false");
+    previous_live_lag_ns = live_lag_ns;
+    last_metrics_log_ns = now_ns;
+  };
 
   const auto drain_video = [&]() -> int {
     while (!ctx->stop_requested.load()) {
+      const uint64_t decode_started_ns = os_gettime_ns();
       const int result = avcodec_receive_frame(video_decoder_ctx, frame.get());
       if (result == AVERROR(EAGAIN) || result == AVERROR_EOF) {
         return 0;
@@ -1356,8 +1430,28 @@ void decode_packets(OpenStreamSource *ctx,
              av_error(result).c_str());
         return result;
       }
-      output_decoded_frame(
-          ctx, video_stream, video_decoder_ctx, frame.get(), &sws_ctx, &bgra_buffer);
+      const uint64_t decoded_at_ns = os_gettime_ns();
+      const uint64_t decode_duration_ns = decoded_at_ns - decode_started_ns;
+      ++video_frames_decoded;
+      video_decode_total_ns += decode_duration_ns;
+      video_decode_max_ns = std::max(video_decode_max_ns, decode_duration_ns);
+      const auto source_ns = source_timestamp_ns(frame.get(), video_stream);
+      const auto timestamp_ns = source_ns ? media_clock.map(*source_ns, decoded_at_ns) : std::nullopt;
+      if (timestamp_ns) {
+        latest_video_source_ns = source_ns;
+        latest_video_obs_ns = timestamp_ns;
+        last_frame_received_ns = decoded_at_ns;
+        output_decoded_frame(ctx,
+                             video_stream,
+                             video_decoder_ctx,
+                             frame.get(),
+                             *timestamp_ns,
+                             &sws_ctx,
+                             &bgra_buffer);
+      } else {
+        blog(LOG_WARNING, "[OpenStream] Dropping video frame without a usable source timestamp");
+      }
+      log_timing_metrics(decoded_at_ns);
       av_frame_unref(frame.get());
     }
     return AVERROR_EXIT;
@@ -1389,10 +1483,22 @@ void decode_packets(OpenStreamSource *ctx,
         return AVERROR(EINVAL);
       }
 
+      const uint64_t decoded_at_ns = os_gettime_ns();
+      const auto source_ns = source_timestamp_ns(audio_frame.get(), audio_stream);
+      const auto timestamp_ns = source_ns ? media_clock.map(*source_ns, decoded_at_ns) : std::nullopt;
+      if (!timestamp_ns) {
+        blog(LOG_WARNING, "[OpenStream] Dropping audio frame without a usable source timestamp");
+        av_frame_unref(audio_frame.get());
+        continue;
+      }
+      latest_audio_source_ns = source_ns;
+      latest_audio_obs_ns = timestamp_ns;
+      last_frame_received_ns = decoded_at_ns;
+
       struct obs_source_audio obs_audio = {};
       obs_audio.samples_per_sec = sample_rate;
       obs_audio.frames = static_cast<uint32_t>(audio_frame->nb_samples);
-      obs_audio.timestamp = os_gettime_ns();
+      obs_audio.timestamp = *timestamp_ns;
       obs_audio.format = obs_format;
       obs_audio.speakers = speakers;
       for (int i = 0; i < MAX_AV_PLANES && audio_frame->data[i]; i++) {
@@ -1408,6 +1514,7 @@ void decode_packets(OpenStreamSource *ctx,
              sample_rate,
              channels);
       }
+      log_timing_metrics(decoded_at_ns);
       av_frame_unref(audio_frame.get());
     }
     return AVERROR_EXIT;

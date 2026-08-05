@@ -321,3 +321,36 @@ def test_legacy_android_and_restored_obs_metadata_are_explicit() -> None:
     assert '"1.0.1"' in app_gradle
     assert "project(openstream_obs_plugin VERSION 1.0.1" in cmake
     assert '#define OpenStreamVersion "1.0.1"' in installer
+
+def test_wifi_recovery_uses_one_shared_media_clock() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+    clock = read("obs-plugin/src/media-clock.hpp")
+
+    assert "MediaClock media_clock" in source
+    assert "best_effort_timestamp" in source
+    assert "Dropping video frame without a usable source timestamp" in source
+    assert "Dropping audio frame without a usable source timestamp" in source
+    assert "yuv_frame.timestamp = timestamp_ns" in source
+    assert "obs_audio.timestamp = *timestamp_ns" in source
+    assert "source_origin_ns_" in clock
+
+
+def test_wifi_recovery_bounds_control_commands_and_discovery_generations() -> None:
+    header = read("obs-plugin/src/async-control-client.hpp")
+    implementation = read("obs-plugin/src/async-control-client.cpp")
+    discovery = read("android/app/src/main/java/dev/openstream/app/discovery/ObsDiscoveryClient.kt")
+
+    assert "kQueueCapacity = 16" in header
+    assert "commands_.size() >= kQueueCapacity" in implementation
+    assert "return false" in implementation
+    assert "AtomicLong" in discovery
+    assert "generation.get() == runGeneration" in discovery
+
+
+def test_recovery_branch_remains_wifi_only() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+    settings = read("android/app/src/main/res/layout/activity_settings.xml")
+
+    assert "openstream_usb_source" not in source
+    assert "USB tethered connection" not in source
+    assert "settingsTransportUsb" not in settings

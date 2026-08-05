@@ -11,6 +11,13 @@ set(OPENSTREAM_FFMPEG_ABI "avformat-62;avcodec-62;avutil-60;swscale-9")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+include(CTest)
+
+if (BUILD_TESTING)
+    add_executable(openstream-media-clock-test ../tests/media_clock_test.cpp)
+    target_include_directories(openstream-media-clock-test PRIVATE src)
+    add_test(NAME openstream-media-clock COMMAND openstream-media-clock-test)
+endif()
 
 if (NOT DEFINED OBS_ROOT)
     message(FATAL_ERROR "Set OBS_ROOT to the OBS Studio install, source checkout, build tree, or development SDK root.")
