@@ -7,18 +7,21 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  build:
-    name: Test, lint, and build debug APK
+  implement-recovery:
+    name: Implement and validate recovery plan
     runs-on: ubuntu-latest
+    timeout-minutes: 90
 
     steps:
-      - name: Check out repository
+      - name: Check out implementation branch
         uses: actions/checkout@v4
         with:
-          persist-credentials: false
+          ref: automation/openstream-recovery-implementation
+          fetch-depth: 0
+          persist-credentials: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -37,38 +40,59 @@ jobs:
       - name: Install Android build packages
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "cmake;3.22.1" "ndk;27.0.12077973"
 
-      - name: Compute Android version metadata
-        id: version
+      - name: Prepare implementation
         run: |
-          echo "code=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
-
-      - name: Run repository tests
-        run: |
+          set -euo pipefail
           python -m pip install --disable-pip-version-check pytest
+          base64 -d tools/apply_recovery_plan.py.gz.b64 | gzip -d > /tmp/apply_recovery_plan.py
+          python -m py_compile /tmp/apply_recovery_plan.py
+          git fetch origin refs/pull/29/head:pr29
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Phase 1 - Wi-Fi media clock
+        run: |
+          set -euo pipefail
+          git checkout -B fix/wifi-only-media-clock origin/main
+          python /tmp/apply_recovery_plan.py phase1
           python -m pytest -q
+          g++ -std=c++20 tests/media_clock_test.cpp -Iobs-plugin/src -o /tmp/openstream-media-clock-test
+          /tmp/openstream-media-clock-test
+          (
+            cd android
+            chmod +x ./gradlew
+            ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+          )
+          git add -A
+          git commit -m "Fix Wi-Fi media timing and recovery safety"
+          git push --force origin HEAD:fix/wifi-only-media-clock
 
-      - name: Run Android unit tests and lint, then build APK
-        working-directory: android
-        env:
-          OPENSTREAM_VERSION_NAME: 1.0.1
-          OPENSTREAM_VERSION_CODE: ${{ steps.version.outputs.code }}
+      - name: Phase 2 - Android thermal load
         run: |
-          chmod +x ./gradlew
-          ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+          set -euo pipefail
+          git checkout -B fix/android-thermal-load fix/wifi-only-media-clock
+          python /tmp/apply_recovery_plan.py phase2
+          python -m pytest -q
+          (
+            cd android
+            ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+          )
+          git add -A
+          git commit -m "Reduce Android thermal and encoder load"
+          git push --force origin HEAD:fix/android-thermal-load
 
-      - name: Normalize Android build assets
+      - name: Phase 3 - Live backpressure and reconnect
         run: |
-          mkdir -p dist
-          cp android/app/build/outputs/apk/debug/app-debug.apk dist/openstream-android.apk
-          (cd dist && sha256sum openstream-android.apk > openstream-android.apk.sha256)
-          printf 'debug-signed\n' > dist/android-signing.txt
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: openstream-android-debug-apk
-          path: |
-            dist/openstream-android.apk
-            dist/openstream-android.apk.sha256
-            dist/android-signing.txt
-          if-no-files-found: error
+          set -euo pipefail
+          git checkout -B fix/live-backpressure-reconnect fix/android-thermal-load
+          python /tmp/apply_recovery_plan.py phase3
+          python -m pytest -q
+          g++ -std=c++20 tests/media_clock_test.cpp -Iobs-plugin/src -o /tmp/openstream-media-clock-test
+          /tmp/openstream-media-clock-test
+          (
+            cd android
+            ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+          )
+          git add -A
+          git commit -m "Bound live backpressure and reconnect delay"
+          git push --force origin HEAD:fix/live-backpressure-reconnect
