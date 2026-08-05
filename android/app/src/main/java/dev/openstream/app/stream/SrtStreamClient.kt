@@ -1,6 +1,7 @@
 package dev.openstream.app.stream
 
 import dev.openstream.app.encoder.EncodedAccessUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 data class StreamStats(
@@ -14,11 +15,15 @@ data class StreamStats(
         get() = lastPresentationTimeUs / 1_000_000.0
 }
 
-class SrtStreamClient {
+class SrtStreamClient(
+    private val onConnectionFailure: (() -> Unit)? = null,
+) {
     @Volatile private var connected = false
     private val sessionGeneration = AtomicLong()
     private val operationLock = Any()
     private val stateLock = Any()
+    private val failureSignaled = AtomicBoolean(false)
+
     val stats: StreamStats
         get() = StreamStats(
             accessUnitsSent = accessUnitsSent.get(),
@@ -68,23 +73,42 @@ class SrtStreamClient {
                 }
             }
         } else {
-            sendFailures.incrementAndGet()
+            recordSendFailure()
         }
         return sent
     }
 
     fun sendAudioAccessUnit(accessUnit: EncodedAccessUnit): Boolean {
         if (!connected) return false
-        return SrtNativeBridge.sendAudio(accessUnit.data, accessUnit.presentationTimeUs, accessUnit.flags)
+        val sent = SrtNativeBridge.sendAudio(
+            accessUnit.data,
+            accessUnit.presentationTimeUs,
+            accessUnit.flags,
+        )
+        if (!sent) recordSendFailure()
+        return sent
     }
 
     fun disconnect() {
         synchronized(stateLock) {
             sessionGeneration.incrementAndGet()
             connected = false
-            // listen() blocks in native accept before connected becomes true. This
-            // must not take operationLock so lifecycle stop can cancel that accept.
             SrtNativeBridge.disconnect()
+        }
+    }
+
+    private fun recordSendFailure() {
+        sendFailures.incrementAndGet()
+        val shouldSignal = synchronized(stateLock) {
+            if (!connected) {
+                false
+            } else {
+                connected = false
+                true
+            }
+        }
+        if (shouldSignal && failureSignaled.compareAndSet(false, true)) {
+            onConnectionFailure?.invoke()
         }
     }
 
@@ -99,13 +123,12 @@ class SrtStreamClient {
             } else {
                 check(didConnect) { "Native SRT bridge failed to $operationName" }
                 resetStats()
+                failureSignaled.set(false)
                 connected = true
                 false
             }
         }
         if (cancelled) {
-            // operationLock is still held, so this cleanup cannot tear down a
-            // subsequently started connect/listen operation.
             if (didConnect) SrtNativeBridge.disconnect()
             error("SRT $operationName was cancelled")
         }

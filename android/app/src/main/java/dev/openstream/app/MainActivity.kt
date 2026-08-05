@@ -7,6 +7,8 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
+import android.net.ConnectivityManager
+import android.net.Network
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -40,6 +42,7 @@ import dev.openstream.app.stream.StreamConfig
 import dev.openstream.app.stream.StreamProfile
 import dev.openstream.app.stream.SrtStreamClient
 import dev.openstream.app.telemetry.TelemetrySampler
+import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : Activity() {
 
@@ -103,6 +106,20 @@ class MainActivity : Activity() {
     private var currentDevices: List<DiscoveredObsDevice> = emptyList()
     private var activeStreamBitrate: Int = streamConfig.bitrate
     private lateinit var powerManager: PowerManager
+    private lateinit var connectivityManager: ConnectivityManager
+    private val networkUnavailable = AtomicBoolean(false)
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onLost(network: Network) {
+            networkUnavailable.set(true)
+        }
+
+        override fun onAvailable(network: Network) {
+            if (networkUnavailable.getAndSet(false) && phoneServerRunning) {
+                streamClient.disconnect()
+                listenerThread?.interrupt()
+            }
+        }
+    }
     private var thermalStatus = PowerManager.THERMAL_STATUS_NONE
     private var thermalStateStartedMs = 0L
     private val thermalDurationsMs = mutableMapOf<Int, Long>()
@@ -129,6 +146,7 @@ class MainActivity : Activity() {
         setupGestureDetector()
         loadStreamSettings()
         powerManager = getSystemService(PowerManager::class.java)
+        connectivityManager = getSystemService(ConnectivityManager::class.java)
         thermalStatus = powerManager.currentThermalStatus
         thermalStateStartedMs = SystemClock.elapsedRealtime()
 
@@ -137,7 +155,7 @@ class MainActivity : Activity() {
             .takeIf { it in 1024..65535 }
             ?: ConnectionTarget.DEFAULT_PORT
 
-        streamClient = SrtStreamClient()
+        streamClient = SrtStreamClient(onConnectionFailure = ::handleConnectionFailure)
         telemetry = TelemetrySampler(this)
         phoneAdvertiser = PhoneDiscoveryAdvertiser(
             context = this,
@@ -222,6 +240,7 @@ class MainActivity : Activity() {
         obsDiscoveryClient.start()
         controlServer.start()
         powerManager.addThermalStatusListener(mainExecutor, thermalListener)
+        connectivityManager.registerDefaultNetworkCallback(networkCallback)
         startPreviewIfAllowed()
         startPhoneServerIfAllowed()
     }
@@ -258,6 +277,7 @@ class MainActivity : Activity() {
         phoneAdvertiser.stop()
         controlServer.stop()
         runCatching { powerManager.removeThermalStatusListener(thermalListener) }
+        runCatching { connectivityManager.unregisterNetworkCallback(networkCallback) }
         recordThermalDuration(SystemClock.elapsedRealtime())
         stopLiveDotAnimation()
         super.onStop()
@@ -702,6 +722,7 @@ class MainActivity : Activity() {
         btnStop.visibility = View.GONE
 
         val thread = Thread({
+            var retryIndex = 0
             try {
                 while (isListenerActive(generation)) {
                     val listenUrl = "srt://0.0.0.0:${currentPort}?mode=listener&latency=${streamConfig.latencyMs}"
@@ -718,6 +739,7 @@ class MainActivity : Activity() {
                             return@runCatching
                         }
                         phoneConnected = true
+                        retryIndex = 0
                         cancelReservationRelease()
                         val liveTargetName = reservedSlotLabel ?: "OBS"
                         activeTargetName = liveTargetName
@@ -742,10 +764,12 @@ class MainActivity : Activity() {
                             statusText.text = "Listener error"
                             statusDetail.text = error?.message ?: "Unknown"
                         }
+                        val retryDelayMs = RECONNECT_BACKOFF_MS[retryIndex]
+                        retryIndex = (retryIndex + 1).coerceAtMost(RECONNECT_BACKOFF_MS.lastIndex)
                         try {
-                            Thread.sleep(LISTENER_RETRY_MS)
+                            Thread.sleep(retryDelayMs)
                         } catch (_: InterruptedException) {
-                            Thread.currentThread().interrupt()
+                            // Network recovery deliberately wakes the listener for an immediate retry.
                         }
                     }
 
@@ -811,6 +835,17 @@ class MainActivity : Activity() {
         stopActiveEncoding(updateStatus)
         hideLiveState()
         btnStop.visibility = View.GONE
+    }
+
+    private fun handleConnectionFailure() {
+        phoneConnected = false
+        streamClient.disconnect()
+        runOnUiThread {
+            renderStreamStats(forceFailure = true)
+            if (!phoneServerRunning) {
+                stopStream(updateStatus = false)
+            }
+        }
     }
 
     private fun stopStream(updateStatus: Boolean = true) {
@@ -1171,7 +1206,7 @@ class MainActivity : Activity() {
         private const val IDENTIFY_OVERLAY_MS = 3_000L
         private const val LENS_RESTART_DELAY_MS = 500L
         private const val LISTENER_POLL_MS = 250L
-        private const val LISTENER_RETRY_MS = 750L
+        private val RECONNECT_BACKOFF_MS = longArrayOf(500L, 1_000L, 2_000L, 5_000L)
         private const val LISTENER_STOP_TIMEOUT_MS = 2_000L
         private const val SETTINGS_REQUEST_CODE = 200
         private val REQUIRED_PERMISSIONS = arrayOf(

@@ -386,3 +386,27 @@ def test_display_off_removes_preview_target_and_tracks_thermal_state() -> None:
     assert "camera.setPreviewEnabled(false)" in main
     assert "OnThermalStatusChangedListener" in main
     assert '"WARM"' in main and '"HOT"' in main
+
+def test_live_send_timeout_is_bounded_and_mux_lock_is_released_before_send() -> None:
+    native = read("android/app/src/main/cpp/openstream_srt.cpp")
+
+    assert native.count("int sendTimeoutMs = 100;") >= 2
+    assert "std::vector<uint8_t> ts;" in native
+    assert "const bool sent = g_state.sender.send(ts);" in native
+
+
+def test_audio_and_video_share_one_failure_path() -> None:
+    client = read("android/app/src/main/java/dev/openstream/app/stream/SrtStreamClient.kt")
+    main = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+
+    assert client.count("recordSendFailure()") >= 2
+    assert "failureSignaled.compareAndSet(false, true)" in client
+    assert "onConnectionFailure = ::handleConnectionFailure" in main
+
+
+def test_reconnect_backoff_is_capped_and_network_recovery_wakes_listener() -> None:
+    main = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+
+    assert "longArrayOf(500L, 1_000L, 2_000L, 5_000L)" in main
+    assert "registerDefaultNetworkCallback" in main
+    assert "Network recovery deliberately wakes the listener" in main

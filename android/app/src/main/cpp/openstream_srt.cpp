@@ -506,7 +506,7 @@ class NativeSender {
     int yes = 1;
     int transportType = SRTT_LIVE;
     int payloadSize = 188 * 7;
-    int sendTimeoutMs = 500;
+    int sendTimeoutMs = 100;
     srt_setsockopt(socket, 0, SRTO_TRANSTYPE, &transportType, sizeof transportType);
     srt_setsockopt(socket, 0, SRTO_SENDER, &yes, sizeof yes);
     srt_setsockopt(socket, 0, SRTO_PAYLOADSIZE, &payloadSize, sizeof payloadSize);
@@ -572,7 +572,7 @@ class NativeSender {
     int yes = 1;
     int transportType = SRTT_LIVE;
     int payloadSize = 188 * 7;
-    int sendTimeoutMs = 500;
+    int sendTimeoutMs = 100;
     const int latency = parsed->latencyMs;
     srt_setsockopt(listenerSocket, 0, SRTO_TRANSTYPE, &transportType, sizeof transportType);
     srt_setsockopt(listenerSocket, 0, SRTO_SENDER, &yes, sizeof yes);
@@ -844,29 +844,33 @@ Java_dev_openstream_app_stream_SrtNativeBridge_sendVideo(
   std::vector<uint8_t> bytes(static_cast<size_t>(size));
   env->GetByteArrayRegion(data, 0, size, reinterpret_cast<jbyte *>(bytes.data()));
 
-  std::lock_guard<std::mutex> lock(g_state.mediaMutex);
-  if (!g_state.connected || !g_state.muxer) {
-    return JNI_FALSE;
-  }
+  std::vector<uint8_t> ts;
+  {
+    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
+    if (!g_state.connected || !g_state.muxer) {
+      return JNI_FALSE;
+    }
 
-  std::vector<uint8_t> annexB = normalizeAnnexB(bytes.data(), bytes.size());
+    std::vector<uint8_t> annexB = normalizeAnnexB(bytes.data(), bytes.size());
   if ((flags & kMediaCodecBufferFlagCodecConfig) != 0) {
-    g_state.codecConfig = std::move(annexB);
-    logInfo("Stored codec config for keyframe pre-roll");
-    return JNI_TRUE;
-  }
+      g_state.codecConfig = std::move(annexB);
+      logInfo("Stored codec config for keyframe pre-roll");
+      return JNI_TRUE;
+    }
 
-  const bool keyFrame = (flags & kMediaCodecBufferFlagKeyFrame) != 0;
-  if (keyFrame && !g_state.codecConfig.empty()) {
-    std::vector<uint8_t> withConfig = g_state.codecConfig;
-    withConfig.insert(withConfig.end(), annexB.begin(), annexB.end());
-    annexB = std::move(withConfig);
-  }
+    const bool keyFrame = (flags & kMediaCodecBufferFlagKeyFrame) != 0;
+    if (keyFrame && !g_state.codecConfig.empty()) {
+      std::vector<uint8_t> withConfig = g_state.codecConfig;
+      withConfig.insert(withConfig.end(), annexB.begin(), annexB.end());
+      annexB = std::move(withConfig);
+    }
 
-  const std::vector<uint8_t> ts =
-      g_state.muxer->muxAccessUnit(annexB, static_cast<int64_t>(presentation_time_us), keyFrame);
+    ts = g_state.muxer->muxAccessUnit(
+        annexB, static_cast<int64_t>(presentation_time_us), keyFrame);
+  }
   const bool sent = g_state.sender.send(ts);
   if (!sent) {
+    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
     g_state.connected = false;
   }
   return sent ? JNI_TRUE : JNI_FALSE;
@@ -894,21 +898,25 @@ Java_dev_openstream_app_stream_SrtNativeBridge_sendAudio(
   std::vector<uint8_t> bytes(static_cast<size_t>(size));
   env->GetByteArrayRegion(data, 0, size, reinterpret_cast<jbyte *>(bytes.data()));
 
-  std::lock_guard<std::mutex> lock(g_state.mediaMutex);
-  if (!g_state.connected || !g_state.muxer) {
-    return JNI_FALSE;
-  }
+  std::vector<uint8_t> ts;
+  {
+    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
+    if (!g_state.connected || !g_state.muxer) {
+      return JNI_FALSE;
+    }
 
-  if ((flags & kMediaCodecBufferFlagCodecConfig) != 0) {
-    g_state.audioCodecConfig = std::move(bytes);
-    logInfo("Stored audio codec config (ASC)");
-    return JNI_TRUE;
-  }
+    if ((flags & kMediaCodecBufferFlagCodecConfig) != 0) {
+      g_state.audioCodecConfig = std::move(bytes);
+      logInfo("Stored audio codec config (ASC)");
+      return JNI_TRUE;
+    }
 
-  const std::vector<uint8_t> ts = g_state.muxer->muxAudioAccessUnit(
-      bytes, g_state.audioCodecConfig, static_cast<int64_t>(presentation_time_us));
+    ts = g_state.muxer->muxAudioAccessUnit(
+        bytes, g_state.audioCodecConfig, static_cast<int64_t>(presentation_time_us));
+  }
   const bool sent = g_state.sender.send(ts);
   if (!sent) {
+    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
     g_state.connected = false;
   }
   return sent ? JNI_TRUE : JNI_FALSE;
