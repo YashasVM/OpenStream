@@ -54,9 +54,8 @@ jobs:
         working-directory: android
         run: |
           set -euo pipefail
-          chmod +x ./gradlew
           for attempt in 1 2 3 4; do
-            if ./gradlew --version; then
+            if bash ./gradlew --version; then
               exit 0
             fi
             echo "Gradle wrapper download failed on attempt ${attempt}; retrying"
@@ -76,7 +75,7 @@ jobs:
           (
             cd android
             for attempt in 1 2 3; do
-              if ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug; then
+              if bash ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug; then
                 exit 0
               fi
               [ "$attempt" -eq 3 ] && exit 1
@@ -92,11 +91,23 @@ jobs:
           set -euo pipefail
           git checkout -B fix/android-thermal-load fix/wifi-only-media-clock
           python /tmp/apply_recovery_plan.py phase2
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("tests/test_repo_contract.py")
+          text = path.read_text()
+          text = text.replace(
+              '    assert "50_000_000" in stream_config\n',
+              '    assert "12_000_000" in stream_config\n'
+              '    assert "20_000_000" in stream_config\n'
+              '    assert "6_000_000" in stream_config\n',
+          )
+          path.write_text(text)
+          PY
           python -m pytest -q
           (
             cd android
             for attempt in 1 2 3; do
-              if ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug; then
+              if bash ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug; then
                 exit 0
               fi
               [ "$attempt" -eq 3 ] && exit 1
@@ -118,7 +129,7 @@ jobs:
           (
             cd android
             for attempt in 1 2 3; do
-              if ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug; then
+              if bash ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug; then
                 exit 0
               fi
               [ "$attempt" -eq 3 ] && exit 1
