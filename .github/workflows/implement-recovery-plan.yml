@@ -1,0 +1,96 @@
+name: Implement OpenStream recovery plan
+
+on:
+  push:
+    branches:
+      - automation/openstream-recovery-implementation
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+          cache-dependency-path: android/**/*.gradle*
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Prepare implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip pytest
+          base64 -d tools/apply_recovery_plan.py.gz.b64 | gzip -d > /tmp/apply_recovery_plan.py
+          python -m py_compile /tmp/apply_recovery_plan.py
+          git fetch origin refs/pull/29/head:pr29
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Phase 1 - Wi-Fi media clock
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -B fix/wifi-only-media-clock origin/main
+          python /tmp/apply_recovery_plan.py phase1
+          python -m pytest -q
+          g++ -std=c++20 tests/media_clock_test.cpp -Iobs-plugin/src -o /tmp/openstream-media-clock-test
+          /tmp/openstream-media-clock-test
+          (
+            cd android
+            chmod +x ./gradlew
+            ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --stacktrace
+          )
+          git add -A
+          git commit -m "Fix Wi-Fi media timing and recovery safety"
+          git push --force origin HEAD:fix/wifi-only-media-clock
+
+      - name: Phase 2 - Android thermal load
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -B fix/android-thermal-load fix/wifi-only-media-clock
+          python /tmp/apply_recovery_plan.py phase2
+          python -m pytest -q
+          (
+            cd android
+            ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --stacktrace
+          )
+          git add -A
+          git commit -m "Reduce Android thermal and encoder load"
+          git push --force origin HEAD:fix/android-thermal-load
+
+      - name: Phase 3 - Live backpressure and reconnect
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -B fix/live-backpressure-reconnect fix/android-thermal-load
+          python /tmp/apply_recovery_plan.py phase3
+          python -m pytest -q
+          g++ -std=c++20 tests/media_clock_test.cpp -Iobs-plugin/src -o /tmp/openstream-media-clock-test
+          /tmp/openstream-media-clock-test
+          (
+            cd android
+            ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --stacktrace
+          )
+          git add -A
+          git commit -m "Bound live backpressure and reconnect delay"
+          git push --force origin HEAD:fix/live-backpressure-reconnect
