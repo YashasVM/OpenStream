@@ -33,7 +33,9 @@ def test_android_project_declares_camera_media_codec_srt_discovery_boundaries() 
     assert "MediaCodecAudioEncoder" in app
     stream_config = read("android/app/src/main/java/dev/openstream/app/stream/StreamConfig.kt")
     assert "PreferHevc" in stream_config
-    assert "50_000_000" in stream_config
+    assert "12_000_000" in stream_config
+    assert "20_000_000" in stream_config
+    assert "6_000_000" in stream_config
     assert "OPENSTREAM_PHONE/1" in discovery
     assert "DISCOVERY_PORT = 51515" in discovery
     assert "dev.openstream.phone" in discovery
@@ -354,3 +356,33 @@ def test_recovery_branch_remains_wifi_only() -> None:
     assert "openstream_usb_source" not in source
     assert "USB tethered connection" not in source
     assert "settingsTransportUsb" not in settings
+
+def test_android_profiles_are_fixed_and_balanced_is_default() -> None:
+    config = read("android/app/src/main/java/dev/openstream/app/stream/StreamConfig.kt")
+    main = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+
+    assert 'Balanced("balanced", "Balanced — 1080p30", 1920, 1080, 30, 12_000_000, 16_000_000)' in config
+    assert 'Smooth("smooth", "Smooth — 1080p60", 1920, 1080, 60, 20_000_000, 28_000_000)' in config
+    assert 'Cool("cool", "Cool — 720p30", 1280, 720, 30, 6_000_000, 8_000_000)' in config
+    assert "private var streamProfile = StreamProfile.Balanced" in main
+
+
+def test_android_requires_explicit_software_encoder_choice() -> None:
+    encoder = read("android/app/src/main/java/dev/openstream/app/encoder/MediaCodecVideoEncoder.kt")
+    settings = read("android/app/src/main/java/dev/openstream/app/SettingsActivity.kt")
+
+    assert "MediaCodec.createByCodecName" in encoder
+    assert "info.isSoftwareOnly" in encoder
+    assert "SoftwareEncoderOnlyException" in encoder
+    assert "KEY_ALLOW_SOFTWARE_ENCODER" in settings
+
+
+def test_display_off_removes_preview_target_and_tracks_thermal_state() -> None:
+    camera = read("android/app/src/main/java/dev/openstream/app/camera/Camera2Controller.kt")
+    main = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+
+    assert "fun setPreviewEnabled" in camera
+    assert "encoded == null || previewEnabled" in camera
+    assert "camera.setPreviewEnabled(false)" in main
+    assert "OnThermalStatusChangedListener" in main
+    assert '"WARM"' in main and '"HOT"' in main

@@ -34,6 +34,7 @@ class Camera2Controller(
     private var camera: CameraDevice? = null
     private var session: CameraCaptureSession? = null
     private var streamingSurface: Surface? = null
+    private var previewEnabled = true
     private var activeCameraId: String? = null
     private var activeLens: CameraLens? = null
 
@@ -172,6 +173,12 @@ class Camera2Controller(
         }
     }
 
+    fun setPreviewEnabled(enabled: Boolean) {
+        if (previewEnabled == enabled) return
+        previewEnabled = enabled
+        if (camera != null) createSession()
+    }
+
     fun stop() {
         closeCamera()
         streamingSurface = null
@@ -250,7 +257,11 @@ class Camera2Controller(
         val device = camera ?: return
         val preview = previewSurfaceProvider()
         val encoded = streamingSurface
-        val surfaces = if (encoded != null) listOf(preview, encoded) else listOf(preview)
+        val includePreview = encoded == null || previewEnabled
+        val surfaces = buildList {
+            if (includePreview) add(preview)
+            if (encoded != null) add(encoded)
+        }
         session?.close()
         @Suppress("DEPRECATION")
         device.createCaptureSession(
@@ -264,10 +275,8 @@ class Camera2Controller(
                         CameraDevice.TEMPLATE_PREVIEW
                     }
                     val request = device.createCaptureRequest(template).apply {
-                        addTarget(preview)
-                        if (encoded != null) {
-                            addTarget(encoded)
-                        }
+                        if (includePreview) addTarget(preview)
+                        if (encoded != null) addTarget(encoded)
                         set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
                         set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
                         set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
@@ -317,11 +326,12 @@ class Camera2Controller(
         val currentSession = session ?: return
         val preview = previewSurfaceProvider()
         val encoded = streamingSurface
+        val includePreview = encoded == null || previewEnabled
         val template = if (encoded != null) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
 
         runCatching {
             val request = device.createCaptureRequest(template).apply {
-                addTarget(preview)
+                if (includePreview) addTarget(preview)
                 if (encoded != null) addTarget(encoded)
                 set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
                 set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)

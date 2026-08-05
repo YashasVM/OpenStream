@@ -5,10 +5,13 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowInsets
+import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.RadioButton
 import android.widget.TextView
 import android.widget.Toast
 import dev.openstream.app.stream.ConnectionTarget
+import dev.openstream.app.stream.StreamProfile
 
 class SettingsActivity : Activity() {
 
@@ -16,6 +19,10 @@ class SettingsActivity : Activity() {
     private lateinit var inputObsPort: EditText
     private lateinit var inputLatency: EditText
     private lateinit var inputListeningPort: EditText
+    private lateinit var profileBalanced: RadioButton
+    private lateinit var profileSmooth: RadioButton
+    private lateinit var profileCool: RadioButton
+    private lateinit var allowSoftwareEncoder: CheckBox
     private lateinit var btnSave: TextView
     private lateinit var btnSaveAndConnect: TextView
     private lateinit var btnBack: TextView
@@ -29,6 +36,10 @@ class SettingsActivity : Activity() {
         inputObsPort = findViewById(R.id.settingsObsPort)
         inputLatency = findViewById(R.id.settingsLatency)
         inputListeningPort = findViewById(R.id.settingsListeningPort)
+        profileBalanced = findViewById(R.id.settingsProfileBalanced)
+        profileSmooth = findViewById(R.id.settingsProfileSmooth)
+        profileCool = findViewById(R.id.settingsProfileCool)
+        allowSoftwareEncoder = findViewById(R.id.settingsAllowSoftwareEncoder)
         btnSave = findViewById(R.id.btnSaveSettings)
         btnSaveAndConnect = findViewById(R.id.btnSaveAndConnect)
         btnBack = findViewById(R.id.btnBackSettings)
@@ -51,6 +62,12 @@ class SettingsActivity : Activity() {
         if (latency != ConnectionTarget.DEFAULT_LATENCY_MS) inputLatency.setText(latency.toString())
         val listenPort = prefs.getInt(KEY_LISTENING_PORT, ConnectionTarget.DEFAULT_PORT)
         inputListeningPort.setText(listenPort.toString())
+        when (StreamProfile.fromPreference(prefs.getString(KEY_STREAM_PROFILE, null))) {
+            StreamProfile.Balanced -> profileBalanced.isChecked = true
+            StreamProfile.Smooth -> profileSmooth.isChecked = true
+            StreamProfile.Cool -> profileCool.isChecked = true
+        }
+        allowSoftwareEncoder.isChecked = prefs.getBoolean(KEY_ALLOW_SOFTWARE_ENCODER, false)
     }
 
     private fun saveSettings(connectAfterSave: Boolean) {
@@ -80,11 +97,19 @@ class SettingsActivity : Activity() {
             label = "Listening port",
         ) ?: return
 
+        val profile = when {
+            profileSmooth.isChecked -> StreamProfile.Smooth
+            profileCool.isChecked -> StreamProfile.Cool
+            else -> StreamProfile.Balanced
+        }
+
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
             .putString(KEY_OBS_HOST, host)
             .putInt(KEY_OBS_PORT, port)
             .putInt(KEY_LATENCY, latency)
             .putInt(KEY_LISTENING_PORT, listenPort)
+            .putString(KEY_STREAM_PROFILE, profile.preferenceValue)
+            .putBoolean(KEY_ALLOW_SOFTWARE_ENCODER, allowSoftwareEncoder.isChecked)
             .apply()
 
         Toast.makeText(this, "Settings saved", Toast.LENGTH_SHORT).show()
@@ -138,6 +163,8 @@ class SettingsActivity : Activity() {
         const val KEY_OBS_PORT = "obs_port"
         const val KEY_LATENCY = "latency_ms"
         const val KEY_LISTENING_PORT = "listening_port"
+        const val KEY_STREAM_PROFILE = "stream_profile"
+        const val KEY_ALLOW_SOFTWARE_ENCODER = "allow_software_encoder"
         const val EXTRA_CONNECT_AFTER_SAVE = "connect_after_save"
     }
 }

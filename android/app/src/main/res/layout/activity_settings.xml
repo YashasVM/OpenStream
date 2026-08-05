@@ -23,6 +23,50 @@
             android:layout_marginBottom="40dp" />
 
         <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_stream_profile"
+            android:textColor="@color/os_text_secondary"
+            android:textSize="14sp"
+            android:layout_marginBottom="8dp" />
+
+        <RadioGroup
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="12dp">
+
+            <RadioButton
+                android:id="@+id/settingsProfileBalanced"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/profile_balanced"
+                android:textColor="@color/os_text_primary" />
+
+            <RadioButton
+                android:id="@+id/settingsProfileSmooth"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/profile_smooth"
+                android:textColor="@color/os_text_primary" />
+
+            <RadioButton
+                android:id="@+id/settingsProfileCool"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/profile_cool"
+                android:textColor="@color/os_text_primary" />
+        </RadioGroup>
+
+        <CheckBox
+            android:id="@+id/settingsAllowSoftwareEncoder"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_allow_software_encoder"
+            android:textColor="@color/os_warning"
+            android:layout_marginBottom="24dp" />
+
+        <TextView
             android:id="@+id/labelSettingsObsHost"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

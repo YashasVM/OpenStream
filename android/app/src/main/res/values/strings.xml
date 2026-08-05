@@ -45,6 +45,11 @@
 
     <!-- Settings labels -->
     <string name="settings_title">Settings</string>
+    <string name="settings_stream_profile">STREAM PROFILE</string>
+    <string name="profile_balanced">Balanced — 1080p30 · HEVC 12 Mbps / AVC 16 Mbps</string>
+    <string name="profile_smooth">Smooth — 1080p60 · HEVC 20 Mbps / AVC 28 Mbps</string>
+    <string name="profile_cool">Cool — 720p30 · HEVC 6 Mbps / AVC 8 Mbps</string>
+    <string name="settings_allow_software_encoder">Allow software encoder fallback (may run hot)</string>
     <string name="settings_obs_host">OBS HOST</string>
     <string name="settings_obs_port">OBS PORT</string>
     <string name="settings_latency">LATENCY (ms)</string>

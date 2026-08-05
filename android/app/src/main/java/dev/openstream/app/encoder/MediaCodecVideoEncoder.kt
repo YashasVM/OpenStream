@@ -4,6 +4,7 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaFormat
+import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
@@ -16,11 +17,9 @@ enum class CodecPreference {
     ForceAvc,
 }
 
-fun CodecPreference.advertisedMimeType(): String {
-    return when (this) {
-        CodecPreference.PreferHevc -> MediaFormat.MIMETYPE_VIDEO_HEVC
-        CodecPreference.ForceAvc -> MediaFormat.MIMETYPE_VIDEO_AVC
-    }
+fun CodecPreference.advertisedMimeType(): String = when (this) {
+    CodecPreference.PreferHevc -> MediaFormat.MIMETYPE_VIDEO_HEVC
+    CodecPreference.ForceAvc -> MediaFormat.MIMETYPE_VIDEO_AVC
 }
 
 data class EncodedAccessUnit(
@@ -29,50 +28,69 @@ data class EncodedAccessUnit(
     val flags: Int,
 )
 
+class SoftwareEncoderOnlyException(message: String) : IllegalStateException(message)
+
 class MediaCodecVideoEncoder(
     private val preference: CodecPreference,
     private val width: Int,
     private val height: Int,
     private val fps: Int,
-    private val bitrate: Int,
+    private val hevcBitrate: Int,
+    private val avcBitrate: Int,
     private val keyframeIntervalSeconds: Int,
+    private val allowSoftwareEncoder: Boolean,
     private val onEncodedAccessUnit: (EncodedAccessUnit) -> Unit,
 ) {
-    private var mimeType = chooseMimeType(preference)
+    private data class Selection(
+        val codecInfo: MediaCodecInfo,
+        val mimeType: String,
+        val softwareOnly: Boolean,
+    )
+
+    private var selection = selectEncoder(preference, allowSoftwareEncoder)
     private var codec: MediaCodec? = null
     private val thread = HandlerThread("OpenStreamEncoder")
     private lateinit var handler: Handler
     private var surface: Surface? = null
 
     val codecName: String
-        get() = mimeType
+        get() = selection.codecInfo.name
+
+    val mimeType: String
+        get() = selection.mimeType
+
+    val configuredBitrate: Int
+        get() = if (mimeType == MediaFormat.MIMETYPE_VIDEO_AVC) avcBitrate else hevcBitrate
+
+    val isSoftwareEncoder: Boolean
+        get() = selection.softwareOnly
 
     fun inputSurface(): Surface = checkNotNull(surface) { "Encoder input surface is not ready" }
 
     fun start() {
-        // If already running, stop first to allow clean restart
-        if (codec != null) {
-            stop()
-        }
-        mimeType = chooseMimeType(preference)
-        val encoder = MediaCodec.createEncoderByType(mimeType)
+        if (codec != null) stop()
+        selection = selectEncoder(preference, allowSoftwareEncoder)
+        val encoder = MediaCodec.createByCodecName(selection.codecInfo.name)
         codec = encoder
-        val format = MediaFormat.createVideoFormat(mimeType, width, height).apply {
+        val format = MediaFormat.createVideoFormat(selection.mimeType, width, height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-            setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
+            setInteger(MediaFormat.KEY_BIT_RATE, configuredBitrate)
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, keyframeIntervalSeconds)
             setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 setInteger(MediaFormat.KEY_LATENCY, 0)
             }
         }
+        Log.i(
+            TAG,
+            "Selected codec=${selection.codecInfo.name} mime=${selection.mimeType} " +
+                "hardware=${!selection.softwareOnly} bitrate=$configuredBitrate",
+        )
         encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         surface = encoder.createInputSurface()
 
-        if (!thread.isAlive) {
-            thread.start()
-        }
+        if (!thread.isAlive) thread.start()
         handler = Handler(thread.looper)
         encoder.setCallback(object : MediaCodec.Callback() {
             override fun onInputBufferAvailable(codec: MediaCodec, index: Int) = Unit
@@ -91,27 +109,19 @@ class MediaCodecVideoEncoder(
                 buffer.limit(info.offset + info.size)
                 buffer.get(bytes)
                 onEncodedAccessUnit(
-                    EncodedAccessUnit(
-                        data = bytes,
-                        presentationTimeUs = info.presentationTimeUs,
-                        flags = info.flags,
-                    )
+                    EncodedAccessUnit(bytes, info.presentationTimeUs, info.flags),
                 )
                 codec.releaseOutputBuffer(index, false)
             }
 
             override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
-                Log.e("OpenStreamEncoder", "MediaCodec encoder error", e)
+                Log.e(TAG, "MediaCodec encoder error", e)
             }
 
             override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
                 codecConfigFrom(format)?.let { config ->
                     onEncodedAccessUnit(
-                        EncodedAccessUnit(
-                            data = config,
-                            presentationTimeUs = 0,
-                            flags = MediaCodec.BUFFER_FLAG_CODEC_CONFIG,
-                        ),
+                        EncodedAccessUnit(config, 0, MediaCodec.BUFFER_FLAG_CODEC_CONFIG),
                     )
                 }
             }
@@ -127,14 +137,42 @@ class MediaCodecVideoEncoder(
         runCatching { encoder.release() }
     }
 
-    private fun chooseMimeType(preference: CodecPreference): String {
-        if (preference == CodecPreference.ForceAvc) {
-            return MediaFormat.MIMETYPE_VIDEO_AVC
+    private fun selectEncoder(preference: CodecPreference, allowSoftware: Boolean): Selection {
+        val mimeOrder = when (preference) {
+            CodecPreference.PreferHevc -> listOf(MediaFormat.MIMETYPE_VIDEO_HEVC, MediaFormat.MIMETYPE_VIDEO_AVC)
+            CodecPreference.ForceAvc -> listOf(MediaFormat.MIMETYPE_VIDEO_AVC)
         }
-        val hasHevc = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.any { info ->
-            info.isEncoder && info.supportedTypes.any { it.equals(MediaFormat.MIMETYPE_VIDEO_HEVC, true) }
+        val infos = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter { it.isEncoder }
+        for (mime in mimeOrder) {
+            val compatible = infos.filter { info ->
+                info.supportedTypes.any { it.equals(mime, ignoreCase = true) } &&
+                    runCatching {
+                        info.getCapabilitiesForType(mime).colorFormats.contains(
+                            MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface,
+                        )
+                    }.getOrDefault(false)
+            }
+            compatible.firstOrNull { !isSoftwareOnly(it) }?.let {
+                return Selection(it, mime, softwareOnly = false)
+            }
         }
-        return if (hasHevc) MediaFormat.MIMETYPE_VIDEO_HEVC else MediaFormat.MIMETYPE_VIDEO_AVC
+        if (allowSoftware) {
+            for (mime in mimeOrder) {
+                infos.firstOrNull { info ->
+                    info.supportedTypes.any { it.equals(mime, ignoreCase = true) }
+                }?.let { return Selection(it, mime, softwareOnly = true) }
+            }
+        }
+        throw SoftwareEncoderOnlyException(
+            "No hardware HEVC/AVC encoder is available. Enable software fallback explicitly to continue.",
+        )
+    }
+
+    private fun isSoftwareOnly(info: MediaCodecInfo): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return info.isSoftwareOnly
+        val name = info.name.lowercase()
+        return name.startsWith("omx.google.") || name.startsWith("c2.android.") ||
+            name.contains("software") || name.contains("sw.")
     }
 
     private fun codecConfigFrom(format: MediaFormat): ByteArray? {
@@ -150,5 +188,9 @@ class MediaCodecVideoEncoder(
             output.write(bytes)
         }
         return output.toByteArray().takeIf { it.isNotEmpty() }
+    }
+
+    companion object {
+        private const val TAG = "OpenStreamEncoder"
     }
 }

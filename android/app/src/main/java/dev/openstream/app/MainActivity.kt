@@ -12,6 +12,8 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
@@ -35,6 +37,7 @@ import dev.openstream.app.encoder.MediaCodecAudioEncoder
 import dev.openstream.app.encoder.MediaCodecVideoEncoder
 import dev.openstream.app.stream.ConnectionTarget
 import dev.openstream.app.stream.StreamConfig
+import dev.openstream.app.stream.StreamProfile
 import dev.openstream.app.stream.SrtStreamClient
 import dev.openstream.app.telemetry.TelemetrySampler
 
@@ -71,7 +74,9 @@ class MainActivity : Activity() {
     private lateinit var obsDiscoveryClient: ObsDiscoveryClient
     private lateinit var controlServer: CameraControlServer
 
-    private val streamConfig = StreamConfig.Default1080p60
+    private var streamProfile = StreamProfile.Balanced
+    private var streamConfig = StreamConfig.Default
+    private var allowSoftwareEncoder = false
     private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile private var activeTargetName: String? = null
     @Volatile private var phoneServerRunning = false
@@ -97,6 +102,13 @@ class MainActivity : Activity() {
     private var pendingConnectAfterSettings = false
     private var currentDevices: List<DiscoveredObsDevice> = emptyList()
     private var activeStreamBitrate: Int = streamConfig.bitrate
+    private lateinit var powerManager: PowerManager
+    private var thermalStatus = PowerManager.THERMAL_STATUS_NONE
+    private var thermalStateStartedMs = 0L
+    private val thermalDurationsMs = mutableMapOf<Int, Long>()
+    private val thermalListener = PowerManager.OnThermalStatusChangedListener { status ->
+        onThermalStatusChanged(status)
+    }
 
     private val statsTicker = object : Runnable {
         override fun run() {
@@ -115,6 +127,10 @@ class MainActivity : Activity() {
         setContentView(R.layout.activity_main)
         bindViews()
         setupGestureDetector()
+        loadStreamSettings()
+        powerManager = getSystemService(PowerManager::class.java)
+        thermalStatus = powerManager.currentThermalStatus
+        thermalStateStartedMs = SystemClock.elapsedRealtime()
 
         currentPort = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
             .getInt(SettingsActivity.KEY_LISTENING_PORT, ConnectionTarget.DEFAULT_PORT)
@@ -205,15 +221,25 @@ class MainActivity : Activity() {
         phoneAdvertiser.start()
         obsDiscoveryClient.start()
         controlServer.start()
+        powerManager.addThermalStatusListener(mainExecutor, thermalListener)
         startPreviewIfAllowed()
         startPhoneServerIfAllowed()
     }
 
     override fun onResume() {
         super.onResume()
-        // Reload listening port from settings if it changed
         val settingsPrefs = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
         val savedPort = settingsPrefs.getInt(SettingsActivity.KEY_LISTENING_PORT, currentPort)
+        val savedProfile = StreamProfile.fromPreference(
+            settingsPrefs.getString(SettingsActivity.KEY_STREAM_PROFILE, null),
+        )
+        val savedAllowSoftware = settingsPrefs.getBoolean(
+            SettingsActivity.KEY_ALLOW_SOFTWARE_ENCODER,
+            false,
+        )
+        if (savedProfile != streamProfile || savedAllowSoftware != allowSoftwareEncoder) {
+            applyStreamSettings(savedProfile, savedAllowSoftware)
+        }
         if (savedPort != currentPort && savedPort in 1024..65535) {
             changePort(savedPort)
         }
@@ -231,6 +257,8 @@ class MainActivity : Activity() {
         obsDiscoveryClient.stop()
         phoneAdvertiser.stop()
         controlServer.stop()
+        runCatching { powerManager.removeThermalStatusListener(thermalListener) }
+        recordThermalDuration(SystemClock.elapsedRealtime())
         stopLiveDotAnimation()
         super.onStop()
     }
@@ -327,8 +355,10 @@ class MainActivity : Activity() {
             width = streamConfig.width,
             height = streamConfig.height,
             fps = streamConfig.fps,
-            bitrate = bitrate,
+            hevcBitrate = bitrate,
+            avcBitrate = if (bitrate == streamConfig.hevcBitrate) streamConfig.avcBitrate else bitrate,
             keyframeIntervalSeconds = streamConfig.keyframeIntervalSeconds,
+            allowSoftwareEncoder = allowSoftwareEncoder,
             onEncodedAccessUnit = { accessUnit ->
                 val sent = streamClient.sendVideoAccessUnit(accessUnit)
                 if (!sent) {
@@ -619,7 +649,7 @@ class MainActivity : Activity() {
         runCatching {
             streamClient.connect(
                 url = target.toSrtCallerUrl(),
-                codecMime = encoder.codecName,
+                codecMime = encoder.mimeType,
                 width = streamConfig.width,
                 height = streamConfig.height,
                 fps = streamConfig.fps,
@@ -678,7 +708,7 @@ class MainActivity : Activity() {
                     val listenResult = runCatching {
                         streamClient.listen(
                             url = listenUrl,
-                            codecMime = encoder.codecName,
+                            codecMime = encoder.mimeType,
                             width = streamConfig.width,
                             height = streamConfig.height,
                             fps = streamConfig.fps,
@@ -873,7 +903,8 @@ class MainActivity : Activity() {
         startLiveDotAnimation()
         statusText.text = getString(R.string.status_streaming, targetName)
         statusText.setTextColor(getColor(R.color.os_text_primary))
-        statusDetail.text = "${streamConfig.width}×${streamConfig.height}@${streamConfig.fps} · ${activeStreamBitrate / 1_000_000} Mbps"
+        statusDetail.text = "${streamConfig.width}×${streamConfig.height}@${streamConfig.fps} · " +
+            "${encoder.configuredBitrate / 1_000_000} Mbps · ${encoder.codecName}"
     }
 
     private fun hideLiveState() {
@@ -902,8 +933,12 @@ class MainActivity : Activity() {
         val stats = streamClient.stats
         val megabits = stats.bytesSent * 8.0 / 1_000_000.0
 
+        val thermalWarning = thermalWarningLabel()
         if (forceFailure || stats.sendFailures > 0) {
             statusText.text = "Send issue"
+            statusText.setTextColor(getColor(R.color.os_warning))
+        } else if (thermalWarning != null) {
+            statusText.text = "$thermalWarning · ${getString(R.string.status_streaming, targetName)}"
             statusText.setTextColor(getColor(R.color.os_warning))
         } else if (stats.accessUnitsSent == 0L) {
             statusText.text = "Waiting for frames…"
@@ -971,7 +1006,8 @@ class MainActivity : Activity() {
             val params = window.attributes
             params.screenBrightness = 0.001f // minimum possible brightness
             window.attributes = params
-            // Show black overlay to hide all UI (saves power on OLED)
+            // Remove the preview target while live; the encoder surface remains active.
+            camera.setPreviewEnabled(false)
             screenOffOverlay.visibility = View.VISIBLE
             // Ensure screen stays on even when dimmed
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -983,6 +1019,7 @@ class MainActivity : Activity() {
             val params = window.attributes
             params.screenBrightness = if (originalBrightness >= 0) originalBrightness else -1f
             window.attributes = params
+            camera.setPreviewEnabled(true)
             screenOffOverlay.visibility = View.GONE
             // Restore keep-screen-on to user's toggle state
             if (!keepScreenOn) {
@@ -992,6 +1029,64 @@ class MainActivity : Activity() {
             btnScreenOff.setBackgroundResource(R.drawable.bg_btn_ghost)
             btnScreenOff.setTextColor(getColor(R.color.os_text_secondary))
         }
+    }
+
+    private fun loadStreamSettings() {
+        val prefs = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
+        streamProfile = StreamProfile.fromPreference(
+            prefs.getString(SettingsActivity.KEY_STREAM_PROFILE, null),
+        )
+        allowSoftwareEncoder = prefs.getBoolean(SettingsActivity.KEY_ALLOW_SOFTWARE_ENCODER, false)
+        streamConfig = streamProfile.toConfig()
+        activeStreamBitrate = streamConfig.bitrate
+    }
+
+    private fun applyStreamSettings(profile: StreamProfile, allowSoftware: Boolean) {
+        val shouldRestart = phoneServerRunning || activeTargetName != null
+        stopPhoneServer(clearReservation = false, updateStatus = false)
+        phoneAdvertiser.stop()
+        encoder.stop()
+        streamProfile = profile
+        allowSoftwareEncoder = allowSoftware
+        streamConfig = profile.toConfig()
+        activeStreamBitrate = streamConfig.bitrate
+        encoder = createVideoEncoder(activeStreamBitrate)
+        phoneAdvertiser = PhoneDiscoveryAdvertiser(
+            context = this,
+            config = streamConfig,
+            port = currentPort,
+            busyProvider = { phoneConnected || reservedBy != null },
+            reservedByProvider = { reservedBy },
+        )
+        if (activityStarted) phoneAdvertiser.start()
+        adjustPreviewAspectRatio(cameraPreview.width, cameraPreview.height)
+        if (shouldRestart) startPhoneServerIfAllowed()
+    }
+
+    private fun onThermalStatusChanged(status: Int) {
+        val now = SystemClock.elapsedRealtime()
+        recordThermalDuration(now)
+        thermalStatus = status
+        thermalStateStartedMs = now
+        Log.i("OpenStreamThermal", "Thermal state changed to $status")
+        if (activeTargetName != null) renderStreamStats()
+    }
+
+    private fun recordThermalDuration(nowMs: Long) {
+        if (thermalStateStartedMs <= 0L) return
+        val elapsed = (nowMs - thermalStateStartedMs).coerceAtLeast(0L)
+        thermalDurationsMs[thermalStatus] = thermalDurationsMs.getOrDefault(thermalStatus, 0L) + elapsed
+        Log.i(
+            "OpenStreamThermal",
+            "Thermal state=$thermalStatus durationMs=${thermalDurationsMs[thermalStatus]}",
+        )
+        thermalStateStartedMs = nowMs
+    }
+
+    private fun thermalWarningLabel(): String? = when {
+        thermalStatus >= PowerManager.THERMAL_STATUS_SEVERE -> "HOT"
+        thermalStatus >= PowerManager.THERMAL_STATUS_MODERATE -> "WARM"
+        else -> null
     }
 
     // ─────────────────────────── Port selector ───────────────────────────
