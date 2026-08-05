@@ -17,6 +17,7 @@
 #include <obs-module.h>
 
 #include "async-control-client.hpp"
+#include "media-clock.hpp"
 #include "openstream-control-api.hpp"
 #include <util/platform.h>
 
@@ -27,6 +28,7 @@
 #include <inttypes.h>
 #include <cstdlib>
 #include <cstring>
+#include <cwctype>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -90,6 +92,42 @@ using SwsContextPtr = std::unique_ptr<SwsContext, SwsContextDeleter>;
 
 constexpr int kDiscoveryPort = 51515;
 constexpr int kDefaultListenerPort = 9000;
+constexpr int kUsbLatencyMs = 30;
+
+std::optional<std::string> usb_tether_gateway() {
+#ifdef _WIN32
+  ULONG size = 16 * 1024;
+  std::vector<uint8_t> buffer(size);
+  auto *addresses = reinterpret_cast<IP_ADAPTER_ADDRESSES *>(buffer.data());
+  ULONG result = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, nullptr, addresses, &size);
+  if (result == ERROR_BUFFER_OVERFLOW) {
+    buffer.resize(size);
+    addresses = reinterpret_cast<IP_ADAPTER_ADDRESSES *>(buffer.data());
+    result = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, nullptr, addresses, &size);
+  }
+  if (result != NO_ERROR) return std::nullopt;
+
+  for (auto *adapter = addresses; adapter; adapter = adapter->Next) {
+    std::wstring label = adapter->FriendlyName ? adapter->FriendlyName : L"";
+    if (adapter->Description) label += adapter->Description;
+    std::transform(label.begin(), label.end(), label.begin(), [](wchar_t c) {
+      return static_cast<wchar_t>(std::towlower(c));
+    });
+    if (label.find(L"usb") == std::wstring::npos &&
+        label.find(L"ndis") == std::wstring::npos &&
+        label.find(L"mobile") == std::wstring::npos) {
+      continue;
+    }
+    for (auto *gateway = adapter->FirstGatewayAddress; gateway; gateway = gateway->Next) {
+      if (!gateway->Address.lpSockaddr || gateway->Address.lpSockaddr->sa_family != AF_INET) continue;
+      const auto *ipv4 = reinterpret_cast<const sockaddr_in *>(gateway->Address.lpSockaddr);
+      char host[INET_ADDRSTRLEN] = {};
+      if (inet_ntop(AF_INET, &ipv4->sin_addr, host, sizeof(host))) return std::string(host);
+    }
+  }
+#endif
+  return std::nullopt;
+}
 constexpr auto kReconnectReservationWindow = std::chrono::seconds(45);
 constexpr const char *kOpenStreamSourceName = "OpenStream V8";
 constexpr const char *kDiscoveryMulticastAddress = "239.255.42.99";
@@ -769,6 +807,8 @@ struct OpenStreamSource {
   int listener_port = 0;
   int latency_ms = 120;
   int bitrate_mbps = 50;
+  bool usb_mode = false;
+  std::string usb_host;
   bool listener_enabled = true;
   std::atomic<bool> listener_running = false;
   std::atomic<bool> phone_connected = false;
@@ -782,6 +822,8 @@ struct OpenStreamSource {
   int active_listener_port = 0;
   int active_latency_ms = 0;
   int active_bitrate_mbps = 0;
+  bool active_usb_mode = false;
+  std::string active_usb_host;
   std::string active_device_name;
   std::string active_slot_id;
   std::string active_slot_label;
@@ -805,12 +847,11 @@ bool queue_control_command(OpenStreamSource *ctx, const std::string &path,
   const auto client = ctx->camera_controls;
   const std::string host = phone->host;
   const int port = phone->control_port;
-  client->post([host, port, path, body] {
+  return client->post([host, port, path, body] {
     if (!send_control_command(host, port, path, body)) {
       blog(LOG_WARNING, "[OpenStream] Camera command %s failed", path.c_str());
     }
   });
-  return true;
 }
 
 void set_slot_status(OpenStreamSource *ctx, std::string status) {
@@ -1161,6 +1202,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
                           AVStream *stream,
                           AVCodecContext *decoder_ctx,
                           AVFrame *decoded_frame,
+                          uint64_t timestamp_ns,
                           SwsContextPtr *sws_ctx,
                           std::vector<uint8_t> *bgra_buffer) {
   if (decoded_frame->width <= 0 || decoded_frame->height <= 0) {
@@ -1182,7 +1224,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
     yuv_frame.format = can_output_i420 ? VIDEO_FORMAT_I420 : VIDEO_FORMAT_NV12;
     yuv_frame.width = static_cast<uint32_t>(width);
     yuv_frame.height = static_cast<uint32_t>(height);
-    yuv_frame.timestamp = os_gettime_ns();
+    yuv_frame.timestamp = timestamp_ns;
     yuv_frame.range = obs_range_for_frame(decoded_frame, source_format);
     yuv_frame.trc = static_cast<uint8_t>(obs_trc_for_frame(decoded_frame));
     yuv_frame.flip = false;
@@ -1267,7 +1309,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
   obs_frame.format = VIDEO_FORMAT_BGRA;
   obs_frame.width = static_cast<uint32_t>(width);
   obs_frame.height = static_cast<uint32_t>(height);
-  obs_frame.timestamp = os_gettime_ns();
+  obs_frame.timestamp = timestamp_ns;
   obs_frame.data[0] = bgra_buffer->data();
   obs_frame.linesize[0] = static_cast<uint32_t>(linesize);
   obs_frame.flip = false;
@@ -1342,7 +1384,19 @@ void decode_packets(OpenStreamSource *ctx,
   SwsContextPtr sws_ctx(nullptr);
   std::vector<uint8_t> bgra_buffer;
   AVStream *video_stream = format_ctx->streams[video_stream_index];
+  AVStream *audio_stream =
+      audio_stream_index >= 0 ? format_ctx->streams[audio_stream_index] : nullptr;
+  MediaClock media_clock;
   uint64_t audio_frames_output = 0;
+
+  const auto source_timestamp_ns = [](const AVFrame *decoded,
+                                      const AVStream *stream) -> std::optional<int64_t> {
+    const int64_t timestamp = decoded->best_effort_timestamp != AV_NOPTS_VALUE
+                                  ? decoded->best_effort_timestamp
+                                  : decoded->pts;
+    if (!stream || timestamp == AV_NOPTS_VALUE) return std::nullopt;
+    return av_rescale_q(timestamp, stream->time_base, AVRational{1, 1000000000});
+  };
 
   const auto drain_video = [&]() -> int {
     while (!ctx->stop_requested.load()) {
@@ -1356,8 +1410,19 @@ void decode_packets(OpenStreamSource *ctx,
              av_error(result).c_str());
         return result;
       }
-      output_decoded_frame(
-          ctx, video_stream, video_decoder_ctx, frame.get(), &sws_ctx, &bgra_buffer);
+      const auto source_ns = source_timestamp_ns(frame.get(), video_stream);
+      const auto timestamp_ns = source_ns ? media_clock.map(*source_ns, os_gettime_ns()) : std::nullopt;
+      if (timestamp_ns) {
+        output_decoded_frame(ctx,
+                             video_stream,
+                             video_decoder_ctx,
+                             frame.get(),
+                             *timestamp_ns,
+                             &sws_ctx,
+                             &bgra_buffer);
+      } else {
+        blog(LOG_WARNING, "[OpenStream] Dropping video frame without a usable source timestamp");
+      }
       av_frame_unref(frame.get());
     }
     return AVERROR_EXIT;
@@ -1389,10 +1454,18 @@ void decode_packets(OpenStreamSource *ctx,
         return AVERROR(EINVAL);
       }
 
+      const auto source_ns = source_timestamp_ns(audio_frame.get(), audio_stream);
+      const auto timestamp_ns = source_ns ? media_clock.map(*source_ns, os_gettime_ns()) : std::nullopt;
+      if (!timestamp_ns) {
+        blog(LOG_WARNING, "[OpenStream] Dropping audio frame without a usable source timestamp");
+        av_frame_unref(audio_frame.get());
+        continue;
+      }
+
       struct obs_source_audio obs_audio = {};
       obs_audio.samples_per_sec = sample_rate;
       obs_audio.frames = static_cast<uint32_t>(audio_frame->nb_samples);
-      obs_audio.timestamp = os_gettime_ns();
+      obs_audio.timestamp = *timestamp_ns;
       obs_audio.format = obs_format;
       obs_audio.speakers = speakers;
       for (int i = 0; i < MAX_AV_PLANES && audio_frame->data[i]; i++) {
@@ -1471,13 +1544,52 @@ void decode_packets(OpenStreamSource *ctx,
   }
 }
 
-void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::string selected_phone_id) {
+void openstream_worker(OpenStreamSource *ctx,
+                       std::string base_srt_url,
+                       std::string selected_phone_id,
+                       bool usb_mode,
+                       std::string configured_usb_host,
+                       int phone_port) {
   avformat_network_init();
+
+  if (usb_mode) {
+    in_addr configured_address = {};
+    if (!configured_usb_host.empty() &&
+        inet_pton(AF_INET, configured_usb_host.c_str(), &configured_address) != 1) {
+      set_slot_status(ctx, "Invalid USB phone IP");
+      blog(LOG_ERROR, "[OpenStream] USB phone IP must be an IPv4 address");
+      ctx->listener_running = false;
+      return;
+    }
+    std::optional<std::string> host = configured_usb_host.empty()
+                                          ? usb_tether_gateway()
+                                          : std::optional(configured_usb_host);
+    while (!host && !ctx->stop_requested.load()) {
+      set_slot_status(ctx, "Waiting for USB tether");
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+      host = usb_tether_gateway();
+    }
+    if (!host) {
+      ctx->listener_running = false;
+      return;
+    }
+    PhoneDevice phone;
+    phone.instance_id = "usb:" + *host;
+    phone.name = "USB phone";
+    phone.host = *host;
+    phone.port = phone_port;
+    phone.control_port = 9001;
+    phone.latency_ms = kUsbLatencyMs;
+    set_active_phone(ctx, phone);
+    base_srt_url = "srt://" + *host + ":" + std::to_string(phone_port) +
+                   "?mode=caller&latency=" + std::to_string(kUsbLatencyMs);
+    blog(LOG_INFO, "[OpenStream] Using USB tether at %s", base_srt_url.c_str());
+  }
 
   while (!ctx->stop_requested.load()) {
     std::string srt_url = base_srt_url;
     std::optional<PhoneDevice> reserved_phone;
-    if (srt_url == "openstream:auto") {
+    if (!usb_mode && srt_url == "openstream:auto") {
       std::optional<PhoneDevice> phone;
       set_slot_status(ctx, "Waiting");
       while (!ctx->stop_requested.load()) {
@@ -1504,7 +1616,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
            "[OpenStream] Connecting source to phone %s at %s",
            phone->name.c_str(),
            srt_url.c_str());
-    } else {
+    } else if (!usb_mode) {
       set_active_phone(ctx, std::nullopt);
     }
 
@@ -1540,7 +1652,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
         if (reserved_phone.has_value()) {
           set_slot_status(ctx, "Reconnecting");
           set_active_phone(ctx, reserved_phone);
-        } else {
+        } else if (!usb_mode) {
           set_active_phone(ctx, std::nullopt);
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -1564,7 +1676,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
       if (reserved_phone.has_value()) {
         set_slot_status(ctx, "Reconnecting");
         set_active_phone(ctx, reserved_phone);
-      } else {
+      } else if (!usb_mode) {
         set_active_phone(ctx, std::nullopt);
       }
       if (!ctx->stop_requested.load()) {
@@ -1615,6 +1727,8 @@ void openstream_start_worker(OpenStreamSource *ctx) {
   int listener_port = kDefaultListenerPort;
   int latency_ms = 120;
   int bitrate_mbps = 50;
+  bool usb_mode = false;
+  std::string usb_host;
   std::string source_name;
   std::string instance_id;
   std::string slot_id;
@@ -1627,6 +1741,8 @@ void openstream_start_worker(OpenStreamSource *ctx) {
     listener_port = ctx->listener_port;
     latency_ms = ctx->latency_ms;
     bitrate_mbps = ctx->bitrate_mbps;
+    usb_mode = ctx->usb_mode;
+    usb_host = ctx->usb_host;
     source_name = ctx->device_name.empty() ? kOpenStreamSourceName : ctx->device_name;
     instance_id = ctx->instance_id;
     slot_id = ctx->slot_id;
@@ -1642,6 +1758,8 @@ void openstream_start_worker(OpenStreamSource *ctx) {
       ctx->active_listener_port == listener_port &&
       ctx->active_latency_ms == latency_ms &&
       ctx->active_bitrate_mbps == bitrate_mbps &&
+      ctx->active_usb_mode == usb_mode &&
+      ctx->active_usb_host == usb_host &&
       ctx->active_device_name == source_name &&
       ctx->active_slot_id == slot_id &&
       ctx->active_slot_label == slot_label &&
@@ -1657,6 +1775,8 @@ void openstream_start_worker(OpenStreamSource *ctx) {
   ctx->active_listener_port = listener_port;
   ctx->active_latency_ms = latency_ms;
   ctx->active_bitrate_mbps = bitrate_mbps;
+  ctx->active_usb_mode = usb_mode;
+  ctx->active_usb_host = usb_host;
   ctx->active_device_name = source_name;
   ctx->active_slot_id = slot_id;
   ctx->active_slot_label = slot_label;
@@ -1665,16 +1785,26 @@ void openstream_start_worker(OpenStreamSource *ctx) {
   ctx->stop_requested = false;
   ctx->listener_running = true;
   ctx->phone_connected = false;
-  ctx->discovery.start(listener_port,
-                       latency_ms,
-                       bitrate_mbps,
-                       source_name,
-                       instance_id,
-                       slot_id,
-                       slot_label,
-                       pairing_url,
-                       &ctx->slot_busy);
-  ctx->worker = std::thread(openstream_worker, ctx, srt_url, selected_phone_id);
+  if (usb_mode) {
+    ctx->discovery.stop();
+  } else {
+    ctx->discovery.start(listener_port,
+                         latency_ms,
+                         bitrate_mbps,
+                         source_name,
+                         instance_id,
+                         slot_id,
+                         slot_label,
+                         pairing_url,
+                         &ctx->slot_busy);
+  }
+  ctx->worker = std::thread(openstream_worker,
+                            ctx,
+                            srt_url,
+                            selected_phone_id,
+                            usb_mode,
+                            usb_host,
+                            listener_port);
 }
 
 void openstream_update(void *data, obs_data_t *settings) {
@@ -1692,6 +1822,8 @@ void openstream_update(void *data, obs_data_t *settings) {
     ctx->listener_port = requested_port;
     ctx->latency_ms = static_cast<int>(obs_data_get_int(settings, "latency_ms"));
     ctx->bitrate_mbps = static_cast<int>(obs_data_get_int(settings, "bitrate_mbps"));
+    ctx->usb_mode = obs_data_get_bool(settings, "usb_mode");
+    ctx->usb_host = obs_data_get_string(settings, "usb_host");
     const char *slot_id = obs_data_get_string(settings, "slot_id");
     if (slot_id && slot_id[0] != '\0') {
       ctx->slot_id = slot_id;
@@ -1725,8 +1857,10 @@ void openstream_update(void *data, obs_data_t *settings) {
                                             ctx->slot_id,
                                             ctx->slot_label,
                                             ctx->instance_id);
-    ctx->pairing_hint = "Open OpenStream on your phone, choose " + ctx->slot_label +
-                        ", and keep both devices on the same Wi-Fi. Pairing URL is in Advanced.";
+    ctx->pairing_hint = ctx->usb_mode
+                            ? "Enable USB tethering on the phone, select USB in OpenStream, then start this slot."
+                            : "Open OpenStream on your phone, choose " + ctx->slot_label +
+                                  ", and keep both devices on the same Wi-Fi. Pairing URL is in Advanced.";
     const std::vector<PhoneDevice> phones = ctx->phone_discovery.devices();
     ctx->phone_target_hint = "Waiting for a phone to choose " + ctx->slot_label;
     if (ctx->selected_phone_id == PhoneDiscoveryReceiver::kAutoPhoneId) {
@@ -1816,6 +1950,8 @@ void openstream_defaults(obs_data_t *settings) {
   obs_data_set_default_int(settings, "listener_port", kDefaultListenerPort);
   obs_data_set_default_int(settings, "latency_ms", 120);
   obs_data_set_default_int(settings, "bitrate_mbps", 50);
+  obs_data_set_default_bool(settings, "usb_mode", false);
+  obs_data_set_default_string(settings, "usb_host", "");
   obs_data_set_default_double(settings, "cam_zoom", 1.0);
 }
 
@@ -1950,6 +2086,16 @@ obs_properties_t *openstream_properties(void *data) {
   // ── Camera remote controls ──
   obs_properties_t *advanced_group = obs_properties_create();
   obs_properties_add_bool(advanced_group, "listener_enabled", "Listen for this camera slot");
+  obs_property_t *usb_mode =
+      obs_properties_add_bool(advanced_group, "usb_mode", "USB tethered connection");
+  obs_property_set_long_description(
+      usb_mode,
+      "Uses Android USB tethering for a wired 30 ms SRT profile. No ADB tunnel or second encoder is used.");
+  obs_property_t *usb_host =
+      obs_properties_add_text(advanced_group, "usb_host", "USB phone IP (optional)", OBS_TEXT_DEFAULT);
+  obs_property_set_long_description(
+      usb_host,
+      "Leave blank to detect the USB/RNDIS gateway automatically; set the phone tether IP only if detection fails.");
   obs_properties_add_text(advanced_group, "source_instance_id", "Source instance ID", OBS_TEXT_INFO);
   obs_properties_add_text(advanced_group, "slot_id", "Slot ID", OBS_TEXT_INFO);
   obs_property_t *listener_port =

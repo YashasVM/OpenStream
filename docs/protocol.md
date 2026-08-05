@@ -8,7 +8,7 @@ version numbers and protocol versions are independent: `OPENSTREAM/1` and
 
 OpenStream uses three communication channels between the Android phone and OBS:
 
-1. **Media Stream** - SRT/MPEG-TS for video + audio (phone -> OBS)
+1. **Media Stream** - SRT/MPEG-TS for video + audio (phone -> OBS), over Wi-Fi or USB tethering
 2. **Discovery** - UDP multicast/broadcast beacons (bidirectional)
 3. **Control** - HTTP POST for remote camera commands (OBS -> phone)
 
@@ -32,8 +32,18 @@ OBS listener:
 srt://0.0.0.0:9000?mode=listener&latency=120
 ```
 
-The supported latency range is `80-200 ms`; both pairing links and the OBS
-source clamp values to that range.
+The supported Wi-Fi latency range is `80-200 ms`; pairing links clamp values to
+that range. The explicit USB tether profile uses `30 ms`.
+
+### USB tether transport
+
+USB mode keeps the same codecs, MPEG-TS container, source PTS, and SRT session.
+Android exposes its listener through the operating system's USB tether/RNDIS
+interface; OBS connects to that adapter's IPv4 gateway using a `30 ms` SRT
+latency. This is not ADB forwarding (ADB forwards TCP, while SRT uses UDP).
+Automatic gateway detection is limited to Windows adapters whose name or
+description identifies USB, RNDIS, or mobile tethering; the OBS source accepts
+an explicit IPv4 phone address when a vendor driver uses another label.
 
 ### Container Format
 

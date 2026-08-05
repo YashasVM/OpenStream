@@ -23,6 +23,44 @@
             android:layout_marginBottom="40dp" />
 
         <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_transport"
+            android:textColor="@color/os_text_secondary"
+            android:textSize="14sp"
+            android:layout_marginBottom="8dp" />
+
+        <RadioGroup
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="24dp">
+
+            <RadioButton
+                android:id="@+id/settingsTransportWifi"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_transport_wifi"
+                android:textColor="@color/os_text_primary"
+                android:checked="true" />
+
+            <RadioButton
+                android:id="@+id/settingsTransportUsb"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_transport_usb"
+                android:textColor="@color/os_text_primary" />
+        </RadioGroup>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/settings_transport_usb_help"
+            android:textColor="@color/os_text_tertiary"
+            android:textSize="12sp"
+            android:layout_marginBottom="24dp" />
+
+        <TextView
             android:id="@+id/labelSettingsObsHost"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

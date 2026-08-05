@@ -91,6 +91,34 @@ def test_audio_path_uses_adts_aac_and_obs_planar_formats() -> None:
     assert "obs_source_output_audio" in source
 
 
+def test_obs_preserves_shared_source_timestamps_and_bounds_control_queue() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+    clock = read("obs-plugin/src/media-clock.hpp")
+    control = read("obs-plugin/src/async-control-client.cpp")
+    control_header = read("obs-plugin/src/async-control-client.hpp")
+
+    assert "best_effort_timestamp" in source
+    assert "media_clock.map" in source
+    assert "timestamp = os_gettime_ns()" not in source
+    assert "source_origin_ns_" in clock
+    assert "kQueueCapacity = 16" in control_header
+    assert "commands_.size() >= kQueueCapacity" in control
+
+
+def test_usb_mode_uses_rndis_gateway_and_not_adb_forwarding() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+    native = read("android/app/src/main/cpp/openstream_srt.cpp")
+    transport = read("android/app/src/main/java/dev/openstream/app/stream/TransportMode.kt")
+
+    assert "GAA_FLAG_INCLUDE_GATEWAYS" in source
+    assert 'label.find(L"ndis")' in source
+    assert 'set_slot_status(ctx, "Waiting for USB tether")' in source
+    assert "kUsbLatencyMs = 30" in source
+    assert "kMinSrtLatencyMs = 30" in native
+    assert "USB_LATENCY_MS = 30" in transport
+    assert "adb forward" not in source.lower()
+
+
 def test_obs_plugin_routes_multiple_phones_by_selected_slot() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
     assert "selected_phone_id" in source

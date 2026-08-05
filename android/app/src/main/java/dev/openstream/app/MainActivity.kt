@@ -35,6 +35,7 @@ import dev.openstream.app.encoder.MediaCodecAudioEncoder
 import dev.openstream.app.encoder.MediaCodecVideoEncoder
 import dev.openstream.app.stream.ConnectionTarget
 import dev.openstream.app.stream.StreamConfig
+import dev.openstream.app.stream.TransportMode
 import dev.openstream.app.stream.SrtStreamClient
 import dev.openstream.app.telemetry.TelemetrySampler
 
@@ -92,6 +93,7 @@ class MainActivity : Activity() {
     private var zoomHideRunnable: Runnable? = null
     private var liveDotAnimator: ObjectAnimator? = null
     private var currentPort: Int = ConnectionTarget.DEFAULT_PORT
+    private var currentTransportMode: TransportMode = TransportMode.Wifi
     private var releaseReservationRunnable: Runnable? = null
     private var lensRestartRunnable: Runnable? = null
     private var pendingConnectAfterSettings = false
@@ -120,12 +122,14 @@ class MainActivity : Activity() {
             .getInt(SettingsActivity.KEY_LISTENING_PORT, ConnectionTarget.DEFAULT_PORT)
             .takeIf { it in 1024..65535 }
             ?: ConnectionTarget.DEFAULT_PORT
+        currentTransportMode = selectedTransportMode()
 
         streamClient = SrtStreamClient()
         telemetry = TelemetrySampler(this)
         phoneAdvertiser = PhoneDiscoveryAdvertiser(
             context = this,
-            config = streamConfig,
+            config = activeStreamConfig(),
+            transport = currentTransportMode,
             port = currentPort,
             busyProvider = { phoneConnected || reservedBy != null },
             reservedByProvider = { reservedBy },
@@ -202,8 +206,7 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         activityStarted = true
-        phoneAdvertiser.start()
-        obsDiscoveryClient.start()
+        startDiscovery()
         controlServer.start()
         startPreviewIfAllowed()
         startPhoneServerIfAllowed()
@@ -211,11 +214,12 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        // Reload listening port from settings if it changed
+        // The listener must be restarted to apply a selected SRT latency.
         val settingsPrefs = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
         val savedPort = settingsPrefs.getInt(SettingsActivity.KEY_LISTENING_PORT, currentPort)
-        if (savedPort != currentPort && savedPort in 1024..65535) {
-            changePort(savedPort)
+        val savedTransport = selectedTransportMode(settingsPrefs)
+        if ((savedPort != currentPort && savedPort in 1024..65535) || savedTransport != currentTransportMode) {
+            changeListenerSettings(savedPort, savedTransport)
         }
         if (pendingConnectAfterSettings) {
             pendingConnectAfterSettings = false
@@ -228,8 +232,7 @@ class MainActivity : Activity() {
         cancelLensRestart()
         camera.stop()
         stopPhoneServer(clearReservation = false, updateStatus = false)
-        obsDiscoveryClient.stop()
-        phoneAdvertiser.stop()
+        stopDiscovery()
         controlServer.stop()
         stopLiveDotAnimation()
         super.onStop()
@@ -668,13 +671,13 @@ class MainActivity : Activity() {
         activeTargetName = null
         statusText.text = getString(R.string.status_ready)
         statusText.setTextColor(getColor(R.color.os_text_primary))
-        statusDetail.text = getString(R.string.status_waiting)
+        statusDetail.text = listenerStatusDetail()
         btnStop.visibility = View.GONE
 
         val thread = Thread({
             try {
                 while (isListenerActive(generation)) {
-                    val listenUrl = "srt://0.0.0.0:${currentPort}?mode=listener&latency=${streamConfig.latencyMs}"
+                    val listenUrl = "srt://0.0.0.0:${currentPort}?mode=listener&latency=${activeStreamConfig().latencyMs}"
                     val listenResult = runCatching {
                         streamClient.listen(
                             url = listenUrl,
@@ -729,7 +732,7 @@ class MainActivity : Activity() {
                             hideLiveState()
                             statusText.text = getString(R.string.status_ready)
                             statusDetail.text = reservedSlotLabel?.let { "Holding $it for reconnect" }
-                                ?: getString(R.string.status_waiting)
+                                ?: listenerStatusDetail()
                         }
                     }
                 }
@@ -952,12 +955,14 @@ class MainActivity : Activity() {
         val host = settingsPrefs.getString(SettingsActivity.KEY_OBS_HOST, ConnectionTarget.DEFAULT_HOST)
             ?.trim().orEmpty().ifBlank { ConnectionTarget.DEFAULT_HOST }
         val port = settingsPrefs.getInt(SettingsActivity.KEY_OBS_PORT, ConnectionTarget.DEFAULT_PORT)
-        val latencyMs = settingsPrefs.getInt(SettingsActivity.KEY_LATENCY, ConnectionTarget.DEFAULT_LATENCY_MS)
+        val latencyMs = selectedTransportMode(settingsPrefs).latencyMs(
+            settingsPrefs.getInt(SettingsActivity.KEY_LATENCY, ConnectionTarget.DEFAULT_LATENCY_MS),
+        )
         return ConnectionTarget(
             name = ConnectionTarget.DEFAULT_NAME,
             host = host,
             port = port.coerceIn(1, 65535),
-            latencyMs = latencyMs.coerceIn(80, 200),
+            latencyMs = latencyMs,
         )
     }
 
@@ -996,23 +1001,48 @@ class MainActivity : Activity() {
 
     // ─────────────────────────── Port selector ───────────────────────────
 
-    private fun changePort(newPort: Int) {
+    private fun changeListenerSettings(newPort: Int, newTransportMode: TransportMode) {
         val clamped = newPort.coerceIn(1024, 65535)
-        if (clamped == currentPort) return
+        if (clamped == currentPort && newTransportMode == currentTransportMode) return
         currentPort = clamped
-        // Restart the phone server on the new port
+        currentTransportMode = newTransportMode
         stopPhoneServer(clearReservation = false)
-        // Re-create the advertiser with new port
-        phoneAdvertiser.stop()
+        stopDiscovery()
         phoneAdvertiser = PhoneDiscoveryAdvertiser(
             context = this,
-            config = streamConfig,
+            config = activeStreamConfig(),
+            transport = currentTransportMode,
             port = currentPort,
             busyProvider = { phoneConnected || reservedBy != null },
             reservedByProvider = { reservedBy },
         )
-        phoneAdvertiser.start()
+        startDiscovery()
         startPhoneServerIfAllowed()
+    }
+
+    private fun activeStreamConfig(): StreamConfig = streamConfig.copy(
+        latencyMs = currentTransportMode.latencyMs(streamConfig.latencyMs),
+    )
+
+    private fun selectedTransportMode(
+        prefs: android.content.SharedPreferences = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE),
+    ): TransportMode = TransportMode.fromPreference(prefs.getString(SettingsActivity.KEY_TRANSPORT, null))
+
+    private fun startDiscovery() {
+        phoneAdvertiser.start()
+        if (currentTransportMode == TransportMode.Wifi) {
+            obsDiscoveryClient.start()
+        }
+    }
+
+    private fun stopDiscovery() {
+        obsDiscoveryClient.stop()
+        phoneAdvertiser.stop()
+    }
+
+    private fun listenerStatusDetail(): String = when (currentTransportMode) {
+        TransportMode.Wifi -> getString(R.string.status_waiting)
+        TransportMode.UsbTether -> "Waiting for USB tethered network on SRT port $currentPort"
     }
 
     // ─────────────────────────── Preview aspect ratio fix ───────────────────────────

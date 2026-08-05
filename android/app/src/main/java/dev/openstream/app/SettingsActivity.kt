@@ -6,9 +6,11 @@ import android.os.Build
 import android.os.Bundle
 import android.view.WindowInsets
 import android.widget.EditText
+import android.widget.RadioButton
 import android.widget.TextView
 import android.widget.Toast
 import dev.openstream.app.stream.ConnectionTarget
+import dev.openstream.app.stream.TransportMode
 
 class SettingsActivity : Activity() {
 
@@ -16,6 +18,8 @@ class SettingsActivity : Activity() {
     private lateinit var inputObsPort: EditText
     private lateinit var inputLatency: EditText
     private lateinit var inputListeningPort: EditText
+    private lateinit var transportWifi: RadioButton
+    private lateinit var transportUsb: RadioButton
     private lateinit var btnSave: TextView
     private lateinit var btnSaveAndConnect: TextView
     private lateinit var btnBack: TextView
@@ -29,6 +33,8 @@ class SettingsActivity : Activity() {
         inputObsPort = findViewById(R.id.settingsObsPort)
         inputLatency = findViewById(R.id.settingsLatency)
         inputListeningPort = findViewById(R.id.settingsListeningPort)
+        transportWifi = findViewById(R.id.settingsTransportWifi)
+        transportUsb = findViewById(R.id.settingsTransportUsb)
         btnSave = findViewById(R.id.btnSaveSettings)
         btnSaveAndConnect = findViewById(R.id.btnSaveAndConnect)
         btnBack = findViewById(R.id.btnBackSettings)
@@ -51,6 +57,10 @@ class SettingsActivity : Activity() {
         if (latency != ConnectionTarget.DEFAULT_LATENCY_MS) inputLatency.setText(latency.toString())
         val listenPort = prefs.getInt(KEY_LISTENING_PORT, ConnectionTarget.DEFAULT_PORT)
         inputListeningPort.setText(listenPort.toString())
+        when (TransportMode.fromPreference(prefs.getString(KEY_TRANSPORT, null))) {
+            TransportMode.Wifi -> transportWifi.isChecked = true
+            TransportMode.UsbTether -> transportUsb.isChecked = true
+        }
     }
 
     private fun saveSettings(connectAfterSave: Boolean) {
@@ -67,10 +77,11 @@ class SettingsActivity : Activity() {
             validRange = 1..65535,
             label = "OBS port",
         ) ?: return
+        val mode = if (transportUsb.isChecked) TransportMode.UsbTether else TransportMode.Wifi
         val latency = validatedNumber(
             input = inputLatency,
             defaultValue = ConnectionTarget.DEFAULT_LATENCY_MS,
-            validRange = 80..200,
+            validRange = TransportMode.WIFI_MIN_LATENCY_MS..TransportMode.WIFI_MAX_LATENCY_MS,
             label = "Latency",
         ) ?: return
         val listenPort = validatedNumber(
@@ -85,6 +96,7 @@ class SettingsActivity : Activity() {
             .putInt(KEY_OBS_PORT, port)
             .putInt(KEY_LATENCY, latency)
             .putInt(KEY_LISTENING_PORT, listenPort)
+            .putString(KEY_TRANSPORT, mode.preferenceValue)
             .apply()
 
         Toast.makeText(this, "Settings saved", Toast.LENGTH_SHORT).show()
@@ -138,6 +150,7 @@ class SettingsActivity : Activity() {
         const val KEY_OBS_PORT = "obs_port"
         const val KEY_LATENCY = "latency_ms"
         const val KEY_LISTENING_PORT = "listening_port"
+        const val KEY_TRANSPORT = "transport"
         const val EXTRA_CONNECT_AFTER_SAVE = "connect_after_save"
     }
 }

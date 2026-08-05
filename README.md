@@ -12,7 +12,7 @@
 [![OBS](https://img.shields.io/badge/OBS-Studio%20Plugin-purple?style=flat-square&labelColor=1a1a2e)](https://obsproject.com)
 [![Website](https://img.shields.io/badge/website-openstream.pages.dev-00D4AA?style=flat-square&labelColor=1a1a2e)](https://openstream.pages.dev)
 
-**Open-source** | **Low-latency** | **Hardware-accelerated** | **Local Wi-Fi**
+**Open-source** | **Low-latency** | **Hardware-accelerated** | **USB or Local Wi-Fi**
 
 ---
 
@@ -35,7 +35,7 @@ Need the non-technical walkthrough with screenshots? Start with [`docs/set-up.md
 
 ## What is OpenStream?
 
-OpenStream V1.0.1 sends your Android phone camera directly into OBS Studio over local Wi-Fi. It uses Camera2, MediaCodec video/audio encoding, MPEG-TS muxing, SRT transport, two-way LAN discovery, source-slot pairing, and a native OBS source plugin.
+OpenStream V1.0.1 sends your Android phone camera directly into OBS Studio over USB tethering or local Wi-Fi. It uses Camera2, MediaCodec video/audio encoding, MPEG-TS muxing, SRT transport, two-way LAN discovery, source-slot pairing, and a native OBS source plugin.
 
 ```text
 Phone camera -> HEVC/H.264 + AAC -> SRT over Wi-Fi -> OpenStream camera slot in OBS

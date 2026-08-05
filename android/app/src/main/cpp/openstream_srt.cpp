@@ -27,6 +27,8 @@
 namespace {
 
 constexpr const char *kTag = "OpenStreamSRT";
+constexpr int kMinSrtLatencyMs = 30;
+constexpr int kMaxSrtLatencyMs = 200;
 constexpr int kMediaCodecBufferFlagKeyFrame = 1;
 constexpr int kMediaCodecBufferFlagCodecConfig = 2;
 constexpr int kAudioSampleRate = 48000;
@@ -467,7 +469,7 @@ std::optional<SrtUrl> parseSrtUrl(const std::string &url) {
             std::from_chars(value.data(), value.data() + value.size(), latency);
         if (latencyResult.ec == std::errc{} &&
             latencyResult.ptr == value.data() + value.size()) {
-          parsed.latencyMs = std::clamp(latency, 80, 200);
+          parsed.latencyMs = std::clamp(latency, kMinSrtLatencyMs, kMaxSrtLatencyMs);
         }
       }
       if (amp == std::string::npos) {

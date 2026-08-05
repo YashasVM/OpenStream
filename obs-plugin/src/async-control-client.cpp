@@ -4,14 +4,17 @@ AsyncControlClient::AsyncControlClient() : worker_(&AsyncControlClient::run, thi
 
 AsyncControlClient::~AsyncControlClient() { stop(); }
 
-void AsyncControlClient::post(std::function<void()> command) {
-  if (!command) return;
+bool AsyncControlClient::post(std::function<void()> command) {
+  if (!command) return false;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (stopping_) return;
+    // Capacity is intentionally small: UI controls are transient and must not
+    // accumulate behind a disconnected phone. Reject newest preserves order.
+    if (stopping_ || commands_.size() >= kQueueCapacity) return false;
     commands_.push(std::move(command));
   }
   wake_.notify_one();
+  return true;
 }
 
 void AsyncControlClient::stop() {

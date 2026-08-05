@@ -5,6 +5,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import dev.openstream.app.encoder.advertisedMimeType
 import dev.openstream.app.stream.StreamConfig
+import dev.openstream.app.stream.TransportMode
 import org.json.JSONObject
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -16,6 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class PhoneDiscoveryAdvertiser(
     private val context: Context,
     private val config: StreamConfig,
+    private val transport: TransportMode,
     private val port: Int,
     private val busyProvider: () -> Boolean,
     private val reservedByProvider: () -> String? = { null },
@@ -63,7 +65,8 @@ class PhoneDiscoveryAdvertiser(
             .put("version", 1)
             .put("name", "${Build.MANUFACTURER} ${Build.MODEL}".trim())
             .put("instanceId", instanceId)
-            .put("host", localWifiAddress().orEmpty())
+            .put("host", localAddress().orEmpty())
+            .put("transport", transport.preferenceValue)
             .put("listenerPort", port)
             .put("latencyMs", config.latencyMs)
             .put("bitrateMbps", config.bitrateMbps)
@@ -87,6 +90,26 @@ class PhoneDiscoveryAdvertiser(
             ip shr 16 and 0xff,
             ip shr 24 and 0xff,
         ).joinToString(".")
+    }
+
+    private fun localAddress(): String? = when (transport) {
+        TransportMode.Wifi -> localWifiAddress()
+        TransportMode.UsbTether -> localUsbTetherAddress()
+    }
+
+    private fun localUsbTetherAddress(): String? = runCatching {
+        java.net.NetworkInterface.getNetworkInterfaces().asSequence()
+            .filter { it.isUp && !it.isLoopback && isUsbTetherInterface(it.name) }
+            .flatMap { it.inetAddresses.asSequence() }
+            .filterIsInstance<java.net.Inet4Address>()
+            .firstOrNull { !it.isLoopbackAddress && it.isSiteLocalAddress }
+            ?.hostAddress
+    }.getOrNull()
+
+    private fun isUsbTetherInterface(name: String): Boolean {
+        val normalized = name.lowercase()
+        return normalized.startsWith("rndis") || normalized.startsWith("usb") ||
+            normalized.startsWith("ncm") || normalized.startsWith("enx")
     }
 
     companion object {

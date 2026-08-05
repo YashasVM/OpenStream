@@ -67,6 +67,22 @@ Expected behavior:
 ## Developer receiver
 
 `tools/openstream_receiver.py` remains available for FFmpeg/SRT smoke tests
+
+## USB tether acceptance
+
+Before release, capture the same 1080p60 scene over Wi-Fi (120 ms) and USB
+tethering (30 ms), then record p50/p95 glass-to-glass latency and maximum A/V
+skew. Run USB for at least 30 minutes and unplug/replug the cable five times.
+
+- The OBS log must identify the USB tether URL and every disconnect/reconnect.
+- Audio and video must retain MPEG-TS source timestamps; no arrival-time stamp is allowed.
+- Maximum accepted A/V skew is 20 ms during steady state.
+- A cable failure must affect only its owning source slot.
+- Memory must remain bounded; camera-control backlog is capped at 16 commands
+  and rejects newest commands when full.
+
+Record before/after hardware measurements in the pull request. This repository
+does not substitute synthetic timing numbers for a physical phone/cable run.
 without OBS. It is not part of the normal user workflow.
 
 ## Thermal tests

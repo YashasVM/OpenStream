@@ -13,6 +13,11 @@ Android Camera2
   -> OBS final stream/record encode
 ```
 
+The same encoded MPEG-TS/SRT session can travel over Android USB tethering
+(RNDIS) instead of Wi-Fi. USB mode does not add another encoder, re-encode
+video, or depend on ADB; Windows connects to the phone's tether-interface
+gateway with a 30 ms SRT latency profile.
+
 The V1 prototype uses hardware video and audio encoding on the phone. This is
 the best path for stable, high-quality wireless streaming over commodity Wi-Fi.
 
@@ -63,7 +68,8 @@ transport can be tested without blocking the reliable product path.
 - Default SRT port: `9000`.
 - Default control port: `9001`.
 - Default latency: `120 ms`.
-- Valid latency tuning range: `80-200 ms`.
+- Wi-Fi latency tuning range: `80-200 ms`.
+- USB tether latency: `30 ms`.
 
 ## Encoding Defaults
 
@@ -91,8 +97,10 @@ extracted from FFmpeg frame properties and forwarded to OBS.
 ## Sync Model
 
 V1 does not promise PTP or genlock. Each Android frame/audio buffer is
-timestamped with a monotonic clock. The Windows receiver and OBS source use
-those timestamps to estimate drift and preserve A/V alignment.
+timestamped with a monotonic clock. The Windows receiver maps the shared
+MPEG-TS source timeline once into the OBS monotonic clock and preserves every
+audio/video offset; frames without usable source timestamps are dropped and
+logged instead of being stamped with arrival time.
 
 ## Telemetry
 

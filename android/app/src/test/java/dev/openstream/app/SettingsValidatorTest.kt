@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import dev.openstream.app.stream.TransportMode
 
 class SettingsValidatorTest {
     @Test
@@ -29,5 +30,14 @@ class SettingsValidatorTest {
         assertEquals(120, SettingsValidator.parseNumber("120", 9000, 80..200))
         assertNull(SettingsValidator.parseNumber("79", 120, 80..200))
         assertNull(SettingsValidator.parseNumber("invalid", 120, 80..200))
+    }
+
+    @Test
+    fun usbTransportUsesFixedLowLatencyWhileWifiRemainsBounded() {
+        assertEquals(30, TransportMode.UsbTether.latencyMs(120))
+        assertEquals(80, TransportMode.Wifi.latencyMs(20))
+        assertEquals(200, TransportMode.Wifi.latencyMs(500))
+        assertEquals(TransportMode.UsbTether, TransportMode.fromPreference("usb_adb"))
+        assertEquals(TransportMode.Wifi, TransportMode.fromPreference("unknown"))
     }
 }

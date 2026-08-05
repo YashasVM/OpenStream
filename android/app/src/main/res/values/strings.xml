@@ -49,6 +49,10 @@
     <string name="settings_obs_port">OBS PORT</string>
     <string name="settings_latency">LATENCY (ms)</string>
     <string name="settings_listening_port">LISTENING PORT</string>
+    <string name="settings_transport">TRANSPORT</string>
+    <string name="settings_transport_wifi">Wi-Fi (80–200 ms SRT latency)</string>
+    <string name="settings_transport_usb">USB tethering / RNDIS (30 ms SRT latency)</string>
+    <string name="settings_transport_usb_help">For USB mode, enable USB tethering on the phone, then connect the OBS PC to the phone’s tethered network. ADB port forwarding cannot carry SRT.</string>
     <string name="screen_off_overlay_description">Screen dimmed. Tap to restore controls.</string>
     <string name="settings_save_connect">Save &amp; Connect</string>
     <string name="settings_save">Save Settings</string>
