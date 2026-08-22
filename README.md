@@ -1,3 +1,5 @@
+
+
 <div align="center">
 
 <picture>
@@ -161,7 +163,7 @@ Windows PC
   OBS video frame + audio mixer output
 ```
 
-Discovery uses UDP port `51515`. Camera remote controls use the phone HTTP control server on port `9001`.
+Discovery uses UDP port `51515` (multicast `239.255.42.99` + subnet broadcast). Camera remote controls use the phone HTTP control server on port `9001`.
 
 ### Transport Defaults
 
