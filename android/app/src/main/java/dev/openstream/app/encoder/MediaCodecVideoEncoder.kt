@@ -32,7 +32,6 @@ data class EncodedAccessUnit(
 private data class EncoderSelection(
     val mimeType: String,
     val codecName: String,
-    val lowLatency: Boolean,
 )
 
 class MediaCodecVideoEncoder(
@@ -67,8 +66,7 @@ class MediaCodecVideoEncoder(
         Log.i(
             "OpenStreamEncoder",
             "Using hardware encoder ${selection.codecName} for $mimeType " +
-                "${width}x${height}@${fps} (${bitrate / 1_000_000} Mbps)" +
-                if (selection.lowLatency) " with low-latency mode" else "",
+                "${width}x${height}@${fps} (${bitrate / 1_000_000} Mbps)",
         )
         val encoder = MediaCodec.createByCodecName(selection.codecName)
         codec = encoder
@@ -78,8 +76,7 @@ class MediaCodecVideoEncoder(
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, keyframeIntervalSeconds)
             setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
-            // Give the codec enough scheduling information to avoid throughput-oriented buffering.
-            // Unsupported tuning keys are guarded by platform level and capability checks below.
+            // Prefer realtime scheduling and minimal encoder-side frame buffering where supported.
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
                 setInteger(MediaFormat.KEY_PRIORITY, 0)
                 setFloat(MediaFormat.KEY_OPERATING_RATE, fps.toFloat())
@@ -89,11 +86,6 @@ class MediaCodecVideoEncoder(
             }
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                 setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
-            }
-            if (selection.lowLatency &&
-                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R
-            ) {
-                setFeatureEnabled(MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency, true)
             }
         }
         try {
@@ -141,6 +133,14 @@ class MediaCodecVideoEncoder(
             }
 
             override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
+                    format.containsKey(MediaFormat.KEY_LATENCY)
+                ) {
+                    Log.i(
+                        "OpenStreamEncoder",
+                        "Encoder accepted latency=${format.getInteger(MediaFormat.KEY_LATENCY)} frame(s)",
+                    )
+                }
                 codecConfigFrom(format)?.let { config ->
                     onEncodedAccessUnit(
                         EncodedAccessUnit(
@@ -204,6 +204,13 @@ class MediaCodecVideoEncoder(
                 ) {
                     return@mapNotNull null
                 }
+                if (!capabilities.encoderCapabilities.isBitrateModeSupported(
+                        MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR,
+                    )
+                ) {
+                    Log.d("OpenStreamEncoder", "Skipping ${candidate.name}: CBR is unsupported")
+                    return@mapNotNull null
+                }
 
                 val videoCapabilities = capabilities.videoCapabilities
                 val supportsTarget = runCatching {
@@ -219,15 +226,8 @@ class MediaCodecVideoEncoder(
                     return@mapNotNull null
                 }
 
-                val supportsLowLatency =
-                    android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R &&
-                        runCatching {
-                            capabilities.isFeatureSupported(
-                                MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency,
-                            )
-                        }.getOrDefault(false)
-                EncoderSelection(mime, candidate.name, supportsLowLatency)
-            }.sortedByDescending { it.lowLatency }
+                EncoderSelection(mime, candidate.name)
+            }
 
             val selected = candidates.firstOrNull() ?: continue
             if (preference == CodecPreference.PreferHevc &&
