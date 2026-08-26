@@ -43,7 +43,7 @@ class MediaCodecVideoEncoder(
     private val keyframeIntervalSeconds: Int,
     private val onEncodedAccessUnit: (EncodedAccessUnit) -> Unit,
 ) {
-    private var selection = chooseEncoder(preference)
+    private var selection = chooseEncoder(preference, width, height, fps, bitrate)
     private var mimeType = selection.mimeType
     private var codec: MediaCodec? = null
     private val thread = HandlerThread("OpenStreamEncoder")
@@ -56,13 +56,18 @@ class MediaCodecVideoEncoder(
     fun inputSurface(): Surface = checkNotNull(surface) { "Encoder input surface is not ready" }
 
     fun start() {
-        // If already running, stop first to allow clean restart
+        // Re-evaluate the codec at every start because bitrate can change per OBS reservation
+        // and vendor codec availability may change after a codec failure/restart.
         if (codec != null) {
             stop()
         }
-        selection = chooseEncoder(preference)
+        selection = chooseEncoder(preference, width, height, fps, bitrate)
         mimeType = selection.mimeType
-        Log.i("OpenStreamEncoder", "Using hardware encoder ${selection.codecName} for $mimeType")
+        Log.i(
+            "OpenStreamEncoder",
+            "Using hardware encoder ${selection.codecName} for $mimeType " +
+                "${width}x${height}@${fps} (${bitrate / 1_000_000} Mbps)",
+        )
         val encoder = MediaCodec.createByCodecName(selection.codecName)
         codec = encoder
         val format = MediaFormat.createVideoFormat(mimeType, width, height).apply {
@@ -71,8 +76,16 @@ class MediaCodecVideoEncoder(
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, keyframeIntervalSeconds)
             setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
+            // Prefer realtime scheduling and minimal encoder-side frame buffering where supported.
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                setInteger(MediaFormat.KEY_PRIORITY, 0)
+                setFloat(MediaFormat.KEY_OPERATING_RATE, fps.toFloat())
+            }
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 setInteger(MediaFormat.KEY_LATENCY, 0)
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
             }
         }
         try {
@@ -120,6 +133,14 @@ class MediaCodecVideoEncoder(
             }
 
             override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
+                    format.containsKey(MediaFormat.KEY_LATENCY)
+                ) {
+                    Log.i(
+                        "OpenStreamEncoder",
+                        "Encoder accepted latency=${format.getInteger(MediaFormat.KEY_LATENCY)} frame(s)",
+                    )
+                }
                 codecConfigFrom(format)?.let { config ->
                     onEncodedAccessUnit(
                         EncodedAccessUnit(
@@ -149,7 +170,13 @@ class MediaCodecVideoEncoder(
         runCatching { encoder.release() }
     }
 
-    private fun chooseEncoder(preference: CodecPreference): EncoderSelection {
+    private fun chooseEncoder(
+        preference: CodecPreference,
+        width: Int,
+        height: Int,
+        fps: Int,
+        bitrate: Int,
+    ): EncoderSelection {
         val mimeTypes = when (preference) {
             CodecPreference.ForceAvc -> listOf(MediaFormat.MIMETYPE_VIDEO_AVC)
             CodecPreference.PreferHevc -> listOf(
@@ -159,34 +186,69 @@ class MediaCodecVideoEncoder(
         }
         val infos = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
         for (mime in mimeTypes) {
-            val info = infos.firstOrNull { candidate ->
-                candidate.isEncoder &&
-                    candidate.isHardwareAccelerated &&
-                    !candidate.isSoftwareOnly &&
-                    candidate.supportedTypes.any { it.equals(mime, true) } &&
-                    runCatching {
-                        candidate.getCapabilitiesForType(mime).colorFormats.contains(
-                            MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface,
-                        )
-                    }.getOrDefault(false)
-            } ?: continue
+            val candidates = infos.mapNotNull { candidate ->
+                if (!candidate.isEncoder ||
+                    !candidate.isHardwareAccelerated ||
+                    candidate.isSoftwareOnly ||
+                    candidate.supportedTypes.none { it.equals(mime, true) }
+                ) {
+                    return@mapNotNull null
+                }
+
+                val capabilities = runCatching {
+                    candidate.getCapabilitiesForType(mime)
+                }.getOrNull() ?: return@mapNotNull null
+                if (!capabilities.colorFormats.contains(
+                        MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface,
+                    )
+                ) {
+                    return@mapNotNull null
+                }
+                if (!capabilities.encoderCapabilities.isBitrateModeSupported(
+                        MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR,
+                    )
+                ) {
+                    Log.d("OpenStreamEncoder", "Skipping ${candidate.name}: CBR is unsupported")
+                    return@mapNotNull null
+                }
+
+                val videoCapabilities = capabilities.videoCapabilities
+                val supportsTarget = runCatching {
+                    videoCapabilities.areSizeAndRateSupported(width, height, fps.toDouble()) &&
+                        videoCapabilities.bitrateRange.contains(bitrate)
+                }.getOrDefault(false)
+                if (!supportsTarget) {
+                    Log.d(
+                        "OpenStreamEncoder",
+                        "Skipping ${candidate.name}: cannot sustain ${width}x${height}@${fps} " +
+                            "at ${bitrate / 1_000_000} Mbps",
+                    )
+                    return@mapNotNull null
+                }
+
+                EncoderSelection(mime, candidate.name)
+            }
+
+            val selected = candidates.firstOrNull() ?: continue
             if (preference == CodecPreference.PreferHevc &&
                 mime == MediaFormat.MIMETYPE_VIDEO_AVC
             ) {
                 Log.w(
                     "OpenStreamEncoder",
-                    "Hardware HEVC is unavailable; explicitly falling back to hardware AVC",
+                    "Hardware HEVC cannot satisfy the requested stream profile; " +
+                        "explicitly falling back to hardware AVC",
                 )
             }
-            return EncoderSelection(mime, info.name)
+            return selected
         }
 
         Log.e(
             "OpenStreamEncoder",
-            "No hardware surface video encoder is available; refusing a silent software fallback",
+            "No hardware surface encoder can satisfy ${width}x${height}@${fps} " +
+                "at ${bitrate / 1_000_000} Mbps",
         )
         throw IllegalStateException(
-            "OpenStream needs a hardware AVC/HEVC surface encoder on this phone",
+            "OpenStream needs a hardware AVC/HEVC encoder that supports the selected stream profile",
         )
     }
 
