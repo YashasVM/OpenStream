@@ -37,6 +37,7 @@ class CameraControlServer(
     private val onIdentify: (String, String) -> Unit,
 ) {
     private val running = AtomicBoolean(false)
+    private val pendingRestart = AtomicBoolean(false)
     @Volatile private var serverSocket: ServerSocket? = null
     @Volatile private var activeClient: Socket? = null
     @Volatile private var worker: Thread? = null
@@ -44,10 +45,12 @@ class CameraControlServer(
     fun start() {
         if (running.get()) return
         if (worker?.isAlive == true) {
-            Log.w(TAG, "Control server worker is still stopping; delaying restart")
+            pendingRestart.set(true)
+            Log.w(TAG, "Control server worker is still stopping; restart queued")
             return
         }
         if (!running.compareAndSet(false, true)) return
+        pendingRestart.set(false)
         worker = Thread(::run, "OpenStreamControlServer").apply {
             isDaemon = true
             start()
@@ -55,6 +58,7 @@ class CameraControlServer(
     }
 
     fun stop() {
+        pendingRestart.set(false)
         running.set(false)
         runCatching { serverSocket?.close() }
         runCatching { activeClient?.close() }
@@ -99,10 +103,13 @@ class CameraControlServer(
         } finally {
             runCatching { openedSocket?.close() }
             if (serverSocket === openedSocket) serverSocket = null
+            running.set(false)
             if (worker === Thread.currentThread()) {
                 worker = null
             }
-            running.set(false)
+            if (pendingRestart.compareAndSet(true, false)) {
+                start()
+            }
         }
     }
 
