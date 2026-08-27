@@ -41,6 +41,7 @@ class CameraControlServer(
     @Volatile private var serverSocket: ServerSocket? = null
     @Volatile private var activeClient: Socket? = null
     @Volatile private var worker: Thread? = null
+    @Volatile private var activeReservationToken: String? = null
 
     fun start() {
         if (running.get()) return
@@ -265,6 +266,10 @@ class CameraControlServer(
         val json = JSONObject(body)
         val sourceInstanceId = json.optString("sourceInstanceId").trim()
         if (sourceInstanceId.isEmpty()) return """{"error":"missing sourceInstanceId"}"""
+        val reservationToken = json.optString("reservationToken").trim().ifEmpty { null }
+        if (reservationToken != null && reservationToken.length > MAX_RESERVATION_TOKEN_CHARS) {
+            return """{"error":"reservation token too large"}"""
+        }
         val slotLabel = json.optString("slotLabel", "")
         val bitrateMbps = if (json.has("bitrateMbps")) {
             json.optInt("bitrateMbps").coerceIn(
@@ -274,6 +279,7 @@ class CameraControlServer(
         } else null
         val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)
         return if (accepted) {
+            activeReservationToken = reservationToken
             JSONObject()
                 .put("ok", true)
                 .put("reservedBy", sourceInstanceId)
@@ -288,9 +294,21 @@ class CameraControlServer(
     }
 
     private fun handleRelease(body: String): String {
-        val sourceInstanceId = JSONObject(body).optString("sourceInstanceId").trim()
+        val json = JSONObject(body)
+        val sourceInstanceId = json.optString("sourceInstanceId").trim()
         if (sourceInstanceId.isEmpty()) return """{"error":"missing sourceInstanceId"}"""
+        val reservationToken = json.optString("reservationToken").trim().ifEmpty { null }
+        val currentReservation = reservationProvider()
+        if (currentReservation == sourceInstanceId &&
+            activeReservationToken != null &&
+            reservationToken != activeReservationToken
+        ) {
+            return """{"ok":false,"stale":true}"""
+        }
         val released = onRelease(sourceInstanceId)
+        if (released && reservationProvider() != sourceInstanceId) {
+            activeReservationToken = null
+        }
         return """{"ok":$released}"""
     }
 
@@ -309,6 +327,7 @@ class CameraControlServer(
         private const val MAX_HEADER_LINE_BYTES = 2_048
         private const val MAX_HEADER_BYTES = 8_192
         private const val MAX_BODY_BYTES = 8_192
+        private const val MAX_RESERVATION_TOKEN_CHARS = 256
         private const val STOP_TIMEOUT_MS = 1_000L
     }
 }

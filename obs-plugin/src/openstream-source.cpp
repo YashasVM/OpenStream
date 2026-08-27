@@ -450,6 +450,7 @@ struct PhoneDevice {
   int bitrate_mbps = kDefaultBitrateMbps;
   bool busy = false;
   std::string reserved_by;
+  std::string reservation_token;
   std::chrono::steady_clock::time_point last_seen = std::chrono::steady_clock::now();
 };
 
@@ -973,11 +974,14 @@ std::string phone_label(const PhoneDevice &phone) {
   return label.str();
 }
 
-bool reserve_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
+bool reserve_phone(OpenStreamSource *ctx, PhoneDevice &phone) {
   std::ostringstream body;
   {
     std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    phone.reservation_token =
+        ctx->instance_id + "-" + std::to_string(os_gettime_ns());
     body << "{\"sourceInstanceId\":\"" << json_escape(ctx->instance_id) << "\","
+         << "\"reservationToken\":\"" << json_escape(phone.reservation_token) << "\","
          << "\"slotId\":\"" << json_escape(ctx->slot_id) << "\","
          << "\"slotLabel\":\"" << json_escape(ctx->slot_label) << "\","
          << "\"bitrateMbps\":" << ctx->bitrate_mbps << "}";
@@ -986,23 +990,29 @@ bool reserve_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
 }
 
 void release_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
+  if (phone.reservation_token.empty()) return;
   std::ostringstream body;
-  body << "{\"sourceInstanceId\":\"" << json_escape(ctx->instance_id) << "\"}";
+  body << "{\"sourceInstanceId\":\"" << json_escape(ctx->instance_id) << "\","
+       << "\"reservationToken\":\"" << json_escape(phone.reservation_token) << "\"}";
   send_control_command(phone.host, phone.control_port, "/release", body.str());
 }
 
 void queue_release_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
+  if (phone.reservation_token.empty()) return;
   const auto client = ctx->camera_controls;
   const std::string host = phone.host;
   const int port = phone.control_port;
   const std::string source_instance_id = ctx->instance_id;
-  const bool queued = client->post_urgent([host, port, source_instance_id] {
-    const std::string body = "{\"sourceInstanceId\":\"" +
-                             json_escape(source_instance_id) + "\"}";
-    if (!send_control_command(host, port, "/release", body)) {
-      blog(LOG_WARNING, "[OpenStream] Camera reservation release failed");
-    }
-  });
+  const std::string reservation_token = phone.reservation_token;
+  const bool queued = client->post_urgent(
+      [host, port, source_instance_id, reservation_token] {
+        const std::string body =
+            "{\"sourceInstanceId\":\"" + json_escape(source_instance_id) +
+            "\",\"reservationToken\":\"" + json_escape(reservation_token) + "\"}";
+        if (!send_control_command(host, port, "/release", body)) {
+          blog(LOG_WARNING, "[OpenStream] Camera reservation release failed");
+        }
+      });
   if (!queued) {
     blog(LOG_WARNING,
          "[OpenStream] Camera reservation release dropped: control queue is full or stopping");
