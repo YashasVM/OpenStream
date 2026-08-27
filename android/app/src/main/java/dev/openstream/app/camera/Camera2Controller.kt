@@ -231,10 +231,24 @@ class Camera2Controller(
 
     private fun loadZoomCapabilities(cameraId: String) {
         val chars = cameraManager.getCameraCharacteristics(cameraId)
-        captureFpsRange = chars
+        val availableFpsRanges = chars
             .get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
-            ?.filter { range -> range.upper <= targetFps }
-            ?.maxWithOrNull(compareBy<Range<Int>> { it.upper }.thenBy { it.lower })
+            .orEmpty()
+        captureFpsRange = availableFpsRanges
+            .filter { range -> targetFps in range.lower..range.upper }
+            .minWithOrNull(
+                compareBy<Range<Int>>(
+                    { if (it.lower == targetFps && it.upper == targetFps) 0 else 1 },
+                    { it.upper - it.lower },
+                    { -it.lower },
+                ),
+            )
+            ?: availableFpsRanges
+                .filter { range -> range.upper <= targetFps }
+                .maxWithOrNull(compareBy<Range<Int>> { it.upper }.thenBy { it.lower })
+        captureFpsRange?.let { range ->
+            Log.i(TAG, "Camera $cameraId using AE FPS range ${range.lower}-${range.upper} for ${targetFps}fps target")
+        } ?: Log.w(TAG, "Camera $cameraId exposes no AE FPS range suitable for ${targetFps}fps target")
         sensorRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
