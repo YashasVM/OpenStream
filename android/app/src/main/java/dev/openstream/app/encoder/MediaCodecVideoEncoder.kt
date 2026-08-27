@@ -43,8 +43,8 @@ class MediaCodecVideoEncoder(
     private val keyframeIntervalSeconds: Int,
     private val onEncodedAccessUnit: (EncodedAccessUnit) -> Unit,
 ) {
-    private var selection = chooseEncoder(preference, width, height, fps, bitrate)
-    private var mimeType = selection.mimeType
+    private var selection: EncoderSelection? = null
+    private var mimeType = preference.advertisedMimeType()
     private var codec: MediaCodec? = null
     private val thread = HandlerThread("OpenStreamEncoder")
     private lateinit var handler: Handler
@@ -61,14 +61,15 @@ class MediaCodecVideoEncoder(
         if (codec != null) {
             stop()
         }
-        selection = chooseEncoder(preference, width, height, fps, bitrate)
-        mimeType = selection.mimeType
+        val resolvedSelection = chooseEncoder(preference, width, height, fps, bitrate)
+        selection = resolvedSelection
+        mimeType = resolvedSelection.mimeType
         Log.i(
             "OpenStreamEncoder",
-            "Using hardware encoder ${selection.codecName} for $mimeType " +
+            "Using hardware encoder ${resolvedSelection.codecName} for $mimeType " +
                 "${width}x${height}@${fps} (${bitrate / 1_000_000} Mbps)",
         )
-        val encoder = MediaCodec.createByCodecName(selection.codecName)
+        val encoder = MediaCodec.createByCodecName(resolvedSelection.codecName)
         codec = encoder
         val format = MediaFormat.createVideoFormat(mimeType, width, height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
@@ -76,7 +77,6 @@ class MediaCodecVideoEncoder(
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, keyframeIntervalSeconds)
             setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
-            // Prefer realtime scheduling and minimal encoder-side frame buffering where supported.
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
                 setInteger(MediaFormat.KEY_PRIORITY, 0)
                 setFloat(MediaFormat.KEY_OPERATING_RATE, fps.toFloat())
