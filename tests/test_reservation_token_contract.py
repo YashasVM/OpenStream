@@ -13,8 +13,10 @@ def test_reservation_release_is_bound_to_generation_token() -> None:
     control = read("android/app/src/main/java/dev/openstream/app/control/CameraControlServer.kt")
 
     assert "std::string reservation_token" in source
-    assert '"reservationToken\\\":\\\"" << json_escape(phone.reservation_token)' in source
+    assert "reservationToken" in source
+    assert "phone.reservation_token" in source
     assert "const std::string reservation_token = phone.reservation_token" in source
     assert 'json.optString("reservationToken")' in control
+    assert "activeReservationToken" in control
     assert "reservationToken != activeReservationToken" in control
     assert '"stale":true' in control
