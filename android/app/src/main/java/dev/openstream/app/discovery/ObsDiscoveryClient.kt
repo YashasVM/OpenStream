@@ -106,8 +106,15 @@ class ObsDiscoveryClient(
                     if (pruneExpired()) {
                         publishDevices()
                     }
-                } catch (_: Exception) {
+                } catch (error: Exception) {
+                    if (multicast.isClosed) {
+                        if (running.get()) {
+                            Log.w(TAG, "Discovery socket closed unexpectedly", error)
+                        }
+                        break
+                    }
                     if (running.get()) {
+                        Log.w(TAG, "Discovery receive failed", error)
                         if (pruneExpired()) {
                             publishDevices()
                         }
