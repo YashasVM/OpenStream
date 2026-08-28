@@ -17,10 +17,19 @@ def test_reservation_expires_if_media_never_connects() -> None:
     listener_start = source.index("private fun startPhoneServerIfAllowed")
     listener_end = source.index("private fun isListenerActive", listener_start)
     listener = source[listener_start:listener_end]
+    schedule_start = source.index("private fun scheduleReservationRelease")
+    cancel_start = source.index("private fun cancelReservationRelease", schedule_start)
+    schedule = source[schedule_start:cancel_start]
 
-    assert "if (phoneConnected)" in reserve
-    assert "cancelReservationRelease()" in reserve
-    assert "scheduleReservationRelease()" in reserve
-    assert "phoneConnected = true" in listener
-    assert "cancelReservationRelease()" in listener
+    connected_branch = "if (phoneConnected) {\n            cancelReservationRelease()\n        } else {\n            scheduleReservationRelease()\n        }"
+    assert connected_branch in reserve
+
+    connected_index = listener.index("phoneConnected = true")
+    cancel_index = listener.index("cancelReservationRelease()", connected_index)
+    assert connected_index < cancel_index
     assert "scheduleReservationRelease()" in listener
+
+    assert "mainHandler.postDelayed(releaseReservationRunnable!!, RECONNECT_RESERVATION_MS)" in schedule
+    assert "if (!phoneConnected && reservedBy == sourceInstanceId)" in schedule
+    assert "reservedBy = null" in schedule
+    assert "reservedSlotLabel = null" in schedule
