@@ -159,7 +159,7 @@ int aacSampleRateIndex(int sampleRate) {
 }
 
 struct AacAdtsConfig {
-  int profile = 1;  // AAC LC in ADTS is encoded as audioObjectType - 1.
+  int profile = 1;
   int sampleRateIndex = aacSampleRateIndex(kAudioSampleRate);
   int channelConfig = kAudioChannelCount;
 };
@@ -644,9 +644,12 @@ class NativeSender {
 #endif
   }
 
-  bool sendNow(const std::vector<uint8_t> &bytes) {
+  bool sendNow(const std::vector<uint8_t> &bytes, uint64_t generation) {
 #if OPENSTREAM_HAVE_LIBSRT
     std::lock_guard<std::mutex> ioLock(ioMutex_);
+    if (generation != connectionGeneration_.load(std::memory_order_acquire)) {
+      return true;
+    }
     const SRTSOCKET socket = currentSocket();
     if (socket == SRT_INVALID_SOCK) {
       return false;
@@ -673,29 +676,33 @@ class NativeSender {
     return true;
 #else
     (void)bytes;
+    (void)generation;
     return false;
 #endif
   }
 
   bool send(std::vector<uint8_t> bytes) {
 #if OPENSTREAM_HAVE_LIBSRT
-    if (!healthy_.load()) return false;
     const size_t byteCount = bytes.size();
     {
       std::lock_guard<std::mutex> lock(sendQueueMutex_);
-      if (sendWorkerStopping_ ||
+      if (!healthy_.load(std::memory_order_acquire) ||
+          sendWorkerStopping_ ||
           byteCount > kMaximumSendQueueBytes ||
           sendQueueBytes_ > kMaximumSendQueueBytes - byteCount) {
-        healthy_ = false;
-        sendQueue_.clear();
-        sendQueueBytes_ = 0;
-        __android_log_print(
-            ANDROID_LOG_WARN,
-            kTag,
-            "SRT send queue saturated; dropping the session to avoid latency growth");
+        if (healthy_.load(std::memory_order_relaxed)) {
+          healthy_ = false;
+          sendQueue_.clear();
+          sendQueueBytes_ = 0;
+          __android_log_print(
+              ANDROID_LOG_WARN,
+              kTag,
+              "SRT send queue saturated; dropping the session to avoid latency growth");
+        }
         return false;
       }
-      sendQueue_.push_back(std::move(bytes));
+      const uint64_t generation = connectionGeneration_.load(std::memory_order_acquire);
+      sendQueue_.push_back(PendingSend{generation, std::move(bytes)});
       sendQueueBytes_ += byteCount;
     }
     sendQueueWake_.notify_one();
@@ -709,6 +716,7 @@ class NativeSender {
   void disconnect() {
 #if OPENSTREAM_HAVE_LIBSRT
     healthy_ = false;
+    connectionGeneration_.fetch_add(1, std::memory_order_acq_rel);
     {
       std::lock_guard<std::mutex> lock(sendQueueMutex_);
       sendQueue_.clear();
@@ -731,20 +739,25 @@ class NativeSender {
   }
 
  private:
+  struct PendingSend {
+    uint64_t generation;
+    std::vector<uint8_t> bytes;
+  };
+
   void runSendWorker() {
     for (;;) {
-      std::vector<uint8_t> bytes;
+      PendingSend pending{};
       {
         std::unique_lock<std::mutex> lock(sendQueueMutex_);
         sendQueueWake_.wait(lock, [this] {
           return sendWorkerStopping_ || !sendQueue_.empty();
         });
         if (sendWorkerStopping_) return;
-        bytes = std::move(sendQueue_.front());
+        pending = std::move(sendQueue_.front());
         sendQueue_.pop_front();
-        sendQueueBytes_ -= bytes.size();
+        sendQueueBytes_ -= pending.bytes.size();
       }
-      if (!sendNow(bytes)) {
+      if (!sendNow(pending.bytes, pending.generation)) {
         healthy_ = false;
         std::lock_guard<std::mutex> lock(sendQueueMutex_);
         sendQueue_.clear();
@@ -773,7 +786,8 @@ class NativeSender {
   void setSocket(SRTSOCKET socket) {
     std::lock_guard<std::mutex> lock(socketMutex_);
     socket_ = socket;
-    healthy_ = true;
+    connectionGeneration_.fetch_add(1, std::memory_order_acq_rel);
+    healthy_.store(true, std::memory_order_release);
   }
 
   SRTSOCKET takeSocket() {
@@ -832,9 +846,10 @@ class NativeSender {
 #endif
   static constexpr size_t kMaximumSendQueueBytes = 768 * 1024;
   std::atomic<bool> healthy_{false};
+  std::atomic<uint64_t> connectionGeneration_{0};
   std::mutex sendQueueMutex_;
   std::condition_variable sendQueueWake_;
-  std::deque<std::vector<uint8_t>> sendQueue_;
+  std::deque<PendingSend> sendQueue_;
   size_t sendQueueBytes_ = 0;
   bool sendWorkerStopping_ = false;
   std::thread sendWorker_;
