@@ -49,8 +49,8 @@ def test_video_callbacks_are_generation_bound_across_restart():
     output_callback = source[
         source.index("override fun onOutputBufferAvailable") : source.index("override fun onError")
     ]
-    assert "synchronized(callbackLock)" in output_callback
-    assert "if (streamGeneration != generation)" in output_callback
+    callback_critical = _block_after(output_callback, "synchronized(callbackLock)")
+    assert "if (streamGeneration != generation)" in callback_critical
     assert "deliverIfCurrent(generation, accessUnit)" in output_callback
 
     stop_callback = _block_after(stop, "synchronized(callbackLock)")
