@@ -32,7 +32,7 @@ class MediaCodecAudioEncoder(
     private var codec: MediaCodec? = null
     private var audioRecord: AudioRecord? = null
     private var captureThread: Thread? = null
-    @Volatile private var running = false
+    @Volatile private var captureGeneration = 0L
 
     fun start() {
         check(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
@@ -75,22 +75,25 @@ class MediaCodecAudioEncoder(
         audioRecord = recorder
         recorder.startRecording()
 
-        running = true
+        val generation = captureGeneration + 1
+        captureGeneration = generation
         captureThread = Thread({
             Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
             val pcmBuffer = ByteArray(bytesForDurationMs(20))
             var capturedSamples = 0L
             val startPresentationTimeUs = System.nanoTime() / 1000
-            while (running) {
+            while (captureGeneration == generation) {
                 val bytesRead = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     recorder.read(pcmBuffer, 0, pcmBuffer.size, AudioRecord.READ_BLOCKING)
                 } else {
                     @Suppress("DEPRECATION")
                     recorder.read(pcmBuffer, 0, pcmBuffer.size)
                 }
+                if (captureGeneration != generation) break
                 if (bytesRead > 0) {
                     val samplesRead = bytesRead / bytesPerSampleFrame()
                     val inputIndex = encoder.dequeueInputBuffer(10_000)
+                    if (captureGeneration != generation) break
                     if (inputIndex >= 0) {
                         val inputBuffer = encoder.getInputBuffer(inputIndex)
                         if (inputBuffer != null) {
@@ -102,11 +105,13 @@ class MediaCodecAudioEncoder(
                         }
                     }
                     capturedSamples += samplesRead
-                    drainEncoder(encoder)
+                    drainEncoder(encoder, generation)
                 } else if (bytesRead < 0) {
-                    Log.w(TAG, "AudioRecord read failed: $bytesRead")
+                    if (captureGeneration == generation) {
+                        Log.w(TAG, "AudioRecord read failed: $bytesRead")
+                    }
                 } else {
-                    drainEncoder(encoder)
+                    drainEncoder(encoder, generation)
                 }
             }
         }, "OpenStreamAudioCapture").apply {
@@ -116,7 +121,7 @@ class MediaCodecAudioEncoder(
     }
 
     fun stop() {
-        running = false
+        captureGeneration += 1
         val recorder = audioRecord
         audioRecord = null
         runCatching { recorder?.stop() }
@@ -130,15 +135,17 @@ class MediaCodecAudioEncoder(
         runCatching { encoder?.release() }
     }
 
-    private fun drainEncoder(encoder: MediaCodec) {
+    private fun drainEncoder(encoder: MediaCodec, generation: Long) {
         val info = MediaCodec.BufferInfo()
-        while (true) {
+        while (captureGeneration == generation) {
             val outputIndex = encoder.dequeueOutputBuffer(info, 0)
+            if (captureGeneration != generation) break
             if (outputIndex == MediaCodec.INFO_TRY_AGAIN_LATER) break
             if (outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                 // Deliver codec-specific data (AudioSpecificConfig)
                 val newFormat = encoder.outputFormat
                 codecConfigFrom(newFormat)?.let { config ->
+                    if (captureGeneration != generation) return
                     onEncodedAccessUnit(
                         EncodedAccessUnit(
                             data = config,
@@ -154,6 +161,10 @@ class MediaCodecAudioEncoder(
                     buffer.position(info.offset)
                     buffer.limit(info.offset + info.size)
                     buffer.get(bytes)
+                    if (captureGeneration != generation) {
+                        runCatching { encoder.releaseOutputBuffer(outputIndex, false) }
+                        return
+                    }
                     if ((info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
                         onEncodedAccessUnit(
                             EncodedAccessUnit(
