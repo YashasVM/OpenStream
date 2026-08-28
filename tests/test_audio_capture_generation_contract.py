@@ -6,6 +6,20 @@ AUDIO_ENCODER = Path(
 )
 
 
+def _block_after(source: str, marker: str) -> str:
+    start = source.index(marker)
+    brace = source.index("{", start)
+    depth = 0
+    for index in range(brace, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[brace + 1 : index]
+    raise AssertionError(f"Unclosed block after {marker!r}")
+
+
 def test_audio_capture_generation_serializes_invalidation_with_delivery():
     source = AUDIO_ENCODER.read_text(encoding="utf-8")
 
@@ -16,21 +30,22 @@ def test_audio_capture_generation_serializes_invalidation_with_delivery():
         source.index("private fun deliverIfCurrent") : source.index("private fun codecConfigFrom")
     ]
 
+    assert "private val lifecycleLock = Any()" in source
     assert "private val deliveryLock = Any()" in source
-    assert "val generation = synchronized(deliveryLock)" in start
-    assert "captureGeneration = nextGeneration" in start
+    assert "fun start() = synchronized(lifecycleLock)" in start
+    assert "fun stop() = synchronized(lifecycleLock)" in stop
+
+    start_delivery = _block_after(start, "synchronized(deliveryLock)")
+    stop_delivery = _block_after(stop, "synchronized(deliveryLock)")
+    callback_delivery = _block_after(delivery, "synchronized(deliveryLock)")
+
+    assert "captureGeneration = nextGeneration" in start_delivery
+    assert "captureGeneration += 1" in stop_delivery
+    assert "if (captureGeneration != generation) return false" in callback_delivery
+    assert "onEncodedAccessUnit(accessUnit)" in callback_delivery
+
     assert "while (captureGeneration == generation)" in start
     assert "drainEncoder(encoder, generation)" in start
-
-    stop_lock = stop.index("synchronized(deliveryLock)")
-    invalidation = stop.index("captureGeneration += 1")
-    assert stop_lock < invalidation
-
-    assert "private fun deliverIfCurrent(generation: Long, accessUnit: EncodedAccessUnit): Boolean" in delivery
-    delivery_lock = delivery.index("synchronized(deliveryLock)")
-    stale_guard = delivery.index("if (captureGeneration != generation) return false")
-    callback = delivery.index("onEncodedAccessUnit(accessUnit)")
-    assert delivery_lock < stale_guard < callback
 
     # Every encoded callback path is forced through the serialized helper, so stop()
     # cannot invalidate the old generation and return while a stale callback is
