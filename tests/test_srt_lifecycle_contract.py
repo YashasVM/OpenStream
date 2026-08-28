@@ -4,18 +4,36 @@ from pathlib import Path
 SOURCE = Path("android/app/src/main/cpp/openstream_srt.cpp")
 
 
-def test_srt_runtime_lifetime_is_owned_and_balanced():
+def test_srt_runtime_lifetime_is_process_scoped_and_disconnect_safe():
     source = SOURCE.read_text(encoding="utf-8")
 
-    # connect() and listen() each take one libsrt runtime reference only after
-    # startup succeeds; disconnect() owns the matching cleanup exactly once.
-    assert source.count("srtStarted_ = true;") == 2
-    assert "bool srtStarted_ = false;" in source
-    assert "if (srtStarted_) {\n      srt_cleanup();\n      srtStarted_ = false;\n    }" in source
+    # NativeSender owns one libsrt runtime reference for its full lifetime.
+    # connect()/listen() must never acquire or release that global reference,
+    # so disconnect cannot tear the runtime down while setup is in progress.
+    constructor = source[source.index("NativeSender()") : source.index("bool connect(")]
+    connect = source[source.index("bool connect(") : source.index("bool listen(")]
+    listen = source[source.index("bool listen(") : source.index("bool sendNow(")]
+    disconnect = source[source.index("void disconnect()") : source.index("private:", source.index("void disconnect()"))]
 
-    # Failure paths after a successful startup must funnel through disconnect(),
-    # rather than only closing the socket and leaking the runtime reference.
-    assert "Could not create SRT socket\");\n      disconnect();\n      return false;" in source
-    assert "Could not resolve SRT host\");\n      disconnect();\n      return false;" in source
-    assert "SRT connect failed: %s\", srt_getlasterror_str());\n      disconnect();\n      return false;" in source
-    assert "Could not create SRT listener socket\");\n      disconnect();\n      return false;" in source
+    assert "srt_startup()" in constructor
+    assert "srtStarted_ = srt_startup() == 0;" in constructor
+    assert "srt_cleanup();" in constructor
+    assert "srt_startup()" not in connect
+    assert "srt_startup()" not in listen
+    assert "srt_cleanup()" not in connect
+    assert "srt_cleanup()" not in listen
+    assert "srt_cleanup()" not in disconnect
+
+    # Connection attempts still fail cleanly if process-level startup failed.
+    assert connect.count("if (!srtStarted_)") == 1
+    assert listen.count("if (!srtStarted_)") == 1
+
+    # Post-startup failures close their sockets/session state via disconnect,
+    # without changing the process-scoped libsrt runtime ownership.
+    assert "Could not create SRT socket\");\n      disconnect();\n      return false;" in connect
+    assert "Could not resolve SRT host\");\n      disconnect();\n      return false;" in connect
+    assert "SRT connect failed: %s\", srt_getlasterror_str());\n      disconnect();\n      return false;" in connect
+    assert "Could not create SRT listener socket\");\n      disconnect();\n      return false;" in listen
+    assert "SRT bind failed: %s\", srt_getlasterror_str());\n      disconnect();\n      return false;" in listen
+    assert "SRT listen failed: %s\", srt_getlasterror_str());\n      disconnect();\n      return false;" in listen
+    assert "SRT accept failed: %s\", srt_getlasterror_str());\n      disconnect();\n      return false;" in listen
