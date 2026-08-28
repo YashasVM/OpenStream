@@ -49,13 +49,17 @@ class MediaCodecVideoEncoder(
     private val thread = HandlerThread("OpenStreamEncoder")
     private lateinit var handler: Handler
     private var surface: Surface? = null
+    @Volatile private var streamGeneration = 0L
+    private val lifecycleLock = Any()
+    private val deliveryLock = Any()
+    private val callbackLock = Any()
 
     val codecName: String
         get() = mimeType
 
     fun inputSurface(): Surface = checkNotNull(surface) { "Encoder input surface is not ready" }
 
-    fun start() {
+    fun start() = synchronized(lifecycleLock) {
         // Re-evaluate the codec at every start because bitrate can change per OBS reservation
         // and vendor codec availability may change after a codec failure/restart.
         if (codec != null) {
@@ -102,37 +106,50 @@ class MediaCodecVideoEncoder(
             thread.start()
         }
         handler = Handler(thread.looper)
+        val generation = synchronized(deliveryLock) {
+            val nextGeneration = streamGeneration + 1
+            streamGeneration = nextGeneration
+            nextGeneration
+        }
         encoder.setCallback(object : MediaCodec.Callback() {
             override fun onInputBufferAvailable(codec: MediaCodec, index: Int) = Unit
 
             override fun onOutputBufferAvailable(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
-                val buffer: ByteBuffer = codec.getOutputBuffer(index) ?: run {
-                    codec.releaseOutputBuffer(index, false)
-                    return
-                }
-                if (info.size <= 0) {
-                    codec.releaseOutputBuffer(index, false)
-                    return
-                }
-                val bytes = ByteArray(info.size)
-                buffer.position(info.offset)
-                buffer.limit(info.offset + info.size)
-                buffer.get(bytes)
-                onEncodedAccessUnit(
+                val accessUnit = synchronized(callbackLock) {
+                    if (streamGeneration != generation) {
+                        runCatching { codec.releaseOutputBuffer(index, false) }
+                        return@synchronized null
+                    }
+                    val buffer: ByteBuffer = codec.getOutputBuffer(index) ?: run {
+                        runCatching { codec.releaseOutputBuffer(index, false) }
+                        return@synchronized null
+                    }
+                    if (info.size <= 0) {
+                        runCatching { codec.releaseOutputBuffer(index, false) }
+                        return@synchronized null
+                    }
+                    val bytes = ByteArray(info.size)
+                    buffer.position(info.offset)
+                    buffer.limit(info.offset + info.size)
+                    buffer.get(bytes)
+                    runCatching { codec.releaseOutputBuffer(index, false) }
                     EncodedAccessUnit(
                         data = bytes,
                         presentationTimeUs = info.presentationTimeUs,
                         flags = info.flags,
                     )
-                )
-                codec.releaseOutputBuffer(index, false)
+                } ?: return
+                deliverIfCurrent(generation, accessUnit)
             }
 
             override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
-                Log.e("OpenStreamEncoder", "MediaCodec encoder error", e)
+                if (streamGeneration == generation) {
+                    Log.e("OpenStreamEncoder", "MediaCodec encoder error", e)
+                }
             }
 
             override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
+                if (streamGeneration != generation) return
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
                     format.containsKey(MediaFormat.KEY_LATENCY)
                 ) {
@@ -142,7 +159,8 @@ class MediaCodecVideoEncoder(
                     )
                 }
                 codecConfigFrom(format)?.let { config ->
-                    onEncodedAccessUnit(
+                    deliverIfCurrent(
+                        generation,
                         EncodedAccessUnit(
                             data = config,
                             presentationTimeUs = 0,
@@ -155,19 +173,39 @@ class MediaCodecVideoEncoder(
         try {
             encoder.start()
         } catch (error: Throwable) {
+            synchronized(deliveryLock) {
+                if (streamGeneration == generation) {
+                    streamGeneration += 1
+                }
+            }
             codec = null
             surface = null
-            runCatching { encoder.release() }
+            synchronized(callbackLock) {
+                runCatching { encoder.release() }
+            }
             throw error
         }
     }
 
-    fun stop() {
-        val encoder = codec ?: return
+    fun stop() = synchronized(lifecycleLock) {
+        synchronized(deliveryLock) {
+            streamGeneration += 1
+        }
+        val encoder = codec ?: return@synchronized
         codec = null
         surface = null
-        runCatching { encoder.stop() }
-        runCatching { encoder.release() }
+        synchronized(callbackLock) {
+            runCatching { encoder.stop() }
+            runCatching { encoder.release() }
+        }
+    }
+
+    private fun deliverIfCurrent(generation: Long, accessUnit: EncodedAccessUnit): Boolean {
+        synchronized(deliveryLock) {
+            if (streamGeneration != generation) return false
+            onEncodedAccessUnit(accessUnit)
+            return true
+        }
     }
 
     private fun chooseEncoder(
