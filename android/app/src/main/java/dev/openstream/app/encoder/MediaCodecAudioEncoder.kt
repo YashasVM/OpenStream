@@ -33,6 +33,7 @@ class MediaCodecAudioEncoder(
     private var audioRecord: AudioRecord? = null
     private var captureThread: Thread? = null
     @Volatile private var captureGeneration = 0L
+    private val deliveryLock = Any()
 
     fun start() {
         check(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
@@ -75,8 +76,11 @@ class MediaCodecAudioEncoder(
         audioRecord = recorder
         recorder.startRecording()
 
-        val generation = captureGeneration + 1
-        captureGeneration = generation
+        val generation = synchronized(deliveryLock) {
+            val nextGeneration = captureGeneration + 1
+            captureGeneration = nextGeneration
+            nextGeneration
+        }
         captureThread = Thread({
             Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
             val pcmBuffer = ByteArray(bytesForDurationMs(20))
@@ -121,7 +125,9 @@ class MediaCodecAudioEncoder(
     }
 
     fun stop() {
-        captureGeneration += 1
+        synchronized(deliveryLock) {
+            captureGeneration += 1
+        }
         val recorder = audioRecord
         audioRecord = null
         runCatching { recorder?.stop() }
@@ -145,14 +151,12 @@ class MediaCodecAudioEncoder(
                 // Deliver codec-specific data (AudioSpecificConfig)
                 val newFormat = encoder.outputFormat
                 codecConfigFrom(newFormat)?.let { config ->
-                    if (captureGeneration != generation) return
-                    onEncodedAccessUnit(
-                        EncodedAccessUnit(
-                            data = config,
-                            presentationTimeUs = 0,
-                            flags = MediaCodec.BUFFER_FLAG_CODEC_CONFIG,
-                        )
+                    val accessUnit = EncodedAccessUnit(
+                        data = config,
+                        presentationTimeUs = 0,
+                        flags = MediaCodec.BUFFER_FLAG_CODEC_CONFIG,
                     )
+                    if (!deliverIfCurrent(generation, accessUnit)) return
                 }
             } else if (outputIndex >= 0) {
                 val buffer: ByteBuffer? = encoder.getOutputBuffer(outputIndex)
@@ -165,28 +169,36 @@ class MediaCodecAudioEncoder(
                         runCatching { encoder.releaseOutputBuffer(outputIndex, false) }
                         return
                     }
-                    if ((info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
-                        onEncodedAccessUnit(
-                            EncodedAccessUnit(
-                                data = bytes,
-                                presentationTimeUs = 0,
-                                flags = MediaCodec.BUFFER_FLAG_CODEC_CONFIG,
-                            )
+                    val accessUnit = if ((info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+                        EncodedAccessUnit(
+                            data = bytes,
+                            presentationTimeUs = 0,
+                            flags = MediaCodec.BUFFER_FLAG_CODEC_CONFIG,
                         )
                     } else {
-                        onEncodedAccessUnit(
-                            EncodedAccessUnit(
-                                data = bytes,
-                                presentationTimeUs = info.presentationTimeUs,
-                                flags = info.flags,
-                            )
+                        EncodedAccessUnit(
+                            data = bytes,
+                            presentationTimeUs = info.presentationTimeUs,
+                            flags = info.flags,
                         )
+                    }
+                    if (!deliverIfCurrent(generation, accessUnit)) {
+                        runCatching { encoder.releaseOutputBuffer(outputIndex, false) }
+                        return
                     }
                 }
                 encoder.releaseOutputBuffer(outputIndex, false)
             } else {
                 break
             }
+        }
+    }
+
+    private fun deliverIfCurrent(generation: Long, accessUnit: EncodedAccessUnit): Boolean {
+        synchronized(deliveryLock) {
+            if (captureGeneration != generation) return false
+            onEncodedAccessUnit(accessUnit)
+            return true
         }
     }
 
