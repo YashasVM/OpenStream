@@ -33,9 +33,10 @@ class MediaCodecAudioEncoder(
     private var audioRecord: AudioRecord? = null
     private var captureThread: Thread? = null
     @Volatile private var captureGeneration = 0L
+    private val lifecycleLock = Any()
     private val deliveryLock = Any()
 
-    fun start() {
+    fun start() = synchronized(lifecycleLock) {
         check(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
             "Microphone permission is not granted"
         }
@@ -124,7 +125,7 @@ class MediaCodecAudioEncoder(
         }
     }
 
-    fun stop() {
+    fun stop() = synchronized(lifecycleLock) {
         synchronized(deliveryLock) {
             captureGeneration += 1
         }
@@ -148,7 +149,6 @@ class MediaCodecAudioEncoder(
             if (captureGeneration != generation) break
             if (outputIndex == MediaCodec.INFO_TRY_AGAIN_LATER) break
             if (outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                // Deliver codec-specific data (AudioSpecificConfig)
                 val newFormat = encoder.outputFormat
                 codecConfigFrom(newFormat)?.let { config ->
                     val accessUnit = EncodedAccessUnit(
