@@ -10,14 +10,19 @@ def test_srt_runtime_lifetime_is_process_scoped_and_disconnect_safe():
     # NativeSender owns one libsrt runtime reference for its full lifetime.
     # connect()/listen() must never acquire or release that global reference,
     # so disconnect cannot tear the runtime down while setup is in progress.
-    constructor = source[source.index("NativeSender()") : source.index("bool connect(")]
-    connect = source[source.index("bool connect(") : source.index("bool listen(")]
+    constructor_start = source.index("NativeSender()")
+    destructor_start = source.index("~NativeSender()", constructor_start)
+    connect_start = source.index("bool connect(")
+    constructor = source[constructor_start:destructor_start]
+    destructor = source[destructor_start:connect_start]
+    connect = source[connect_start : source.index("bool listen(")]
     listen = source[source.index("bool listen(") : source.index("bool sendNow(")]
     disconnect = source[source.index("void disconnect()") : source.index("private:", source.index("void disconnect()"))]
 
     assert "srt_startup()" in constructor
     assert "srtStarted_ = srt_startup() == 0;" in constructor
-    assert "srt_cleanup();" in constructor
+    assert "srt_cleanup()" not in constructor
+    assert "srt_cleanup();" in destructor
     assert "srt_startup()" not in connect
     assert "srt_startup()" not in listen
     assert "srt_cleanup()" not in connect
