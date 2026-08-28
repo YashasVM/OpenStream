@@ -38,13 +38,22 @@ class CameraControlServer(
 ) {
     private val running = AtomicBoolean(false)
     private val pendingRestart = AtomicBoolean(false)
+    private val lifecycleLock = Any()
+    private var desiredRunning = false
     @Volatile private var serverSocket: ServerSocket? = null
     @Volatile private var activeClient: Socket? = null
     @Volatile private var worker: Thread? = null
     @Volatile private var activeReservationToken: String? = null
 
     fun start() {
-        if (running.get()) return
+        synchronized(lifecycleLock) {
+            desiredRunning = true
+            startLocked()
+        }
+    }
+
+    private fun startLocked() {
+        if (!desiredRunning || running.get()) return
         if (worker?.isAlive == true) {
             pendingRestart.set(true)
             Log.w(TAG, "Control server worker is still stopping; restart queued")
@@ -59,19 +68,23 @@ class CameraControlServer(
     }
 
     fun stop() {
-        pendingRestart.set(false)
-        running.set(false)
-        runCatching { serverSocket?.close() }
-        runCatching { activeClient?.close() }
-        val thread = worker
-        thread?.interrupt()
+        val thread = synchronized(lifecycleLock) {
+            desiredRunning = false
+            pendingRestart.set(false)
+            running.set(false)
+            runCatching { serverSocket?.close() }
+            runCatching { activeClient?.close() }
+            worker.also { it?.interrupt() }
+        }
         if (thread != null && thread !== Thread.currentThread()) {
             runCatching { thread.join(STOP_TIMEOUT_MS) }
                 .onFailure { Thread.currentThread().interrupt() }
         }
-        if (worker === thread && thread?.isAlive != true) worker = null
-        serverSocket = null
-        activeClient = null
+        synchronized(lifecycleLock) {
+            if (worker === thread && thread?.isAlive != true) worker = null
+            serverSocket = null
+            activeClient = null
+        }
     }
 
     private fun run() {
@@ -103,13 +116,16 @@ class CameraControlServer(
             if (running.get()) Log.e(TAG, "Control server error", e)
         } finally {
             runCatching { openedSocket?.close() }
-            if (serverSocket === openedSocket) serverSocket = null
-            running.set(false)
-            if (worker === Thread.currentThread()) {
-                worker = null
-            }
-            if (pendingRestart.compareAndSet(true, false)) {
-                start()
+            synchronized(lifecycleLock) {
+                if (serverSocket === openedSocket) serverSocket = null
+                running.set(false)
+                if (worker === Thread.currentThread()) {
+                    worker = null
+                }
+                val restart = pendingRestart.getAndSet(false)
+                if (restart && desiredRunning) {
+                    startLocked()
+                }
             }
         }
     }
