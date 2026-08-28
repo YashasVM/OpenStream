@@ -69,9 +69,13 @@ class MediaCodecAudioEncoder(
             sampleRate, channelConfig, AudioFormat.ENCODING_PCM_16BIT
         )
         check(minBufferSize > 0) { "AudioRecord does not support $sampleRate Hz / $channelCount ch PCM16" }
-        // Keep capture buffering below 80 ms. READ_BLOCKING applies backpressure
-        // once this capacity is reached instead of allowing audio to trail video.
-        val bufferSize = max(minBufferSize * 2, bytesForDurationMs(MAX_CAPTURE_BUFFER_MS))
+        // Target at most 80 ms of capture buffering where the device minimum allows it.
+        // READ_BLOCKING applies backpressure once this capacity is reached instead of allowing audio to trail video.
+        val targetBufferSize = bytesForDurationMs(MAX_CAPTURE_BUFFER_MS)
+        if (minBufferSize > targetBufferSize) {
+            Log.w(TAG, "AudioRecord minimum buffer exceeds the ${MAX_CAPTURE_BUFFER_MS} ms latency target: $minBufferSize bytes")
+        }
+        val bufferSize = max(minBufferSize, targetBufferSize)
 
         val recorder = createRecorder(channelConfig, bufferSize)
         audioRecord = recorder
