@@ -35,10 +35,29 @@ int main() {
     }
     check(!client.post([] {}));
     release.set_value();
-    bool urgent_ran = false;
-    check(client.post_urgent([&] { urgent_ran = true; }));
+
+    int urgent_runs = 0;
+    check(client.post_urgent([&] {
+      ++urgent_runs;
+      return true;
+    }));
+    check(client.post_urgent([&] {
+      ++urgent_runs;
+      return true;
+    }));
     client.stop();
-    check(urgent_ran);
+    check(urgent_runs == 2);
     check(!client.post([] {}));
+  }
+
+  {
+    AsyncControlClient client;
+    int attempts = 0;
+    check(client.post_urgent([&] {
+      ++attempts;
+      return attempts >= 3;
+    }));
+    client.stop();
+    check(attempts == 3);
   }
 }

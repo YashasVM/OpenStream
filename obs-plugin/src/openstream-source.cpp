@@ -989,14 +989,6 @@ bool reserve_phone(OpenStreamSource *ctx, PhoneDevice &phone) {
   return send_control_command(phone.host, phone.control_port, "/reserve", body.str());
 }
 
-void release_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
-  if (phone.reservation_token.empty()) return;
-  std::ostringstream body;
-  body << "{\"sourceInstanceId\":\"" << json_escape(ctx->instance_id) << "\","
-       << "\"reservationToken\":\"" << json_escape(phone.reservation_token) << "\"}";
-  send_control_command(phone.host, phone.control_port, "/release", body.str());
-}
-
 void queue_release_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
   if (phone.reservation_token.empty()) return;
   const auto client = ctx->camera_controls;
@@ -1009,13 +1001,15 @@ void queue_release_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
         const std::string body =
             "{\"sourceInstanceId\":\"" + json_escape(source_instance_id) +
             "\",\"reservationToken\":\"" + json_escape(reservation_token) + "\"}";
-        if (!send_control_command(host, port, "/release", body)) {
-          blog(LOG_WARNING, "[OpenStream] Camera reservation release failed");
+        if (send_control_command(host, port, "/release", body)) {
+          return true;
         }
+        blog(LOG_WARNING, "[OpenStream] Camera reservation release failed; retrying");
+        return false;
       });
   if (!queued) {
     blog(LOG_WARNING,
-         "[OpenStream] Camera reservation release dropped: control queue is full or stopping");
+         "[OpenStream] Camera reservation release could not be queued: control executor stopped");
   }
 }
 
@@ -1717,7 +1711,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
       continue;
     }
     if (reserved_phone.has_value()) {
-      release_phone(ctx, *reserved_phone);
+      queue_release_phone(ctx, *reserved_phone);
     }
     set_active_phone(ctx, std::nullopt);
   }
