@@ -750,6 +750,19 @@ class NativeSender {
     std::vector<uint8_t> bytes;
   };
 
+  void markGenerationFailed(uint64_t generation) {
+#if OPENSTREAM_HAVE_LIBSRT
+    std::lock_guard<std::mutex> socketLock(socketMutex_);
+    if (generation != connectionGeneration_.load(std::memory_order_acquire)) {
+      return;
+    }
+#endif
+    healthy_ = false;
+    std::lock_guard<std::mutex> queueLock(sendQueueMutex_);
+    sendQueue_.clear();
+    sendQueueBytes_ = 0;
+  }
+
   void runSendWorker() {
     for (;;) {
       PendingSend pending{};
@@ -764,10 +777,7 @@ class NativeSender {
         sendQueueBytes_ -= pending.bytes.size();
       }
       if (!sendNow(pending.bytes, pending.generation)) {
-        healthy_ = false;
-        std::lock_guard<std::mutex> lock(sendQueueMutex_);
-        sendQueue_.clear();
-        sendQueueBytes_ = 0;
+        markGenerationFailed(pending.generation);
       }
     }
   }
