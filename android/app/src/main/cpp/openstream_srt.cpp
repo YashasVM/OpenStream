@@ -295,18 +295,16 @@ class MpegTsMuxer {
     std::vector<uint8_t> section;
     section.reserve(27);
     section.push_back(0x02);
-    append16(section, 0xb000 | 23);  // section_length: 23 = 5 + 5 (video) + 5 (audio) + 4 (CRC) + 4 (header)
+    append16(section, 0xb000 | 23);
     append16(section, kProgramNumber);
     section.push_back(0xc1);
     section.push_back(0x00);
     section.push_back(0x00);
     append16(section, 0xe000 | kVideoPid);
     append16(section, 0xf000);
-    // Video elementary stream
     section.push_back(streamType());
     append16(section, 0xe000 | kVideoPid);
     append16(section, 0xf000);
-    // Audio elementary stream (AAC = 0x0f)
     section.push_back(0x0f);
     append16(section, 0xe000 | kAudioPid);
     append16(section, 0xf000);
@@ -394,7 +392,6 @@ class MpegTsMuxer {
                                            int64_t presentationTimeUs) {
     std::vector<uint8_t> output;
     output.reserve(estimatePacketizedSize(accessUnit.size() + 32) + kTableBytes);
-    // Include tables periodically for audio too
     if (audioPacketIndex_ % 50 == 0) {
       writePat(output);
       writePmt(output);
@@ -402,7 +399,6 @@ class MpegTsMuxer {
 
     const std::vector<uint8_t> adtsFrame = makeAdtsFrame(accessUnit, audioSpecificConfig);
 
-    // Build audio PES (stream ID 0xC0 = audio stream 0)
     std::vector<uint8_t> pes;
     const uint64_t pts = pts90k(presentationTimeUs);
     const size_t pesPayloadLength = adtsFrame.size() + 8;
@@ -508,10 +504,12 @@ class NativeSender {
       logError("libsrt startup failed");
       return false;
     }
+    srtStarted_ = true;
 
     const SRTSOCKET socket = srt_create_socket();
     if (socket == SRT_INVALID_SOCK) {
       logError("Could not create SRT socket");
+      disconnect();
       return false;
     }
     setSocket(socket);
@@ -519,8 +517,6 @@ class NativeSender {
     int yes = 1;
     int transportType = SRTT_LIVE;
     int payloadSize = 188 * 7;
-    // Never let a congested Wi-Fi link stall MediaCodec callbacks. SRT's
-    // live late-packet drop recovers latency instead of growing it.
     int sendTimeoutMs = 120;
     int tooLatePacketDrop = 1;
     int connectTimeoutMs = 2000;
@@ -542,7 +538,7 @@ class NativeSender {
     addrinfo *result = nullptr;
     if (getaddrinfo(parsed->host.c_str(), parsed->port.c_str(), &hints, &result) != 0) {
       logError("Could not resolve SRT host");
-      closeSocket(socket);
+      disconnect();
       return false;
     }
 
@@ -557,7 +553,7 @@ class NativeSender {
 
     if (!connected) {
       __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT connect failed: %s", srt_getlasterror_str());
-      closeSocket(socket);
+      disconnect();
       return false;
     }
 
@@ -582,10 +578,12 @@ class NativeSender {
       logError("libsrt startup failed");
       return false;
     }
+    srtStarted_ = true;
 
     const SRTSOCKET listenerSocket = srt_create_socket();
     if (listenerSocket == SRT_INVALID_SOCK) {
       logError("Could not create SRT listener socket");
+      disconnect();
       return false;
     }
     setListenerSocket(listenerSocket);
@@ -648,9 +646,6 @@ class NativeSender {
 
   bool sendNow(const std::vector<uint8_t> &bytes) {
 #if OPENSTREAM_HAVE_LIBSRT
-    // Closing an SRT socket or tearing down libsrt while the send worker is
-    // inside srt_sendmsg is unsafe. Serialize the whole send with teardown,
-    // not just the socket-handle lookup.
     std::lock_guard<std::mutex> ioLock(ioMutex_);
     const SRTSOCKET socket = currentSocket();
     if (socket == SRT_INVALID_SOCK) {
@@ -688,8 +683,6 @@ class NativeSender {
     const size_t byteCount = bytes.size();
     {
       std::lock_guard<std::mutex> lock(sendQueueMutex_);
-      // This is a byte-bounded queue, not a packet-count guess: one large
-      // keyframe cannot turn a short receiver stall into unbounded latency.
       if (sendWorkerStopping_ ||
           byteCount > kMaximumSendQueueBytes ||
           sendQueueBytes_ > kMaximumSendQueueBytes - byteCount) {
@@ -730,7 +723,10 @@ class NativeSender {
     if (socket != SRT_INVALID_SOCK) {
       srt_close(socket);
     }
-    srt_cleanup();
+    if (srtStarted_) {
+      srt_cleanup();
+      srtStarted_ = false;
+    }
 #endif
   }
 
@@ -832,6 +828,7 @@ class NativeSender {
   std::mutex ioMutex_;
   SRTSOCKET socket_ = SRT_INVALID_SOCK;
   SRTSOCKET listener_socket_ = SRT_INVALID_SOCK;
+  bool srtStarted_ = false;
 #endif
   static constexpr size_t kMaximumSendQueueBytes = 768 * 1024;
   std::atomic<bool> healthy_{false};
