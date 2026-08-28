@@ -95,6 +95,7 @@ class MainActivity : Activity() {
     private var liveDotAnimator: ObjectAnimator? = null
     private var currentPort: Int = ConnectionTarget.DEFAULT_PORT
     private var releaseReservationRunnable: Runnable? = null
+    private var reservationGeneration = 0L
     private var lensRestartRunnable: Runnable? = null
     private var pendingConnectAfterSettings = false
     private var currentDevices: List<DiscoveredObsDevice> = emptyList()
@@ -876,6 +877,7 @@ class MainActivity : Activity() {
         val currentReservation = reservedBy
         if (phoneConnected && currentReservation != sourceInstanceId) return false
         useStreamBitrate(bitrateMbps)
+        reservationGeneration += 1
         reservedBy = sourceInstanceId
         reservedSlotLabel = slotLabel.ifBlank { reservedSlotLabel }
         if (phoneConnected) {
@@ -905,10 +907,14 @@ class MainActivity : Activity() {
     @Synchronized
     private fun scheduleReservationRelease() {
         val sourceInstanceId = reservedBy ?: return
+        val generation = reservationGeneration
         cancelReservationRelease()
         releaseReservationRunnable = Runnable {
             synchronized(this) {
-                if (!phoneConnected && reservedBy == sourceInstanceId) {
+                if (!phoneConnected &&
+                    reservedBy == sourceInstanceId &&
+                    reservationGeneration == generation
+                ) {
                     reservedBy = null
                     reservedSlotLabel = null
                 }
