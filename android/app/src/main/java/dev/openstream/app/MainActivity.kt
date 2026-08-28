@@ -875,10 +875,14 @@ class MainActivity : Activity() {
     ): Boolean {
         val currentReservation = reservedBy
         if (phoneConnected && currentReservation != sourceInstanceId) return false
-        cancelReservationRelease()
         useStreamBitrate(bitrateMbps)
         reservedBy = sourceInstanceId
         reservedSlotLabel = slotLabel.ifBlank { reservedSlotLabel }
+        if (phoneConnected) {
+            cancelReservationRelease()
+        } else {
+            scheduleReservationRelease()
+        }
         return true
     }
 
