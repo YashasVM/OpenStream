@@ -484,11 +484,25 @@ std::optional<SrtUrl> parseSrtUrl(const std::string &url) {
 
 class NativeSender {
  public:
-  NativeSender() : sendWorker_(&NativeSender::runSendWorker, this) {}
+  NativeSender() {
+#if OPENSTREAM_HAVE_LIBSRT
+    srtStarted_ = srt_startup() == 0;
+    if (!srtStarted_) {
+      logError("libsrt startup failed");
+    }
+#endif
+    sendWorker_ = std::thread(&NativeSender::runSendWorker, this);
+  }
 
   ~NativeSender() {
     stopSendWorker();
     disconnect();
+#if OPENSTREAM_HAVE_LIBSRT
+    if (srtStarted_) {
+      srt_cleanup();
+      srtStarted_ = false;
+    }
+#endif
   }
 
   bool connect(const std::string &url) {
@@ -499,12 +513,10 @@ class NativeSender {
       logError("Invalid SRT URL");
       return false;
     }
-
-    if (srt_startup() != 0) {
-      logError("libsrt startup failed");
+    if (!srtStarted_) {
+      logError("libsrt runtime is unavailable");
       return false;
     }
-    srtStarted_ = true;
 
     const SRTSOCKET socket = srt_create_socket();
     if (socket == SRT_INVALID_SOCK) {
@@ -573,12 +585,10 @@ class NativeSender {
       logError("Invalid SRT listener URL");
       return false;
     }
-
-    if (srt_startup() != 0) {
-      logError("libsrt startup failed");
+    if (!srtStarted_) {
+      logError("libsrt runtime is unavailable");
       return false;
     }
-    srtStarted_ = true;
 
     const SRTSOCKET listenerSocket = srt_create_socket();
     if (listenerSocket == SRT_INVALID_SOCK) {
@@ -730,10 +740,6 @@ class NativeSender {
     }
     if (socket != SRT_INVALID_SOCK) {
       srt_close(socket);
-    }
-    if (srtStarted_) {
-      srt_cleanup();
-      srtStarted_ = false;
     }
 #endif
   }
