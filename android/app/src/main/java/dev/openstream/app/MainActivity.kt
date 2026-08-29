@@ -328,10 +328,7 @@ class MainActivity : Activity() {
         }
 
         // Tap the screen-off overlay to re-enable display
-        screenOffOverlay.setOnTouchListener { _, _ ->
-            toggleDisplayOff()
-            true
-        }
+        screenOffOverlay.setOnClickListener { toggleDisplayOff() }
     }
 
     private fun createVideoEncoder(bitrate: Int): MediaCodecVideoEncoder {
