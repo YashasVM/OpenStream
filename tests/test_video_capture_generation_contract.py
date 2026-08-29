@@ -87,8 +87,9 @@ def test_video_encoder_callback_thread_is_reaped_on_stop_and_failed_start():
     assert "stopCallbackThread()" in failed_start
     assert failed_start.index("stopCallbackThread()") < failed_start.index("throw error")
     assert "val encoder = codec" in stop
-    assert "stopCallbackThread()" in stop
-    assert "codec ?: return" not in stop
+    encoder_cleanup = _block_after(stop, "if (encoder != null)")
+    assert "stopCallbackThread()" not in encoder_cleanup
+    assert stop.index("stopCallbackThread()") > stop.index("if (encoder != null)")
 
     assert "callbackThread = null" in cleanup
     assert "thread.quitSafely()" in cleanup
