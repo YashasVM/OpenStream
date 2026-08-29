@@ -60,17 +60,38 @@ def test_open_failures_do_not_crash_and_permission_revocation_does_not_retry():
     assert "watchForCameraAvailability(desiredId)" in generic_block
 
 
-def test_capture_session_sync_failure_recovers_only_current_camera():
+def test_capture_session_failures_recover_only_current_camera():
     create_session = _block_after(SOURCE, "private fun createSession()")
     assert "catch (error: IllegalStateException)" in create_session
     assert "catch (error: CameraAccessException)" in create_session
-    assert create_session.count("recoverFromSessionCreationFailure(device, generation, error)") == 2
+    assert create_session.count(
+        'recoverFromSessionFailure(device, generation, "Could not create camera capture session", error)'
+    ) == 2
 
-    recovery = _block_after(
-        SOURCE,
-        "private fun recoverFromSessionCreationFailure(device: CameraDevice, generation: Long, error: Exception)",
+    configured = _block_after(
+        create_session,
+        "override fun onConfigured(captureSession: CameraCaptureSession)",
+    )
+    startup = _block_after(configured, "runCatching")
+    assert "device.createCaptureRequest(template)" in startup
+    assert "captureSession.setRepeatingRequest(request, null, handler)" in startup
+    failure = _block_after(configured, ".onFailure { error ->")
+    assert "sessionGeneration.get() == generation && camera === device" in failure
+    assert "recoverFromSessionFailure(" in failure
+    assert '"Could not start camera repeating request"' in failure
+
+    configure_failed = _block_after(
+        create_session,
+        "override fun onConfigureFailed(captureSession: CameraCaptureSession)",
     )
     guard = "sessionGeneration.get() != generation || camera !== device"
+    assert guard in configure_failed
+    assert configure_failed.index("captureSession.close()") < configure_failed.index(
+        "recoverFromSessionFailure("
+    )
+    assert '"Capture session configuration failed"' in configure_failed
+
+    recovery = _block_after(SOURCE, "private fun recoverFromSessionFailure(")
     assert guard in recovery
     assert recovery.index(guard) < recovery.index("closeCamera()")
     assert recovery.index("closeCamera()") < recovery.index("watchForCameraAvailability(cameraId)")
