@@ -27,7 +27,7 @@ def test_video_callbacks_are_generation_bound_across_restart():
     source = VIDEO_ENCODER.read_text(encoding="utf-8")
 
     start = source[source.index("fun start()") : source.index("fun stop()")]
-    stop = source[source.index("fun stop()") : source.index("private fun deliverIfCurrent")]
+    stop = source[source.index("fun stop()") : source.index("private fun stopCallbackThread")]
     delivery = source[
         source.index("private fun deliverIfCurrent") : source.index("private fun chooseEncoder")
     ]
@@ -65,6 +65,35 @@ def test_video_callbacks_are_generation_bound_across_restart():
     ]
     assert "if (streamGeneration != generation) return" in format_callback
     assert "deliverIfCurrent(" in format_callback
+
+
+def test_video_encoder_callback_thread_is_reaped_on_stop_and_failed_start():
+    source = VIDEO_ENCODER.read_text(encoding="utf-8")
+    start = source[source.index("fun start()") : source.index("fun stop()")]
+    stop = source[source.index("fun stop()") : source.index("private fun stopCallbackThread")]
+    cleanup = source[
+        source.index("private fun stopCallbackThread") : source.index("private fun deliverIfCurrent")
+    ]
+
+    assert "private var callbackThread: HandlerThread? = null" in source
+    assert 'HandlerThread("OpenStreamEncoder").apply { start() }' in start
+    assert "callbackThread = thread" in start
+    assert "val handler = Handler(thread.looper)" in start
+
+    # Failed MediaCodec callback/start setup must not strand the just-created
+    # HandlerThread, and normal stop must reap it even if codec is already null.
+    failed_start = start[start.index("} catch (error: Throwable) {") :]
+    assert "stopCallbackThread()" in failed_start
+    assert failed_start.index("stopCallbackThread()") < failed_start.index("throw error")
+    assert "val encoder = codec" in stop
+    assert "stopCallbackThread()" in stop
+    assert "codec ?: return" not in stop
+
+    assert "callbackThread = null" in cleanup
+    assert "thread.quitSafely()" in cleanup
+    assert "thread.join(CALLBACK_THREAD_JOIN_TIMEOUT_MS)" in cleanup
+    assert "if (thread.isAlive)" in cleanup
+    assert "thread.quit()" in cleanup
 
 
 def test_video_encoder_error_forces_generation_bound_session_recovery():
