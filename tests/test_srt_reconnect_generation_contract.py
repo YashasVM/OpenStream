@@ -4,6 +4,20 @@ from pathlib import Path
 SOURCE = Path("android/app/src/main/cpp/openstream_srt.cpp")
 
 
+def _block_after(text: str, marker: str) -> str:
+    marker_index = text.index(marker)
+    brace_start = text.index("{", marker_index)
+    depth = 0
+    for index in range(brace_start, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[brace_start + 1 : index]
+    raise AssertionError(f"Unclosed block after {marker!r}")
+
+
 def test_queued_media_is_bound_to_one_srt_session():
     source = SOURCE.read_text(encoding="utf-8")
 
@@ -31,6 +45,14 @@ def test_queued_media_is_bound_to_one_srt_session():
     stale_guard = "if (generation != connectionGeneration_.load(std::memory_order_acquire)) {\n      return true;\n    }"
     assert stale_guard in send_now
     assert send_now.index(stale_guard) < send_now.index("const SRTSOCKET socket = currentSocket();")
+
+    # disconnect() invalidates the generation before it waits on ioMutex_. A
+    # send already inside sendNow() must therefore re-check between SRT chunks;
+    # otherwise a large keyframe can hold reconnect teardown behind many send
+    # timeouts even though the session has already been cancelled.
+    chunk_loop = _block_after(send_now, "while (offset < bytes.size())")
+    assert stale_guard in chunk_loop
+    assert chunk_loop.index(stale_guard) < chunk_loop.index("srt_sendmsg(")
 
     disconnect = source[disconnect_start:failure_start]
     assert "connectionGeneration_.fetch_add(1, std::memory_order_acq_rel);" in disconnect
