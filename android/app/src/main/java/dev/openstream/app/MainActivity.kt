@@ -148,8 +148,11 @@ class MainActivity : Activity() {
             channelCount = streamConfig.audioChannelCount,
             bitrate = streamConfig.audioBitrate,
             onEncodedAccessUnit = { accessUnit ->
-                if (!streamClient.sendAudioAccessUnit(accessUnit)) {
-                    handleMediaTransportFailure()
+                val result = streamClient.sendAudioAccessUnit(accessUnit)
+                if (result.recoveryRequired &&
+                    streamClient.isCurrentSessionGeneration(result.sessionGeneration)
+                ) {
+                    handleMediaTransportFailure(result.sessionGeneration)
                 }
             },
         )
@@ -325,7 +328,10 @@ class MainActivity : Activity() {
         }
 
         // Tap the screen-off overlay to re-enable display
-        screenOffOverlay.setOnClickListener { toggleDisplayOff() }
+        screenOffOverlay.setOnTouchListener { _, _ ->
+            toggleDisplayOff()
+            true
+        }
     }
 
     private fun createVideoEncoder(bitrate: Int): MediaCodecVideoEncoder {
@@ -337,17 +343,23 @@ class MainActivity : Activity() {
             bitrate = bitrate,
             keyframeIntervalSeconds = streamConfig.keyframeIntervalSeconds,
             onEncodedAccessUnit = { accessUnit ->
-                val sent = streamClient.sendVideoAccessUnit(accessUnit)
-                if (!sent) {
-                    handleMediaTransportFailure()
+                val result = streamClient.sendVideoAccessUnit(accessUnit)
+                if (result.recoveryRequired &&
+                    streamClient.isCurrentSessionGeneration(result.sessionGeneration)
+                ) {
+                    handleMediaTransportFailure(result.sessionGeneration)
                 }
             },
         )
     }
 
-    private fun handleMediaTransportFailure() {
+    private fun handleMediaTransportFailure(sessionGeneration: Long) {
+        if (!streamClient.isCurrentSessionGeneration(sessionGeneration)) return
         phoneConnected = false
         mainHandler.post {
+            // A replacement connect/listen may win the race between the encoder
+            // callback and this UI task. Never let the old failure tear it down.
+            if (!streamClient.isCurrentSessionGeneration(sessionGeneration)) return@post
             if (phoneServerRunning) {
                 if (activeTargetName != null) {
                     statusText.text = "Connection lost"
