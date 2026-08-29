@@ -34,19 +34,18 @@ def test_media_send_cannot_cross_disconnect_or_reconnect_boundary():
     assert "synchronized(stateLock)" in source[source.index("fun sendAudioAccessUnit") : source.index("fun disconnect()")]
     assert "SrtNativeBridge.sendAudio(" in audio
 
-    # Disconnect invalidates the generation and tears down native transport while
-    # holding the same lock used by both media send paths.
+    # Disconnect invalidates the Kotlin generation and passes that new generation
+    # to native teardown while holding the same lock used by both media send paths.
     disconnect_locked = _block_after(disconnect, "synchronized(stateLock)")
-    assert "sessionGeneration.incrementAndGet()" in disconnect_locked
+    assert "val generation = sessionGeneration.incrementAndGet()" in disconnect_locked
     assert "connected = false" in disconnect_locked
-    assert "SrtNativeBridge.disconnect()" in disconnect_locked
+    assert "SrtNativeBridge.disconnect(generation)" in disconnect_locked
 
-    # Starting a replacement session closes the Kotlin send gate before native
-    # connect/listen mutates transport state, so no access unit can enter during
-    # the handoff window. The same generation is handed to the native operation
-    # so multi-address connection fallback can stop after lifecycle cancellation.
+    # Starting a replacement session closes the Kotlin send gate and advances the
+    # native generation before connect/listen can publish any socket.
     establish_locked = _block_after(establish, "synchronized(stateLock)")
     assert "connected = false" in establish_locked
     assert establish_locked.index("connected = false") < establish_locked.index("sessionGeneration.incrementAndGet()")
+    assert "SrtNativeBridge.beginSession(generation)" in establish_locked
     native_operation_index = establish.index("val didConnect = nativeOperation(generation)")
     assert establish.index("val generation = synchronized(stateLock)") < native_operation_index
