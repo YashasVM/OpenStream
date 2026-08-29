@@ -30,8 +30,10 @@ def test_stale_camera_device_callbacks_cannot_replace_new_device():
     assert "val generation = cameraGeneration.get()" in start_preview
     assert "cameraGeneration.get() != generation || activeCameraId != desiredId" in opened
     assert opened.index("device.close()") < opened.index("camera = device")
-    assert "cameraGeneration.get() != generation || camera !== device" in disconnected
-    assert "cameraGeneration.get() != generation || camera !== device" in errored
+    assert "cameraGeneration.get() != generation" in disconnected
+    assert "cameraGeneration.get() != generation" in errored
+    assert "camera !== device" not in disconnected
+    assert "camera !== device" not in errored
 
 
 def test_stale_capture_session_callbacks_are_closed_not_published():
