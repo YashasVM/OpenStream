@@ -667,6 +667,9 @@ class NativeSender {
     constexpr size_t kChunkSize = 188 * 7;
     size_t offset = 0;
     while (offset < bytes.size()) {
+      if (generation != connectionGeneration_.load(std::memory_order_acquire)) {
+        return true;
+      }
       const size_t chunk = std::min(kChunkSize, bytes.size() - offset);
       const int sent = srt_sendmsg(socket,
                                    reinterpret_cast<const char *>(bytes.data() + offset),
