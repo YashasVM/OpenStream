@@ -212,7 +212,7 @@ class Camera2Controller(
 
     /**
      * Scale zoom by a delta factor (for pinch-to-zoom).
-     * Returns the new zoom ratio applied.
+     * Returns the new zoom ratio.
      */
     fun scaleZoom(scaleFactor: Float): Float {
         return setZoom(currentZoomRatio * scaleFactor)
