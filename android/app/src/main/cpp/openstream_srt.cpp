@@ -505,7 +505,16 @@ class NativeSender {
 #endif
   }
 
-  bool connect(const std::string &url) {
+  void advanceLifecycleGeneration(uint64_t generation) {
+#if OPENSTREAM_HAVE_LIBSRT
+    std::lock_guard<std::mutex> lock(socketMutex_);
+    lifecycleGeneration_ = generation;
+#else
+    (void)generation;
+#endif
+  }
+
+  bool connect(const std::string &url, uint64_t expectedLifecycleGeneration) {
 #if OPENSTREAM_HAVE_LIBSRT
     disconnect();
     const auto parsed = parseSrtUrl(url);
@@ -524,7 +533,10 @@ class NativeSender {
       disconnect();
       return false;
     }
-    setSocket(socket);
+    if (!setSocketForLifecycle(socket, expectedLifecycleGeneration)) {
+      srt_close(socket);
+      return false;
+    }
 
     int yes = 1;
     int transportType = SRTT_LIVE;
@@ -577,7 +589,7 @@ class NativeSender {
 #endif
   }
 
-  bool listen(const std::string &url) {
+  bool listen(const std::string &url, uint64_t expectedLifecycleGeneration) {
 #if OPENSTREAM_HAVE_LIBSRT
     disconnect();
     const auto parsed = parseSrtUrl(url);
@@ -596,7 +608,10 @@ class NativeSender {
       disconnect();
       return false;
     }
-    setListenerSocket(listenerSocket);
+    if (!setListenerSocketForLifecycle(listenerSocket, expectedLifecycleGeneration)) {
+      srt_close(listenerSocket);
+      return false;
+    }
 
     int yes = 1;
     int transportType = SRTT_LIVE;
@@ -644,7 +659,10 @@ class NativeSender {
     srt_setsockopt(acceptedSocket, 0, SRTO_SNDTIMEO, &sendTimeoutMs, sizeof sendTimeoutMs);
     srt_setsockopt(acceptedSocket, 0, SRTO_TLPKTDROP, &tooLatePacketDrop, sizeof tooLatePacketDrop);
     srt_setsockopt(acceptedSocket, 0, SRTO_PEERIDLETIMEO, &peerIdleTimeoutMs, sizeof peerIdleTimeoutMs);
-    setSocket(acceptedSocket);
+    if (!setSocketForLifecycle(acceptedSocket, expectedLifecycleGeneration)) {
+      srt_close(acceptedSocket);
+      return false;
+    }
     logInfo("OBS connected to Android SRT listener");
     return true;
 #else
@@ -811,11 +829,15 @@ class NativeSender {
     return socket_;
   }
 
-  void setSocket(SRTSOCKET socket) {
+  bool setSocketForLifecycle(SRTSOCKET socket, uint64_t expectedLifecycleGeneration) {
     std::lock_guard<std::mutex> lock(socketMutex_);
+    if (lifecycleGeneration_ != expectedLifecycleGeneration) {
+      return false;
+    }
     socket_ = socket;
     connectionGeneration_.fetch_add(1, std::memory_order_acq_rel);
     healthy_.store(true, std::memory_order_release);
+    return true;
   }
 
   SRTSOCKET takeSocket() {
@@ -840,9 +862,13 @@ class NativeSender {
     }
   }
 
-  void setListenerSocket(SRTSOCKET socket) {
+  bool setListenerSocketForLifecycle(SRTSOCKET socket, uint64_t expectedLifecycleGeneration) {
     std::lock_guard<std::mutex> lock(socketMutex_);
+    if (lifecycleGeneration_ != expectedLifecycleGeneration) {
+      return false;
+    }
     listener_socket_ = socket;
+    return true;
   }
 
   SRTSOCKET takeListenerSocket() {
@@ -870,6 +896,7 @@ class NativeSender {
   std::mutex ioMutex_;
   SRTSOCKET socket_ = SRT_INVALID_SOCK;
   SRTSOCKET listener_socket_ = SRT_INVALID_SOCK;
+  uint64_t lifecycleGeneration_ = 0;
   bool srtStarted_ = false;
 #endif
   static constexpr size_t kMaximumSendQueueBytes = 768 * 1024;
@@ -897,6 +924,15 @@ StreamState g_state;
 
 }  // namespace
 
+extern "C" JNIEXPORT void JNICALL
+Java_dev_openstream_app_stream_SrtNativeBridge_beginSession(
+    JNIEnv *,
+    jobject,
+    jlong session_generation) {
+  g_state.sender.advanceLifecycleGeneration(static_cast<uint64_t>(session_generation));
+  g_state.sender.disconnect();
+}
+
 extern "C" JNIEXPORT jboolean JNICALL
 Java_dev_openstream_app_stream_SrtNativeBridge_connect(
     JNIEnv *env,
@@ -905,7 +941,8 @@ Java_dev_openstream_app_stream_SrtNativeBridge_connect(
     jstring codec_mime,
     jint,
     jint,
-    jint) {
+    jint,
+    jlong session_generation) {
   const char *rawUrl = env->GetStringUTFChars(url, nullptr);
   const char *rawCodec = env->GetStringUTFChars(codec_mime, nullptr);
   const std::string urlString(rawUrl);
@@ -928,7 +965,8 @@ Java_dev_openstream_app_stream_SrtNativeBridge_connect(
     g_state.connected = false;
   }
   g_state.sender.disconnect();
-  const bool connected = g_state.sender.connect(urlString);
+  const bool connected =
+      g_state.sender.connect(urlString, static_cast<uint64_t>(session_generation));
   {
     std::lock_guard<std::mutex> lock(g_state.mediaMutex);
     g_state.connected = connected;
@@ -947,7 +985,8 @@ Java_dev_openstream_app_stream_SrtNativeBridge_listen(
     jstring codec_mime,
     jint,
     jint,
-    jint) {
+    jint,
+    jlong session_generation) {
   const char *rawUrl = env->GetStringUTFChars(url, nullptr);
   const char *rawCodec = env->GetStringUTFChars(codec_mime, nullptr);
   const std::string urlString(rawUrl);
@@ -970,7 +1009,8 @@ Java_dev_openstream_app_stream_SrtNativeBridge_listen(
     g_state.connected = false;
   }
   g_state.sender.disconnect();
-  const bool connected = g_state.sender.listen(urlString);
+  const bool connected =
+      g_state.sender.listen(urlString, static_cast<uint64_t>(session_generation));
   {
     std::lock_guard<std::mutex> lock(g_state.mediaMutex);
     g_state.connected = connected;
@@ -1021,7 +1061,9 @@ Java_dev_openstream_app_stream_SrtNativeBridge_sendVideo(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_dev_openstream_app_stream_SrtNativeBridge_disconnect(JNIEnv *, jobject) {
+Java_dev_openstream_app_stream_SrtNativeBridge_disconnect(
+    JNIEnv *, jobject, jlong session_generation) {
+  g_state.sender.advanceLifecycleGeneration(static_cast<uint64_t>(session_generation));
   std::lock_guard<std::mutex> lock(g_state.mediaMutex);
   g_state.muxer.reset();
   g_state.codecConfig.clear();

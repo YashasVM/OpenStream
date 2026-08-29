@@ -54,8 +54,8 @@ class SrtStreamClient {
     fun listen(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
         require(url.startsWith("srt://")) { "OpenStream expects an SRT URL" }
         synchronized(operationLock) {
-            establishSession("listener") { _ ->
-                SrtNativeBridge.listen(url, codecMime, width, height, fps)
+            establishSession("listener") { generation ->
+                SrtNativeBridge.listen(url, codecMime, width, height, fps, generation)
             }
         }
     }
@@ -114,11 +114,11 @@ class SrtStreamClient {
 
     fun disconnect() {
         synchronized(stateLock) {
-            sessionGeneration.incrementAndGet()
+            val generation = sessionGeneration.incrementAndGet()
             connected = false
-            // listen() blocks in native accept before connected becomes true. This
-            // must not take operationLock so lifecycle stop can cancel that accept.
-            SrtNativeBridge.disconnect()
+            // Native generation invalidation and socket teardown are ordered before
+            // any stale connect/listen can publish a replacement socket.
+            SrtNativeBridge.disconnect(generation)
         }
     }
 
@@ -132,7 +132,7 @@ class SrtStreamClient {
     ): Boolean {
         for (candidateUrl in resolvedConnectUrls(url)) {
             if (!isCurrentSessionGeneration(generation)) return false
-            if (SrtNativeBridge.connect(candidateUrl, codecMime, width, height, fps)) {
+            if (SrtNativeBridge.connect(candidateUrl, codecMime, width, height, fps, generation)) {
                 return true
             }
         }
@@ -162,7 +162,9 @@ class SrtStreamClient {
     private inline fun establishSession(operationName: String, nativeOperation: (Long) -> Boolean) {
         val generation = synchronized(stateLock) {
             connected = false
-            sessionGeneration.incrementAndGet()
+            sessionGeneration.incrementAndGet().also { generation ->
+                SrtNativeBridge.beginSession(generation)
+            }
         }
         val didConnect = nativeOperation(generation)
         val cancelled = synchronized(stateLock) {
@@ -178,7 +180,7 @@ class SrtStreamClient {
         if (cancelled) {
             // operationLock is still held, so this cleanup cannot tear down a
             // subsequently started connect/listen operation.
-            if (didConnect) SrtNativeBridge.disconnect()
+            if (didConnect) SrtNativeBridge.disconnect(sessionGeneration.get())
             error("SRT $operationName was cancelled")
         }
     }
@@ -210,9 +212,24 @@ private object SrtNativeBridge {
         System.loadLibrary("openstream_srt")
     }
 
-    external fun connect(url: String, codecMime: String, width: Int, height: Int, fps: Int): Boolean
-    external fun listen(url: String, codecMime: String, width: Int, height: Int, fps: Int): Boolean
+    external fun beginSession(sessionGeneration: Long)
+    external fun connect(
+        url: String,
+        codecMime: String,
+        width: Int,
+        height: Int,
+        fps: Int,
+        sessionGeneration: Long,
+    ): Boolean
+    external fun listen(
+        url: String,
+        codecMime: String,
+        width: Int,
+        height: Int,
+        fps: Int,
+        sessionGeneration: Long,
+    ): Boolean
     external fun sendVideo(data: ByteArray, presentationTimeUs: Long, flags: Int): Boolean
     external fun sendAudio(data: ByteArray, presentationTimeUs: Long, flags: Int): Boolean
-    external fun disconnect()
+    external fun disconnect(sessionGeneration: Long)
 }
