@@ -95,3 +95,17 @@ def test_capture_session_failures_recover_only_current_camera():
     assert guard in recovery
     assert recovery.index(guard) < recovery.index("closeCamera()")
     assert recovery.index("closeCamera()") < recovery.index("watchForCameraAvailability(cameraId)")
+
+
+def test_runtime_request_rebuild_recovers_only_broken_current_session():
+    rebuild = _block_after(SOURCE, "private fun rebuildRepeatingRequest()")
+    assert "val generation = sessionGeneration.get()" in rebuild
+    failure = _block_after(rebuild, ".onFailure { error ->")
+
+    assert "sessionGeneration.get() == generation" in failure
+    assert "camera === device" in failure
+    assert "session === currentSession" in failure
+    assert "error is CameraAccessException || error is IllegalStateException" in failure
+    assert "recoverFromSessionFailure(" in failure
+    assert '"Could not rebuild camera repeating request"' in failure
+    assert 'Log.w(TAG, "Failed to rebuild repeating request", error)' in failure
