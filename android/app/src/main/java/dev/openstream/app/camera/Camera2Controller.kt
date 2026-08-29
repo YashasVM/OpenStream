@@ -3,6 +3,7 @@ package dev.openstream.app.camera
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Rect
+import android.hardware.camera2.CameraAccessException
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
@@ -351,57 +352,71 @@ class Camera2Controller(
         val surfaces = if (encoded != null) listOf(preview, encoded) else listOf(preview)
         session?.close()
         session = null
-        @Suppress("DEPRECATION")
-        device.createCaptureSession(
-            surfaces,
-            object : CameraCaptureSession.StateCallback() {
-                override fun onConfigured(captureSession: CameraCaptureSession) {
-                    if (sessionGeneration.get() != generation || camera !== device) {
-                        captureSession.close()
-                        return
-                    }
-                    session = captureSession
-                    val template = if (encoded != null) {
-                        CameraDevice.TEMPLATE_RECORD
-                    } else {
-                        CameraDevice.TEMPLATE_PREVIEW
-                    }
-                    val request = device.createCaptureRequest(template).apply {
-                        addTarget(preview)
-                        if (encoded != null) {
-                            addTarget(encoded)
-                        }
-                        set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
-                        set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
-                        set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-                        set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
-                        applyFrameRate(this)
-                        applyZoom(this)
-                        applyTorch(this)
-                    }.build()
-                    runCatching {
-                        captureSession.setRepeatingRequest(request, null, handler)
-                    }.onFailure { error ->
-                        if (sessionGeneration.get() == generation && camera === device) {
-                            Log.e(TAG, "Could not start camera repeating request", error)
-                            closeCamera()
-                        } else {
+        try {
+            @Suppress("DEPRECATION")
+            device.createCaptureSession(
+                surfaces,
+                object : CameraCaptureSession.StateCallback() {
+                    override fun onConfigured(captureSession: CameraCaptureSession) {
+                        if (sessionGeneration.get() != generation || camera !== device) {
                             captureSession.close()
+                            return
+                        }
+                        session = captureSession
+                        val template = if (encoded != null) {
+                            CameraDevice.TEMPLATE_RECORD
+                        } else {
+                            CameraDevice.TEMPLATE_PREVIEW
+                        }
+                        val request = device.createCaptureRequest(template).apply {
+                            addTarget(preview)
+                            if (encoded != null) {
+                                addTarget(encoded)
+                            }
+                            set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                            set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+                            set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                            set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+                            applyFrameRate(this)
+                            applyZoom(this)
+                            applyTorch(this)
+                        }.build()
+                        runCatching {
+                            captureSession.setRepeatingRequest(request, null, handler)
+                        }.onFailure { error ->
+                            if (sessionGeneration.get() == generation && camera === device) {
+                                Log.e(TAG, "Could not start camera repeating request", error)
+                                closeCamera()
+                            } else {
+                                captureSession.close()
+                            }
                         }
                     }
-                }
 
-                override fun onConfigureFailed(captureSession: CameraCaptureSession) {
-                    if (sessionGeneration.get() != generation || camera !== device) {
-                        captureSession.close()
-                        return
+                    override fun onConfigureFailed(captureSession: CameraCaptureSession) {
+                        if (sessionGeneration.get() != generation || camera !== device) {
+                            captureSession.close()
+                            return
+                        }
+                        Log.e(TAG, "Capture session configuration failed")
+                        closeCamera()
                     }
-                    Log.e(TAG, "Capture session configuration failed")
-                    closeCamera()
-                }
-            },
-            handler,
-        )
+                },
+                handler,
+            )
+        } catch (error: IllegalStateException) {
+            recoverFromSessionCreationFailure(device, generation, error)
+        } catch (error: CameraAccessException) {
+            recoverFromSessionCreationFailure(device, generation, error)
+        }
+    }
+
+    private fun recoverFromSessionCreationFailure(device: CameraDevice, generation: Long, error: Exception) {
+        if (sessionGeneration.get() != generation || camera !== device) return
+        val cameraId = activeCameraId ?: return
+        Log.e(TAG, "Could not create camera capture session", error)
+        closeCamera()
+        watchForCameraAvailability(cameraId)
     }
 
     private fun applyZoom(builder: CaptureRequest.Builder) {
