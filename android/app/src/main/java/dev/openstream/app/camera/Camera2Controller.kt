@@ -14,6 +14,7 @@ import android.os.HandlerThread
 import android.util.Log
 import android.util.Range
 import android.view.Surface
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Camera2Controller manages the lifecycle of a Camera2 device and its
@@ -38,6 +39,8 @@ class Camera2Controller(
     private var streamingSurface: Surface? = null
     private var activeCameraId: String? = null
     private var activeLens: CameraLens? = null
+    private val cameraGeneration = AtomicLong()
+    private val sessionGeneration = AtomicLong()
 
     // Zoom state
     private var currentZoomRatio = 1.0f
@@ -118,24 +121,39 @@ class Camera2Controller(
             return
         }
 
-        // Need to open a different camera
+        // Need to open a different camera. Capture the generation after closing the
+        // previous device so late callbacks from that device cannot replace this one.
         closeCamera()
+        val generation = cameraGeneration.get()
         activeLens = desiredLens
         activeCameraId = desiredId
 
         cameraManager.openCamera(desiredId, object : CameraDevice.StateCallback() {
             override fun onOpened(device: CameraDevice) {
+                if (cameraGeneration.get() != generation || activeCameraId != desiredId) {
+                    Log.i(TAG, "Ignoring stale camera open for $desiredId")
+                    device.close()
+                    return
+                }
                 camera = device
                 loadZoomCapabilities(desiredId)
                 createSession()
             }
 
             override fun onDisconnected(device: CameraDevice) {
+                if (cameraGeneration.get() != generation || camera !== device) {
+                    device.close()
+                    return
+                }
                 Log.w(TAG, "Camera disconnected")
                 closeCamera()
             }
 
             override fun onError(device: CameraDevice, error: Int) {
+                if (cameraGeneration.get() != generation || camera !== device) {
+                    device.close()
+                    return
+                }
                 Log.e(TAG, "Camera error: $error")
                 closeCamera()
             }
@@ -223,6 +241,8 @@ class Camera2Controller(
     }
 
     private fun closeCamera() {
+        cameraGeneration.incrementAndGet()
+        sessionGeneration.incrementAndGet()
         session?.close()
         camera?.close()
         session = null
@@ -269,15 +289,21 @@ class Camera2Controller(
 
     private fun createSession() {
         val device = camera ?: return
+        val generation = sessionGeneration.incrementAndGet()
         val preview = previewSurfaceProvider()
         val encoded = streamingSurface
         val surfaces = if (encoded != null) listOf(preview, encoded) else listOf(preview)
         session?.close()
+        session = null
         @Suppress("DEPRECATION")
         device.createCaptureSession(
             surfaces,
             object : CameraCaptureSession.StateCallback() {
                 override fun onConfigured(captureSession: CameraCaptureSession) {
+                    if (sessionGeneration.get() != generation || camera !== device) {
+                        captureSession.close()
+                        return
+                    }
                     session = captureSession
                     val template = if (encoded != null) {
                         CameraDevice.TEMPLATE_RECORD
@@ -297,10 +323,23 @@ class Camera2Controller(
                         applyZoom(this)
                         applyTorch(this)
                     }.build()
-                    captureSession.setRepeatingRequest(request, null, handler)
+                    runCatching {
+                        captureSession.setRepeatingRequest(request, null, handler)
+                    }.onFailure { error ->
+                        if (sessionGeneration.get() == generation && camera === device) {
+                            Log.e(TAG, "Could not start camera repeating request", error)
+                            closeCamera()
+                        } else {
+                            captureSession.close()
+                        }
+                    }
                 }
 
                 override fun onConfigureFailed(captureSession: CameraCaptureSession) {
+                    if (sessionGeneration.get() != generation || camera !== device) {
+                        captureSession.close()
+                        return
+                    }
                     Log.e(TAG, "Capture session configuration failed")
                     closeCamera()
                 }
