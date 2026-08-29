@@ -1,0 +1,415 @@
+name: One-shot SRT lifecycle handoff fix
+
+on:
+  push:
+    branches:
+      - codex/restore-legacy-stability
+    paths:
+      - .github/workflows/automation-srt-lifecycle-handoff.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/restore-legacy-stability
+          fetch-depth: 0
+
+      - name: Apply generation-guarded native lifecycle handoff
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one match, found {count}")
+              return text.replace(old, new, 1)
+
+          kotlin_path = Path("android/app/src/main/java/dev/openstream/app/stream/SrtStreamClient.kt")
+          kotlin = kotlin_path.read_text()
+          kotlin = replace_once(
+              kotlin,
+              '''            establishSession("listener") { _ ->
+                  SrtNativeBridge.listen(url, codecMime, width, height, fps)
+''',
+              '''            establishSession("listener") { generation ->
+                  SrtNativeBridge.listen(url, codecMime, width, height, fps, generation)
+''',
+              "listener generation handoff",
+          )
+          kotlin = replace_once(
+              kotlin,
+              '''        synchronized(stateLock) {
+              sessionGeneration.incrementAndGet()
+              connected = false
+              // listen() blocks in native accept before connected becomes true. This
+              // must not take operationLock so lifecycle stop can cancel that accept.
+              SrtNativeBridge.disconnect()
+          }
+''',
+              '''        synchronized(stateLock) {
+              val generation = sessionGeneration.incrementAndGet()
+              connected = false
+              // Native lifecycle invalidation and socket teardown share the same
+              // generation guard used by connect/listen socket publication.
+              SrtNativeBridge.disconnect(generation)
+          }
+''',
+              "disconnect generation handoff",
+          )
+          kotlin = replace_once(
+              kotlin,
+              '''            if (SrtNativeBridge.connect(candidateUrl, codecMime, width, height, fps)) {
+''',
+              '''            if (SrtNativeBridge.connect(candidateUrl, codecMime, width, height, fps, generation)) {
+''',
+              "connect generation handoff",
+          )
+          kotlin = replace_once(
+              kotlin,
+              '''        val generation = synchronized(stateLock) {
+              connected = false
+              sessionGeneration.incrementAndGet()
+          }
+''',
+              '''        val generation = synchronized(stateLock) {
+              connected = false
+              sessionGeneration.incrementAndGet().also { generation ->
+                  SrtNativeBridge.beginSession(generation)
+              }
+          }
+''',
+              "native generation activation",
+          )
+          kotlin = replace_once(
+              kotlin,
+              '''            if (didConnect) SrtNativeBridge.disconnect()
+''',
+              '''            if (didConnect) SrtNativeBridge.disconnect(sessionGeneration.get())
+''',
+              "cancelled session cleanup",
+          )
+          kotlin = replace_once(
+              kotlin,
+              '''    external fun connect(url: String, codecMime: String, width: Int, height: Int, fps: Int): Boolean
+      external fun listen(url: String, codecMime: String, width: Int, height: Int, fps: Int): Boolean
+      external fun sendVideo(data: ByteArray, presentationTimeUs: Long, flags: Int): Boolean
+      external fun sendAudio(data: ByteArray, presentationTimeUs: Long, flags: Int): Boolean
+      external fun disconnect()
+''',
+              '''    external fun beginSession(sessionGeneration: Long)
+      external fun connect(
+          url: String,
+          codecMime: String,
+          width: Int,
+          height: Int,
+          fps: Int,
+          sessionGeneration: Long,
+      ): Boolean
+      external fun listen(
+          url: String,
+          codecMime: String,
+          width: Int,
+          height: Int,
+          fps: Int,
+          sessionGeneration: Long,
+      ): Boolean
+      external fun sendVideo(data: ByteArray, presentationTimeUs: Long, flags: Int): Boolean
+      external fun sendAudio(data: ByteArray, presentationTimeUs: Long, flags: Int): Boolean
+      external fun disconnect(sessionGeneration: Long)
+''',
+              "native bridge signatures",
+          )
+          kotlin_path.write_text(kotlin)
+
+          native_path = Path("android/app/src/main/cpp/openstream_srt.cpp")
+          native = native_path.read_text()
+          native = replace_once(
+              native,
+              '''  bool connect(const std::string &url) {
+''',
+              '''  void advanceLifecycleGeneration(uint64_t generation) {
+  #if OPENSTREAM_HAVE_LIBSRT
+      std::lock_guard<std::mutex> lock(socketMutex_);
+      lifecycleGeneration_ = generation;
+  #else
+      (void)generation;
+  #endif
+    }
+
+    bool connect(const std::string &url, uint64_t expectedLifecycleGeneration) {
+''',
+              "native connect signature",
+          )
+          native = replace_once(
+              native,
+              '''    setSocket(socket);
+''',
+              '''    if (!setSocketForLifecycle(socket, expectedLifecycleGeneration)) {
+        srt_close(socket);
+        return false;
+      }
+''',
+              "caller socket generation guard",
+          )
+          native = replace_once(
+              native,
+              '''  bool listen(const std::string &url) {
+''',
+              '''  bool listen(const std::string &url, uint64_t expectedLifecycleGeneration) {
+''',
+              "native listen signature",
+          )
+          native = replace_once(
+              native,
+              '''    setListenerSocket(listenerSocket);
+''',
+              '''    if (!setListenerSocketForLifecycle(listenerSocket, expectedLifecycleGeneration)) {
+        srt_close(listenerSocket);
+        return false;
+      }
+''',
+              "listener socket generation guard",
+          )
+          native = replace_once(
+              native,
+              '''    setSocket(acceptedSocket);
+      logInfo("OBS connected to Android SRT listener");
+''',
+              '''    if (!setSocketForLifecycle(acceptedSocket, expectedLifecycleGeneration)) {
+        srt_close(acceptedSocket);
+        return false;
+      }
+      logInfo("OBS connected to Android SRT listener");
+''',
+              "accepted socket generation guard",
+          )
+          native = replace_once(
+              native,
+              '''  void setSocket(SRTSOCKET socket) {
+      std::lock_guard<std::mutex> lock(socketMutex_);
+      socket_ = socket;
+      connectionGeneration_.fetch_add(1, std::memory_order_acq_rel);
+      healthy_.store(true, std::memory_order_release);
+    }
+''',
+              '''  bool setSocketForLifecycle(SRTSOCKET socket, uint64_t expectedLifecycleGeneration) {
+      std::lock_guard<std::mutex> lock(socketMutex_);
+      if (lifecycleGeneration_ != expectedLifecycleGeneration) {
+        return false;
+      }
+      socket_ = socket;
+      connectionGeneration_.fetch_add(1, std::memory_order_acq_rel);
+      healthy_.store(true, std::memory_order_release);
+      return true;
+    }
+''',
+              "socket publication helper",
+          )
+          native = replace_once(
+              native,
+              '''  void setListenerSocket(SRTSOCKET socket) {
+      std::lock_guard<std::mutex> lock(socketMutex_);
+      listener_socket_ = socket;
+    }
+''',
+              '''  bool setListenerSocketForLifecycle(SRTSOCKET socket, uint64_t expectedLifecycleGeneration) {
+      std::lock_guard<std::mutex> lock(socketMutex_);
+      if (lifecycleGeneration_ != expectedLifecycleGeneration) {
+        return false;
+      }
+      listener_socket_ = socket;
+      return true;
+    }
+''',
+              "listener publication helper",
+          )
+          native = replace_once(
+              native,
+              '''  SRTSOCKET listener_socket_ = SRT_INVALID_SOCK;
+      bool srtStarted_ = false;
+''',
+              '''  SRTSOCKET listener_socket_ = SRT_INVALID_SOCK;
+      uint64_t lifecycleGeneration_ = 0;
+      bool srtStarted_ = false;
+''',
+              "native lifecycle generation field",
+          )
+          native = replace_once(
+              native,
+              '''}  // namespace
+
+  extern "C" JNIEXPORT jboolean JNICALL
+  Java_dev_openstream_app_stream_SrtNativeBridge_connect(
+''',
+              '''}  // namespace
+
+  extern "C" JNIEXPORT void JNICALL
+  Java_dev_openstream_app_stream_SrtNativeBridge_beginSession(
+      JNIEnv *,
+      jobject,
+      jlong session_generation) {
+    g_state.sender.advanceLifecycleGeneration(static_cast<uint64_t>(session_generation));
+    g_state.sender.disconnect();
+  }
+
+  extern "C" JNIEXPORT jboolean JNICALL
+  Java_dev_openstream_app_stream_SrtNativeBridge_connect(
+''',
+              "beginSession JNI",
+          )
+          native = replace_once(
+              native,
+              '''    jint,
+      jint,
+      jint) {
+''',
+              '''    jint,
+      jint,
+      jint,
+      jlong session_generation) {
+''',
+              "connect JNI generation parameter",
+          )
+          native = replace_once(
+              native,
+              '''  const bool connected = g_state.sender.connect(urlString);
+''',
+              '''  const bool connected = g_state.sender.connect(
+        urlString, static_cast<uint64_t>(session_generation));
+''',
+              "connect JNI generation forwarding",
+          )
+          listen_marker = '''Java_dev_openstream_app_stream_SrtNativeBridge_listen(
+      JNIEnv *env,
+      jobject,
+      jstring url,
+      jstring codec_mime,
+      jint,
+      jint,
+      jint) {
+'''
+          native = replace_once(
+              native,
+              listen_marker,
+              '''Java_dev_openstream_app_stream_SrtNativeBridge_listen(
+      JNIEnv *env,
+      jobject,
+      jstring url,
+      jstring codec_mime,
+      jint,
+      jint,
+      jint,
+      jlong session_generation) {
+''',
+              "listen JNI generation parameter",
+          )
+          native = replace_once(
+              native,
+              '''  const bool connected = g_state.sender.listen(urlString);
+''',
+              '''  const bool connected = g_state.sender.listen(
+        urlString, static_cast<uint64_t>(session_generation));
+''',
+              "listen JNI generation forwarding",
+          )
+          native = replace_once(
+              native,
+              '''Java_dev_openstream_app_stream_SrtNativeBridge_disconnect(JNIEnv *, jobject) {
+      std::lock_guard<std::mutex> lock(g_state.mediaMutex);
+''',
+              '''Java_dev_openstream_app_stream_SrtNativeBridge_disconnect(
+      JNIEnv *, jobject, jlong session_generation) {
+    g_state.sender.advanceLifecycleGeneration(static_cast<uint64_t>(session_generation));
+    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
+''',
+              "disconnect JNI generation invalidation",
+          )
+          native_path.write_text(native)
+
+          test = r'''from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+KOTLIN = ROOT / "android/app/src/main/java/dev/openstream/app/stream/SrtStreamClient.kt"
+NATIVE = ROOT / "android/app/src/main/cpp/openstream_srt.cpp"
+
+
+def _block_after(source: str, marker: str) -> str:
+    start = source.index(marker)
+    brace = source.index("{", start)
+    depth = 0
+    for index in range(brace, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[brace + 1:index]
+    raise AssertionError(f"unclosed block after {marker!r}")
+
+
+def test_native_connect_and_listen_publish_only_current_generation():
+    kotlin = KOTLIN.read_text()
+    native = NATIVE.read_text()
+
+    establish = _block_after(kotlin, "private inline fun establishSession")
+    assert "SrtNativeBridge.beginSession(generation)" in establish
+    assert "SrtNativeBridge.connect(candidateUrl, codecMime, width, height, fps, generation)" in kotlin
+    assert "SrtNativeBridge.listen(url, codecMime, width, height, fps, generation)" in kotlin
+    assert "SrtNativeBridge.disconnect(generation)" in kotlin
+
+    socket_publish = _block_after(native, "bool setSocketForLifecycle")
+    assert "std::lock_guard<std::mutex> lock(socketMutex_)" in socket_publish
+    assert socket_publish.index("lifecycleGeneration_ != expectedLifecycleGeneration") < socket_publish.index("socket_ = socket")
+
+    listener_publish = _block_after(native, "bool setListenerSocketForLifecycle")
+    assert "std::lock_guard<std::mutex> lock(socketMutex_)" in listener_publish
+    assert listener_publish.index("lifecycleGeneration_ != expectedLifecycleGeneration") < listener_publish.index("listener_socket_ = socket")
+
+    connect = _block_after(native, "bool connect(const std::string &url, uint64_t expectedLifecycleGeneration)")
+    assert "setSocketForLifecycle(socket, expectedLifecycleGeneration)" in connect
+    assert connect.index("setSocketForLifecycle(socket, expectedLifecycleGeneration)") < connect.index("srt_connect(")
+
+    listen = _block_after(native, "bool listen(const std::string &url, uint64_t expectedLifecycleGeneration)")
+    assert "setListenerSocketForLifecycle(listenerSocket, expectedLifecycleGeneration)" in listen
+    assert "setSocketForLifecycle(acceptedSocket, expectedLifecycleGeneration)" in listen
+
+
+def test_disconnect_invalidates_native_generation_before_teardown():
+    native = NATIVE.read_text()
+    disconnect = _block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_disconnect")
+    invalidate = "g_state.sender.advanceLifecycleGeneration(static_cast<uint64_t>(session_generation))"
+    teardown = "g_state.sender.disconnect()"
+    assert invalidate in disconnect
+    assert teardown in disconnect
+    assert disconnect.index(invalidate) < disconnect.index(teardown)
+'''
+          Path("tests/test_srt_native_lifecycle_handoff_contract.py").write_text(test)
+          PY
+
+      - name: Run repository contracts
+        run: python3 -m pytest -q
+
+      - name: Validate Android unit tests, lint, and APK
+        working-directory: android
+        run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon
+
+      - name: Commit validated fix and remove one-shot workflow
+        shell: bash
+        run: |
+          rm .github/workflows/automation-srt-lifecycle-handoff.yml
+          git config user.name "OpenStream Maintainer"
+          git config user.email "actions@github.com"
+          git add android/app/src/main/java/dev/openstream/app/stream/SrtStreamClient.kt \
+                  android/app/src/main/cpp/openstream_srt.cpp \
+                  tests/test_srt_native_lifecycle_handoff_contract.py \
+                  .github/workflows/automation-srt-lifecycle-handoff.yml
+          git commit -m "Fix native SRT lifecycle handoff race"
+          git push origin HEAD:codex/restore-legacy-stability
