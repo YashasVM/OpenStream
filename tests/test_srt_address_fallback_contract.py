@@ -31,14 +31,14 @@ def test_srt_address_fallback_uses_fresh_native_connects_and_honors_cancellation
 
     candidate_loop = _block_after(fallback, "for (candidateUrl in resolvedConnectUrls(url))")
     generation_guard = "if (!isCurrentSessionGeneration(generation)) return false"
-    native_connect = "SrtNativeBridge.connect(candidateUrl, codecMime, width, height, fps)"
+    native_connect = "SrtNativeBridge.connect(candidateUrl, codecMime, width, height, fps, generation)"
 
     assert generation_guard in candidate_loop
     assert native_connect in candidate_loop
     assert candidate_loop.index(generation_guard) < candidate_loop.index(native_connect)
 
-    # NativeSender.connect() starts by disconnecting and creates a new SRT
-    # socket, so one JNI call per resolved address prevents reuse of a failed
-    # socket while the generation guard prevents fallback after lifecycle stop.
-    assert "if (SrtNativeBridge.connect(candidateUrl, codecMime, width, height, fps))" in candidate_loop
+    # Each resolved address gets a fresh native socket. The expected lifecycle
+    # generation is also passed into native code so a cancellation between this
+    # Kotlin guard and the JNI call cannot publish a stale replacement socket.
+    assert f"if ({native_connect})" in candidate_loop
     assert "return true" in _block_after(candidate_loop, "if (SrtNativeBridge.connect")
