@@ -56,6 +56,6 @@ jobs:
           rm .github/workflows/automation-srt-lifecycle-handoff.yml tools/automation_srt_lifecycle_fix.py
           git config user.name "OpenStream Maintainer"
           git config user.email "actions@github.com"
-          git add android/app/src/main/java/dev/openstream/app/stream/SrtStreamClient.kt android/app/src/main/cpp/openstream_srt.cpp tests/test_srt_native_lifecycle_handoff_contract.py .github/workflows/automation-srt-lifecycle-handoff.yml tools/automation_srt_lifecycle_fix.py
+          git add android/app/src/main/java/dev/openstream/app/stream/SrtStreamClient.kt android/app/src/main/cpp/openstream_srt.cpp tests/test_srt_native_lifecycle_handoff_contract.py tests/test_srt_address_fallback_contract.py tests/test_srt_stream_client_session_contract.py .github/workflows/automation-srt-lifecycle-handoff.yml tools/automation_srt_lifecycle_fix.py
           git commit -m "Fix native SRT lifecycle handoff race"
           git push origin HEAD:codex/restore-legacy-stability
