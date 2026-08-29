@@ -141,20 +141,22 @@ class Camera2Controller(
             }
 
             override fun onDisconnected(device: CameraDevice) {
-                if (cameraGeneration.get() != generation || camera !== device) {
+                if (cameraGeneration.get() != generation) {
                     device.close()
                     return
                 }
                 Log.w(TAG, "Camera disconnected")
+                device.close()
                 closeCamera()
             }
 
             override fun onError(device: CameraDevice, error: Int) {
-                if (cameraGeneration.get() != generation || camera !== device) {
+                if (cameraGeneration.get() != generation) {
                     device.close()
                     return
                 }
                 Log.e(TAG, "Camera error: $error")
+                device.close()
                 closeCamera()
             }
         }, handler)
@@ -210,7 +212,7 @@ class Camera2Controller(
 
     /**
      * Scale zoom by a delta factor (for pinch-to-zoom).
-     * Returns the new zoom ratio.
+     * Returns the new zoom ratio applied.
      */
     fun scaleZoom(scaleFactor: Float): Float {
         return setZoom(currentZoomRatio * scaleFactor)
