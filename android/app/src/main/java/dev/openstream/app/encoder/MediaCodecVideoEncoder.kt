@@ -27,6 +27,7 @@ data class EncodedAccessUnit(
     val data: ByteArray,
     val presentationTimeUs: Long,
     val flags: Int,
+    val encoderFailure: Boolean = false,
 )
 
 private data class EncoderSelection(
@@ -144,9 +145,20 @@ class MediaCodecVideoEncoder(
                 }
 
                 override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
-                    if (streamGeneration == generation) {
-                        Log.e("OpenStreamEncoder", "MediaCodec encoder error", e)
-                    }
+                    if (streamGeneration != generation) return
+                    Log.e("OpenStreamEncoder", "MediaCodec encoder error", e)
+                    // Route a fatal asynchronous codec failure through the same generation-bound
+                    // delivery path as media. SrtStreamClient recognizes this sentinel and marks
+                    // the active session failed without attempting to mux an invalid access unit.
+                    deliverIfCurrent(
+                        generation,
+                        EncodedAccessUnit(
+                            data = ByteArray(0),
+                            presentationTimeUs = 0,
+                            flags = 0,
+                            encoderFailure = true,
+                        ),
+                    )
                 }
 
                 override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
