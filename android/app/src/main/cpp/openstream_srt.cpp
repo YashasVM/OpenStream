@@ -699,12 +699,14 @@ class NativeSender {
     const size_t byteCount = bytes.size();
     {
       std::lock_guard<std::mutex> lock(sendQueueMutex_);
+      const bool accessUnitTooLarge = byteCount > kMaximumAccessUnitBytes;
       const bool oversizedAccessUnit = byteCount > kMaximumSendQueueBytes;
       const bool allowIsolatedOversizedAccessUnit =
-          oversizedAccessUnit && sendQueue_.empty() && sendQueueBytes_ == 0;
+          !accessUnitTooLarge && oversizedAccessUnit && sendQueue_.empty() && sendQueueBytes_ == 0;
       const bool wouldExceedQueueLimit =
-          !allowIsolatedOversizedAccessUnit &&
-          (oversizedAccessUnit || sendQueueBytes_ > kMaximumSendQueueBytes - byteCount);
+          accessUnitTooLarge ||
+          (!allowIsolatedOversizedAccessUnit &&
+           (oversizedAccessUnit || sendQueueBytes_ > kMaximumSendQueueBytes - byteCount));
       if (!healthy_.load(std::memory_order_acquire) ||
           sendWorkerStopping_ ||
           wouldExceedQueueLimit) {
@@ -715,7 +717,9 @@ class NativeSender {
           __android_log_print(
               ANDROID_LOG_WARN,
               kTag,
-              "SRT send queue saturated; dropping the session to avoid latency growth");
+              accessUnitTooLarge
+                  ? "SRT access unit exceeds safety limit; dropping the session"
+                  : "SRT send queue saturated; dropping the session to avoid latency growth");
         }
         return false;
       }
@@ -869,6 +873,7 @@ class NativeSender {
   bool srtStarted_ = false;
 #endif
   static constexpr size_t kMaximumSendQueueBytes = 768 * 1024;
+  static constexpr size_t kMaximumAccessUnitBytes = 2 * 1024 * 1024;
   std::atomic<bool> healthy_{false};
   std::atomic<uint64_t> connectionGeneration_{0};
   std::mutex sendQueueMutex_;
