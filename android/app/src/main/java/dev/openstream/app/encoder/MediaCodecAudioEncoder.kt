@@ -56,7 +56,7 @@ class MediaCodecAudioEncoder(
                 }
             }
 
-            val encoder = createAudioCodec(mime)
+            val encoder = createAudioCodec(mime, format)
             codec = encoder
             encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             encoder.start()
@@ -222,20 +222,37 @@ class MediaCodecAudioEncoder(
         return bytes.takeIf { it.isNotEmpty() }
     }
 
-    private fun createAudioCodec(mime: String): MediaCodec {
-        val hardware = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
-            .firstOrNull { info ->
-                info.isEncoder &&
-                    info.isHardwareAccelerated &&
-                    !info.isSoftwareOnly &&
-                    info.supportedTypes.any { it.equals(mime, ignoreCase = true) }
+    private fun createAudioCodec(mime: String, format: MediaFormat): MediaCodec {
+        val candidates = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
+            .asSequence()
+            .filter { info ->
+                info.isEncoder && info.supportedTypes.any { it.equals(mime, ignoreCase = true) }
             }
-        if (hardware != null) {
-            Log.i(TAG, "Using hardware audio encoder ${hardware.name} for $mime")
-            return MediaCodec.createByCodecName(hardware.name)
+            .mapNotNull { info ->
+                val capabilities = runCatching { info.getCapabilitiesForType(mime) }.getOrNull()
+                    ?: return@mapNotNull null
+                if (!runCatching { capabilities.isFormatSupported(format) }.getOrDefault(false)) {
+                    Log.i(TAG, "Skipping incompatible AAC encoder ${info.name}")
+                    return@mapNotNull null
+                }
+                info
+            }
+            .sortedWith(
+                compareByDescending<MediaCodecInfo> { it.isHardwareAccelerated && !it.isSoftwareOnly }
+                    .thenBy { it.name }
+            )
+            .toList()
+
+        val selected = candidates.firstOrNull()
+            ?: throw IllegalStateException(
+                "No AAC encoder supports $sampleRate Hz / $channelCount ch / $bitrate bps"
+            )
+        if (selected.isHardwareAccelerated && !selected.isSoftwareOnly) {
+            Log.i(TAG, "Using hardware audio encoder ${selected.name} for $mime")
+        } else {
+            Log.w(TAG, "Using compatible software audio encoder ${selected.name} for $mime")
         }
-        Log.w(TAG, "No hardware AAC encoder is available; explicitly using the platform software encoder")
-        return MediaCodec.createEncoderByType(mime)
+        return MediaCodec.createByCodecName(selected.name)
     }
 
     @SuppressLint("MissingPermission")
