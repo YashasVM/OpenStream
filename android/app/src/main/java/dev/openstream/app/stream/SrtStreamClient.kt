@@ -1,6 +1,8 @@
 package dev.openstream.app.stream
 
 import dev.openstream.app.encoder.EncodedAccessUnit
+import java.net.InetAddress
+import java.net.URI
 import java.util.concurrent.atomic.AtomicLong
 
 data class StreamStats(
@@ -43,8 +45,8 @@ class SrtStreamClient {
     fun connect(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
         require(url.startsWith("srt://")) { "OpenStream V1 expects an SRT URL" }
         synchronized(operationLock) {
-            establishSession("connection") {
-                SrtNativeBridge.connect(url, codecMime, width, height, fps)
+            establishSession("connection") { generation ->
+                connectToResolvedAddress(url, codecMime, width, height, fps, generation)
             }
         }
     }
@@ -52,7 +54,7 @@ class SrtStreamClient {
     fun listen(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
         require(url.startsWith("srt://")) { "OpenStream expects an SRT URL" }
         synchronized(operationLock) {
-            establishSession("listener") {
+            establishSession("listener") { _ ->
                 SrtNativeBridge.listen(url, codecMime, width, height, fps)
             }
         }
@@ -120,12 +122,49 @@ class SrtStreamClient {
         }
     }
 
-    private inline fun establishSession(operationName: String, nativeOperation: () -> Boolean) {
+    private fun connectToResolvedAddress(
+        url: String,
+        codecMime: String,
+        width: Int,
+        height: Int,
+        fps: Int,
+        generation: Long,
+    ): Boolean {
+        for (candidateUrl in resolvedConnectUrls(url)) {
+            if (!isCurrentSessionGeneration(generation)) return false
+            if (SrtNativeBridge.connect(candidateUrl, codecMime, width, height, fps)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun resolvedConnectUrls(url: String): List<String> {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return listOf(url)
+        val host = uri.host ?: return listOf(url)
+        val port = uri.port
+        if (port <= 0) return listOf(url)
+
+        val querySuffix = uri.rawQuery?.let { "?$it" }.orEmpty()
+        return runCatching {
+            InetAddress.getAllByName(host)
+                .mapNotNull { address ->
+                    address.hostAddress?.let { numericHost ->
+                        val authorityHost = if (numericHost.contains(':')) "[$numericHost]" else numericHost
+                        "srt://$authorityHost:$port$querySuffix"
+                    }
+                }
+                .distinct()
+                .ifEmpty { listOf(url) }
+        }.getOrElse { listOf(url) }
+    }
+
+    private inline fun establishSession(operationName: String, nativeOperation: (Long) -> Boolean) {
         val generation = synchronized(stateLock) {
             connected = false
             sessionGeneration.incrementAndGet()
         }
-        val didConnect = nativeOperation()
+        val didConnect = nativeOperation(generation)
         val cancelled = synchronized(stateLock) {
             if (generation != sessionGeneration.get()) {
                 true
