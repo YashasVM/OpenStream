@@ -45,3 +45,18 @@ def test_runtime_audio_codec_failure_reaches_reconnect_path():
 
     assert failure_guard < mark_failure < native_send
     assert "return false" in send_audio[mark_failure:native_send]
+
+
+def test_audio_record_read_error_enters_runtime_failure_handler():
+    encoder_source = AUDIO_ENCODER.read_text(encoding="utf-8")
+    capture_thread = encoder_source[
+        encoder_source.index("captureThread = Thread") : encoder_source.index("fun stop()")
+    ]
+
+    negative_read_branch = _block_after(capture_thread, "else if (bytesRead < 0)")
+    catch_index = capture_thread.index("catch (error: Exception)")
+    negative_branch_index = capture_thread.index("else if (bytesRead < 0)")
+
+    assert negative_branch_index < catch_index
+    assert "throw IllegalStateException" in negative_read_branch
+    assert "AudioRecord read failed" in negative_read_branch
