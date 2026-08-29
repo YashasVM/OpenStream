@@ -47,8 +47,7 @@ class MediaCodecVideoEncoder(
     private var selection: EncoderSelection? = null
     private var mimeType = preference.advertisedMimeType()
     private var codec: MediaCodec? = null
-    private val thread = HandlerThread("OpenStreamEncoder")
-    private lateinit var handler: Handler
+    private var callbackThread: HandlerThread? = null
     private var surface: Surface? = null
     @Volatile private var streamGeneration = 0L
     private val lifecycleLock = Any()
@@ -63,7 +62,7 @@ class MediaCodecVideoEncoder(
     fun start() = synchronized(lifecycleLock) {
         // Re-evaluate the codec at every start because bitrate can change per OBS reservation
         // and vendor codec availability may change after a codec failure/restart.
-        if (codec != null) {
+        if (codec != null || callbackThread != null) {
             stop()
         }
         val resolvedSelection = chooseEncoder(preference, width, height, fps, bitrate)
@@ -103,10 +102,9 @@ class MediaCodecVideoEncoder(
             throw error
         }
 
-        if (!thread.isAlive) {
-            thread.start()
-        }
-        handler = Handler(thread.looper)
+        val thread = HandlerThread("OpenStreamEncoder").apply { start() }
+        callbackThread = thread
+        val handler = Handler(thread.looper)
         val generation = synchronized(deliveryLock) {
             val nextGeneration = streamGeneration + 1
             streamGeneration = nextGeneration
@@ -196,6 +194,7 @@ class MediaCodecVideoEncoder(
                 runCatching { encoder.stop() }
                 runCatching { encoder.release() }
             }
+            stopCallbackThread()
             throw error
         }
     }
@@ -204,12 +203,28 @@ class MediaCodecVideoEncoder(
         synchronized(deliveryLock) {
             streamGeneration += 1
         }
-        val encoder = codec ?: return@synchronized
+        val encoder = codec
         codec = null
         surface = null
-        synchronized(callbackLock) {
-            runCatching { encoder.stop() }
-            runCatching { encoder.release() }
+        if (encoder != null) {
+            synchronized(callbackLock) {
+                runCatching { encoder.stop() }
+                runCatching { encoder.release() }
+            }
+        }
+        stopCallbackThread()
+    }
+
+    private fun stopCallbackThread() {
+        val thread = callbackThread ?: return
+        callbackThread = null
+        thread.quitSafely()
+        if (Thread.currentThread() != thread) {
+            runCatching { thread.join(CALLBACK_THREAD_JOIN_TIMEOUT_MS) }
+            if (thread.isAlive) {
+                Log.w("OpenStreamEncoder", "Encoder callback thread did not exit within timeout")
+                thread.quit()
+            }
         }
     }
 
@@ -316,5 +331,9 @@ class MediaCodecVideoEncoder(
             output.write(bytes)
         }
         return output.toByteArray().takeIf { it.isNotEmpty() }
+    }
+
+    companion object {
+        private const val CALLBACK_THREAD_JOIN_TIMEOUT_MS = 500L
     }
 }
