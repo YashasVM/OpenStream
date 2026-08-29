@@ -76,13 +76,14 @@ def test_video_encoder_callback_thread_is_reaped_on_stop_and_failed_start():
     ]
 
     assert "private var callbackThread: HandlerThread? = null" in source
-    assert 'HandlerThread("OpenStreamEncoder").apply { start() }' in start
-    assert "callbackThread = thread" in start
-    assert "val handler = Handler(thread.looper)" in start
+    thread_setup = start[start.index('val thread = HandlerThread("OpenStreamEncoder")') :]
+    assert 'HandlerThread("OpenStreamEncoder").apply { start() }' in thread_setup
+    assert "callbackThread = thread" in thread_setup
+    assert "val handler = Handler(thread.looper)" in thread_setup
 
     # Failed MediaCodec callback/start setup must not strand the just-created
     # HandlerThread, and normal stop must reap it even if codec is already null.
-    failed_start = start[start.index("} catch (error: Throwable) {") :]
+    failed_start = thread_setup[thread_setup.index("} catch (error: Throwable) {") :]
     assert "stopCallbackThread()" in failed_start
     assert failed_start.index("stopCallbackThread()") < failed_start.index("throw error")
     assert "val encoder = codec" in stop
