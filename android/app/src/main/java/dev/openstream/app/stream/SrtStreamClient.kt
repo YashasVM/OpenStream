@@ -56,6 +56,13 @@ class SrtStreamClient {
         val generation = synchronized(stateLock) {
             if (!connected) null else sessionGeneration.get()
         } ?: return false
+        if (accessUnit.encoderFailure) {
+            // MediaCodec asynchronous failures mean the current camera surface/codec
+            // session is no longer usable. Mark only the generation that observed the
+            // error as failed so MainActivity's existing reconnect path can rebuild it.
+            markSendFailure(generation)
+            return false
+        }
         val sent = SrtNativeBridge.sendVideo(accessUnit.data, accessUnit.presentationTimeUs, accessUnit.flags)
         val isCodecConfig = (accessUnit.flags and BUFFER_FLAG_CODEC_CONFIG) != 0
         if (sent) {
