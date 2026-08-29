@@ -115,5 +115,6 @@ def test_video_encoder_error_forces_generation_bound_session_recovery():
     failure_guard = send_video.index("if (accessUnit.encoderFailure)")
     native_send = send_video.index("SrtNativeBridge.sendVideo")
     assert failure_guard < native_send
-    assert "markSendFailure(generation)" in send_video[failure_guard:native_send]
-    assert "return false" in send_video[failure_guard:native_send]
+    failure_result = send_video[failure_guard:native_send]
+    assert "markSendFailure(generation)" in failure_result
+    assert "SrtSendResult(false, generation, recoveryRequired = true)" in failure_result
