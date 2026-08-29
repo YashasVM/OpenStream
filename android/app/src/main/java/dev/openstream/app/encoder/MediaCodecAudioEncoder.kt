@@ -118,9 +118,10 @@ class MediaCodecAudioEncoder(
                             capturedSamples += samplesRead
                             drainEncoder(encoder, generation)
                         } else if (bytesRead < 0) {
-                            if (captureGeneration == generation) {
-                                Log.w(TAG, "AudioRecord read failed: $bytesRead")
-                            }
+                            // AudioRecord reports terminal capture failures as negative error codes.
+                            // In particular ERROR_DEAD_OBJECT requires the recorder to be recreated;
+                            // continuing here would spin the urgent-audio thread and never recover audio.
+                            throw IllegalStateException("AudioRecord read failed: $bytesRead")
                         } else {
                             drainEncoder(encoder, generation)
                         }
