@@ -92,36 +92,51 @@ class MediaCodecAudioEncoder(
                 val pcmBuffer = ByteArray(bytesForDurationMs(20))
                 var capturedSamples = 0L
                 val startPresentationTimeUs = System.nanoTime() / 1000
-                while (captureGeneration == generation) {
-                    val bytesRead = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        recorder.read(pcmBuffer, 0, pcmBuffer.size, AudioRecord.READ_BLOCKING)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        recorder.read(pcmBuffer, 0, pcmBuffer.size)
-                    }
-                    if (captureGeneration != generation) break
-                    if (bytesRead > 0) {
-                        val samplesRead = bytesRead / bytesPerSampleFrame()
-                        val inputIndex = encoder.dequeueInputBuffer(10_000)
+                try {
+                    while (captureGeneration == generation) {
+                        val bytesRead = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            recorder.read(pcmBuffer, 0, pcmBuffer.size, AudioRecord.READ_BLOCKING)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            recorder.read(pcmBuffer, 0, pcmBuffer.size)
+                        }
                         if (captureGeneration != generation) break
-                        if (inputIndex >= 0) {
-                            val inputBuffer = encoder.getInputBuffer(inputIndex)
-                            if (inputBuffer != null) {
-                                val presentationTimeUs =
-                                    startPresentationTimeUs + capturedSamples * 1_000_000L / sampleRate
-                                inputBuffer.clear()
-                                inputBuffer.put(pcmBuffer, 0, bytesRead)
-                                encoder.queueInputBuffer(inputIndex, 0, bytesRead, presentationTimeUs, 0)
+                        if (bytesRead > 0) {
+                            val samplesRead = bytesRead / bytesPerSampleFrame()
+                            val inputIndex = encoder.dequeueInputBuffer(10_000)
+                            if (captureGeneration != generation) break
+                            if (inputIndex >= 0) {
+                                val inputBuffer = encoder.getInputBuffer(inputIndex)
+                                if (inputBuffer != null) {
+                                    val presentationTimeUs =
+                                        startPresentationTimeUs + capturedSamples * 1_000_000L / sampleRate
+                                    inputBuffer.clear()
+                                    inputBuffer.put(pcmBuffer, 0, bytesRead)
+                                    encoder.queueInputBuffer(inputIndex, 0, bytesRead, presentationTimeUs, 0)
+                                }
                             }
+                            capturedSamples += samplesRead
+                            drainEncoder(encoder, generation)
+                        } else if (bytesRead < 0) {
+                            if (captureGeneration == generation) {
+                                Log.w(TAG, "AudioRecord read failed: $bytesRead")
+                            }
+                        } else {
+                            drainEncoder(encoder, generation)
                         }
-                        capturedSamples += samplesRead
-                        drainEncoder(encoder, generation)
-                    } else if (bytesRead < 0) {
-                        if (captureGeneration == generation) {
-                            Log.w(TAG, "AudioRecord read failed: $bytesRead")
-                        }
-                    } else {
-                        drainEncoder(encoder, generation)
+                    }
+                } catch (error: Exception) {
+                    if (captureGeneration == generation) {
+                        Log.e(TAG, "Audio capture/encoder failed", error)
+                        deliverIfCurrent(
+                            generation,
+                            EncodedAccessUnit(
+                                data = ByteArray(0),
+                                presentationTimeUs = 0,
+                                flags = 0,
+                                encoderFailure = true,
+                            ),
+                        )
                     }
                 }
             }, "OpenStreamAudioCapture").apply {
