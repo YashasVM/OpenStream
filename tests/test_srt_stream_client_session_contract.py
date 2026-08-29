@@ -43,9 +43,10 @@ def test_media_send_cannot_cross_disconnect_or_reconnect_boundary():
 
     # Starting a replacement session closes the Kotlin send gate before native
     # connect/listen mutates transport state, so no access unit can enter during
-    # the handoff window.
+    # the handoff window. The same generation is handed to the native operation
+    # so multi-address connection fallback can stop after lifecycle cancellation.
     establish_locked = _block_after(establish, "synchronized(stateLock)")
     assert "connected = false" in establish_locked
     assert establish_locked.index("connected = false") < establish_locked.index("sessionGeneration.incrementAndGet()")
-    native_operation_index = establish.index("val didConnect = nativeOperation()")
+    native_operation_index = establish.index("val didConnect = nativeOperation(generation)")
     assert establish.index("val generation = synchronized(stateLock)") < native_operation_index
