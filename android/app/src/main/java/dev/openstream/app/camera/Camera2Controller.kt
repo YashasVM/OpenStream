@@ -470,6 +470,7 @@ class Camera2Controller(
     private fun rebuildRepeatingRequest() {
         val device = camera ?: return
         val currentSession = session ?: return
+        val generation = sessionGeneration.get()
         val preview = previewSurfaceProvider()
         val encoded = streamingSurface
         val template = if (encoded != null) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
@@ -487,8 +488,20 @@ class Camera2Controller(
                 applyTorch(this)
             }.build()
             currentSession.setRepeatingRequest(request, null, handler)
-        }.onFailure { e ->
-            Log.w(TAG, "Failed to rebuild repeating request", e)
+        }.onFailure { error ->
+            val current = sessionGeneration.get() == generation &&
+                camera === device &&
+                session === currentSession
+            if (current && (error is CameraAccessException || error is IllegalStateException)) {
+                recoverFromSessionFailure(
+                    device,
+                    generation,
+                    "Could not rebuild camera repeating request",
+                    error,
+                )
+            } else {
+                Log.w(TAG, "Failed to rebuild repeating request", error)
+            }
         }
     }
 
