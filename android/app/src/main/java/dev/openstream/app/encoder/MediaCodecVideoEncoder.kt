@@ -73,34 +73,8 @@ class MediaCodecVideoEncoder(
             "Using hardware encoder ${resolvedSelection.codecName} for $mimeType " +
                 "${width}x${height}@${fps} (${bitrate / 1_000_000} Mbps)",
         )
-        val encoder = MediaCodec.createByCodecName(resolvedSelection.codecName)
+        val encoder = createConfiguredEncoder(resolvedSelection)
         codec = encoder
-        val format = MediaFormat.createVideoFormat(mimeType, width, height).apply {
-            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-            setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
-            setInteger(MediaFormat.KEY_FRAME_RATE, fps)
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, keyframeIntervalSeconds)
-            setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                setInteger(MediaFormat.KEY_PRIORITY, 0)
-                setFloat(MediaFormat.KEY_OPERATING_RATE, fps.toFloat())
-            }
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                setInteger(MediaFormat.KEY_LATENCY, 0)
-            }
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
-            }
-        }
-        try {
-            encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-            surface = encoder.createInputSurface()
-        } catch (error: Throwable) {
-            codec = null
-            surface = null
-            runCatching { encoder.release() }
-            throw error
-        }
 
         val thread = HandlerThread("OpenStreamEncoder").apply { start() }
         callbackThread = thread
@@ -213,6 +187,59 @@ class MediaCodecVideoEncoder(
             }
         }
         stopCallbackThread()
+    }
+
+    private fun createConfiguredEncoder(resolvedSelection: EncoderSelection): MediaCodec {
+        var firstError: Throwable? = null
+        for (applyOptionalTuning in listOf(true, false)) {
+            val encoder = MediaCodec.createByCodecName(resolvedSelection.codecName)
+            try {
+                encoder.configure(
+                    createVideoFormat(applyOptionalTuning),
+                    null,
+                    null,
+                    MediaCodec.CONFIGURE_FLAG_ENCODE,
+                )
+                surface = encoder.createInputSurface()
+                if (!applyOptionalTuning && firstError != null) {
+                    Log.w(
+                        "OpenStreamEncoder",
+                        "Encoder rejected optional low-latency hints; using core profile",
+                        firstError,
+                    )
+                }
+                return encoder
+            } catch (error: Throwable) {
+                surface = null
+                runCatching { encoder.release() }
+                if (!applyOptionalTuning) {
+                    firstError?.let { error.addSuppressed(it) }
+                    throw error
+                }
+                firstError = error
+            }
+        }
+        error("Encoder configuration retry exhausted")
+    }
+
+    private fun createVideoFormat(applyOptionalTuning: Boolean): MediaFormat {
+        return MediaFormat.createVideoFormat(mimeType, width, height).apply {
+            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+            setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
+            setInteger(MediaFormat.KEY_FRAME_RATE, fps)
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, keyframeIntervalSeconds)
+            setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
+            if (applyOptionalTuning && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                setInteger(MediaFormat.KEY_PRIORITY, 0)
+                setFloat(MediaFormat.KEY_OPERATING_RATE, fps.toFloat())
+            }
+            if (applyOptionalTuning && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                setInteger(MediaFormat.KEY_LATENCY, 0)
+            }
+            if (applyOptionalTuning && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
+            }
+        }
     }
 
     private fun stopCallbackThread() {
