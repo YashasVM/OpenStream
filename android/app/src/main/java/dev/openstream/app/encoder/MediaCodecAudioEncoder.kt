@@ -45,87 +45,94 @@ class MediaCodecAudioEncoder(
             stop()
         }
 
-        val mime = MediaFormat.MIMETYPE_AUDIO_AAC
-        val format = MediaFormat.createAudioFormat(mime, sampleRate, channelCount).apply {
-            setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
-            setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
-            setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, maxInputSizeBytes())
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                setInteger(MediaFormat.KEY_PRIORITY, 0)
-            }
-        }
-
-        val encoder = createAudioCodec(mime)
-        codec = encoder
-        encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-        encoder.start()
-
-        val channelConfig = if (channelCount == 2) {
-            AudioFormat.CHANNEL_IN_STEREO
-        } else {
-            AudioFormat.CHANNEL_IN_MONO
-        }
-        val minBufferSize = AudioRecord.getMinBufferSize(
-            sampleRate, channelConfig, AudioFormat.ENCODING_PCM_16BIT
-        )
-        check(minBufferSize > 0) { "AudioRecord does not support $sampleRate Hz / $channelCount ch PCM16" }
-        // Target at most 80 ms of capture buffering where the device minimum allows it.
-        // READ_BLOCKING applies backpressure once this capacity is reached instead of allowing audio to trail video.
-        val targetBufferSize = bytesForDurationMs(MAX_CAPTURE_BUFFER_MS)
-        if (minBufferSize > targetBufferSize) {
-            Log.w(TAG, "AudioRecord minimum buffer exceeds the ${MAX_CAPTURE_BUFFER_MS} ms latency target: $minBufferSize bytes")
-        }
-        val bufferSize = max(minBufferSize, targetBufferSize)
-
-        val recorder = createRecorder(channelConfig, bufferSize)
-        audioRecord = recorder
-        recorder.startRecording()
-
-        val generation = synchronized(deliveryLock) {
-            val nextGeneration = captureGeneration + 1
-            captureGeneration = nextGeneration
-            nextGeneration
-        }
-        captureThread = Thread({
-            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
-            val pcmBuffer = ByteArray(bytesForDurationMs(20))
-            var capturedSamples = 0L
-            val startPresentationTimeUs = System.nanoTime() / 1000
-            while (captureGeneration == generation) {
-                val bytesRead = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    recorder.read(pcmBuffer, 0, pcmBuffer.size, AudioRecord.READ_BLOCKING)
-                } else {
-                    @Suppress("DEPRECATION")
-                    recorder.read(pcmBuffer, 0, pcmBuffer.size)
+        try {
+            val mime = MediaFormat.MIMETYPE_AUDIO_AAC
+            val format = MediaFormat.createAudioFormat(mime, sampleRate, channelCount).apply {
+                setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
+                setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
+                setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, maxInputSizeBytes())
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    setInteger(MediaFormat.KEY_PRIORITY, 0)
                 }
-                if (captureGeneration != generation) break
-                if (bytesRead > 0) {
-                    val samplesRead = bytesRead / bytesPerSampleFrame()
-                    val inputIndex = encoder.dequeueInputBuffer(10_000)
+            }
+
+            val encoder = createAudioCodec(mime)
+            codec = encoder
+            encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            encoder.start()
+
+            val channelConfig = if (channelCount == 2) {
+                AudioFormat.CHANNEL_IN_STEREO
+            } else {
+                AudioFormat.CHANNEL_IN_MONO
+            }
+            val minBufferSize = AudioRecord.getMinBufferSize(
+                sampleRate, channelConfig, AudioFormat.ENCODING_PCM_16BIT
+            )
+            check(minBufferSize > 0) { "AudioRecord does not support $sampleRate Hz / $channelCount ch PCM16" }
+            // Target at most 80 ms of capture buffering where the device minimum allows it.
+            // READ_BLOCKING applies backpressure once this capacity is reached instead of allowing audio to trail video.
+            val targetBufferSize = bytesForDurationMs(MAX_CAPTURE_BUFFER_MS)
+            if (minBufferSize > targetBufferSize) {
+                Log.w(TAG, "AudioRecord minimum buffer exceeds the ${MAX_CAPTURE_BUFFER_MS} ms latency target: $minBufferSize bytes")
+            }
+            val bufferSize = max(minBufferSize, targetBufferSize)
+
+            val recorder = createRecorder(channelConfig, bufferSize)
+            audioRecord = recorder
+            recorder.startRecording()
+
+            val generation = synchronized(deliveryLock) {
+                val nextGeneration = captureGeneration + 1
+                captureGeneration = nextGeneration
+                nextGeneration
+            }
+            captureThread = Thread({
+                Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
+                val pcmBuffer = ByteArray(bytesForDurationMs(20))
+                var capturedSamples = 0L
+                val startPresentationTimeUs = System.nanoTime() / 1000
+                while (captureGeneration == generation) {
+                    val bytesRead = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        recorder.read(pcmBuffer, 0, pcmBuffer.size, AudioRecord.READ_BLOCKING)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        recorder.read(pcmBuffer, 0, pcmBuffer.size)
+                    }
                     if (captureGeneration != generation) break
-                    if (inputIndex >= 0) {
-                        val inputBuffer = encoder.getInputBuffer(inputIndex)
-                        if (inputBuffer != null) {
-                            val presentationTimeUs =
-                                startPresentationTimeUs + capturedSamples * 1_000_000L / sampleRate
-                            inputBuffer.clear()
-                            inputBuffer.put(pcmBuffer, 0, bytesRead)
-                            encoder.queueInputBuffer(inputIndex, 0, bytesRead, presentationTimeUs, 0)
+                    if (bytesRead > 0) {
+                        val samplesRead = bytesRead / bytesPerSampleFrame()
+                        val inputIndex = encoder.dequeueInputBuffer(10_000)
+                        if (captureGeneration != generation) break
+                        if (inputIndex >= 0) {
+                            val inputBuffer = encoder.getInputBuffer(inputIndex)
+                            if (inputBuffer != null) {
+                                val presentationTimeUs =
+                                    startPresentationTimeUs + capturedSamples * 1_000_000L / sampleRate
+                                inputBuffer.clear()
+                                inputBuffer.put(pcmBuffer, 0, bytesRead)
+                                encoder.queueInputBuffer(inputIndex, 0, bytesRead, presentationTimeUs, 0)
+                            }
                         }
+                        capturedSamples += samplesRead
+                        drainEncoder(encoder, generation)
+                    } else if (bytesRead < 0) {
+                        if (captureGeneration == generation) {
+                            Log.w(TAG, "AudioRecord read failed: $bytesRead")
+                        }
+                    } else {
+                        drainEncoder(encoder, generation)
                     }
-                    capturedSamples += samplesRead
-                    drainEncoder(encoder, generation)
-                } else if (bytesRead < 0) {
-                    if (captureGeneration == generation) {
-                        Log.w(TAG, "AudioRecord read failed: $bytesRead")
-                    }
-                } else {
-                    drainEncoder(encoder, generation)
                 }
+            }, "OpenStreamAudioCapture").apply {
+                isDaemon = true
+                start()
             }
-        }, "OpenStreamAudioCapture").apply {
-            isDaemon = true
-            start()
+        } catch (error: Throwable) {
+            // start() is transactional: a recorder/codec/thread failure must not leave
+            // partially started audio resources behind for the next reconnect.
+            stop()
+            throw error
         }
     }
 
