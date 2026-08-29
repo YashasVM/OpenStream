@@ -699,10 +699,15 @@ class NativeSender {
     const size_t byteCount = bytes.size();
     {
       std::lock_guard<std::mutex> lock(sendQueueMutex_);
+      const bool oversizedAccessUnit = byteCount > kMaximumSendQueueBytes;
+      const bool allowIsolatedOversizedAccessUnit =
+          oversizedAccessUnit && sendQueue_.empty() && sendQueueBytes_ == 0;
+      const bool wouldExceedQueueLimit =
+          !allowIsolatedOversizedAccessUnit &&
+          (oversizedAccessUnit || sendQueueBytes_ > kMaximumSendQueueBytes - byteCount);
       if (!healthy_.load(std::memory_order_acquire) ||
           sendWorkerStopping_ ||
-          byteCount > kMaximumSendQueueBytes ||
-          sendQueueBytes_ > kMaximumSendQueueBytes - byteCount) {
+          wouldExceedQueueLimit) {
         if (healthy_.load(std::memory_order_relaxed)) {
           healthy_ = false;
           sendQueue_.clear();
