@@ -41,6 +41,8 @@ class Camera2Controller(
     private var activeLens: CameraLens? = null
     private val cameraGeneration = AtomicLong()
     private val sessionGeneration = AtomicLong()
+    private var desiredRunning = false
+    private var recoveryCallback: CameraManager.AvailabilityCallback? = null
 
     // Zoom state
     private var currentZoomRatio = 1.0f
@@ -112,6 +114,8 @@ class Camera2Controller(
     @SuppressLint("MissingPermission")
     fun startPreview() {
         ensureThread()
+        desiredRunning = true
+        cancelCameraRecovery()
         val desiredLens = lensProvider()
         val desiredId = selectCameraId(desiredLens)
 
@@ -128,38 +132,52 @@ class Camera2Controller(
         activeLens = desiredLens
         activeCameraId = desiredId
 
-        cameraManager.openCamera(desiredId, object : CameraDevice.StateCallback() {
-            override fun onOpened(device: CameraDevice) {
-                if (cameraGeneration.get() != generation || activeCameraId != desiredId) {
-                    Log.i(TAG, "Ignoring stale camera open for $desiredId")
-                    device.close()
-                    return
+        try {
+            cameraManager.openCamera(desiredId, object : CameraDevice.StateCallback() {
+                override fun onOpened(device: CameraDevice) {
+                    if (cameraGeneration.get() != generation || activeCameraId != desiredId) {
+                        Log.i(TAG, "Ignoring stale camera open for $desiredId")
+                        device.close()
+                        return
+                    }
+                    cancelCameraRecovery()
+                    camera = device
+                    loadZoomCapabilities(desiredId)
+                    createSession()
                 }
-                camera = device
-                loadZoomCapabilities(desiredId)
-                createSession()
-            }
 
-            override fun onDisconnected(device: CameraDevice) {
-                if (cameraGeneration.get() != generation) {
+                override fun onDisconnected(device: CameraDevice) {
+                    if (cameraGeneration.get() != generation) {
+                        device.close()
+                        return
+                    }
+                    Log.w(TAG, "Camera disconnected")
                     device.close()
-                    return
+                    closeCamera()
+                    watchForCameraAvailability(desiredId)
                 }
-                Log.w(TAG, "Camera disconnected")
-                device.close()
-                closeCamera()
-            }
 
-            override fun onError(device: CameraDevice, error: Int) {
-                if (cameraGeneration.get() != generation) {
+                override fun onError(device: CameraDevice, error: Int) {
+                    if (cameraGeneration.get() != generation) {
+                        device.close()
+                        return
+                    }
+                    Log.e(TAG, "Camera error: $error")
                     device.close()
-                    return
+                    closeCamera()
+                    if (error != CameraDevice.StateCallback.ERROR_CAMERA_DISABLED) {
+                        watchForCameraAvailability(desiredId)
+                    }
                 }
-                Log.e(TAG, "Camera error: $error")
-                device.close()
-                closeCamera()
-            }
-        }, handler)
+            }, handler)
+        } catch (security: SecurityException) {
+            Log.e(TAG, "Camera permission was revoked while opening $desiredId", security)
+            closeCamera()
+        } catch (error: Exception) {
+            Log.e(TAG, "Could not open camera $desiredId", error)
+            closeCamera()
+            watchForCameraAvailability(desiredId)
+        }
     }
 
     /**
@@ -196,6 +214,8 @@ class Camera2Controller(
     }
 
     fun stop() {
+        desiredRunning = false
+        cancelCameraRecovery()
         closeCamera()
         streamingSurface = null
     }
@@ -249,6 +269,40 @@ class Camera2Controller(
         camera?.close()
         session = null
         camera = null
+    }
+
+    private fun watchForCameraAvailability(cameraId: String) {
+        if (!desiredRunning) return
+        cancelCameraRecovery()
+        val generation = cameraGeneration.get()
+        val callback = object : CameraManager.AvailabilityCallback() {
+            override fun onCameraAvailable(availableCameraId: String) {
+                if (availableCameraId != cameraId ||
+                    !desiredRunning ||
+                    cameraGeneration.get() != generation ||
+                    activeCameraId != cameraId
+                ) {
+                    return
+                }
+                val previewReady = runCatching { previewSurfaceProvider().isValid }.getOrDefault(false)
+                if (!previewReady) return
+                cancelCameraRecovery()
+                startPreview()
+            }
+        }
+        recoveryCallback = callback
+        runCatching {
+            cameraManager.registerAvailabilityCallback(callback, handler)
+        }.onFailure { error ->
+            if (recoveryCallback === callback) recoveryCallback = null
+            Log.w(TAG, "Could not watch camera $cameraId availability", error)
+        }
+    }
+
+    private fun cancelCameraRecovery() {
+        val callback = recoveryCallback ?: return
+        recoveryCallback = null
+        runCatching { cameraManager.unregisterAvailabilityCallback(callback) }
     }
 
     private fun loadZoomCapabilities(cameraId: String) {
