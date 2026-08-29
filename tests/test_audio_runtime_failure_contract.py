@@ -37,14 +37,15 @@ def test_runtime_audio_codec_failure_reaches_reconnect_path():
     assert "deliverIfCurrent(" in failure_handler
 
     send_audio = client_source[
-        client_source.index("fun sendAudioAccessUnit") : client_source.index("fun disconnect()")
+        client_source.index("fun sendAudioAccessUnit") : client_source.index("fun isCurrentSessionGeneration")
     ]
     failure_guard = send_audio.index("if (accessUnit.encoderFailure)")
     mark_failure = send_audio.index("markSendFailure(generation)", failure_guard)
     native_send = send_audio.index("SrtNativeBridge.sendAudio")
 
     assert failure_guard < mark_failure < native_send
-    assert "return false" in send_audio[mark_failure:native_send]
+    failure_result = send_audio[mark_failure:native_send]
+    assert "SrtSendResult(false, generation, recoveryRequired = true)" in failure_result
 
 
 def test_audio_record_read_error_enters_runtime_failure_handler():
