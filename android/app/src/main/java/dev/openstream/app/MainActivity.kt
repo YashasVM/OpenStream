@@ -352,11 +352,11 @@ class MainActivity : Activity() {
 
     private fun handleMediaTransportFailure(sessionGeneration: Long) {
         if (!streamClient.isCurrentSessionGeneration(sessionGeneration)) return
-        phoneConnected = false
         mainHandler.post {
             // A replacement connect/listen may win the race between the encoder
             // callback and this UI task. Never let the old failure tear it down.
             if (!streamClient.isCurrentSessionGeneration(sessionGeneration)) return@post
+            phoneConnected = false
             if (phoneServerRunning) {
                 if (activeTargetName != null) {
                     statusText.text = "Connection lost"
