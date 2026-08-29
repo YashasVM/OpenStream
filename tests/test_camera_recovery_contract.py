@@ -58,3 +58,19 @@ def test_open_failures_do_not_crash_and_permission_revocation_does_not_retry():
     generic_block = _block_after(start_preview, "catch (error: Exception)")
     assert "watchForCameraAvailability" not in security_block
     assert "watchForCameraAvailability(desiredId)" in generic_block
+
+
+def test_capture_session_sync_failure_recovers_only_current_camera():
+    create_session = _block_after(SOURCE, "private fun createSession()")
+    assert "catch (error: IllegalStateException)" in create_session
+    assert "catch (error: CameraAccessException)" in create_session
+    assert create_session.count("recoverFromSessionCreationFailure(device, generation, error)") == 2
+
+    recovery = _block_after(
+        SOURCE,
+        "private fun recoverFromSessionCreationFailure(device: CameraDevice, generation: Long, error: Exception)",
+    )
+    guard = "sessionGeneration.get() != generation || camera !== device"
+    assert guard in recovery
+    assert recovery.index(guard) < recovery.index("closeCamera()")
+    assert recovery.index("closeCamera()") < recovery.index("watchForCameraAvailability(cameraId)")
