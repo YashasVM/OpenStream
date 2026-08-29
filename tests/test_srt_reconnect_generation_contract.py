@@ -51,8 +51,11 @@ def test_queued_media_is_bound_to_one_srt_session():
     # otherwise a large keyframe can hold reconnect teardown behind many send
     # timeouts even though the session has already been cancelled.
     chunk_loop = _block_after(send_now, "while (offset < bytes.size())")
-    assert stale_guard in chunk_loop
-    assert chunk_loop.index(stale_guard) < chunk_loop.index("srt_sendmsg(")
+    chunk_generation_guard = "if (generation != connectionGeneration_.load(std::memory_order_acquire))"
+    assert chunk_generation_guard in chunk_loop
+    chunk_guard_body = _block_after(chunk_loop, chunk_generation_guard)
+    assert "return true;" in chunk_guard_body
+    assert chunk_loop.index(chunk_generation_guard) < chunk_loop.index("srt_sendmsg(")
 
     disconnect = source[disconnect_start:failure_start]
     assert "connectionGeneration_.fetch_add(1, std::memory_order_acq_rel);" in disconnect
