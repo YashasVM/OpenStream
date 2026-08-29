@@ -87,6 +87,13 @@ class SrtStreamClient {
         val generation = synchronized(stateLock) {
             if (!connected) null else sessionGeneration.get()
         } ?: return false
+        if (accessUnit.encoderFailure) {
+            // A runtime AAC codec failure is terminal for this media session. Do not
+            // send the sentinel into MPEG-TS; force the existing reconnect path to
+            // rebuild both the transport and encoder resources instead.
+            markSendFailure(generation)
+            return false
+        }
         val sent = SrtNativeBridge.sendAudio(accessUnit.data, accessUnit.presentationTimeUs, accessUnit.flags)
         if (!sent) {
             sendFailures.incrementAndGet()
