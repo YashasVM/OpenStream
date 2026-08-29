@@ -4,6 +4,9 @@ from pathlib import Path
 VIDEO_ENCODER = Path(
     "android/app/src/main/java/dev/openstream/app/encoder/MediaCodecVideoEncoder.kt"
 )
+SRT_CLIENT = Path(
+    "android/app/src/main/java/dev/openstream/app/stream/SrtStreamClient.kt"
+)
 
 
 def _block_after(source: str, marker: str) -> str:
@@ -62,3 +65,24 @@ def test_video_callbacks_are_generation_bound_across_restart():
     ]
     assert "if (streamGeneration != generation) return" in format_callback
     assert "deliverIfCurrent(" in format_callback
+
+
+def test_video_encoder_error_forces_generation_bound_session_recovery():
+    encoder = VIDEO_ENCODER.read_text(encoding="utf-8")
+    client = SRT_CLIENT.read_text(encoding="utf-8")
+
+    error_callback = encoder[
+        encoder.index("override fun onError") : encoder.index("override fun onOutputFormatChanged")
+    ]
+    assert "if (streamGeneration != generation) return" in error_callback
+    assert "encoderFailure = true" in error_callback
+    assert "deliverIfCurrent(" in error_callback
+
+    send_video = client[
+        client.index("fun sendVideoAccessUnit") : client.index("fun sendAudioAccessUnit")
+    ]
+    failure_guard = send_video.index("if (accessUnit.encoderFailure)")
+    native_send = send_video.index("SrtNativeBridge.sendVideo")
+    assert failure_guard < native_send
+    assert "markSendFailure(generation)" in send_video[failure_guard:native_send]
+    assert "return false" in send_video[failure_guard:native_send]
