@@ -14,6 +14,12 @@ data class StreamStats(
         get() = lastPresentationTimeUs / 1_000_000.0
 }
 
+data class SrtSendResult(
+    val sent: Boolean,
+    val sessionGeneration: Long,
+    val recoveryRequired: Boolean = false,
+)
+
 class SrtStreamClient {
     @Volatile private var connected = false
     private val sessionGeneration = AtomicLong()
@@ -52,15 +58,15 @@ class SrtStreamClient {
         }
     }
 
-    fun sendVideoAccessUnit(accessUnit: EncodedAccessUnit): Boolean = synchronized(stateLock) {
-        if (!connected) return@synchronized false
+    fun sendVideoAccessUnit(accessUnit: EncodedAccessUnit): SrtSendResult = synchronized(stateLock) {
         val generation = sessionGeneration.get()
+        if (!connected) return@synchronized SrtSendResult(false, generation)
         if (accessUnit.encoderFailure) {
             // MediaCodec asynchronous failures mean the current camera surface/codec
             // session is no longer usable. Mark only the generation that observed the
             // error as failed so MainActivity's existing reconnect path can rebuild it.
             markSendFailure(generation)
-            return@synchronized false
+            return@synchronized SrtSendResult(false, generation, recoveryRequired = true)
         }
         val sent = SrtNativeBridge.sendVideo(accessUnit.data, accessUnit.presentationTimeUs, accessUnit.flags)
         val isCodecConfig = (accessUnit.flags and BUFFER_FLAG_CODEC_CONFIG) != 0
@@ -79,25 +85,29 @@ class SrtStreamClient {
             sendFailures.incrementAndGet()
             markSendFailure(generation)
         }
-        sent
+        SrtSendResult(sent, generation, recoveryRequired = !sent)
     }
 
-    fun sendAudioAccessUnit(accessUnit: EncodedAccessUnit): Boolean = synchronized(stateLock) {
-        if (!connected) return@synchronized false
+    fun sendAudioAccessUnit(accessUnit: EncodedAccessUnit): SrtSendResult = synchronized(stateLock) {
         val generation = sessionGeneration.get()
+        if (!connected) return@synchronized SrtSendResult(false, generation)
         if (accessUnit.encoderFailure) {
             // A runtime AAC codec failure is terminal for this media session. Do not
             // send the sentinel into MPEG-TS; force the existing reconnect path to
             // rebuild both the transport and encoder resources instead.
             markSendFailure(generation)
-            return@synchronized false
+            return@synchronized SrtSendResult(false, generation, recoveryRequired = true)
         }
         val sent = SrtNativeBridge.sendAudio(accessUnit.data, accessUnit.presentationTimeUs, accessUnit.flags)
         if (!sent) {
             sendFailures.incrementAndGet()
             markSendFailure(generation)
         }
-        sent
+        SrtSendResult(sent, generation, recoveryRequired = !sent)
+    }
+
+    fun isCurrentSessionGeneration(generation: Long): Boolean = synchronized(stateLock) {
+        sessionGeneration.get() == generation
     }
 
     fun disconnect() {
