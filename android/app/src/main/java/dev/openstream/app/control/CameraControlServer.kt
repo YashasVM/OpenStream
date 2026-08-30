@@ -299,6 +299,14 @@ class CameraControlServer(
         if (reservationToken != null && reservationToken.length > MAX_RESERVATION_TOKEN_CHARS) {
             return """{"error":"reservation token too large"}"""
         }
+        val currentReservation = reservationProvider()
+        val currentControllerAddress = activeControllerAddress
+        if (currentReservation == sourceInstanceId &&
+            currentControllerAddress != null &&
+            (controllerAddress.isEmpty() || controllerAddress != currentControllerAddress)
+        ) {
+            return unauthorizedControlResponse()
+        }
         val slotLabel = json.optString("slotLabel", "")
         val bitrateMbps = if (json.has("bitrateMbps")) {
             json.optInt("bitrateMbps").coerceIn(
