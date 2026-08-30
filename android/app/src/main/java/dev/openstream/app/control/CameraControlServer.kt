@@ -44,6 +44,7 @@ class CameraControlServer(
     @Volatile private var activeClient: Socket? = null
     @Volatile private var worker: Thread? = null
     @Volatile private var activeReservationToken: String? = null
+    @Volatile private var activeControllerAddress: String? = null
 
     fun start() {
         synchronized(lifecycleLock) {
@@ -135,6 +136,7 @@ class CameraControlServer(
             client.soTimeout = 5000
             val input = BufferedInputStream(client.getInputStream())
             val writer = PrintWriter(OutputStreamWriter(client.getOutputStream(), Charsets.UTF_8), false)
+            val controllerAddress = client.inetAddress?.hostAddress.orEmpty()
 
             // Parse request line
             val requestLine = readAsciiLine(input, MAX_REQUEST_LINE_BYTES) ?: return
@@ -186,12 +188,12 @@ class CameraControlServer(
             // Route request
             val response = when {
                 method == "GET" && path == "/status" -> handleStatus()
-                method == "POST" && path == "/zoom" -> handleZoom(body)
-                method == "POST" && path == "/torch" -> handleTorch(body)
-                method == "POST" && path == "/lens" -> handleLens(body)
-                method == "POST" && path == "/reserve" -> handleReserve(body)
+                method == "POST" && path == "/zoom" -> handleZoom(body, controllerAddress)
+                method == "POST" && path == "/torch" -> handleTorch(body, controllerAddress)
+                method == "POST" && path == "/lens" -> handleLens(body, controllerAddress)
+                method == "POST" && path == "/reserve" -> handleReserve(body, controllerAddress)
                 method == "POST" && path == "/release" -> handleRelease(body)
-                method == "POST" && path == "/identify" -> handleIdentify(body)
+                method == "POST" && path == "/identify" -> handleIdentify(body, controllerAddress)
                 method == "OPTIONS" -> """{"ok":true}"""
                 else -> {
                     sendResponse(writer, 404, """{"error":"not found"}""")
@@ -254,21 +256,32 @@ class CameraControlServer(
         return json.toString()
     }
 
-    private fun handleZoom(body: String): String {
+    private fun isAuthorizedController(controllerAddress: String): Boolean {
+        return reservationProvider() != null &&
+            controllerAddress.isNotEmpty() &&
+            controllerAddress == activeControllerAddress
+    }
+
+    private fun unauthorizedControlResponse(): String = """{"ok":false,"unauthorized":true}"""
+
+    private fun handleZoom(body: String, controllerAddress: String): String {
+        if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse()
         val json = JSONObject(body)
         val value = json.getDouble("value").toFloat()
         val applied = cameraProvider().setZoom(value)
         return """{"ok":true,"zoom":$applied}"""
     }
 
-    private fun handleTorch(body: String): String {
+    private fun handleTorch(body: String, controllerAddress: String): String {
+        if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse()
         val json = JSONObject(body)
         val enabled = json.getBoolean("enabled")
         onToggleTorch(enabled)
         return """{"ok":true,"torch":$enabled}"""
     }
 
-    private fun handleLens(body: String): String {
+    private fun handleLens(body: String, controllerAddress: String): String {
+        if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse()
         val json = JSONObject(body)
         val lensLabel = json.getString("lens")
         val available = lensListProvider()
@@ -278,7 +291,7 @@ class CameraControlServer(
         return """{"ok":true,"lens":"${target.shortLabel}"}"""
     }
 
-    private fun handleReserve(body: String): String {
+    private fun handleReserve(body: String, controllerAddress: String): String {
         val json = JSONObject(body)
         val sourceInstanceId = json.optString("sourceInstanceId").trim()
         if (sourceInstanceId.isEmpty()) return """{"error":"missing sourceInstanceId"}"""
@@ -296,6 +309,7 @@ class CameraControlServer(
         val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)
         return if (accepted) {
             activeReservationToken = reservationToken
+            activeControllerAddress = controllerAddress.ifEmpty { null }
             JSONObject()
                 .put("ok", true)
                 .put("reservedBy", sourceInstanceId)
@@ -324,11 +338,13 @@ class CameraControlServer(
         val released = onRelease(sourceInstanceId)
         if (released && reservationProvider() != sourceInstanceId) {
             activeReservationToken = null
+            activeControllerAddress = null
         }
         return """{"ok":$released}"""
     }
 
-    private fun handleIdentify(body: String): String {
+    private fun handleIdentify(body: String, controllerAddress: String): String {
+        if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse()
         val json = JSONObject(body)
         val label = json.optString("label", "CAM").ifBlank { "CAM" }
         val subtitle = json.optString("subtitle", "")
