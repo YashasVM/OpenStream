@@ -59,8 +59,9 @@ class Camera2Controller(
     private var torchEnabled = false
 
     /** Zoom value as a fraction [minZoom, maxZoom]. */
-    val zoomRatio: Float get() = currentZoomRatio
-    val zoomRange: ClosedFloatingPointRange<Float> get() = minZoomRatio..maxZoomRatio
+    val zoomRatio: Float get() = synchronized(lifecycleLock) { currentZoomRatio }
+    val zoomRange: ClosedFloatingPointRange<Float>
+        get() = synchronized(lifecycleLock) { minZoomRatio..maxZoomRatio }
 
     companion object {
         private const val TAG = "OpenStreamCamera"
@@ -253,13 +254,17 @@ class Camera2Controller(
     }
 
     fun setZoom(ratio: Float): Float {
-        currentZoomRatio = ratio.coerceIn(minZoomRatio, maxZoomRatio)
-        updateZoomInSession()
-        return currentZoomRatio
+        return synchronized(lifecycleLock) {
+            currentZoomRatio = ratio.coerceIn(minZoomRatio, maxZoomRatio)
+            updateZoomInSession()
+            currentZoomRatio
+        }
     }
 
     fun scaleZoom(scaleFactor: Float): Float {
-        return setZoom(currentZoomRatio * scaleFactor)
+        return synchronized(lifecycleLock) {
+            setZoom(currentZoomRatio * scaleFactor)
+        }
     }
 
     fun setManualExposure(iso: Int, exposureTimeNs: Long) {
@@ -268,8 +273,10 @@ class Camera2Controller(
     }
 
     fun setTorch(enabled: Boolean) {
-        torchEnabled = enabled
-        rebuildRepeatingRequest()
+        synchronized(lifecycleLock) {
+            torchEnabled = enabled
+            rebuildRepeatingRequest()
+        }
     }
 
     private fun ensureThread() {
