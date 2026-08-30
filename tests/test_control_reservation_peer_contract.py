@@ -26,6 +26,26 @@ def test_reservation_captures_controller_peer():
     assert "activeControllerAddress = controllerAddress.ifEmpty { null }" in reserve
 
 
+def test_same_owner_cannot_move_reservation_to_a_different_peer():
+    reserve = _function("handleReserve")
+    guard_terms = [
+        "val currentReservation = reservationProvider()",
+        "val currentControllerAddress = activeControllerAddress",
+        "currentReservation == sourceInstanceId",
+        "currentControllerAddress != null",
+        "controllerAddress != currentControllerAddress",
+        "return unauthorizedControlResponse()",
+    ]
+    for term in guard_terms:
+        assert term in reserve
+    assert reserve.index("currentReservation == sourceInstanceId") < reserve.index(
+        "val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)"
+    )
+    assert reserve.index("return unauthorizedControlResponse()") < reserve.index(
+        "activeControllerAddress = controllerAddress.ifEmpty { null }"
+    )
+
+
 def test_mutating_controls_require_reservation_peer_before_side_effects():
     side_effects = {
         "handleZoom": "cameraProvider().setZoom(value)",
