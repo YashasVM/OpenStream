@@ -102,6 +102,27 @@ def test_capture_session_failures_recover_only_current_camera():
     assert recovery.index("closeCamera()") < recovery.index("watchForCameraAvailability(cameraId)")
 
 
+def test_session_reconfigure_defers_invalid_output_surfaces_before_teardown():
+    create_session = _block_after(SOURCE, "private fun createSession()")
+    assert "runCatching { previewSurfaceProvider() }.getOrNull()" in create_session
+    assert "preview == null || !preview.isValid" in create_session
+    assert "encoded != null && !encoded.isValid" in create_session
+    assert create_session.index("preview == null || !preview.isValid") < create_session.index(
+        "sessionGeneration.incrementAndGet()"
+    )
+    assert create_session.index("encoded != null && !encoded.isValid") < create_session.index(
+        "session?.close()"
+    )
+
+    rebuild = _block_after(SOURCE, "private fun rebuildRepeatingRequest()")
+    assert "runCatching { previewSurfaceProvider() }.getOrNull()" in rebuild
+    assert "preview == null || !preview.isValid" in rebuild
+    assert "encoded != null && !encoded.isValid" in rebuild
+    assert rebuild.index("preview == null || !preview.isValid") < rebuild.index(
+        "device.createCaptureRequest(template)"
+    )
+
+
 def test_runtime_request_rebuild_recovers_only_broken_current_session():
     rebuild = _block_after(SOURCE, "private fun rebuildRepeatingRequest()")
     assert "val generation = sessionGeneration.get()" in rebuild
