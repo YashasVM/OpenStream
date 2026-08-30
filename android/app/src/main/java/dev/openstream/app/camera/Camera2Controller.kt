@@ -208,31 +208,37 @@ class Camera2Controller(
     }
 
     fun switchLens(lens: CameraLens) {
-        val newId = selectCameraId(lens)
-        if (newId == activeCameraId) return
+        synchronized(lifecycleLock) {
+            val newId = selectCameraId(lens)
+            if (newId == activeCameraId) return
 
-        activeLens = lens
-        activeCameraId = newId
-        currentZoomRatio = 1.0f
-        torchEnabled = false
+            activeLens = lens
+            activeCameraId = newId
+            currentZoomRatio = 1.0f
+            torchEnabled = false
 
-        closeCamera()
-        startPreview()
+            closeCamera()
+            startPreview()
+        }
     }
 
     fun startStreaming(encodedSurface: Surface) {
-        streamingSurface = encodedSurface
-        if (camera == null) {
-            startPreview()
-        } else {
-            createSession()
+        synchronized(lifecycleLock) {
+            streamingSurface = encodedSurface
+            if (camera == null) {
+                startPreview()
+            } else {
+                createSession()
+            }
         }
     }
 
     fun stopStreaming() {
-        streamingSurface = null
-        if (camera != null) {
-            createSession()
+        synchronized(lifecycleLock) {
+            streamingSurface = null
+            if (camera != null) {
+                createSession()
+            }
         }
     }
 
@@ -457,15 +463,17 @@ class Camera2Controller(
         message: String,
         error: Throwable? = null,
     ) {
-        if (sessionGeneration.get() != generation || camera !== device) return
-        val cameraId = activeCameraId ?: return
-        if (error != null) {
-            Log.e(TAG, message, error)
-        } else {
-            Log.e(TAG, message)
+        synchronized(lifecycleLock) {
+            if (!desiredRunning || sessionGeneration.get() != generation || camera !== device) return
+            val cameraId = activeCameraId ?: return
+            if (error != null) {
+                Log.e(TAG, message, error)
+            } else {
+                Log.e(TAG, message)
+            }
+            closeCamera()
+            watchForCameraAvailability(cameraId)
         }
-        closeCamera()
-        watchForCameraAvailability(cameraId)
     }
 
     private fun applyZoom(builder: CaptureRequest.Builder) {
