@@ -87,12 +87,10 @@ class Camera2Controller(
         val frontCams = cameras.filter { it.facing == CameraCharacteristics.LENS_FACING_FRONT }
 
         if (backCams.size >= 3) {
-            // Device has ultrawide, wide, telephoto
             result.add(CameraLens.BackUltrawide)
             result.add(CameraLens.Back)
             result.add(CameraLens.BackTelephoto)
         } else if (backCams.size == 2) {
-            // Check if the shorter focal is ultrawide or the longer is telephoto
             val ratio = if (backCams[0].focalLength > 0) backCams[1].focalLength / backCams[0].focalLength else 1f
             if (ratio > 1.5f) {
                 result.add(CameraLens.Back)
@@ -121,13 +119,10 @@ class Camera2Controller(
         val desiredId = selectCameraId(desiredLens)
 
         if (camera != null && activeCameraId == desiredId) {
-            // Already have the right camera open, just rebuild session
             createSession()
             return
         }
 
-        // Need to open a different camera. Capture the generation after closing the
-        // previous device so late callbacks from that device cannot replace this one.
         closeCamera()
         val generation = cameraGeneration.get()
         activeLens = desiredLens
@@ -181,10 +176,6 @@ class Camera2Controller(
         }
     }
 
-    /**
-     * Switch to a different lens. This closes the current camera and opens a new one.
-     * If an encoding surface is active, the new camera will resume streaming.
-     */
     fun switchLens(lens: CameraLens) {
         val newId = selectCameraId(lens)
         if (newId == activeCameraId) return
@@ -221,40 +212,25 @@ class Camera2Controller(
         streamingSurface = null
     }
 
-    /**
-     * Set the zoom ratio. Clamped to the device's supported range.
-     * Returns the actual zoom ratio applied.
-     */
     fun setZoom(ratio: Float): Float {
         currentZoomRatio = ratio.coerceIn(minZoomRatio, maxZoomRatio)
         updateZoomInSession()
         return currentZoomRatio
     }
 
-    /**
-     * Scale zoom by a delta factor (for pinch-to-zoom).
-     * Returns the new zoom ratio.
-     */
     fun scaleZoom(scaleFactor: Float): Float {
         return setZoom(currentZoomRatio * scaleFactor)
     }
 
     fun setManualExposure(iso: Int, exposureTimeNs: Long) {
-        // Wired in the request builder once remote controls are added.
         require(iso > 0)
         require(exposureTimeNs > 0)
     }
 
-    /**
-     * Enable or disable the camera torch (flashlight).
-     * Only works on back-facing cameras with flash hardware.
-     */
     fun setTorch(enabled: Boolean) {
         torchEnabled = enabled
         rebuildRepeatingRequest()
     }
-
-    // ---- Internal ----
 
     private fun ensureThread() {
         if (!thread.isAlive) {
@@ -346,9 +322,17 @@ class Camera2Controller(
 
     private fun createSession() {
         val device = camera ?: return
-        val generation = sessionGeneration.incrementAndGet()
-        val preview = previewSurfaceProvider()
+        val preview = runCatching { previewSurfaceProvider() }.getOrNull()
+        if (preview == null || !preview.isValid) {
+            Log.w(TAG, "Deferring camera session until preview surface is valid")
+            return
+        }
         val encoded = streamingSurface
+        if (encoded != null && !encoded.isValid) {
+            Log.w(TAG, "Deferring camera session until encoder surface is valid")
+            return
+        }
+        val generation = sessionGeneration.incrementAndGet()
         val surfaces = if (encoded != null) listOf(preview, encoded) else listOf(preview)
         session?.close()
         session = null
@@ -444,7 +428,6 @@ class Camera2Controller(
         if (supportsZoomRatioKey && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             builder.set(CaptureRequest.CONTROL_ZOOM_RATIO, currentZoomRatio)
         } else {
-            // Fallback: crop region
             val sensor = sensorRect ?: return
             val cropWidth = (sensor.width() / currentZoomRatio).toInt()
             val cropHeight = (sensor.height() / currentZoomRatio).toInt()
@@ -466,15 +449,20 @@ class Camera2Controller(
         }
     }
 
-    /**
-     * Rebuild the repeating request with current zoom + torch state.
-     */
     private fun rebuildRepeatingRequest() {
         val device = camera ?: return
         val currentSession = session ?: return
         val generation = sessionGeneration.get()
-        val preview = previewSurfaceProvider()
+        val preview = runCatching { previewSurfaceProvider() }.getOrNull()
+        if (preview == null || !preview.isValid) {
+            Log.w(TAG, "Deferring camera request rebuild until preview surface is valid")
+            return
+        }
         val encoded = streamingSurface
+        if (encoded != null && !encoded.isValid) {
+            Log.w(TAG, "Deferring camera request rebuild until encoder surface is valid")
+            return
+        }
         val template = if (encoded != null) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
 
         runCatching {
@@ -521,7 +509,6 @@ class Camera2Controller(
         if (candidates.isEmpty()) return cameraIds.first()
         if (candidates.size == 1 || lens.isFrontFacing) return candidates.first()
 
-        // Multiple back cameras — pick by focal length
         data class CamCandidate(val id: String, val focalLength: Float)
         val sorted = candidates.map { id ->
             val chars = cameraManager.getCameraCharacteristics(id)
@@ -533,9 +520,8 @@ class Camera2Controller(
             CameraLens.FocalHint.Ultrawide -> sorted.first().id
             CameraLens.FocalHint.Telephoto -> sorted.last().id
             CameraLens.FocalHint.Normal -> {
-                // Pick the middle one (main camera is typically the middle focal length)
                 if (sorted.size >= 3) sorted[1].id
-                else if (sorted.size == 2) sorted[1].id  // longer focal = main on 2-cam setups
+                else if (sorted.size == 2) sorted[1].id
                 else sorted.first().id
             }
         }
