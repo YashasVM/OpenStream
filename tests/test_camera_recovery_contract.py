@@ -22,7 +22,7 @@ def _block_after(source: str, marker: str) -> str:
 
 
 def test_transient_camera_loss_waits_for_availability_before_reopening():
-    start_preview = _block_after(SOURCE, "fun startPreview()")
+    start_preview = _block_after(SOURCE, "private fun startPreviewLocked()")
     disconnected = _block_after(start_preview, "override fun onDisconnected(device: CameraDevice)")
     errored = _block_after(start_preview, "override fun onError(device: CameraDevice, error: Int)")
     recovery = _block_after(SOURCE, "private fun watchForCameraAvailability(cameraId: String)")
@@ -34,22 +34,44 @@ def test_transient_camera_loss_waits_for_availability_before_reopening():
     assert "watchForCameraAvailability(desiredId)" in errored
     assert "registerAvailabilityCallback(callback, handler)" in recovery
 
-    assert "availableCameraId != cameraId" in available
-    assert "!desiredRunning" in available
-    assert "cameraGeneration.get() != generation" in available
-    assert "activeCameraId != cameraId" in available
-    assert "previewSurfaceProvider().isValid" in available
-    assert available.index("cancelCameraRecovery()") < available.index("startPreview()")
+    recovery_lock = _block_after(available, "synchronized(lifecycleLock)")
+    assert "availableCameraId != cameraId" in recovery_lock
+    assert "!desiredRunning" in recovery_lock
+    assert "lifecycleGeneration != expectedLifecycleGeneration" in recovery_lock
+    assert "cameraGeneration.get() != cameraRecoveryGeneration" in recovery_lock
+    assert "activeCameraId != cameraId" in recovery_lock
+    assert "previewSurfaceProvider().isValid" in recovery_lock
+    assert recovery_lock.index("cancelCameraRecoveryLocked()") < recovery_lock.index(
+        "startPreviewLocked()"
+    )
 
 
-def test_stop_cancels_recovery_before_invalidating_camera_generation():
+def test_stop_and_recovery_restart_share_lifecycle_lock_and_generation():
+    start = _block_after(SOURCE, "fun startPreview()")
+    start_lock = _block_after(start, "synchronized(lifecycleLock)")
+    assert "lifecycleGeneration += 1" in start_lock
+    assert start_lock.index("desiredRunning = true") < start_lock.index("startPreviewLocked()")
+
     stop = _block_after(SOURCE, "fun stop()")
-    assert stop.index("desiredRunning = false") < stop.index("cancelCameraRecovery()")
-    assert stop.index("cancelCameraRecovery()") < stop.index("closeCamera()")
+    stop_lock = _block_after(stop, "synchronized(lifecycleLock)")
+    assert stop_lock.index("desiredRunning = false") < stop_lock.index("lifecycleGeneration += 1")
+    assert stop_lock.index("lifecycleGeneration += 1") < stop_lock.index(
+        "cancelCameraRecoveryLocked()"
+    )
+    assert stop_lock.index("cancelCameraRecoveryLocked()") < stop_lock.index("closeCamera()")
+
+    recovery = _block_after(SOURCE, "private fun watchForCameraAvailability(cameraId: String)")
+    available = _block_after(recovery, "override fun onCameraAvailable(availableCameraId: String)")
+    recovery_lock = _block_after(available, "synchronized(lifecycleLock)")
+    assert "lifecycleGeneration != expectedLifecycleGeneration" in recovery_lock
+    assert recovery_lock.index("lifecycleGeneration != expectedLifecycleGeneration") < recovery_lock.index(
+        "startPreviewLocked()"
+    )
+    assert "startPreview()" not in recovery_lock
 
 
 def test_open_failures_do_not_crash_and_permission_revocation_does_not_retry():
-    start_preview = _block_after(SOURCE, "fun startPreview()")
+    start_preview = _block_after(SOURCE, "private fun startPreviewLocked()")
     security = start_preview.index("catch (security: SecurityException)")
     generic = start_preview.index("catch (error: Exception)")
 
