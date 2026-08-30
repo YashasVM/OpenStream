@@ -80,6 +80,21 @@ def test_authorization_requires_live_reservation_and_matching_peer():
     assert "controllerAddress == activeControllerAddress" in auth
 
 
+def test_release_requires_current_controller_peer_before_token_or_side_effects():
+    release = _function("handleRelease")
+    peer_guard = "controllerAddress != activeControllerAddress"
+    assert "controllerAddress: String" in release
+    assert "activeControllerAddress != null" in release
+    assert peer_guard in release
+    assert "return unauthorizedControlResponse()" in release
+    assert release.index(peer_guard) < release.index(
+        "reservationToken != activeReservationToken"
+    )
+    assert release.index("return unauthorizedControlResponse()") < release.index(
+        "val released = onRelease(sourceInstanceId)"
+    )
+
+
 def test_release_clears_controller_peer_with_reservation_state():
     release = _function("handleRelease")
     clear = "activeControllerAddress = null"
