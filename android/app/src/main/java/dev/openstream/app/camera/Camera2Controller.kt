@@ -3,6 +3,7 @@ package dev.openstream.app.camera
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Rect
+import android.hardware.camera2.CameraAccessException
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
@@ -12,7 +13,9 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
+import android.util.Range
 import android.view.Surface
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Camera2Controller manages the lifecycle of a Camera2 device and its
@@ -27,6 +30,7 @@ class Camera2Controller(
     private val context: Context,
     private val previewSurfaceProvider: () -> Surface,
     private val lensProvider: () -> CameraLens = { CameraLens.Back },
+    private val targetFps: Int = 30,
 ) {
     private val cameraManager = context.getSystemService(CameraManager::class.java)
     private val thread = HandlerThread("OpenStreamCamera")
@@ -36,6 +40,12 @@ class Camera2Controller(
     private var streamingSurface: Surface? = null
     private var activeCameraId: String? = null
     private var activeLens: CameraLens? = null
+    private val cameraGeneration = AtomicLong()
+    private val sessionGeneration = AtomicLong()
+    private val lifecycleLock = Any()
+    private var lifecycleGeneration = 0L
+    private var desiredRunning = false
+    private var recoveryCallback: CameraManager.AvailabilityCallback? = null
 
     // Zoom state
     private var currentZoomRatio = 1.0f
@@ -43,13 +53,15 @@ class Camera2Controller(
     private var minZoomRatio = 1.0f
     private var sensorRect: Rect? = null
     private var supportsZoomRatioKey = false
+    private var captureFpsRange: Range<Int>? = null
 
     // Torch state
     private var torchEnabled = false
 
     /** Zoom value as a fraction [minZoom, maxZoom]. */
-    val zoomRatio: Float get() = currentZoomRatio
-    val zoomRange: ClosedFloatingPointRange<Float> get() = minZoomRatio..maxZoomRatio
+    val zoomRatio: Float get() = synchronized(lifecycleLock) { currentZoomRatio }
+    val zoomRange: ClosedFloatingPointRange<Float>
+        get() = synchronized(lifecycleLock) { minZoomRatio..maxZoomRatio }
 
     companion object {
         private const val TAG = "OpenStreamCamera"
@@ -78,12 +90,10 @@ class Camera2Controller(
         val frontCams = cameras.filter { it.facing == CameraCharacteristics.LENS_FACING_FRONT }
 
         if (backCams.size >= 3) {
-            // Device has ultrawide, wide, telephoto
             result.add(CameraLens.BackUltrawide)
             result.add(CameraLens.Back)
             result.add(CameraLens.BackTelephoto)
         } else if (backCams.size == 2) {
-            // Check if the shorter focal is ultrawide or the longer is telephoto
             val ratio = if (backCams[0].focalLength > 0) backCams[1].focalLength / backCams[0].focalLength else 1f
             if (ratio > 1.5f) {
                 result.add(CameraLens.Back)
@@ -105,112 +115,169 @@ class Camera2Controller(
 
     @SuppressLint("MissingPermission")
     fun startPreview() {
+        synchronized(lifecycleLock) {
+            if (!desiredRunning) {
+                lifecycleGeneration += 1
+            }
+            desiredRunning = true
+            startPreviewLocked()
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startPreviewLocked() {
         ensureThread()
+        cancelCameraRecoveryLocked()
         val desiredLens = lensProvider()
         val desiredId = selectCameraId(desiredLens)
 
         if (camera != null && activeCameraId == desiredId) {
-            // Already have the right camera open, just rebuild session
             createSession()
             return
         }
 
-        // Need to open a different camera
         closeCamera()
+        val generation = cameraGeneration.get()
+        val expectedLifecycleGeneration = lifecycleGeneration
         activeLens = desiredLens
         activeCameraId = desiredId
 
-        cameraManager.openCamera(desiredId, object : CameraDevice.StateCallback() {
-            override fun onOpened(device: CameraDevice) {
-                camera = device
-                loadZoomCapabilities(desiredId)
-                createSession()
-            }
+        try {
+            cameraManager.openCamera(desiredId, object : CameraDevice.StateCallback() {
+                override fun onOpened(device: CameraDevice) {
+                    synchronized(lifecycleLock) {
+                        if (!desiredRunning ||
+                            lifecycleGeneration != expectedLifecycleGeneration ||
+                            cameraGeneration.get() != generation ||
+                            activeCameraId != desiredId
+                        ) {
+                            Log.i(TAG, "Ignoring stale camera open for $desiredId")
+                            device.close()
+                            return
+                        }
+                        cancelCameraRecoveryLocked()
+                        camera = device
+                        loadZoomCapabilities(desiredId)
+                        createSession()
+                    }
+                }
 
-            override fun onDisconnected(device: CameraDevice) {
-                Log.w(TAG, "Camera disconnected")
-                closeCamera()
-            }
+                override fun onDisconnected(device: CameraDevice) {
+                    synchronized(lifecycleLock) {
+                        if (!desiredRunning ||
+                            lifecycleGeneration != expectedLifecycleGeneration ||
+                            cameraGeneration.get() != generation ||
+                            activeCameraId != desiredId
+                        ) {
+                            device.close()
+                            return
+                        }
+                        Log.w(TAG, "Camera disconnected")
+                        device.close()
+                        closeCamera()
+                        watchForCameraAvailability(desiredId)
+                    }
+                }
 
-            override fun onError(device: CameraDevice, error: Int) {
-                Log.e(TAG, "Camera error: $error")
-                closeCamera()
-            }
-        }, handler)
+                override fun onError(device: CameraDevice, error: Int) {
+                    synchronized(lifecycleLock) {
+                        if (!desiredRunning ||
+                            lifecycleGeneration != expectedLifecycleGeneration ||
+                            cameraGeneration.get() != generation ||
+                            activeCameraId != desiredId
+                        ) {
+                            device.close()
+                            return
+                        }
+                        Log.e(TAG, "Camera error: $error")
+                        device.close()
+                        closeCamera()
+                        if (error != CameraDevice.StateCallback.ERROR_CAMERA_DISABLED) {
+                            watchForCameraAvailability(desiredId)
+                        }
+                    }
+                }
+            }, handler)
+        } catch (security: SecurityException) {
+            Log.e(TAG, "Camera permission was revoked while opening $desiredId", security)
+            closeCamera()
+        } catch (error: Exception) {
+            Log.e(TAG, "Could not open camera $desiredId", error)
+            closeCamera()
+            watchForCameraAvailability(desiredId)
+        }
     }
 
-    /**
-     * Switch to a different lens. This closes the current camera and opens a new one.
-     * If an encoding surface is active, the new camera will resume streaming.
-     */
     fun switchLens(lens: CameraLens) {
-        val newId = selectCameraId(lens)
-        if (newId == activeCameraId) return
+        synchronized(lifecycleLock) {
+            val newId = selectCameraId(lens)
+            if (newId == activeCameraId) return
 
-        activeLens = lens
-        activeCameraId = newId
-        currentZoomRatio = 1.0f
-        torchEnabled = false
+            activeLens = lens
+            activeCameraId = newId
+            currentZoomRatio = 1.0f
+            torchEnabled = false
 
-        closeCamera()
-        startPreview()
+            closeCamera()
+            startPreview()
+        }
     }
 
     fun startStreaming(encodedSurface: Surface) {
-        streamingSurface = encodedSurface
-        if (camera == null) {
-            startPreview()
-        } else {
-            createSession()
+        synchronized(lifecycleLock) {
+            streamingSurface = encodedSurface
+            if (camera == null) {
+                startPreview()
+            } else {
+                createSession()
+            }
         }
     }
 
     fun stopStreaming() {
-        streamingSurface = null
-        if (camera != null) {
-            createSession()
+        synchronized(lifecycleLock) {
+            streamingSurface = null
+            if (camera != null) {
+                createSession()
+            }
         }
     }
 
     fun stop() {
-        closeCamera()
-        streamingSurface = null
+        synchronized(lifecycleLock) {
+            desiredRunning = false
+            lifecycleGeneration += 1
+            cancelCameraRecoveryLocked()
+            closeCamera()
+            streamingSurface = null
+        }
     }
 
-    /**
-     * Set the zoom ratio. Clamped to the device's supported range.
-     * Returns the actual zoom ratio applied.
-     */
     fun setZoom(ratio: Float): Float {
-        currentZoomRatio = ratio.coerceIn(minZoomRatio, maxZoomRatio)
-        updateZoomInSession()
-        return currentZoomRatio
+        return synchronized(lifecycleLock) {
+            currentZoomRatio = ratio.coerceIn(minZoomRatio, maxZoomRatio)
+            updateZoomInSession()
+            currentZoomRatio
+        }
     }
 
-    /**
-     * Scale zoom by a delta factor (for pinch-to-zoom).
-     * Returns the new zoom ratio.
-     */
     fun scaleZoom(scaleFactor: Float): Float {
-        return setZoom(currentZoomRatio * scaleFactor)
+        return synchronized(lifecycleLock) {
+            setZoom(currentZoomRatio * scaleFactor)
+        }
     }
 
     fun setManualExposure(iso: Int, exposureTimeNs: Long) {
-        // Wired in the request builder once remote controls are added.
         require(iso > 0)
         require(exposureTimeNs > 0)
     }
 
-    /**
-     * Enable or disable the camera torch (flashlight).
-     * Only works on back-facing cameras with flash hardware.
-     */
     fun setTorch(enabled: Boolean) {
-        torchEnabled = enabled
-        rebuildRepeatingRequest()
+        synchronized(lifecycleLock) {
+            torchEnabled = enabled
+            rebuildRepeatingRequest()
+        }
     }
-
-    // ---- Internal ----
 
     private fun ensureThread() {
         if (!thread.isAlive) {
@@ -220,14 +287,80 @@ class Camera2Controller(
     }
 
     private fun closeCamera() {
+        cameraGeneration.incrementAndGet()
+        sessionGeneration.incrementAndGet()
         session?.close()
         camera?.close()
         session = null
         camera = null
     }
 
+    private fun watchForCameraAvailability(cameraId: String) {
+        synchronized(lifecycleLock) {
+            if (!desiredRunning) return
+            cancelCameraRecoveryLocked()
+            val cameraRecoveryGeneration = cameraGeneration.get()
+            val expectedLifecycleGeneration = lifecycleGeneration
+            val callback = object : CameraManager.AvailabilityCallback() {
+                override fun onCameraAvailable(availableCameraId: String) {
+                    synchronized(lifecycleLock) {
+                        if (availableCameraId != cameraId ||
+                            !desiredRunning ||
+                            lifecycleGeneration != expectedLifecycleGeneration ||
+                            cameraGeneration.get() != cameraRecoveryGeneration ||
+                            activeCameraId != cameraId
+                        ) {
+                            return
+                        }
+                        val previewReady = runCatching { previewSurfaceProvider().isValid }.getOrDefault(false)
+                        if (!previewReady) return
+                        cancelCameraRecoveryLocked()
+                        startPreviewLocked()
+                    }
+                }
+            }
+            recoveryCallback = callback
+            runCatching {
+                cameraManager.registerAvailabilityCallback(callback, handler)
+            }.onFailure { error ->
+                if (recoveryCallback === callback) recoveryCallback = null
+                Log.w(TAG, "Could not watch camera $cameraId availability", error)
+            }
+        }
+    }
+
+    private fun cancelCameraRecovery() {
+        synchronized(lifecycleLock) {
+            cancelCameraRecoveryLocked()
+        }
+    }
+
+    private fun cancelCameraRecoveryLocked() {
+        val callback = recoveryCallback ?: return
+        recoveryCallback = null
+        runCatching { cameraManager.unregisterAvailabilityCallback(callback) }
+    }
+
     private fun loadZoomCapabilities(cameraId: String) {
         val chars = cameraManager.getCameraCharacteristics(cameraId)
+        val availableFpsRanges = chars
+            .get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
+            .orEmpty()
+        captureFpsRange = availableFpsRanges
+            .filter { range -> targetFps in range.lower..range.upper }
+            .minWithOrNull(
+                compareBy<Range<Int>>(
+                    { if (it.lower == targetFps && it.upper == targetFps) 0 else 1 },
+                    { it.upper - it.lower },
+                    { -it.lower },
+                ),
+            )
+            ?: availableFpsRanges
+                .filter { range -> range.upper <= targetFps }
+                .maxWithOrNull(compareBy<Range<Int>> { it.upper }.thenBy { it.lower })
+        captureFpsRange?.let { range ->
+            Log.i(TAG, "Camera $cameraId using AE FPS range ${range.lower}-${range.upper} for ${targetFps}fps target")
+        } ?: Log.w(TAG, "Camera $cameraId exposes no AE FPS range suitable for ${targetFps}fps target")
         sensorRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -248,43 +381,110 @@ class Camera2Controller(
 
     private fun createSession() {
         val device = camera ?: return
-        val preview = previewSurfaceProvider()
+        val preview = runCatching { previewSurfaceProvider() }.getOrNull()
+        if (preview == null || !preview.isValid) {
+            Log.w(TAG, "Deferring camera session until preview surface is valid")
+            return
+        }
         val encoded = streamingSurface
+        if (encoded != null && !encoded.isValid) {
+            Log.w(TAG, "Deferring camera session until encoder surface is valid")
+            return
+        }
+        val generation = sessionGeneration.incrementAndGet()
         val surfaces = if (encoded != null) listOf(preview, encoded) else listOf(preview)
         session?.close()
-        @Suppress("DEPRECATION")
-        device.createCaptureSession(
-            surfaces,
-            object : CameraCaptureSession.StateCallback() {
-                override fun onConfigured(captureSession: CameraCaptureSession) {
-                    session = captureSession
-                    val template = if (encoded != null) {
-                        CameraDevice.TEMPLATE_RECORD
-                    } else {
-                        CameraDevice.TEMPLATE_PREVIEW
-                    }
-                    val request = device.createCaptureRequest(template).apply {
-                        addTarget(preview)
-                        if (encoded != null) {
-                            addTarget(encoded)
+        session = null
+        try {
+            @Suppress("DEPRECATION")
+            device.createCaptureSession(
+                surfaces,
+                object : CameraCaptureSession.StateCallback() {
+                    override fun onConfigured(captureSession: CameraCaptureSession) {
+                        synchronized(lifecycleLock) {
+                            if (!desiredRunning || sessionGeneration.get() != generation || camera !== device) {
+                                captureSession.close()
+                                return
+                            }
+                            session = captureSession
+                            val template = if (encoded != null) {
+                                CameraDevice.TEMPLATE_RECORD
+                            } else {
+                                CameraDevice.TEMPLATE_PREVIEW
+                            }
+                            runCatching {
+                                val request = device.createCaptureRequest(template).apply {
+                                    addTarget(preview)
+                                    if (encoded != null) {
+                                        addTarget(encoded)
+                                    }
+                                    set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+                                    set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                                    set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+                                    applyFrameRate(this)
+                                    applyZoom(this)
+                                    applyTorch(this)
+                                }.build()
+                                captureSession.setRepeatingRequest(request, null, handler)
+                            }.onFailure { error ->
+                                if (sessionGeneration.get() == generation && camera === device) {
+                                    recoverFromSessionFailure(
+                                        device,
+                                        generation,
+                                        "Could not start camera repeating request",
+                                        error,
+                                    )
+                                } else {
+                                    captureSession.close()
+                                }
+                            }
                         }
-                        set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
-                        set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
-                        set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-                        set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
-                        applyZoom(this)
-                        applyTorch(this)
-                    }.build()
-                    captureSession.setRepeatingRequest(request, null, handler)
-                }
+                    }
 
-                override fun onConfigureFailed(captureSession: CameraCaptureSession) {
-                    Log.e(TAG, "Capture session configuration failed")
-                    closeCamera()
-                }
-            },
-            handler,
-        )
+                    override fun onConfigureFailed(captureSession: CameraCaptureSession) {
+                        synchronized(lifecycleLock) {
+                            if (!desiredRunning || sessionGeneration.get() != generation || camera !== device) {
+                                captureSession.close()
+                                return
+                            }
+                            captureSession.close()
+                            recoverFromSessionFailure(
+                                device,
+                                generation,
+                                "Capture session configuration failed",
+                            )
+                        }
+                    }
+                },
+                handler,
+            )
+        } catch (error: IllegalStateException) {
+            recoverFromSessionFailure(device, generation, "Could not create camera capture session", error)
+        } catch (error: CameraAccessException) {
+            recoverFromSessionFailure(device, generation, "Could not create camera capture session", error)
+        } catch (error: IllegalArgumentException) {
+            recoverFromSessionFailure(device, generation, "Could not create camera capture session", error)
+        }
+    }
+
+    private fun recoverFromSessionFailure(
+        device: CameraDevice,
+        generation: Long,
+        message: String,
+        error: Throwable? = null,
+    ) {
+        synchronized(lifecycleLock) {
+            if (!desiredRunning || sessionGeneration.get() != generation || camera !== device) return
+            val cameraId = activeCameraId ?: return
+            if (error != null) {
+                Log.e(TAG, message, error)
+            } else {
+                Log.e(TAG, message)
+            }
+            closeCamera()
+            watchForCameraAvailability(cameraId)
+        }
     }
 
     private fun applyZoom(builder: CaptureRequest.Builder) {
@@ -293,7 +493,6 @@ class Camera2Controller(
         if (supportsZoomRatioKey && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             builder.set(CaptureRequest.CONTROL_ZOOM_RATIO, currentZoomRatio)
         } else {
-            // Fallback: crop region
             val sensor = sensorRect ?: return
             val cropWidth = (sensor.width() / currentZoomRatio).toInt()
             val cropHeight = (sensor.height() / currentZoomRatio).toInt()
@@ -303,20 +502,32 @@ class Camera2Controller(
         }
     }
 
+    private fun applyFrameRate(builder: CaptureRequest.Builder) {
+        captureFpsRange?.let { range ->
+            builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, range)
+        }
+    }
+
     private fun applyTorch(builder: CaptureRequest.Builder) {
         if (torchEnabled) {
             builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH)
         }
     }
 
-    /**
-     * Rebuild the repeating request with current zoom + torch state.
-     */
     private fun rebuildRepeatingRequest() {
         val device = camera ?: return
         val currentSession = session ?: return
-        val preview = previewSurfaceProvider()
+        val generation = sessionGeneration.get()
+        val preview = runCatching { previewSurfaceProvider() }.getOrNull()
+        if (preview == null || !preview.isValid) {
+            Log.w(TAG, "Deferring camera request rebuild until preview surface is valid")
+            return
+        }
         val encoded = streamingSurface
+        if (encoded != null && !encoded.isValid) {
+            Log.w(TAG, "Deferring camera request rebuild until encoder surface is valid")
+            return
+        }
         val template = if (encoded != null) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
 
         runCatching {
@@ -327,12 +538,25 @@ class Camera2Controller(
                 set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
                 set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
                 set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+                applyFrameRate(this)
                 applyZoom(this)
                 applyTorch(this)
             }.build()
             currentSession.setRepeatingRequest(request, null, handler)
-        }.onFailure { e ->
-            Log.w(TAG, "Failed to rebuild repeating request", e)
+        }.onFailure { error ->
+            val current = sessionGeneration.get() == generation &&
+                camera === device &&
+                session === currentSession
+            if (current && (error is CameraAccessException || error is IllegalStateException)) {
+                recoverFromSessionFailure(
+                    device,
+                    generation,
+                    "Could not rebuild camera repeating request",
+                    error,
+                )
+            } else {
+                Log.w(TAG, "Failed to rebuild repeating request", error)
+            }
         }
     }
 
@@ -350,7 +574,6 @@ class Camera2Controller(
         if (candidates.isEmpty()) return cameraIds.first()
         if (candidates.size == 1 || lens.isFrontFacing) return candidates.first()
 
-        // Multiple back cameras — pick by focal length
         data class CamCandidate(val id: String, val focalLength: Float)
         val sorted = candidates.map { id ->
             val chars = cameraManager.getCameraCharacteristics(id)
@@ -362,9 +585,8 @@ class Camera2Controller(
             CameraLens.FocalHint.Ultrawide -> sorted.first().id
             CameraLens.FocalHint.Telephoto -> sorted.last().id
             CameraLens.FocalHint.Normal -> {
-                // Pick the middle one (main camera is typically the middle focal length)
                 if (sorted.size >= 3) sorted[1].id
-                else if (sorted.size == 2) sorted[1].id  // longer focal = main on 2-cam setups
+                else if (sorted.size == 2) sorted[1].id
                 else sorted.first().id
             }
         }

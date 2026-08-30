@@ -4,7 +4,7 @@
 
 ```text
 Android Camera2
-  -> MediaCodec hardware HEVC/H.264 video encode
+  -> MediaCodec hardware AVC/H.264 video encode
   -> MediaCodec AAC audio encode
   -> MPEG-TS muxer (video + audio)
   -> SRT caller over local Wi-Fi
@@ -13,8 +13,12 @@ Android Camera2
   -> OBS final stream/record encode
 ```
 
-The V1 prototype uses hardware video and audio encoding on the phone. This is
-the best path for stable, high-quality wireless streaming over commodity Wi-Fi.
+The V1 path uses hardware video and audio encoding on the phone. AVC/H.264 at
+1080p30 is the sustainable default; the app does not silently switch video to
+software encoding when a hardware surface encoder is unavailable.
+
+USB transport is intentionally outside this release. The maintained path is
+the legacy Android app and OBS source/dock over local Wi-Fi and SRT.
 
 ## Discovery & Connection
 
@@ -67,13 +71,13 @@ transport can be tested without blocking the reliable product path.
 
 ## Encoding Defaults
 
-- Preferred video codec: HEVC/H.265.
-- Fallback video codec: AVC/H.264.
+- Default video codec: AVC/H.264.
+- HEVC/H.265 remains an explicit device/profile option only; it is not forced by the default path.
 - Audio codec: AAC.
 - Default resolution: `1920x1080`.
 - Fallback resolution: `1280x720`.
-- Default frame rate: `60 fps`.
-- Bitrate presets: `8-120 Mbps`; the default high-quality path uses `50 Mbps`.
+- Default frame rate: `30 fps`.
+- Bitrate range: `8-50 Mbps`; the default path uses `12 Mbps`.
 - Keyframe interval: `1 second`.
 
 ## Video Output Path
@@ -91,8 +95,11 @@ extracted from FFmpeg frame properties and forwarded to OBS.
 ## Sync Model
 
 V1 does not promise PTP or genlock. Each Android frame/audio buffer is
-timestamped with a monotonic clock. The Windows receiver and OBS source use
-those timestamps to estimate drift and preserve A/V alignment.
+timestamped with a monotonic clock. The Windows receiver maps the source PTS
+into one OBS monotonic session clock, preserving the audio/video offset instead
+of replacing it with receiver-arrival time. Frames that arrive more than
+`250 ms` late are dropped and logged so virtual-camera load cannot create an
+unbounded backlog.
 
 ## Telemetry
 

@@ -4,9 +4,10 @@ import android.content.Context
 import android.net.wifi.WifiManager
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
+import dev.openstream.app.stream.StreamConfig
 import org.json.JSONObject
 import java.net.DatagramPacket
-import java.net.DatagramSocket
 import java.net.InetSocketAddress
 import java.net.InetAddress
 import java.net.MulticastSocket
@@ -23,11 +24,16 @@ class ObsDiscoveryClient(
     private val running = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val devices = linkedMapOf<String, DiscoveredObsDevice>()
-    private var socket: MulticastSocket? = null
-    private var worker: Thread? = null
+    @Volatile private var socket: MulticastSocket? = null
+    @Volatile private var worker: Thread? = null
     private var multicastLock: WifiManager.MulticastLock? = null
 
     fun start() {
+        if (running.get()) return
+        if (worker?.isAlive == true) {
+            Log.w(TAG, "Discovery worker is still stopping; delaying restart")
+            return
+        }
         if (!running.compareAndSet(false, true)) return
         acquireMulticastLock()
         worker = Thread(::receiveLoop, "OpenStreamDiscovery").apply {
@@ -37,10 +43,16 @@ class ObsDiscoveryClient(
     }
 
     fun stop() {
-        if (!running.compareAndSet(true, false)) return
+        running.set(false)
         socket?.close()
         socket = null
-        worker = null
+        val thread = worker
+        thread?.interrupt()
+        if (thread != null && thread !== Thread.currentThread()) {
+            runCatching { thread.join(STOP_TIMEOUT_MS) }
+                .onFailure { Thread.currentThread().interrupt() }
+        }
+        if (worker === thread && thread?.isAlive != true) worker = null
         synchronized(devices) {
             devices.clear()
         }
@@ -66,40 +78,57 @@ class ObsDiscoveryClient(
     }
 
     private fun receiveLoop() {
-        val udp = MulticastSocket(null).apply {
-            reuseAddress = true
-            soTimeout = 500
-            bind(InetSocketAddress(DISCOVERY_PORT))
-        }
-        socket = udp
-        joinDiscoveryMulticast(udp)
-        val buffer = ByteArray(4096)
+        var udp: MulticastSocket? = null
+        try {
+            val multicast = MulticastSocket(null).apply {
+                reuseAddress = true
+                soTimeout = 500
+                bind(InetSocketAddress(DISCOVERY_PORT))
+            }
+            udp = multicast
+            socket = multicast
+            joinDiscoveryMulticast(multicast)
+            val buffer = ByteArray(4096)
 
-        while (running.get()) {
-            try {
-                val packet = DatagramPacket(buffer, buffer.size)
-                udp.receive(packet)
-                val payload = String(packet.data, packet.offset, packet.length, StandardCharsets.UTF_8)
-                val host = packet.address.hostAddress ?: continue
-                val device = ObsDiscoveryProtocol.parseBeacon(payload, host, nowMs()) ?: continue
-                synchronized(devices) {
-                    devices[device.instanceId.ifBlank { "${device.host}:${device.port}" }] = device
-                }
-                pruneExpired()
-                publishDevices()
-            } catch (_: SocketTimeoutException) {
-                if (pruneExpired()) {
+            while (running.get()) {
+                try {
+                    val packet = DatagramPacket(buffer, buffer.size)
+                    multicast.receive(packet)
+                    val payload = String(packet.data, packet.offset, packet.length, StandardCharsets.UTF_8)
+                    val host = packet.address.hostAddress ?: continue
+                    val device = ObsDiscoveryProtocol.parseBeacon(payload, host, nowMs()) ?: continue
+                    synchronized(devices) {
+                        devices[device.instanceId.ifBlank { "${device.host}:${device.port}" }] = device
+                    }
+                    pruneExpired()
                     publishDevices()
-                }
-            } catch (_: Exception) {
-                if (running.get()) {
+                } catch (_: SocketTimeoutException) {
                     if (pruneExpired()) {
                         publishDevices()
                     }
+                } catch (error: Exception) {
+                    if (multicast.isClosed) {
+                        if (running.get()) {
+                            Log.w(TAG, "Discovery socket closed unexpectedly", error)
+                        }
+                        break
+                    }
+                    if (running.get()) {
+                        Log.w(TAG, "Discovery receive failed", error)
+                        if (pruneExpired()) {
+                            publishDevices()
+                        }
+                    }
                 }
             }
+        } catch (e: Exception) {
+            if (running.get()) Log.w(TAG, "Discovery worker failed", e)
+        } finally {
+            runCatching { udp?.close() }
+            if (socket === udp) socket = null
+            if (worker === Thread.currentThread()) worker = null
+            running.set(false)
         }
-        udp.close()
     }
 
     private fun joinDiscoveryMulticast(socket: MulticastSocket) {
@@ -135,9 +164,11 @@ class ObsDiscoveryClient(
     }
 
     companion object {
+        private const val TAG = "OpenStreamDiscovery"
         const val DISCOVERY_PORT = 51515
         const val DISCOVERY_MULTICAST_ADDRESS = "239.255.42.99"
         const val DEVICE_TTL_MS = 5_000L
+        private const val STOP_TIMEOUT_MS = 1_000L
     }
 }
 
@@ -161,7 +192,10 @@ object ObsDiscoveryProtocol {
             host = host,
             port = port,
             latencyMs = json.optInt("latencyMs", 120).coerceIn(80, 200),
-            bitrateMbps = json.optInt("bitrateMbps", 12).coerceIn(1, 200),
+            bitrateMbps = json.optInt("bitrateMbps", StreamConfig.Default1080p30.bitrateMbps).coerceIn(
+                StreamConfig.MIN_BITRATE_MBPS,
+                StreamConfig.MAX_BITRATE_MBPS,
+            ),
             instanceId = json.optString("instanceId", "$packetHost:$port"),
             sourceInstanceId = json.optString("sourceInstanceId", json.optString("instanceId", "$packetHost:$port")),
             slotId = json.optString("slotId", json.optString("instanceId", "$packetHost:$port")),

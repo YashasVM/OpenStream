@@ -18,30 +18,36 @@ data class StreamConfig(
         get() = bitrate / 1_000_000
 
     companion object {
-        val Default1080p60 = StreamConfig(
+        const val MIN_BITRATE_MBPS = 8
+        const val MAX_BITRATE_MBPS = 50
+
+        // The sustainable default is 1080p30 AVC. 60 fps and HEVC remain
+        // useful device-specific choices, but they should not be forced on a
+        // phone before its thermal and hardware limits are known.
+        val Default1080p30 = StreamConfig(
             width = 1920,
             height = 1080,
-            fps = 60,
-            bitrate = 50_000_000,
+            fps = 30,
+            bitrate = 12_000_000,
             keyframeIntervalSeconds = 1,
             latencyMs = 120,
-            codecPreference = CodecPreference.PreferHevc,
+            codecPreference = CodecPreference.ForceAvc,
             audioSampleRate = 48_000,
             audioChannelCount = 1,
-            audioBitrate = 192_000,
+            audioBitrate = 128_000,
         )
 
-        val Fallback720p60 = StreamConfig(
+        val Fallback720p30 = StreamConfig(
             width = 1280,
             height = 720,
-            fps = 60,
-            bitrate = 25_000_000,
+            fps = 30,
+            bitrate = 8_000_000,
             keyframeIntervalSeconds = 1,
             latencyMs = 120,
-            codecPreference = CodecPreference.PreferHevc,
+            codecPreference = CodecPreference.ForceAvc,
             audioSampleRate = 48_000,
             audioChannelCount = 1,
-            audioBitrate = 192_000,
+            audioBitrate = 128_000,
         )
     }
 }

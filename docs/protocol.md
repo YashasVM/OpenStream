@@ -43,11 +43,11 @@ transport stream.
 
 ### Video Payload
 
-- Codec: `video/hevc` (preferred) or `video/avc` (fallback)
+- Codec: `video/avc` by default; `video/hevc` only for an explicit hardware profile
 - Source: MediaCodec hardware encoder
 - Resolution: 1920x1080 default
-- Frame rate: 60 fps default
-- Bitrate: 50 Mbps default
+- Frame rate: 30 fps default
+- Bitrate: 12 Mbps default (bounded to 8-50 Mbps)
 - Keyframe interval: 1 second
 - No B-frame dependency in target encoder profile
 
@@ -76,7 +76,7 @@ on port `51515`:
 **Beacon format:**
 
 ```text
-OPENSTREAM/1 {"type":"dev.openstream.listener","version":1,"name":"OpenStream","instanceId":"...","sourceInstanceId":"...","slotId":"...","slotLabel":"CAM A","pairingUrl":"openstream://connect?...","host":"<obs-ip>","listenerPort":9000,"latencyMs":120,"bitrateMbps":50,"busy":false}
+OPENSTREAM/1 {"type":"dev.openstream.listener","version":1,"name":"OpenStream","instanceId":"...","sourceInstanceId":"...","slotId":"...","slotLabel":"CAM A","pairingUrl":"openstream://connect?...","host":"<obs-ip>","listenerPort":9000,"latencyMs":120,"bitrateMbps":12,"busy":false}
 ```
 
 | Field | Type | Description |
@@ -102,7 +102,7 @@ The Android app advertises itself on the same multicast group:
 **Beacon format:**
 
 ```text
-OPENSTREAM_PHONE/1 {"type":"dev.openstream.phone","version":1,"name":"<device-name>","instanceId":"...","host":"<phone-ip>","listenerPort":9000,"controlPort":9001,"latencyMs":120,"codec":"video/hevc","width":1920,"height":1080,"fps":60,"bitrateMbps":50,"busy":false,"reservedBy":""}
+OPENSTREAM_PHONE/1 {"type":"dev.openstream.phone","version":1,"name":"<device-name>","instanceId":"...","host":"<phone-ip>","listenerPort":9000,"controlPort":9001,"latencyMs":120,"codec":"video/avc","width":1920,"height":1080,"fps":30,"bitrateMbps":12,"busy":false,"reservedBy":""}
 ```
 
 | Field | Type | Description |
@@ -157,7 +157,7 @@ Content-Type: application/json
   "sourceInstanceId": "openstream-...",
   "slotId": "slot-a",
   "slotLabel": "CAM A",
-  "bitrateMbps": 50
+  "bitrateMbps": 12
 }
 ```
 
@@ -272,11 +272,11 @@ Telemetry is separate from media. The Android app samples:
 ```json
 {
   "deviceName": "Google Pixel",
-  "codec": "video/hevc",
+  "codec": "video/avc",
   "width": 1920,
   "height": 1080,
-  "fps": 60,
-  "bitrate": 20000000,
+  "fps": 30,
+  "bitrate": 12000000,
   "batteryPercent": 87,
   "wifiRssi": -48,
   "temperatureCelsius": null,

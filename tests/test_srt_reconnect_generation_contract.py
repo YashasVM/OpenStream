@@ -1,0 +1,72 @@
+from pathlib import Path
+
+
+SOURCE = Path("android/app/src/main/cpp/openstream_srt.cpp")
+
+
+def _block_after(text: str, marker: str) -> str:
+    marker_index = text.index(marker)
+    brace_start = text.index("{", marker_index)
+    depth = 0
+    for index in range(brace_start, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[brace_start + 1 : index]
+    raise AssertionError(f"Unclosed block after {marker!r}")
+
+
+def test_queued_media_is_bound_to_one_srt_session():
+    source = SOURCE.read_text(encoding="utf-8")
+
+    send_start = source.index("bool send(std::vector<uint8_t> bytes)")
+    disconnect_start = source.index("void disconnect()", send_start)
+    send = source[send_start:disconnect_start]
+
+    worker_start = source.index("void runSendWorker()")
+    stop_worker_start = source.index("void stopSendWorker()", worker_start)
+    worker = source[worker_start:stop_worker_start]
+
+    failure_start = source.index("void markGenerationFailed(uint64_t generation)")
+    failure_end = source.index("void runSendWorker()", failure_start)
+    failure = source[failure_start:failure_end]
+
+    send_now_start = source.index("bool sendNow(")
+    send_start_again = source.index("bool send(std::vector<uint8_t> bytes)", send_now_start)
+    send_now = source[send_now_start:send_start_again]
+
+    assert "const uint64_t generation = connectionGeneration_.load(std::memory_order_acquire);" in send
+    assert "sendQueue_.push_back(PendingSend{generation, std::move(bytes)});" in send
+    assert "pending = std::move(sendQueue_.front());" in worker
+    assert "sendNow(pending.bytes, pending.generation)" in worker
+
+    stale_guard = "if (generation != connectionGeneration_.load(std::memory_order_acquire)) {\n      return true;\n    }"
+    assert stale_guard in send_now
+    assert send_now.index(stale_guard) < send_now.index("const SRTSOCKET socket = currentSocket();")
+
+    # disconnect() invalidates the generation before it waits on ioMutex_. A
+    # send already inside sendNow() must therefore re-check between SRT chunks;
+    # otherwise a large keyframe can hold reconnect teardown behind many send
+    # timeouts even though the session has already been cancelled.
+    chunk_loop = _block_after(send_now, "while (offset < bytes.size())")
+    chunk_generation_guard = "if (generation != connectionGeneration_.load(std::memory_order_acquire))"
+    assert chunk_generation_guard in chunk_loop
+    chunk_guard_body = _block_after(chunk_loop, chunk_generation_guard)
+    assert "return true;" in chunk_guard_body
+    assert chunk_loop.index(chunk_generation_guard) < chunk_loop.index("srt_sendmsg(")
+
+    disconnect = source[disconnect_start:failure_start]
+    assert "connectionGeneration_.fetch_add(1, std::memory_order_acq_rel);" in disconnect
+
+    # A send failure must be applied only while its generation still owns the
+    # socket lifecycle. Holding socketMutex_ across the generation check and
+    # queue clear prevents a replacement setSocket() from being poisoned.
+    generation_guard = "if (generation != connectionGeneration_.load(std::memory_order_acquire)) {\n      return;\n    }"
+    assert "std::lock_guard<std::mutex> socketLock(socketMutex_);" in failure
+    assert generation_guard in failure
+    assert failure.index("socketLock(socketMutex_)") < failure.index(generation_guard)
+    assert failure.index(generation_guard) < failure.index("healthy_ = false;")
+    assert failure.index("healthy_ = false;") < failure.index("sendQueue_.clear();")
+    assert "markGenerationFailed(pending.generation);" in worker

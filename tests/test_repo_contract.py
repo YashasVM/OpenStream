@@ -11,7 +11,7 @@ def read(path: str) -> str:
 
 def test_architecture_documents_practical_v1_transport() -> None:
     architecture = read("docs/architecture.md")
-    assert "MediaCodec hardware HEVC/H.264 video encode" in architecture
+    assert "MediaCodec hardware AVC/H.264 video encode" in architecture
     assert "MediaCodec AAC audio encode" in architecture
     assert "SRT caller" in architecture
     assert "UDP discovery" in architecture
@@ -31,9 +31,14 @@ def test_android_project_declares_camera_media_codec_srt_discovery_boundaries() 
     assert "startPreviewIfAllowed" in app
     assert "startPhoneServerIfAllowed" in app
     assert "MediaCodecAudioEncoder" in app
+    camera = read("android/app/src/main/java/dev/openstream/app/camera/Camera2Controller.kt")
+    assert "CONTROL_AE_TARGET_FPS_RANGE" in camera
+    assert "targetFps" in camera
     stream_config = read("android/app/src/main/java/dev/openstream/app/stream/StreamConfig.kt")
-    assert "PreferHevc" in stream_config
-    assert "50_000_000" in stream_config
+    assert "Default1080p30" in stream_config
+    assert "codecPreference = CodecPreference.ForceAvc" in stream_config
+    assert "MIN_BITRATE_MBPS = 8" in stream_config
+    assert "MAX_BITRATE_MBPS = 50" in stream_config
     assert "OPENSTREAM_PHONE/1" in discovery
     assert "DISCOVERY_PORT = 51515" in discovery
     assert "dev.openstream.phone" in discovery
@@ -119,8 +124,11 @@ def test_obs_sources_are_named_camera_slots_with_advanced_transport() -> None:
     assert "OBS_GROUP_CHECKABLE, advanced_group" in source
     assert "listener_port" in source
     assert "SRT latency (ms)" in source
-    assert '"bitrate_mbps", 50' in source
-    assert '"bitrate_mbps", "Expected bitrate (Mbps)", 8, 120, 1' in source
+    assert "kDefaultBitrateMbps = 12" in source
+    assert "kMinBitrateMbps = 8" in source
+    assert "kMaxBitrateMbps = 50" in source
+    assert '"bitrate_mbps"' in source
+    assert '"Expected bitrate (Mbps)"' in source
 
 
 def test_obs_discovery_beacons_advertise_slots_not_raw_listener_only() -> None:

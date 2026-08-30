@@ -4,14 +4,18 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <charconv>
+#include <condition_variable>
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <map>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -27,6 +31,8 @@
 namespace {
 
 constexpr const char *kTag = "OpenStreamSRT";
+constexpr int kMinSrtLatencyMs = 80;
+constexpr int kMaxSrtLatencyMs = 200;
 constexpr int kMediaCodecBufferFlagKeyFrame = 1;
 constexpr int kMediaCodecBufferFlagCodecConfig = 2;
 constexpr int kAudioSampleRate = 48000;
@@ -153,7 +159,7 @@ int aacSampleRateIndex(int sampleRate) {
 }
 
 struct AacAdtsConfig {
-  int profile = 1;  // AAC LC in ADTS is encoded as audioObjectType - 1.
+  int profile = 1;
   int sampleRateIndex = aacSampleRateIndex(kAudioSampleRate);
   int channelConfig = kAudioChannelCount;
 };
@@ -289,18 +295,16 @@ class MpegTsMuxer {
     std::vector<uint8_t> section;
     section.reserve(27);
     section.push_back(0x02);
-    append16(section, 0xb000 | 23);  // section_length: 23 = 5 + 5 (video) + 5 (audio) + 4 (CRC) + 4 (header)
+    append16(section, 0xb000 | 23);
     append16(section, kProgramNumber);
     section.push_back(0xc1);
     section.push_back(0x00);
     section.push_back(0x00);
     append16(section, 0xe000 | kVideoPid);
     append16(section, 0xf000);
-    // Video elementary stream
     section.push_back(streamType());
     append16(section, 0xe000 | kVideoPid);
     append16(section, 0xf000);
-    // Audio elementary stream (AAC = 0x0f)
     section.push_back(0x0f);
     append16(section, 0xe000 | kAudioPid);
     append16(section, 0xf000);
@@ -388,7 +392,6 @@ class MpegTsMuxer {
                                            int64_t presentationTimeUs) {
     std::vector<uint8_t> output;
     output.reserve(estimatePacketizedSize(accessUnit.size() + 32) + kTableBytes);
-    // Include tables periodically for audio too
     if (audioPacketIndex_ % 50 == 0) {
       writePat(output);
       writePmt(output);
@@ -396,7 +399,6 @@ class MpegTsMuxer {
 
     const std::vector<uint8_t> adtsFrame = makeAdtsFrame(accessUnit, audioSpecificConfig);
 
-    // Build audio PES (stream ID 0xC0 = audio stream 0)
     std::vector<uint8_t> pes;
     const uint64_t pts = pts90k(presentationTimeUs);
     const size_t pesPayloadLength = adtsFrame.size() + 8;
@@ -467,7 +469,7 @@ std::optional<SrtUrl> parseSrtUrl(const std::string &url) {
             std::from_chars(value.data(), value.data() + value.size(), latency);
         if (latencyResult.ec == std::errc{} &&
             latencyResult.ptr == value.data() + value.size()) {
-          parsed.latencyMs = std::clamp(latency, 80, 200);
+          parsed.latencyMs = std::clamp(latency, kMinSrtLatencyMs, kMaxSrtLatencyMs);
         }
       }
       if (amp == std::string::npos) {
@@ -482,7 +484,37 @@ std::optional<SrtUrl> parseSrtUrl(const std::string &url) {
 
 class NativeSender {
  public:
-  bool connect(const std::string &url) {
+  NativeSender() {
+#if OPENSTREAM_HAVE_LIBSRT
+    srtStarted_ = srt_startup() == 0;
+    if (!srtStarted_) {
+      logError("libsrt startup failed");
+    }
+#endif
+    sendWorker_ = std::thread(&NativeSender::runSendWorker, this);
+  }
+
+  ~NativeSender() {
+    stopSendWorker();
+    disconnect();
+#if OPENSTREAM_HAVE_LIBSRT
+    if (srtStarted_) {
+      srt_cleanup();
+      srtStarted_ = false;
+    }
+#endif
+  }
+
+  void advanceLifecycleGeneration(uint64_t generation) {
+#if OPENSTREAM_HAVE_LIBSRT
+    std::lock_guard<std::mutex> lock(socketMutex_);
+    lifecycleGeneration_ = generation;
+#else
+    (void)generation;
+#endif
+  }
+
+  bool connect(const std::string &url, uint64_t expectedLifecycleGeneration) {
 #if OPENSTREAM_HAVE_LIBSRT
     disconnect();
     const auto parsed = parseSrtUrl(url);
@@ -490,27 +522,36 @@ class NativeSender {
       logError("Invalid SRT URL");
       return false;
     }
-
-    if (srt_startup() != 0) {
-      logError("libsrt startup failed");
+    if (!srtStarted_) {
+      logError("libsrt runtime is unavailable");
       return false;
     }
 
     const SRTSOCKET socket = srt_create_socket();
     if (socket == SRT_INVALID_SOCK) {
       logError("Could not create SRT socket");
+      disconnect();
       return false;
     }
-    setSocket(socket);
+    if (!setSocketForLifecycle(socket, expectedLifecycleGeneration)) {
+      srt_close(socket);
+      return false;
+    }
 
     int yes = 1;
     int transportType = SRTT_LIVE;
     int payloadSize = 188 * 7;
-    int sendTimeoutMs = 500;
+    int sendTimeoutMs = 120;
+    int tooLatePacketDrop = 1;
+    int connectTimeoutMs = 2000;
+    int peerIdleTimeoutMs = 4000;
     srt_setsockopt(socket, 0, SRTO_TRANSTYPE, &transportType, sizeof transportType);
     srt_setsockopt(socket, 0, SRTO_SENDER, &yes, sizeof yes);
     srt_setsockopt(socket, 0, SRTO_PAYLOADSIZE, &payloadSize, sizeof payloadSize);
     srt_setsockopt(socket, 0, SRTO_SNDTIMEO, &sendTimeoutMs, sizeof sendTimeoutMs);
+    srt_setsockopt(socket, 0, SRTO_TLPKTDROP, &tooLatePacketDrop, sizeof tooLatePacketDrop);
+    srt_setsockopt(socket, 0, SRTO_CONNTIMEO, &connectTimeoutMs, sizeof connectTimeoutMs);
+    srt_setsockopt(socket, 0, SRTO_PEERIDLETIMEO, &peerIdleTimeoutMs, sizeof peerIdleTimeoutMs);
     const int latency = parsed->latencyMs;
     srt_setsockopt(socket, 0, SRTO_LATENCY, &latency, sizeof latency);
     srt_setsockopt(socket, 0, SRTO_PEERLATENCY, &latency, sizeof latency);
@@ -521,7 +562,7 @@ class NativeSender {
     addrinfo *result = nullptr;
     if (getaddrinfo(parsed->host.c_str(), parsed->port.c_str(), &hints, &result) != 0) {
       logError("Could not resolve SRT host");
-      closeSocket(socket);
+      disconnect();
       return false;
     }
 
@@ -536,7 +577,7 @@ class NativeSender {
 
     if (!connected) {
       __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT connect failed: %s", srt_getlasterror_str());
-      closeSocket(socket);
+      disconnect();
       return false;
     }
 
@@ -548,7 +589,7 @@ class NativeSender {
 #endif
   }
 
-  bool listen(const std::string &url) {
+  bool listen(const std::string &url, uint64_t expectedLifecycleGeneration) {
 #if OPENSTREAM_HAVE_LIBSRT
     disconnect();
     const auto parsed = parseSrtUrl(url);
@@ -556,29 +597,36 @@ class NativeSender {
       logError("Invalid SRT listener URL");
       return false;
     }
-
-    if (srt_startup() != 0) {
-      logError("libsrt startup failed");
+    if (!srtStarted_) {
+      logError("libsrt runtime is unavailable");
       return false;
     }
 
     const SRTSOCKET listenerSocket = srt_create_socket();
     if (listenerSocket == SRT_INVALID_SOCK) {
       logError("Could not create SRT listener socket");
+      disconnect();
       return false;
     }
-    setListenerSocket(listenerSocket);
+    if (!setListenerSocketForLifecycle(listenerSocket, expectedLifecycleGeneration)) {
+      srt_close(listenerSocket);
+      return false;
+    }
 
     int yes = 1;
     int transportType = SRTT_LIVE;
     int payloadSize = 188 * 7;
-    int sendTimeoutMs = 500;
+    int sendTimeoutMs = 120;
+    int tooLatePacketDrop = 1;
+    int peerIdleTimeoutMs = 4000;
     const int latency = parsed->latencyMs;
     srt_setsockopt(listenerSocket, 0, SRTO_TRANSTYPE, &transportType, sizeof transportType);
     srt_setsockopt(listenerSocket, 0, SRTO_SENDER, &yes, sizeof yes);
     srt_setsockopt(listenerSocket, 0, SRTO_REUSEADDR, &yes, sizeof yes);
     srt_setsockopt(listenerSocket, 0, SRTO_PAYLOADSIZE, &payloadSize, sizeof payloadSize);
     srt_setsockopt(listenerSocket, 0, SRTO_SNDTIMEO, &sendTimeoutMs, sizeof sendTimeoutMs);
+    srt_setsockopt(listenerSocket, 0, SRTO_TLPKTDROP, &tooLatePacketDrop, sizeof tooLatePacketDrop);
+    srt_setsockopt(listenerSocket, 0, SRTO_PEERIDLETIMEO, &peerIdleTimeoutMs, sizeof peerIdleTimeoutMs);
     srt_setsockopt(listenerSocket, 0, SRTO_LATENCY, &latency, sizeof latency);
     srt_setsockopt(listenerSocket, 0, SRTO_PEERLATENCY, &latency, sizeof latency);
 
@@ -609,7 +657,12 @@ class NativeSender {
       return false;
     }
     srt_setsockopt(acceptedSocket, 0, SRTO_SNDTIMEO, &sendTimeoutMs, sizeof sendTimeoutMs);
-    setSocket(acceptedSocket);
+    srt_setsockopt(acceptedSocket, 0, SRTO_TLPKTDROP, &tooLatePacketDrop, sizeof tooLatePacketDrop);
+    srt_setsockopt(acceptedSocket, 0, SRTO_PEERIDLETIMEO, &peerIdleTimeoutMs, sizeof peerIdleTimeoutMs);
+    if (!setSocketForLifecycle(acceptedSocket, expectedLifecycleGeneration)) {
+      srt_close(acceptedSocket);
+      return false;
+    }
     logInfo("OBS connected to Android SRT listener");
     return true;
 #else
@@ -619,12 +672,12 @@ class NativeSender {
 #endif
   }
 
-  bool send(const std::vector<uint8_t> &bytes) {
+  bool sendNow(const std::vector<uint8_t> &bytes, uint64_t generation) {
 #if OPENSTREAM_HAVE_LIBSRT
-    // Closing an SRT socket or tearing down libsrt while another codec thread
-    // is inside srt_sendmsg is unsafe. Serialize the whole send with teardown,
-    // not just the socket-handle lookup.
     std::lock_guard<std::mutex> ioLock(ioMutex_);
+    if (generation != connectionGeneration_.load(std::memory_order_acquire)) {
+      return true;
+    }
     const SRTSOCKET socket = currentSocket();
     if (socket == SRT_INVALID_SOCK) {
       return false;
@@ -632,6 +685,9 @@ class NativeSender {
     constexpr size_t kChunkSize = 188 * 7;
     size_t offset = 0;
     while (offset < bytes.size()) {
+      if (generation != connectionGeneration_.load(std::memory_order_acquire)) {
+        return true;
+      }
       const size_t chunk = std::min(kChunkSize, bytes.size() - offset);
       const int sent = srt_sendmsg(socket,
                                    reinterpret_cast<const char *>(bytes.data() + offset),
@@ -651,12 +707,62 @@ class NativeSender {
     return true;
 #else
     (void)bytes;
+    (void)generation;
+    return false;
+#endif
+  }
+
+  bool send(std::vector<uint8_t> bytes) {
+#if OPENSTREAM_HAVE_LIBSRT
+    const size_t byteCount = bytes.size();
+    {
+      std::lock_guard<std::mutex> lock(sendQueueMutex_);
+      const bool accessUnitTooLarge = byteCount > kMaximumAccessUnitBytes;
+      const bool oversizedAccessUnit = byteCount > kMaximumSendQueueBytes;
+      const bool allowIsolatedOversizedAccessUnit =
+          !accessUnitTooLarge && oversizedAccessUnit && sendQueue_.empty() && sendQueueBytes_ == 0;
+      const bool wouldExceedQueueLimit =
+          accessUnitTooLarge ||
+          (!allowIsolatedOversizedAccessUnit &&
+           (oversizedAccessUnit || sendQueueBytes_ > kMaximumSendQueueBytes - byteCount));
+      if (!healthy_.load(std::memory_order_acquire) ||
+          sendWorkerStopping_ ||
+          wouldExceedQueueLimit) {
+        if (healthy_.load(std::memory_order_relaxed)) {
+          healthy_ = false;
+          connectionGeneration_.fetch_add(1, std::memory_order_acq_rel);
+          sendQueue_.clear();
+          sendQueueBytes_ = 0;
+          __android_log_print(
+              ANDROID_LOG_WARN,
+              kTag,
+              accessUnitTooLarge
+                  ? "SRT access unit exceeds safety limit; dropping the session"
+                  : "SRT send queue saturated; dropping the session to avoid latency growth");
+        }
+        return false;
+      }
+      const uint64_t generation = connectionGeneration_.load(std::memory_order_acquire);
+      sendQueue_.push_back(PendingSend{generation, std::move(bytes)});
+      sendQueueBytes_ += byteCount;
+    }
+    sendQueueWake_.notify_one();
+    return true;
+#else
+    (void)bytes;
     return false;
 #endif
   }
 
   void disconnect() {
 #if OPENSTREAM_HAVE_LIBSRT
+    healthy_ = false;
+    connectionGeneration_.fetch_add(1, std::memory_order_acq_rel);
+    {
+      std::lock_guard<std::mutex> lock(sendQueueMutex_);
+      sendQueue_.clear();
+      sendQueueBytes_ = 0;
+    }
     std::lock_guard<std::mutex> ioLock(ioMutex_);
     const SRTSOCKET listenerSocket = takeListenerSocket();
     const SRTSOCKET socket = takeSocket();
@@ -666,20 +772,79 @@ class NativeSender {
     if (socket != SRT_INVALID_SOCK) {
       srt_close(socket);
     }
-    srt_cleanup();
 #endif
   }
 
  private:
+  struct PendingSend {
+    uint64_t generation;
+    std::vector<uint8_t> bytes;
+  };
+
+  void markGenerationFailed(uint64_t generation) {
+#if OPENSTREAM_HAVE_LIBSRT
+    std::lock_guard<std::mutex> socketLock(socketMutex_);
+    if (generation != connectionGeneration_.load(std::memory_order_acquire)) {
+      return;
+    }
+#endif
+    healthy_ = false;
+    std::lock_guard<std::mutex> queueLock(sendQueueMutex_);
+    sendQueue_.clear();
+    sendQueueBytes_ = 0;
+  }
+
+  void runSendWorker() {
+    for (;;) {
+      PendingSend pending{};
+      {
+        std::unique_lock<std::mutex> lock(sendQueueMutex_);
+        sendQueueWake_.wait(lock, [this] {
+          return sendWorkerStopping_ || !sendQueue_.empty();
+        });
+        if (sendWorkerStopping_) return;
+        pending = std::move(sendQueue_.front());
+        sendQueue_.pop_front();
+      }
+      const bool sent = sendNow(pending.bytes, pending.generation);
+      {
+        std::lock_guard<std::mutex> lock(sendQueueMutex_);
+        if (pending.generation == connectionGeneration_.load(std::memory_order_acquire)) {
+          sendQueueBytes_ -= pending.bytes.size();
+        }
+      }
+      if (!sent) {
+        markGenerationFailed(pending.generation);
+      }
+    }
+  }
+
+  void stopSendWorker() {
+    {
+      std::lock_guard<std::mutex> lock(sendQueueMutex_);
+      sendWorkerStopping_ = true;
+      sendQueue_.clear();
+      sendQueueBytes_ = 0;
+    }
+    sendQueueWake_.notify_one();
+    if (sendWorker_.joinable()) sendWorker_.join();
+  }
+
 #if OPENSTREAM_HAVE_LIBSRT
   SRTSOCKET currentSocket() const {
     std::lock_guard<std::mutex> lock(socketMutex_);
     return socket_;
   }
 
-  void setSocket(SRTSOCKET socket) {
+  bool setSocketForLifecycle(SRTSOCKET socket, uint64_t expectedLifecycleGeneration) {
     std::lock_guard<std::mutex> lock(socketMutex_);
+    if (lifecycleGeneration_ != expectedLifecycleGeneration) {
+      return false;
+    }
     socket_ = socket;
+    connectionGeneration_.fetch_add(1, std::memory_order_acq_rel);
+    healthy_.store(true, std::memory_order_release);
+    return true;
   }
 
   SRTSOCKET takeSocket() {
@@ -695,6 +860,7 @@ class NativeSender {
       std::lock_guard<std::mutex> lock(socketMutex_);
       if (socket_ == socket) {
         socket_ = SRT_INVALID_SOCK;
+        healthy_ = false;
         ownsSocket = true;
       }
     }
@@ -703,9 +869,13 @@ class NativeSender {
     }
   }
 
-  void setListenerSocket(SRTSOCKET socket) {
+  bool setListenerSocketForLifecycle(SRTSOCKET socket, uint64_t expectedLifecycleGeneration) {
     std::lock_guard<std::mutex> lock(socketMutex_);
+    if (lifecycleGeneration_ != expectedLifecycleGeneration) {
+      return false;
+    }
     listener_socket_ = socket;
+    return true;
   }
 
   SRTSOCKET takeListenerSocket() {
@@ -733,7 +903,19 @@ class NativeSender {
   std::mutex ioMutex_;
   SRTSOCKET socket_ = SRT_INVALID_SOCK;
   SRTSOCKET listener_socket_ = SRT_INVALID_SOCK;
+  uint64_t lifecycleGeneration_ = 0;
+  bool srtStarted_ = false;
 #endif
+  static constexpr size_t kMaximumSendQueueBytes = 768 * 1024;
+  static constexpr size_t kMaximumAccessUnitBytes = 2 * 1024 * 1024;
+  std::atomic<bool> healthy_{false};
+  std::atomic<uint64_t> connectionGeneration_{0};
+  std::mutex sendQueueMutex_;
+  std::condition_variable sendQueueWake_;
+  std::deque<PendingSend> sendQueue_;
+  size_t sendQueueBytes_ = 0;
+  bool sendWorkerStopping_ = false;
+  std::thread sendWorker_;
 };
 
 struct StreamState {
@@ -749,6 +931,15 @@ StreamState g_state;
 
 }  // namespace
 
+extern "C" JNIEXPORT void JNICALL
+Java_dev_openstream_app_stream_SrtNativeBridge_beginSession(
+    JNIEnv *,
+    jobject,
+    jlong session_generation) {
+  g_state.sender.advanceLifecycleGeneration(static_cast<uint64_t>(session_generation));
+  g_state.sender.disconnect();
+}
+
 extern "C" JNIEXPORT jboolean JNICALL
 Java_dev_openstream_app_stream_SrtNativeBridge_connect(
     JNIEnv *env,
@@ -757,7 +948,8 @@ Java_dev_openstream_app_stream_SrtNativeBridge_connect(
     jstring codec_mime,
     jint,
     jint,
-    jint) {
+    jint,
+    jlong session_generation) {
   const char *rawUrl = env->GetStringUTFChars(url, nullptr);
   const char *rawCodec = env->GetStringUTFChars(codec_mime, nullptr);
   const std::string urlString(rawUrl);
@@ -780,7 +972,8 @@ Java_dev_openstream_app_stream_SrtNativeBridge_connect(
     g_state.connected = false;
   }
   g_state.sender.disconnect();
-  const bool connected = g_state.sender.connect(urlString);
+  const bool connected =
+      g_state.sender.connect(urlString, static_cast<uint64_t>(session_generation));
   {
     std::lock_guard<std::mutex> lock(g_state.mediaMutex);
     g_state.connected = connected;
@@ -799,7 +992,8 @@ Java_dev_openstream_app_stream_SrtNativeBridge_listen(
     jstring codec_mime,
     jint,
     jint,
-    jint) {
+    jint,
+    jlong session_generation) {
   const char *rawUrl = env->GetStringUTFChars(url, nullptr);
   const char *rawCodec = env->GetStringUTFChars(codec_mime, nullptr);
   const std::string urlString(rawUrl);
@@ -822,7 +1016,8 @@ Java_dev_openstream_app_stream_SrtNativeBridge_listen(
     g_state.connected = false;
   }
   g_state.sender.disconnect();
-  const bool connected = g_state.sender.listen(urlString);
+  const bool connected =
+      g_state.sender.listen(urlString, static_cast<uint64_t>(session_generation));
   {
     std::lock_guard<std::mutex> lock(g_state.mediaMutex);
     g_state.connected = connected;
@@ -863,9 +1058,9 @@ Java_dev_openstream_app_stream_SrtNativeBridge_sendVideo(
     annexB = std::move(withConfig);
   }
 
-  const std::vector<uint8_t> ts =
+  std::vector<uint8_t> ts =
       g_state.muxer->muxAccessUnit(annexB, static_cast<int64_t>(presentation_time_us), keyFrame);
-  const bool sent = g_state.sender.send(ts);
+  const bool sent = g_state.sender.send(std::move(ts));
   if (!sent) {
     g_state.connected = false;
   }
@@ -873,7 +1068,9 @@ Java_dev_openstream_app_stream_SrtNativeBridge_sendVideo(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_dev_openstream_app_stream_SrtNativeBridge_disconnect(JNIEnv *, jobject) {
+Java_dev_openstream_app_stream_SrtNativeBridge_disconnect(
+    JNIEnv *, jobject, jlong session_generation) {
+  g_state.sender.advanceLifecycleGeneration(static_cast<uint64_t>(session_generation));
   std::lock_guard<std::mutex> lock(g_state.mediaMutex);
   g_state.muxer.reset();
   g_state.codecConfig.clear();
@@ -905,9 +1102,9 @@ Java_dev_openstream_app_stream_SrtNativeBridge_sendAudio(
     return JNI_TRUE;
   }
 
-  const std::vector<uint8_t> ts = g_state.muxer->muxAudioAccessUnit(
+  std::vector<uint8_t> ts = g_state.muxer->muxAudioAccessUnit(
       bytes, g_state.audioCodecConfig, static_cast<int64_t>(presentation_time_us));
-  const bool sent = g_state.sender.send(ts);
+  const bool sent = g_state.sender.send(std::move(ts));
   if (!sent) {
     g_state.connected = false;
   }

@@ -17,6 +17,7 @@
 #include <obs-module.h>
 
 #include "async-control-client.hpp"
+#include "media-clock.hpp"
 #include "openstream-control-api.hpp"
 #include <util/platform.h>
 
@@ -90,6 +91,10 @@ using SwsContextPtr = std::unique_ptr<SwsContext, SwsContextDeleter>;
 
 constexpr int kDiscoveryPort = 51515;
 constexpr int kDefaultListenerPort = 9000;
+constexpr int kDefaultBitrateMbps = 12;
+constexpr int kMinBitrateMbps = 8;
+constexpr int kMaxBitrateMbps = 50;
+constexpr uint64_t kMaximumMediaBacklogNs = 250'000'000;
 constexpr auto kReconnectReservationWindow = std::chrono::seconds(45);
 constexpr const char *kOpenStreamSourceName = "OpenStream V8";
 constexpr const char *kDiscoveryMulticastAddress = "239.255.42.99";
@@ -442,9 +447,10 @@ struct PhoneDevice {
   int width = 1920;
   int height = 1080;
   int fps = 30;
-  int bitrate_mbps = 50;
+  int bitrate_mbps = kDefaultBitrateMbps;
   bool busy = false;
   std::string reserved_by;
+  std::string reservation_token;
   std::chrono::steady_clock::time_point last_seen = std::chrono::steady_clock::now();
 };
 
@@ -613,7 +619,10 @@ class PhoneDiscoveryReceiver {
       device.width = std::clamp(json_int_value(json, "width").value_or(1920), 16, 8192);
       device.height = std::clamp(json_int_value(json, "height").value_or(1080), 16, 8192);
       device.fps = std::clamp(json_int_value(json, "fps").value_or(30), 1, 240);
-      device.bitrate_mbps = std::clamp(json_int_value(json, "bitrateMbps").value_or(12), 1, 200);
+      device.bitrate_mbps = std::clamp(
+          json_int_value(json, "bitrateMbps").value_or(kDefaultBitrateMbps),
+          kMinBitrateMbps,
+          kMaxBitrateMbps);
       device.busy = json_bool_value(json, "busy").value_or(false);
       device.reserved_by = json_string_value(json, "reservedBy").value_or("");
       device.last_seen = std::chrono::steady_clock::now();
@@ -745,7 +754,7 @@ class DiscoveryAdvertiser {
   std::thread worker_;
   int listener_port_ = 9000;
   int latency_ms_ = 120;
-  int bitrate_mbps_ = 50;
+  int bitrate_mbps_ = kDefaultBitrateMbps;
   std::string source_name_ = kOpenStreamSourceName;
   std::string instance_id_;
   std::string slot_id_;
@@ -768,7 +777,7 @@ struct OpenStreamSource {
   std::string selected_phone_id = PhoneDiscoveryReceiver::kAutoPhoneId;
   int listener_port = 0;
   int latency_ms = 120;
-  int bitrate_mbps = 50;
+  int bitrate_mbps = kDefaultBitrateMbps;
   bool listener_enabled = true;
   std::atomic<bool> listener_running = false;
   std::atomic<bool> phone_connected = false;
@@ -788,6 +797,8 @@ struct OpenStreamSource {
   std::string active_selected_phone_id = PhoneDiscoveryReceiver::kAutoPhoneId;
   std::optional<PhoneDevice> active_phone;
   uint64_t frames_output = 0;
+  uint64_t stale_video_frames = 0;
+  uint64_t stale_audio_frames = 0;
   double last_cam_zoom = 1.0;
   std::shared_ptr<AsyncControlClient> camera_controls =
       std::make_shared<AsyncControlClient>();
@@ -805,12 +816,17 @@ bool queue_control_command(OpenStreamSource *ctx, const std::string &path,
   const auto client = ctx->camera_controls;
   const std::string host = phone->host;
   const int port = phone->control_port;
-  client->post([host, port, path, body] {
+  const bool queued = client->post([host, port, path, body] {
     if (!send_control_command(host, port, path, body)) {
       blog(LOG_WARNING, "[OpenStream] Camera command %s failed", path.c_str());
     }
   });
-  return true;
+  if (!queued) {
+    blog(LOG_WARNING,
+         "[OpenStream] Camera command %s dropped: control queue is full or stopping",
+         path.c_str());
+  }
+  return queued;
 }
 
 void set_slot_status(OpenStreamSource *ctx, std::string status) {
@@ -958,11 +974,14 @@ std::string phone_label(const PhoneDevice &phone) {
   return label.str();
 }
 
-bool reserve_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
+bool reserve_phone(OpenStreamSource *ctx, PhoneDevice &phone) {
   std::ostringstream body;
   {
     std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    phone.reservation_token =
+        ctx->instance_id + "-" + std::to_string(os_gettime_ns());
     body << "{\"sourceInstanceId\":\"" << json_escape(ctx->instance_id) << "\","
+         << "\"reservationToken\":\"" << json_escape(phone.reservation_token) << "\","
          << "\"slotId\":\"" << json_escape(ctx->slot_id) << "\","
          << "\"slotLabel\":\"" << json_escape(ctx->slot_label) << "\","
          << "\"bitrateMbps\":" << ctx->bitrate_mbps << "}";
@@ -970,10 +989,28 @@ bool reserve_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
   return send_control_command(phone.host, phone.control_port, "/reserve", body.str());
 }
 
-void release_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
-  std::ostringstream body;
-  body << "{\"sourceInstanceId\":\"" << json_escape(ctx->instance_id) << "\"}";
-  send_control_command(phone.host, phone.control_port, "/release", body.str());
+void queue_release_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
+  if (phone.reservation_token.empty()) return;
+  const auto client = ctx->camera_controls;
+  const std::string host = phone.host;
+  const int port = phone.control_port;
+  const std::string source_instance_id = ctx->instance_id;
+  const std::string reservation_token = phone.reservation_token;
+  const bool queued = client->post_urgent(
+      [host, port, source_instance_id, reservation_token] {
+        const std::string body =
+            "{\"sourceInstanceId\":\"" + json_escape(source_instance_id) +
+            "\",\"reservationToken\":\"" + json_escape(reservation_token) + "\"}";
+        if (send_control_command(host, port, "/release", body)) {
+          return true;
+        }
+        blog(LOG_WARNING, "[OpenStream] Camera reservation release failed; retrying");
+        return false;
+      });
+  if (!queued) {
+    blog(LOG_WARNING,
+         "[OpenStream] Camera reservation release could not be queued: control executor stopped");
+  }
 }
 
 std::string av_error(int error) {
@@ -1033,7 +1070,6 @@ const char *openstream_get_name(void *) {
 }
 
 void openstream_stop_worker(OpenStreamSource *ctx) {
-  const auto phone = control_phone(ctx);
   ctx->stop_requested = true;
   ctx->listener_running = false;
   ctx->phone_connected = false;
@@ -1041,8 +1077,17 @@ void openstream_stop_worker(OpenStreamSource *ctx) {
   if (ctx->worker.joinable()) {
     ctx->worker.join();
   }
-  if (phone.has_value()) {
-    release_phone(ctx, *phone);
+  std::optional<PhoneDevice> reserved_phone;
+  {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    // A live worker releases its reservation on its own stop path. Only queue
+    // a release for a reservation left behind by an interrupted/retry path.
+    reserved_phone = ctx->active_phone;
+  }
+  if (reserved_phone.has_value()) {
+    // Source stop/reconfiguration can be called by an OBS/Qt callback. Queue
+    // the release so that callback never performs control-socket I/O.
+    queue_release_phone(ctx, *reserved_phone);
   }
   set_active_phone(ctx, std::nullopt);
   set_slot_status(ctx, "Offline");
@@ -1157,10 +1202,25 @@ bool open_audio_decoder(AVFormatContext *format_ctx,
   return true;
 }
 
+std::optional<int64_t> source_timestamp_ns(const AVFrame *frame,
+                                           const AVStream *stream) {
+  if (!frame || !stream) return std::nullopt;
+  const int64_t timestamp = frame->best_effort_timestamp != AV_NOPTS_VALUE
+                                ? frame->best_effort_timestamp
+                                : frame->pts;
+  if (timestamp == AV_NOPTS_VALUE) return std::nullopt;
+  return av_rescale_q(timestamp, stream->time_base, AVRational{1, 1'000'000'000});
+}
+
+bool stream_timestamp_is_stale(uint64_t timestamp_ns) {
+  const uint64_t now_ns = os_gettime_ns();
+  return timestamp_ns < now_ns && now_ns - timestamp_ns > kMaximumMediaBacklogNs;
+}
+
 bool output_decoded_frame(OpenStreamSource *ctx,
-                          AVStream *stream,
                           AVCodecContext *decoder_ctx,
                           AVFrame *decoded_frame,
+                          uint64_t timestamp_ns,
                           SwsContextPtr *sws_ctx,
                           std::vector<uint8_t> *bgra_buffer) {
   if (decoded_frame->width <= 0 || decoded_frame->height <= 0) {
@@ -1182,7 +1242,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
     yuv_frame.format = can_output_i420 ? VIDEO_FORMAT_I420 : VIDEO_FORMAT_NV12;
     yuv_frame.width = static_cast<uint32_t>(width);
     yuv_frame.height = static_cast<uint32_t>(height);
-    yuv_frame.timestamp = os_gettime_ns();
+    yuv_frame.timestamp = timestamp_ns;
     yuv_frame.range = obs_range_for_frame(decoded_frame, source_format);
     yuv_frame.trc = static_cast<uint8_t>(obs_trc_for_frame(decoded_frame));
     yuv_frame.flip = false;
@@ -1261,13 +1321,11 @@ bool output_decoded_frame(OpenStreamSource *ctx,
     return false;
   }
 
-  (void)stream;
-
   struct obs_source_frame obs_frame = {};
   obs_frame.format = VIDEO_FORMAT_BGRA;
   obs_frame.width = static_cast<uint32_t>(width);
   obs_frame.height = static_cast<uint32_t>(height);
-  obs_frame.timestamp = os_gettime_ns();
+  obs_frame.timestamp = timestamp_ns;
   obs_frame.data[0] = bgra_buffer->data();
   obs_frame.linesize[0] = static_cast<uint32_t>(linesize);
   obs_frame.flip = false;
@@ -1342,6 +1400,10 @@ void decode_packets(OpenStreamSource *ctx,
   SwsContextPtr sws_ctx(nullptr);
   std::vector<uint8_t> bgra_buffer;
   AVStream *video_stream = format_ctx->streams[video_stream_index];
+  AVStream *audio_stream = audio_stream_index >= 0
+                               ? format_ctx->streams[audio_stream_index]
+                               : nullptr;
+  MediaClock media_clock;
   uint64_t audio_frames_output = 0;
 
   const auto drain_video = [&]() -> int {
@@ -1356,8 +1418,34 @@ void decode_packets(OpenStreamSource *ctx,
              av_error(result).c_str());
         return result;
       }
-      output_decoded_frame(
-          ctx, video_stream, video_decoder_ctx, frame.get(), &sws_ctx, &bgra_buffer);
+      const auto source_ns = source_timestamp_ns(frame.get(), video_stream);
+      const auto timestamp_ns = source_ns
+                                    ? media_clock.map(*source_ns, os_gettime_ns())
+                                    : std::nullopt;
+      if (!timestamp_ns) {
+        blog(LOG_WARNING,
+             "[OpenStream] Dropping video frame without a usable source timestamp (media gap surfaced)");
+        av_frame_unref(frame.get());
+        continue;
+      }
+      if (stream_timestamp_is_stale(*timestamp_ns)) {
+        const uint64_t dropped = ++ctx->stale_video_frames;
+        if (dropped == 1 || dropped % 60 == 0) {
+          blog(LOG_WARNING,
+               "[OpenStream] Dropped stale video frame(s): %" PRIu64
+               " (receiver backlog exceeded %u ms; media gap surfaced)",
+               dropped,
+               static_cast<unsigned>(kMaximumMediaBacklogNs / 1'000'000));
+        }
+        av_frame_unref(frame.get());
+        continue;
+      }
+      output_decoded_frame(ctx,
+                           video_decoder_ctx,
+                           frame.get(),
+                           *timestamp_ns,
+                           &sws_ctx,
+                           &bgra_buffer);
       av_frame_unref(frame.get());
     }
     return AVERROR_EXIT;
@@ -1389,10 +1477,32 @@ void decode_packets(OpenStreamSource *ctx,
         return AVERROR(EINVAL);
       }
 
+      const auto source_ns = source_timestamp_ns(audio_frame.get(), audio_stream);
+      const auto timestamp_ns = source_ns
+                                    ? media_clock.map(*source_ns, os_gettime_ns())
+                                    : std::nullopt;
+      if (!timestamp_ns) {
+        blog(LOG_WARNING,
+             "[OpenStream] Dropping audio frame without a usable source timestamp (media gap surfaced)");
+        av_frame_unref(audio_frame.get());
+        continue;
+      }
+      if (stream_timestamp_is_stale(*timestamp_ns)) {
+        const uint64_t dropped = ++ctx->stale_audio_frames;
+        if (dropped == 1 || dropped % 100 == 0) {
+          blog(LOG_WARNING,
+               "[OpenStream] Dropped stale audio frame(s): %" PRIu64
+               " (audio gap surfaced)",
+               dropped);
+        }
+        av_frame_unref(audio_frame.get());
+        continue;
+      }
+
       struct obs_source_audio obs_audio = {};
       obs_audio.samples_per_sec = sample_rate;
       obs_audio.frames = static_cast<uint32_t>(audio_frame->nb_samples);
-      obs_audio.timestamp = os_gettime_ns();
+      obs_audio.timestamp = *timestamp_ns;
       obs_audio.format = obs_format;
       obs_audio.speakers = speakers;
       for (int i = 0; i < MAX_AV_PLANES && audio_frame->data[i]; i++) {
@@ -1519,8 +1629,8 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     AVDictionary *options = nullptr;
     av_dict_set(&options, "fflags", "nobuffer", 0);
     av_dict_set(&options, "flags", "low_delay", 0);
-    av_dict_set(&options, "probesize", "1048576", 0);
-    av_dict_set(&options, "analyzeduration", "1000000", 0);
+    av_dict_set(&options, "probesize", "262144", 0);
+    av_dict_set(&options, "analyzeduration", "250000", 0);
 
     blog(LOG_INFO,
          "[OpenStream] Opening Android stream at %s",
@@ -1556,6 +1666,8 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     ctx->phone_connected = true;
     set_slot_status(ctx, "Live");
     ctx->frames_output = 0;
+    ctx->stale_video_frames = 0;
+    ctx->stale_audio_frames = 0;
 
     int video_stream_index = -1;
     CodecContextPtr video_decoder_ctx;
@@ -1599,7 +1711,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
       continue;
     }
     if (reserved_phone.has_value()) {
-      release_phone(ctx, *reserved_phone);
+      queue_release_phone(ctx, *reserved_phone);
     }
     set_active_phone(ctx, std::nullopt);
   }
@@ -1614,7 +1726,7 @@ void openstream_start_worker(OpenStreamSource *ctx) {
   std::string srt_url;
   int listener_port = kDefaultListenerPort;
   int latency_ms = 120;
-  int bitrate_mbps = 50;
+  int bitrate_mbps = kDefaultBitrateMbps;
   std::string source_name;
   std::string instance_id;
   std::string slot_id;
@@ -1690,8 +1802,12 @@ void openstream_update(void *data, obs_data_t *settings) {
       obs_data_set_int(settings, "listener_port", requested_port);
     }
     ctx->listener_port = requested_port;
-    ctx->latency_ms = static_cast<int>(obs_data_get_int(settings, "latency_ms"));
-    ctx->bitrate_mbps = static_cast<int>(obs_data_get_int(settings, "bitrate_mbps"));
+    ctx->latency_ms = std::clamp(
+        static_cast<int>(obs_data_get_int(settings, "latency_ms")), 80, 200);
+    ctx->bitrate_mbps = std::clamp(
+        static_cast<int>(obs_data_get_int(settings, "bitrate_mbps")),
+        kMinBitrateMbps,
+        kMaxBitrateMbps);
     const char *slot_id = obs_data_get_string(settings, "slot_id");
     if (slot_id && slot_id[0] != '\0') {
       ctx->slot_id = slot_id;
@@ -1815,7 +1931,7 @@ void openstream_defaults(obs_data_t *settings) {
   obs_data_set_default_bool(settings, "show_advanced", false);
   obs_data_set_default_int(settings, "listener_port", kDefaultListenerPort);
   obs_data_set_default_int(settings, "latency_ms", 120);
-  obs_data_set_default_int(settings, "bitrate_mbps", 50);
+  obs_data_set_default_int(settings, "bitrate_mbps", kDefaultBitrateMbps);
   obs_data_set_default_double(settings, "cam_zoom", 1.0);
 }
 
@@ -1964,7 +2080,12 @@ obs_properties_t *openstream_properties(void *data) {
   obs_property_int_set_suffix(latency, " ms");
   obs_property_set_long_description(latency, "Higher values are more stable on Wi-Fi; lower values reduce delay.");
   obs_property_t *bitrate =
-      obs_properties_add_int_slider(advanced_group, "bitrate_mbps", "Expected bitrate (Mbps)", 8, 120, 1);
+      obs_properties_add_int_slider(advanced_group,
+                                    "bitrate_mbps",
+                                    "Expected bitrate (Mbps)",
+                                    kMinBitrateMbps,
+                                    kMaxBitrateMbps,
+                                    1);
   obs_property_int_set_suffix(bitrate, " Mbps");
   obs_property_set_long_description(bitrate, "Used in discovery so the phone can tune stream quality for this slot.");
   obs_properties_add_group(props, "show_advanced", "3. Network & Pairing (Advanced)", OBS_GROUP_CHECKABLE, advanced_group);
