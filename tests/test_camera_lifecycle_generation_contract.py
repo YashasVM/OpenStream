@@ -28,12 +28,18 @@ def test_stale_camera_device_callbacks_cannot_replace_new_device():
     errored = _block_after(start_preview, "override fun onError(device: CameraDevice, error: Int)")
 
     assert "val generation = cameraGeneration.get()" in start_preview
-    assert "cameraGeneration.get() != generation || activeCameraId != desiredId" in opened
-    assert opened.index("device.close()") < opened.index("camera = device")
-    assert "cameraGeneration.get() != generation" in disconnected
-    assert "cameraGeneration.get() != generation" in errored
-    assert "camera !== device" not in disconnected
-    assert "camera !== device" not in errored
+    assert "val expectedLifecycleGeneration = lifecycleGeneration" in start_preview
+
+    for callback in (opened, disconnected, errored):
+        lifecycle_critical = _block_after(callback, "synchronized(lifecycleLock)")
+        assert "!desiredRunning" in lifecycle_critical
+        assert "lifecycleGeneration != expectedLifecycleGeneration" in lifecycle_critical
+        assert "cameraGeneration.get() != generation" in lifecycle_critical
+        assert "activeCameraId != desiredId" in lifecycle_critical
+
+    opened_critical = _block_after(opened, "synchronized(lifecycleLock)")
+    assert opened_critical.index("device.close()") < opened_critical.index("camera = device")
+    assert "cancelCameraRecoveryLocked()" in opened_critical
 
 
 def test_stale_capture_session_callbacks_are_closed_not_published():
