@@ -109,3 +109,22 @@ def test_control_server_is_not_exposed_as_a_cross_origin_browser_api():
     assert "Access-Control-Allow-Origin" not in send_response
     assert "Access-Control-Allow-Methods" not in send_response
     assert "Access-Control-Allow-Headers" not in send_response
+
+
+def test_mutating_routes_require_application_json_before_body_or_dispatch():
+    handle_client = _function("handleClient")
+    assert "var contentType: String? = null" in handle_client
+    assert 'line.startsWith("Content-Type:", ignoreCase = true)' in handle_client
+    assert "contentType = line.substringAfter(\":\").trim()" in handle_client
+    for path in ("/zoom", "/torch", "/lens", "/reserve", "/release", "/identify"):
+        assert f'"{path}"' in handle_client
+    json_guard = 'if (requiresJson && !mediaType.equals("application/json", ignoreCase = true))'
+    assert json_guard in handle_client
+    assert 'sendResponse(writer, 415, """{\"error\":\"application/json required\"}""")' in handle_client
+    assert handle_client.index(json_guard) < handle_client.index("// Read body if present")
+    assert handle_client.index(json_guard) < handle_client.index('method == "POST" && path == "/zoom"')
+
+
+def test_unsupported_media_type_response_is_explicit():
+    send_response = _function("sendResponse")
+    assert '415 -> "Unsupported Media Type"' in send_response
