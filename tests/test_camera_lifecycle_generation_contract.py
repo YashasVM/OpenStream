@@ -42,6 +42,39 @@ def test_stale_camera_device_callbacks_cannot_replace_new_device():
     assert "cancelCameraRecoveryLocked()" in opened_critical
 
 
+def test_camera_lifecycle_mutators_share_device_callback_lock():
+    switch_lens = _block_after(SOURCE, "fun switchLens(lens: CameraLens)")
+    switch_critical = _block_after(switch_lens, "synchronized(lifecycleLock)")
+    assert "activeCameraId = newId" in switch_critical
+    assert "closeCamera()" in switch_critical
+    assert switch_critical.index("closeCamera()") < switch_critical.index("startPreview()")
+
+    start_streaming = _block_after(SOURCE, "fun startStreaming(encodedSurface: Surface)")
+    start_critical = _block_after(start_streaming, "synchronized(lifecycleLock)")
+    assert "streamingSurface = encodedSurface" in start_critical
+    assert "startPreview()" in start_critical
+    assert "createSession()" in start_critical
+
+    stop_streaming = _block_after(SOURCE, "fun stopStreaming()")
+    stop_critical = _block_after(stop_streaming, "synchronized(lifecycleLock)")
+    assert "streamingSurface = null" in stop_critical
+    assert "createSession()" in stop_critical
+
+
+def test_session_recovery_cannot_race_lifecycle_mutation():
+    recovery = _block_after(SOURCE, "private fun recoverFromSessionFailure(")
+    lifecycle_critical = _block_after(recovery, "synchronized(lifecycleLock)")
+
+    assert "!desiredRunning" in lifecycle_critical
+    assert "sessionGeneration.get() != generation" in lifecycle_critical
+    assert "camera !== device" in lifecycle_critical
+    assert "closeCamera()" in lifecycle_critical
+    assert "watchForCameraAvailability(cameraId)" in lifecycle_critical
+    assert lifecycle_critical.index("closeCamera()") < lifecycle_critical.index(
+        "watchForCameraAvailability(cameraId)"
+    )
+
+
 def test_stale_capture_session_callbacks_are_closed_not_published():
     create_session = _block_after(SOURCE, "private fun createSession()")
     configured = _block_after(
