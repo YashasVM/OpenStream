@@ -148,8 +148,9 @@ class CameraControlServer(
             val method = parts[0]
             val path = parts[1]
 
-            // Read headers to get Content-Length
+            // Read headers to get Content-Length and validate native JSON requests.
             var contentLength = 0
+            var contentType: String? = null
             var headerBytes = 0
             var line = readAsciiLine(input, MAX_HEADER_LINE_BYTES)
             while (line != null && line.isNotEmpty()) {
@@ -161,12 +162,25 @@ class CameraControlServer(
                 if (line.startsWith("Content-Length:", ignoreCase = true)) {
                     contentLength = line.substringAfter(":").trim().toIntOrNull() ?: -1
                 }
+                if (line.startsWith("Content-Type:", ignoreCase = true)) {
+                    contentType = line.substringAfter(":").trim()
+                }
                 line = readAsciiLine(input, MAX_HEADER_LINE_BYTES)
             }
             if (line == null || contentLength !in 0..MAX_BODY_BYTES) {
                 sendResponse(writer, if (contentLength > MAX_BODY_BYTES) 413 else 400,
                     if (contentLength > MAX_BODY_BYTES) """{"error":"request too large"}"""
                     else """{"error":"bad request"}""")
+                return
+            }
+
+            val requiresJson = method == "POST" && when (path) {
+                "/zoom", "/torch", "/lens", "/reserve", "/release", "/identify" -> true
+                else -> false
+            }
+            val mediaType = contentType?.substringBefore(';')?.trim()
+            if (requiresJson && !mediaType.equals("application/json", ignoreCase = true)) {
+                sendResponse(writer, 415, """{"error":"application/json required"}""")
                 return
             }
 
@@ -188,7 +202,9 @@ class CameraControlServer(
             // This is a native LAN control protocol, not a browser API. Do not
             // expose permissive CORS/preflight behavior: a web page running on
             // the reserving OBS host would otherwise share the same peer IP and
-            // could satisfy the peer-authorization boundary.
+            // could satisfy the peer-authorization boundary. Requiring JSON for
+            // every mutating route also forces browsers through preflight, which
+            // this server intentionally does not support.
             val response = when {
                 method == "GET" && path == "/status" -> handleStatus()
                 method == "POST" && path == "/zoom" -> handleZoom(body, controllerAddress)
@@ -216,6 +232,7 @@ class CameraControlServer(
             400 -> "Bad Request"
             404 -> "Not Found"
             413 -> "Payload Too Large"
+            415 -> "Unsupported Media Type"
             else -> "Error"
         }
         val bodyBytes = body.toByteArray(Charsets.UTF_8)
