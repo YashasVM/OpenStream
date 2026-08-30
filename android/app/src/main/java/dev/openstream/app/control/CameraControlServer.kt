@@ -264,6 +264,12 @@ class CameraControlServer(
 
     private fun unauthorizedControlResponse(): String = """{"ok":false,"unauthorized":true}"""
 
+    private fun busyReservationResponse(currentReservation: String): String = JSONObject()
+        .put("ok", false)
+        .put("busy", true)
+        .put("reservedBy", currentReservation)
+        .toString()
+
     private fun handleZoom(body: String, controllerAddress: String): String {
         if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse()
         val json = JSONObject(body)
@@ -300,6 +306,9 @@ class CameraControlServer(
             return """{"error":"reservation token too large"}"""
         }
         val currentReservation = reservationProvider()
+        if (currentReservation != null && currentReservation != sourceInstanceId) {
+            return busyReservationResponse(currentReservation)
+        }
         val currentControllerAddress = activeControllerAddress
         if (currentReservation == sourceInstanceId &&
             currentControllerAddress != null &&
@@ -323,11 +332,7 @@ class CameraControlServer(
                 .put("reservedBy", sourceInstanceId)
                 .toString()
         } else {
-            JSONObject()
-                .put("ok", false)
-                .put("busy", true)
-                .put("reservedBy", reservationProvider().orEmpty())
-                .toString()
+            busyReservationResponse(reservationProvider().orEmpty())
         }
     }
 
