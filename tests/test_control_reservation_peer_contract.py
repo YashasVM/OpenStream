@@ -26,6 +26,19 @@ def test_reservation_captures_controller_peer():
     assert "activeControllerAddress = controllerAddress.ifEmpty { null }" in reserve
 
 
+def test_different_source_cannot_replace_active_reservation():
+    reserve = _function("handleReserve")
+    guard = "currentReservation != null && currentReservation != sourceInstanceId"
+    assert guard in reserve
+    assert "return busyReservationResponse(currentReservation)" in reserve
+    assert reserve.index(guard) < reserve.index(
+        "val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)"
+    )
+    assert reserve.index("return busyReservationResponse(currentReservation)") < reserve.index(
+        "activeControllerAddress = controllerAddress.ifEmpty { null }"
+    )
+
+
 def test_same_owner_cannot_move_reservation_to_a_different_peer():
     reserve = _function("handleReserve")
     guard_terms = [
