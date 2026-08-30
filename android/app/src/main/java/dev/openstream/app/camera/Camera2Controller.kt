@@ -416,6 +416,8 @@ class Camera2Controller(
             recoverFromSessionFailure(device, generation, "Could not create camera capture session", error)
         } catch (error: CameraAccessException) {
             recoverFromSessionFailure(device, generation, "Could not create camera capture session", error)
+        } catch (error: IllegalArgumentException) {
+            recoverFromSessionFailure(device, generation, "Could not create camera capture session", error)
         }
     }
 
