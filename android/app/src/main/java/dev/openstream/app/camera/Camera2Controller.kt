@@ -42,6 +42,8 @@ class Camera2Controller(
     private var activeLens: CameraLens? = null
     private val cameraGeneration = AtomicLong()
     private val sessionGeneration = AtomicLong()
+    private val lifecycleLock = Any()
+    private var lifecycleGeneration = 0L
     private var desiredRunning = false
     private var recoveryCallback: CameraManager.AvailabilityCallback? = null
 
@@ -112,9 +114,19 @@ class Camera2Controller(
 
     @SuppressLint("MissingPermission")
     fun startPreview() {
+        synchronized(lifecycleLock) {
+            if (!desiredRunning) {
+                lifecycleGeneration += 1
+            }
+            desiredRunning = true
+            startPreviewLocked()
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startPreviewLocked() {
         ensureThread()
-        desiredRunning = true
-        cancelCameraRecovery()
+        cancelCameraRecoveryLocked()
         val desiredLens = lensProvider()
         val desiredId = selectCameraId(desiredLens)
 
@@ -206,10 +218,13 @@ class Camera2Controller(
     }
 
     fun stop() {
-        desiredRunning = false
-        cancelCameraRecovery()
-        closeCamera()
-        streamingSurface = null
+        synchronized(lifecycleLock) {
+            desiredRunning = false
+            lifecycleGeneration += 1
+            cancelCameraRecoveryLocked()
+            closeCamera()
+            streamingSurface = null
+        }
     }
 
     fun setZoom(ratio: Float): Float {
@@ -249,34 +264,46 @@ class Camera2Controller(
     }
 
     private fun watchForCameraAvailability(cameraId: String) {
-        if (!desiredRunning) return
-        cancelCameraRecovery()
-        val generation = cameraGeneration.get()
-        val callback = object : CameraManager.AvailabilityCallback() {
-            override fun onCameraAvailable(availableCameraId: String) {
-                if (availableCameraId != cameraId ||
-                    !desiredRunning ||
-                    cameraGeneration.get() != generation ||
-                    activeCameraId != cameraId
-                ) {
-                    return
+        synchronized(lifecycleLock) {
+            if (!desiredRunning) return
+            cancelCameraRecoveryLocked()
+            val cameraRecoveryGeneration = cameraGeneration.get()
+            val expectedLifecycleGeneration = lifecycleGeneration
+            val callback = object : CameraManager.AvailabilityCallback() {
+                override fun onCameraAvailable(availableCameraId: String) {
+                    synchronized(lifecycleLock) {
+                        if (availableCameraId != cameraId ||
+                            !desiredRunning ||
+                            lifecycleGeneration != expectedLifecycleGeneration ||
+                            cameraGeneration.get() != cameraRecoveryGeneration ||
+                            activeCameraId != cameraId
+                        ) {
+                            return
+                        }
+                        val previewReady = runCatching { previewSurfaceProvider().isValid }.getOrDefault(false)
+                        if (!previewReady) return
+                        cancelCameraRecoveryLocked()
+                        startPreviewLocked()
+                    }
                 }
-                val previewReady = runCatching { previewSurfaceProvider().isValid }.getOrDefault(false)
-                if (!previewReady) return
-                cancelCameraRecovery()
-                startPreview()
             }
-        }
-        recoveryCallback = callback
-        runCatching {
-            cameraManager.registerAvailabilityCallback(callback, handler)
-        }.onFailure { error ->
-            if (recoveryCallback === callback) recoveryCallback = null
-            Log.w(TAG, "Could not watch camera $cameraId availability", error)
+            recoveryCallback = callback
+            runCatching {
+                cameraManager.registerAvailabilityCallback(callback, handler)
+            }.onFailure { error ->
+                if (recoveryCallback === callback) recoveryCallback = null
+                Log.w(TAG, "Could not watch camera $cameraId availability", error)
+            }
         }
     }
 
     private fun cancelCameraRecovery() {
+        synchronized(lifecycleLock) {
+            cancelCameraRecoveryLocked()
+        }
+    }
+
+    private fun cancelCameraRecoveryLocked() {
         val callback = recoveryCallback ?: return
         recoveryCallback = null
         runCatching { cameraManager.unregisterAvailabilityCallback(callback) }
