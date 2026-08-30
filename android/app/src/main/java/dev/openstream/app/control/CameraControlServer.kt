@@ -192,7 +192,7 @@ class CameraControlServer(
                 method == "POST" && path == "/torch" -> handleTorch(body, controllerAddress)
                 method == "POST" && path == "/lens" -> handleLens(body, controllerAddress)
                 method == "POST" && path == "/reserve" -> handleReserve(body, controllerAddress)
-                method == "POST" && path == "/release" -> handleRelease(body)
+                method == "POST" && path == "/release" -> handleRelease(body, controllerAddress)
                 method == "POST" && path == "/identify" -> handleIdentify(body, controllerAddress)
                 method == "OPTIONS" -> """{"ok":true}"""
                 else -> {
@@ -336,12 +336,18 @@ class CameraControlServer(
         }
     }
 
-    private fun handleRelease(body: String): String {
+    private fun handleRelease(body: String, controllerAddress: String): String {
         val json = JSONObject(body)
         val sourceInstanceId = json.optString("sourceInstanceId").trim()
         if (sourceInstanceId.isEmpty()) return """{"error":"missing sourceInstanceId"}"""
         val reservationToken = json.optString("reservationToken").trim().ifEmpty { null }
         val currentReservation = reservationProvider()
+        if (currentReservation == sourceInstanceId &&
+            activeControllerAddress != null &&
+            (controllerAddress.isEmpty() || controllerAddress != activeControllerAddress)
+        ) {
+            return unauthorizedControlResponse()
+        }
         if (currentReservation == sourceInstanceId &&
             activeReservationToken != null &&
             reservationToken != activeReservationToken
