@@ -52,3 +52,18 @@ def test_queue_limit_allows_only_bounded_isolated_large_access_unit():
     assert "!accessUnitTooLarge" in isolated
     assert "sendQueue_.empty() && sendQueueBytes_ == 0" in isolated
     assert "accessUnitTooLarge ||" in overflow
+
+
+def test_backlog_budget_keeps_in_flight_access_unit_counted_until_send_finishes():
+    source = SOURCE.read_text(encoding="utf-8")
+    worker = _block_after(source, "void runSendWorker()")
+
+    pop_index = worker.index("sendQueue_.pop_front();")
+    send_index = worker.index("sendNow(pending.bytes, pending.generation)")
+    assert "sendQueueBytes_ -= pending.bytes.size();" not in worker[pop_index:send_index]
+
+    completion = _block_after(worker, "if (pending.generation == connectionGeneration_.load")
+    assert "sendQueueBytes_ -= pending.bytes.size();" in completion
+    assert worker.index("sendNow(pending.bytes, pending.generation)") < worker.index(
+        "if (pending.generation == connectionGeneration_.load"
+    )
