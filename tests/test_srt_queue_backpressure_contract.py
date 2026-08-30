@@ -44,6 +44,7 @@ def test_queue_limit_allows_only_bounded_isolated_large_access_unit():
 
     saturation_guard = _block_after(send, "if (!healthy_.load(std::memory_order_acquire)")
     assert "healthy_ = false;" in saturation_guard
+    assert "connectionGeneration_.fetch_add(1, std::memory_order_acq_rel);" in saturation_guard
     assert "sendQueue_.clear();" in saturation_guard
     assert "SRT access unit exceeds safety limit" in saturation_guard
 
