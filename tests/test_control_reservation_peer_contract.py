@@ -1,0 +1,54 @@
+from pathlib import Path
+
+
+SERVER = Path(
+    "android/app/src/main/java/dev/openstream/app/control/CameraControlServer.kt"
+).read_text()
+
+
+def _function(name: str) -> str:
+    start = SERVER.index(f"private fun {name}(")
+    brace = SERVER.index("{", start)
+    depth = 0
+    for index in range(brace, len(SERVER)):
+        if SERVER[index] == "{":
+            depth += 1
+        elif SERVER[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return SERVER[start : index + 1]
+    raise AssertionError(f"unterminated function: {name}")
+
+
+def test_reservation_captures_controller_peer():
+    reserve = _function("handleReserve")
+    assert "controllerAddress: String" in reserve
+    assert "activeControllerAddress = controllerAddress.ifEmpty { null }" in reserve
+
+
+def test_mutating_controls_require_reservation_peer_before_side_effects():
+    side_effects = {
+        "handleZoom": "cameraProvider().setZoom(value)",
+        "handleTorch": "onToggleTorch(enabled)",
+        "handleLens": "onSwitchLens(target)",
+        "handleIdentify": "onIdentify(label, subtitle)",
+    }
+    for handler, side_effect in side_effects.items():
+        body = _function(handler)
+        guard = "if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse()"
+        assert guard in body
+        assert body.index(guard) < body.index(side_effect)
+
+
+def test_authorization_requires_live_reservation_and_matching_peer():
+    auth = _function("isAuthorizedController")
+    assert "reservationProvider() != null" in auth
+    assert "controllerAddress.isNotEmpty()" in auth
+    assert "controllerAddress == activeControllerAddress" in auth
+
+
+def test_release_clears_controller_peer_with_reservation_state():
+    release = _function("handleRelease")
+    clear = "activeControllerAddress = null"
+    assert clear in release
+    assert release.index("activeReservationToken = null") < release.index(clear)
