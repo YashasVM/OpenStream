@@ -62,11 +62,16 @@ def test_open_failures_do_not_crash_and_permission_revocation_does_not_retry():
 
 def test_capture_session_failures_recover_only_current_camera():
     create_session = _block_after(SOURCE, "private fun createSession()")
-    assert "catch (error: IllegalStateException)" in create_session
-    assert "catch (error: CameraAccessException)" in create_session
-    assert create_session.count(
+    recovery_call = (
         'recoverFromSessionFailure(device, generation, "Could not create camera capture session", error)'
-    ) == 2
+    )
+    for exception_type in (
+        "IllegalStateException",
+        "CameraAccessException",
+        "IllegalArgumentException",
+    ):
+        catch_block = _block_after(create_session, f"catch (error: {exception_type})")
+        assert recovery_call in catch_block
 
     configured = _block_after(
         create_session,
