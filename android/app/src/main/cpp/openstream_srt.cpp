@@ -804,9 +804,15 @@ class NativeSender {
         if (sendWorkerStopping_) return;
         pending = std::move(sendQueue_.front());
         sendQueue_.pop_front();
-        sendQueueBytes_ -= pending.bytes.size();
       }
-      if (!sendNow(pending.bytes, pending.generation)) {
+      const bool sent = sendNow(pending.bytes, pending.generation);
+      {
+        std::lock_guard<std::mutex> lock(sendQueueMutex_);
+        if (pending.generation == connectionGeneration_.load(std::memory_order_acquire)) {
+          sendQueueBytes_ -= pending.bytes.size();
+        }
+      }
+      if (!sent) {
         markGenerationFailed(pending.generation);
       }
     }
