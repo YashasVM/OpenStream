@@ -185,7 +185,10 @@ class CameraControlServer(
                 String(bytes, Charsets.UTF_8)
             } else ""
 
-            // Route request
+            // This is a native LAN control protocol, not a browser API. Do not
+            // expose permissive CORS/preflight behavior: a web page running on
+            // the reserving OBS host would otherwise share the same peer IP and
+            // could satisfy the peer-authorization boundary.
             val response = when {
                 method == "GET" && path == "/status" -> handleStatus()
                 method == "POST" && path == "/zoom" -> handleZoom(body, controllerAddress)
@@ -194,7 +197,6 @@ class CameraControlServer(
                 method == "POST" && path == "/reserve" -> handleReserve(body, controllerAddress)
                 method == "POST" && path == "/release" -> handleRelease(body, controllerAddress)
                 method == "POST" && path == "/identify" -> handleIdentify(body, controllerAddress)
-                method == "OPTIONS" -> """{"ok":true}"""
                 else -> {
                     sendResponse(writer, 404, """{"error":"not found"}""")
                     return
@@ -219,9 +221,6 @@ class CameraControlServer(
         val bodyBytes = body.toByteArray(Charsets.UTF_8)
         writer.print("HTTP/1.1 $code $status\r\n")
         writer.print("Content-Type: application/json\r\n")
-        writer.print("Access-Control-Allow-Origin: *\r\n")
-        writer.print("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n")
-        writer.print("Access-Control-Allow-Headers: Content-Type\r\n")
         writer.print("Content-Length: ${bodyBytes.size}\r\n")
         writer.print("Connection: close\r\n")
         writer.print("\r\n")
