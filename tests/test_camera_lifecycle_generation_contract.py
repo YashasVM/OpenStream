@@ -88,9 +88,20 @@ def test_stale_capture_session_callbacks_are_closed_not_published():
 
     assert "val generation = sessionGeneration.incrementAndGet()" in create_session
     guard = "sessionGeneration.get() != generation || camera !== device"
-    assert guard in configured
-    assert configured.index("captureSession.close()") < configured.index("session = captureSession")
-    assert guard in failed
+
+    configured_critical = _block_after(configured, "synchronized(lifecycleLock)")
+    assert "!desiredRunning" in configured_critical
+    assert guard in configured_critical
+    assert configured_critical.index("captureSession.close()") < configured_critical.index(
+        "session = captureSession"
+    )
+    assert "captureSession.setRepeatingRequest(request, null, handler)" in configured_critical
+
+    failed_critical = _block_after(failed, "synchronized(lifecycleLock)")
+    assert "!desiredRunning" in failed_critical
+    assert guard in failed_critical
+    assert "captureSession.close()" in failed_critical
+    assert "recoverFromSessionFailure(" in failed_critical
 
 
 def test_close_invalidates_device_and_session_callbacks_before_teardown():

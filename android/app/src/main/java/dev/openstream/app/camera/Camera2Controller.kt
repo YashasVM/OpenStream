@@ -394,56 +394,60 @@ class Camera2Controller(
                 surfaces,
                 object : CameraCaptureSession.StateCallback() {
                     override fun onConfigured(captureSession: CameraCaptureSession) {
-                        if (sessionGeneration.get() != generation || camera !== device) {
-                            captureSession.close()
-                            return
-                        }
-                        session = captureSession
-                        val template = if (encoded != null) {
-                            CameraDevice.TEMPLATE_RECORD
-                        } else {
-                            CameraDevice.TEMPLATE_PREVIEW
-                        }
-                        runCatching {
-                            val request = device.createCaptureRequest(template).apply {
-                                addTarget(preview)
-                                if (encoded != null) {
-                                    addTarget(encoded)
-                                }
-                                set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
-                                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
-                                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-                                set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
-                                applyFrameRate(this)
-                                applyZoom(this)
-                                applyTorch(this)
-                            }.build()
-                            captureSession.setRepeatingRequest(request, null, handler)
-                        }.onFailure { error ->
-                            if (sessionGeneration.get() == generation && camera === device) {
-                                recoverFromSessionFailure(
-                                    device,
-                                    generation,
-                                    "Could not start camera repeating request",
-                                    error,
-                                )
-                            } else {
+                        synchronized(lifecycleLock) {
+                            if (!desiredRunning || sessionGeneration.get() != generation || camera !== device) {
                                 captureSession.close()
+                                return
+                            }
+                            session = captureSession
+                            val template = if (encoded != null) {
+                                CameraDevice.TEMPLATE_RECORD
+                            } else {
+                                CameraDevice.TEMPLATE_PREVIEW
+                            }
+                            runCatching {
+                                val request = device.createCaptureRequest(template).apply {
+                                    addTarget(preview)
+                                    if (encoded != null) {
+                                        addTarget(encoded)
+                                    }
+                                    set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+                                    set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                                    set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+                                    applyFrameRate(this)
+                                    applyZoom(this)
+                                    applyTorch(this)
+                                }.build()
+                                captureSession.setRepeatingRequest(request, null, handler)
+                            }.onFailure { error ->
+                                if (sessionGeneration.get() == generation && camera === device) {
+                                    recoverFromSessionFailure(
+                                        device,
+                                        generation,
+                                        "Could not start camera repeating request",
+                                        error,
+                                    )
+                                } else {
+                                    captureSession.close()
+                                }
                             }
                         }
                     }
 
                     override fun onConfigureFailed(captureSession: CameraCaptureSession) {
-                        if (sessionGeneration.get() != generation || camera !== device) {
+                        synchronized(lifecycleLock) {
+                            if (!desiredRunning || sessionGeneration.get() != generation || camera !== device) {
+                                captureSession.close()
+                                return
+                            }
                             captureSession.close()
-                            return
+                            recoverFromSessionFailure(
+                                device,
+                                generation,
+                                "Capture session configuration failed",
+                            )
                         }
-                        captureSession.close()
-                        recoverFromSessionFailure(
-                            device,
-                            generation,
-                            "Capture session configuration failed",
-                        )
                     }
                 },
                 handler,
