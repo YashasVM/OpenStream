@@ -730,6 +730,7 @@ class NativeSender {
           wouldExceedQueueLimit) {
         if (healthy_.load(std::memory_order_relaxed)) {
           healthy_ = false;
+          connectionGeneration_.fetch_add(1, std::memory_order_acq_rel);
           sendQueue_.clear();
           sendQueueBytes_ = 0;
           __android_log_print(
