@@ -100,3 +100,12 @@ def test_release_clears_controller_peer_with_reservation_state():
     clear = "activeControllerAddress = null"
     assert clear in release
     assert release.index("activeReservationToken = null") < release.index(clear)
+
+
+def test_control_server_is_not_exposed_as_a_cross_origin_browser_api():
+    handle_client = _function("handleClient")
+    send_response = _function("sendResponse")
+    assert 'method == "OPTIONS"' not in handle_client
+    assert "Access-Control-Allow-Origin" not in send_response
+    assert "Access-Control-Allow-Methods" not in send_response
+    assert "Access-Control-Allow-Headers" not in send_response
