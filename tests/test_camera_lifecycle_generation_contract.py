@@ -61,6 +61,25 @@ def test_camera_lifecycle_mutators_share_device_callback_lock():
     assert "createSession()" in stop_critical
 
 
+def test_camera_controls_share_session_lifecycle_lock():
+    set_zoom = _block_after(SOURCE, "fun setZoom(ratio: Float): Float")
+    zoom_critical = _block_after(set_zoom, "synchronized(lifecycleLock)")
+    assert "currentZoomRatio = ratio.coerceIn(minZoomRatio, maxZoomRatio)" in zoom_critical
+    assert "updateZoomInSession()" in zoom_critical
+
+    scale_zoom = _block_after(SOURCE, "fun scaleZoom(scaleFactor: Float): Float")
+    scale_critical = _block_after(scale_zoom, "synchronized(lifecycleLock)")
+    assert "setZoom(currentZoomRatio * scaleFactor)" in scale_critical
+
+    set_torch = _block_after(SOURCE, "fun setTorch(enabled: Boolean)")
+    torch_critical = _block_after(set_torch, "synchronized(lifecycleLock)")
+    assert "torchEnabled = enabled" in torch_critical
+    assert "rebuildRepeatingRequest()" in torch_critical
+
+    assert "val zoomRatio: Float get() = synchronized(lifecycleLock) { currentZoomRatio }" in SOURCE
+    assert "get() = synchronized(lifecycleLock) { minZoomRatio..maxZoomRatio }" in SOURCE
+
+
 def test_session_recovery_cannot_race_lifecycle_mutation():
     recovery = _block_after(SOURCE, "private fun recoverFromSessionFailure(")
     lifecycle_critical = _block_after(recovery, "synchronized(lifecycleLock)")
