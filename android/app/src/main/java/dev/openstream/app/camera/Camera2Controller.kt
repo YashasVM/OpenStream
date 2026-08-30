@@ -137,44 +137,63 @@ class Camera2Controller(
 
         closeCamera()
         val generation = cameraGeneration.get()
+        val expectedLifecycleGeneration = lifecycleGeneration
         activeLens = desiredLens
         activeCameraId = desiredId
 
         try {
             cameraManager.openCamera(desiredId, object : CameraDevice.StateCallback() {
                 override fun onOpened(device: CameraDevice) {
-                    if (cameraGeneration.get() != generation || activeCameraId != desiredId) {
-                        Log.i(TAG, "Ignoring stale camera open for $desiredId")
-                        device.close()
-                        return
+                    synchronized(lifecycleLock) {
+                        if (!desiredRunning ||
+                            lifecycleGeneration != expectedLifecycleGeneration ||
+                            cameraGeneration.get() != generation ||
+                            activeCameraId != desiredId
+                        ) {
+                            Log.i(TAG, "Ignoring stale camera open for $desiredId")
+                            device.close()
+                            return
+                        }
+                        cancelCameraRecoveryLocked()
+                        camera = device
+                        loadZoomCapabilities(desiredId)
+                        createSession()
                     }
-                    cancelCameraRecovery()
-                    camera = device
-                    loadZoomCapabilities(desiredId)
-                    createSession()
                 }
 
                 override fun onDisconnected(device: CameraDevice) {
-                    if (cameraGeneration.get() != generation) {
+                    synchronized(lifecycleLock) {
+                        if (!desiredRunning ||
+                            lifecycleGeneration != expectedLifecycleGeneration ||
+                            cameraGeneration.get() != generation ||
+                            activeCameraId != desiredId
+                        ) {
+                            device.close()
+                            return
+                        }
+                        Log.w(TAG, "Camera disconnected")
                         device.close()
-                        return
+                        closeCamera()
+                        watchForCameraAvailability(desiredId)
                     }
-                    Log.w(TAG, "Camera disconnected")
-                    device.close()
-                    closeCamera()
-                    watchForCameraAvailability(desiredId)
                 }
 
                 override fun onError(device: CameraDevice, error: Int) {
-                    if (cameraGeneration.get() != generation) {
+                    synchronized(lifecycleLock) {
+                        if (!desiredRunning ||
+                            lifecycleGeneration != expectedLifecycleGeneration ||
+                            cameraGeneration.get() != generation ||
+                            activeCameraId != desiredId
+                        ) {
+                            device.close()
+                            return
+                        }
+                        Log.e(TAG, "Camera error: $error")
                         device.close()
-                        return
-                    }
-                    Log.e(TAG, "Camera error: $error")
-                    device.close()
-                    closeCamera()
-                    if (error != CameraDevice.StateCallback.ERROR_CAMERA_DISABLED) {
-                        watchForCameraAvailability(desiredId)
+                        closeCamera()
+                        if (error != CameraDevice.StateCallback.ERROR_CAMERA_DISABLED) {
+                            watchForCameraAvailability(desiredId)
+                        }
                     }
                 }
             }, handler)
