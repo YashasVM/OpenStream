@@ -22,7 +22,7 @@ def _block_after(source: str, marker: str) -> str:
 
 
 def test_stale_camera_device_callbacks_cannot_replace_new_device():
-    start_preview = _block_after(SOURCE, "fun startPreview()")
+    start_preview = _block_after(SOURCE, "private fun startPreviewLocked()")
     opened = _block_after(start_preview, "override fun onOpened(device: CameraDevice)")
     disconnected = _block_after(start_preview, "override fun onDisconnected(device: CameraDevice)")
     errored = _block_after(start_preview, "override fun onError(device: CameraDevice, error: Int)")
