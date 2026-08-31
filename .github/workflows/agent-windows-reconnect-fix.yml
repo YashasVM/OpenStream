@@ -41,6 +41,8 @@ jobs:
               test_path.write_text(tests, encoding='utf-8')
 
           Path('.github/workflows/agent-windows-reconnect-fix.yml').unlink()
+      - name: Install test dependency
+        run: python -m pip install --disable-pip-version-check pytest
       - name: Run reconnect contracts
         run: python -m pytest -q tests/test_repo_contract.py
       - name: Commit fix
