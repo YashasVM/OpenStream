@@ -14,14 +14,15 @@
 
 ## In progress
 
+- Fix bounded reconnect failover: the current reconnect path refreshes the 45 s deadline after every successful re-reservation / failed SRT-open attempt. If the old phone remains discoverable but its media endpoint stays broken, an auto slot can therefore keep extending the hold indefinitely instead of allowing another phone after 45 s.
 - Physical phone → Wi-Fi → OBS acceptance testing remains outstanding for real reconnect behavior, sustained latency, A/V sync, thermals, controls and Virtual Camera startup.
 - Real two-phone validation is still needed to prove an auto-selected slot cannot migrate during the 45 s reconnect hold and can reassign after expiry.
 
 ## Tests performed
 
+- Exact-head `1e616ad` Android APK workflow passed.
+- Exact-head `1e616ad` Windows OBS Plugin workflow passed.
 - Focused repository contract suite after reconnect-stickiness implementation: 22 passed in 0.10 s.
-- Exact-head `97d8b86` Android APK workflow passed.
-- Exact-head `97d8b86` Windows OBS Plugin workflow passed, confirming the Win32 reconnect-deadline compile fix.
 - Repository contract tests cover placement of the 4.5 s I/O and 2 s connect timeout before `avformat_open_input` and assert the 45 s same-phone reconnect selection path exists.
 - Corrected caller-role FFmpeg/libSRT loopback probe completed successfully for permanent and temporary bidirectional blackholes.
 
@@ -33,6 +34,7 @@
 
 ## Known problems / regressions
 
+- The 45 s same-phone failover window is not currently strictly bounded: repeated successful reserve calls / failed media opens can refresh the deadline, so a discoverable-but-broken phone may pin an auto slot indefinitely. Treat this as a merge blocker until reconnect attempts stop extending an active hold.
 - Physical phone → Wi-Fi → OBS testing is still needed for sustained latency, A/V sync, thermals, reconnect behavior, Virtual Camera startup, and vendor-specific Android camera/codec behavior.
 - The loopback probe validates the timeout policy and same-receiver recovery behavior, but does not measure the plugin's full blackhole → `av_read_frame()` exit → existing 500 ms reconnect-loop → phone reacquisition path.
 - The same-phone reconnect behavior is contract-tested and CI-green but still needs a real two-phone acceptance test to prove no scene-source migration occurs during a discovery outage.
@@ -40,9 +42,11 @@
 ## Unresolved review feedback
 
 - No unresolved inline review findings currently. CodeRabbit reports no actionable comments on the recent review. Macroscope's billing skip is not treated as code feedback.
+- Self-review found the reconnect-deadline refresh issue above; it is treated as a correctness blocker even though CI is green.
 
 ## Inspect before merging
 
+- Verify the 45 s reconnect hold starts from a real disconnect/failure boundary and is not extended by repeated reserve/open retries; after expiry, a healthy alternate phone must become selectable.
 - Verify an auto-selected slot remains pinned to the same reserved phone during the 45 s reconnect window even when that phone disappears from discovery temporarily and other phones remain available; verify reassignment is allowed after expiry.
 - Verify camera controls work from the reserving OBS PC and are rejected from a second LAN device while the phone is reserved.
 - Verify reconnect-held reservations cannot be stolen or released by another LAN peer.
