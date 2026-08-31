@@ -11,15 +11,16 @@
 
 ## In progress
 
-- Receiver-side SRT reconnect hardening: the Android sender already uses live mode, too-late packet drop, a 2 s connect timeout and a 4 s peer-idle timeout, while the OBS auto-caller currently sets only mode + latency. Validate and implement a bounded FFmpeg/SRT read timeout so a silent Wi-Fi blackhole cannot leave OBS waiting on the socket longer than the reconnect policy intends. Keep the change limited to the auto-managed OpenStream SRT path and prove it with CI plus network-failure testing before calling it complete.
+- Receiver-side SRT reconnect hardening: FFmpeg's SRT protocol exposes `timeout` in microseconds as a cap on read/write/connect operations and a separate millisecond `connect_timeout`. The OBS auto-caller currently sets only mode + latency, while Android uses a 2 s connect timeout and 4 s peer-idle timeout. The intended receiver change is therefore a bounded SRT I/O timeout aligned just above the phone's 4 s peer-idle window, not a custom polling loop around `av_read_frame()`. It still needs fault-injection timing before the timeout value is considered proven.
 - Physical phone → Wi-Fi → OBS acceptance testing remains outstanding for reconnect/control behavior, sustained latency, A/V sync, thermals and Virtual Camera startup.
 
 ## Tests performed
 
 - Added structural regression coverage requiring reservation-peer capture, rejection of different-source takeover before `onReserve()`, rejection of same-owner cross-peer renewal, fail-closed handling for unbound active reservations before reserve/release side effects, authorization before all camera-control side effects, peer-bound reservation release, peer cleanup when the reservation is released, no browser CORS/OPTIONS exposure, and `application/json` enforcement before mutating-route body parsing or dispatch.
-- Android APK and Windows OBS CI are both green on exact head `a4884eb`.
+- Android APK and Windows OBS CI are both green on exact head `5eabe613`.
 - The earlier Android failure on `d7e1251` was isolated to a stale repository-test expectation; runtime behavior did not need to change.
 - Reviewed the native Android SRT socket configuration and the OBS FFmpeg receiver path. Android explicitly configures live transmission, too-late packet drop, 120 ms send timeout, 2 s connect timeout and 4 s peer-idle timeout; the OBS auto-caller currently has no explicit read timeout.
+- Verified against current FFmpeg protocol documentation that SRT `timeout` caps read/write/connect operations and that `connect_timeout` is independently configurable for caller/rendezvous setup.
 
 ## Benchmarks
 
