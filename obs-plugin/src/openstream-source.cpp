@@ -495,16 +495,23 @@ class PhoneDiscoveryReceiver {
   }
 
   std::optional<PhoneDevice> select(const std::string &selected_id,
-                                    const std::string &source_instance_id) {
+                                    const std::string &source_instance_id,
+                                    const std::string &deprioritized_id = "") {
     std::lock_guard<std::mutex> lock(mutex_);
     pruneExpiredLocked();
     if (selected_id.empty() || selected_id == kAutoPhoneId) {
+      std::optional<PhoneDevice> deprioritized;
       for (const auto &entry : devices_) {
-        if (!entry.second.busy || entry.second.reserved_by == source_instance_id) {
-          return entry.second;
+        if (entry.second.busy && entry.second.reserved_by != source_instance_id) {
+          continue;
         }
+        if (!deprioritized_id.empty() && entry.second.instance_id == deprioritized_id) {
+          deprioritized = entry.second;
+          continue;
+        }
+        return entry.second;
       }
-      return std::nullopt;
+      return deprioritized;
     }
 
     const auto found = devices_.find(selected_id);
@@ -1160,7 +1167,7 @@ bool open_audio_decoder(AVFormatContext *format_ctx,
   if (!decoder) {
     blog(LOG_WARNING,
          "[OpenStream] No audio decoder found for codec id %d",
-         stream->codecpar->codec_id);
+         av_error(best_stream).c_str());
     *audio_stream_index = -1;
     return false;
   }
@@ -1578,6 +1585,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
   const bool auto_phone_selection =
       selected_phone_id.empty() || selected_phone_id == PhoneDiscoveryReceiver::kAutoPhoneId;
   std::string reconnect_phone_id;
+  std::string expired_reconnect_phone_id;
   auto reconnect_deadline = std::chrono::steady_clock::time_point{};
   bool reconnect_hold_exhausted = false;
   const auto hold_phone_for_reconnect = [&](const std::optional<PhoneDevice> &phone) {
@@ -1592,6 +1600,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
   };
   const auto reset_reconnect_episode = [&]() {
     reconnect_phone_id.clear();
+    expired_reconnect_phone_id.clear();
     reconnect_deadline = std::chrono::steady_clock::time_point{};
     reconnect_hold_exhausted = false;
   };
@@ -1611,11 +1620,17 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
             blog(LOG_INFO,
                  "[OpenStream] Reconnect hold expired; allowing %s to choose another phone",
                  ctx->slot_label.c_str());
+            expired_reconnect_phone_id = reconnect_phone_id;
             reconnect_phone_id.clear();
             reconnect_hold_exhausted = true;
           }
         }
-        phone = ctx->phone_discovery.select(effective_phone_id, ctx->instance_id);
+        const std::string deprioritized_phone_id =
+            auto_phone_selection && reconnect_hold_exhausted
+                ? expired_reconnect_phone_id
+                : std::string{};
+        phone = ctx->phone_discovery.select(
+            effective_phone_id, ctx->instance_id, deprioritized_phone_id);
         if (phone.has_value() && reserve_phone(ctx, *phone)) {
           break;
         }
