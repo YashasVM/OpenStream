@@ -45,7 +45,7 @@ def test_same_owner_cannot_move_reservation_to_a_different_peer():
         "val currentReservation = reservationProvider()",
         "val currentControllerAddress = activeControllerAddress",
         "currentReservation == sourceInstanceId",
-        "currentControllerAddress != null",
+        "currentControllerAddress == null",
         "controllerAddress != currentControllerAddress",
         "return unauthorizedControlResponse()",
     ]
