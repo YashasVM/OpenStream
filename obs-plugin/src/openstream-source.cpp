@@ -1586,6 +1586,18 @@ void decode_packets(OpenStreamSource *ctx,
 void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::string selected_phone_id) {
   avformat_network_init();
 
+  const bool auto_phone_selection =
+      selected_phone_id.empty() || selected_phone_id == PhoneDiscoveryReceiver::kAutoPhoneId;
+  std::string reconnect_phone_id;
+  auto reconnect_deadline = std::chrono::steady_clock::time_point::min();
+  const auto hold_phone_for_reconnect = [&](const std::optional<PhoneDevice> &phone) {
+    if (!auto_phone_selection || !phone.has_value()) {
+      return;
+    }
+    reconnect_phone_id = phone->instance_id;
+    reconnect_deadline = std::chrono::steady_clock::now() + kReconnectReservationWindow;
+  };
+
   while (!ctx->stop_requested.load()) {
     std::string srt_url = base_srt_url;
     std::optional<PhoneDevice> reserved_phone;
@@ -1593,11 +1605,25 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
       std::optional<PhoneDevice> phone;
       set_slot_status(ctx, "Waiting");
       while (!ctx->stop_requested.load()) {
-        phone = ctx->phone_discovery.select(selected_phone_id, ctx->instance_id);
+        std::string effective_phone_id = selected_phone_id;
+      if (auto_phone_selection && !reconnect_phone_id.empty()) {
+        if (std::chrono::steady_clock::now() < reconnect_deadline) {
+          effective_phone_id = reconnect_phone_id;
+        } else {
+          blog(LOG_INFO,
+               "[OpenStream] Reconnect hold expired; allowing %s to choose another phone",
+               ctx->slot_label.c_str());
+          reconnect_phone_id.clear();
+        }
+      }
+      phone = ctx->phone_discovery.select(effective_phone_id, ctx->instance_id);
         if (phone.has_value() && reserve_phone(ctx, *phone)) {
+          hold_phone_for_reconnect(phone);
           break;
         }
-        if (selected_phone_id.empty() || selected_phone_id == PhoneDiscoveryReceiver::kAutoPhoneId) {
+        if (auto_phone_selection && !reconnect_phone_id.empty()) {
+          blog(LOG_INFO, "[OpenStream] Waiting for previously connected Android phone");
+        } else if (auto_phone_selection) {
           blog(LOG_INFO, "[OpenStream] Waiting for available Android phone");
         } else {
           blog(LOG_INFO, "[OpenStream] Waiting for selected Android phone");
@@ -1652,6 +1678,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
           avformat_free_context(raw_format_ctx);
         }
         if (reserved_phone.has_value()) {
+          hold_phone_for_reconnect(reserved_phone);
           set_slot_status(ctx, "Reconnecting");
           set_active_phone(ctx, reserved_phone);
         } else {
@@ -1678,6 +1705,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     if (!open_video_decoder(format_ctx.get(), &video_stream_index, &video_decoder_ctx)) {
       ctx->phone_connected = false;
       if (reserved_phone.has_value()) {
+        hold_phone_for_reconnect(reserved_phone);
         set_slot_status(ctx, "Reconnecting");
         set_active_phone(ctx, reserved_phone);
       } else {
@@ -1708,6 +1736,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
                    audio_stream_index, audio_decoder_ctx.get());
     ctx->phone_connected = false;
     if (!ctx->stop_requested.load()) {
+      hold_phone_for_reconnect(reserved_phone);
       set_slot_status(ctx, "Reconnecting");
       blog(LOG_INFO, "[OpenStream] Holding %s for reconnect",
            ctx->slot_label.c_str());
