@@ -1167,7 +1167,7 @@ bool open_audio_decoder(AVFormatContext *format_ctx,
   if (!decoder) {
     blog(LOG_WARNING,
          "[OpenStream] No audio decoder found for codec id %d",
-         av_error(best_stream).c_str());
+         stream->codecpar->codec_id);
     *audio_stream_index = -1;
     return false;
   }
