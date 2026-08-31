@@ -8,17 +8,19 @@
 - Removed permissive browser CORS/preflight support from the native camera-control port and require `Content-Type: application/json` for mutating routes.
 - Added `tools/srt_timeout_probe.py`, corrected it to measure the receiver in production-like SRT `mode=caller`, and use receiver-side FFmpeg frame progress for recovery validation.
 - Wired the OBS FFmpeg input to a 4.5 s SRT I/O timeout plus 2 s connect timeout before `avformat_open_input`, with a contract test locking values and placement.
-- Re-ran the corrected caller-role probe. The 4.5 s timeout is now supported by production-like loopback evidence: hard blackholes caused receiver exit in 4,830.3 ms, 4,837.8 ms, 4,823.4 ms, 4,744.4 ms and 4,754.6 ms; temporary 2.0 s, 3.0 s, 3.5 s and 4.0 s blackholes all recovered on the same receiver after restore.
+- Re-ran the corrected caller-role probe. The 4.5 s timeout is supported by production-like loopback evidence: hard blackholes caused receiver exit in 4,830.3 ms, 4,837.8 ms, 4,823.4 ms, 4,744.4 ms and 4,754.6 ms; temporary 2.0 s, 3.0 s, 3.5 s and 4.0 s blackholes all recovered on the same receiver after restore.
 
 ## In progress
 
+- Fix auto-slot reconnect stickiness. The OBS worker re-runs generic auto-selection after a disconnect, so if the original phone's discovery beacon expires during the ~4.8 s blackhole timeout, another available phone can be selected and reserved. `kReconnectReservationWindow` is declared as 45 s but is not currently used to pin reconnect attempts to the previously reserved phone. This is a multi-camera correctness issue because a transient outage can silently swap a scene source to the wrong camera.
 - Physical phone → Wi-Fi → OBS acceptance testing remains outstanding for real reconnect behavior, sustained latency, A/V sync, thermals, controls and Virtual Camera startup.
 
 ## Tests performed
 
-- Android APK and Windows OBS CI are green on corrected-probe head `625469c`.
+- Android APK and Windows OBS CI are green on head `e334d3e`.
 - Repository contract tests cover placement of the 4.5 s I/O and 2 s connect timeout before `avformat_open_input`.
 - Corrected caller-role FFmpeg/libSRT loopback probe completed successfully for permanent and temporary bidirectional blackholes.
+- Static reconnect-flow review confirmed auto reconnect calls `phone_discovery.select(auto, source_instance_id)` again after disconnect and the 45 s reconnect reservation constant has no active use in the worker path.
 
 ## Benchmarks
 
@@ -28,15 +30,17 @@
 
 ## Known problems / regressions
 
+- Auto-selected OBS slots can currently switch to a different available phone during reconnect instead of honoring the intended reconnect hold for the original camera.
 - Physical phone → Wi-Fi → OBS testing is still needed for sustained latency, A/V sync, thermals, reconnect behavior, Virtual Camera startup, and vendor-specific Android camera/codec behavior.
 - The loopback probe validates the timeout policy and same-receiver recovery behavior, but does not measure the plugin's full blackhole → `av_read_frame()` exit → existing 500 ms reconnect-loop → phone reacquisition path.
 
 ## Unresolved review feedback
 
-- No unresolved inline review findings. Approval remains intentionally withheld because the long-running PR is draft and physical phone/OBS acceptance testing is outstanding.
+- No unresolved inline review findings. Approval remains intentionally withheld because the long-running PR is draft, the auto-slot reconnect stickiness issue is unresolved, and physical phone/OBS acceptance testing is outstanding.
 
 ## Inspect before merging
 
+- Verify an auto-selected slot remains pinned to the same reserved phone during the reconnect window even when that phone disappears from discovery temporarily and other phones remain available.
 - Verify camera controls work from the reserving OBS PC and are rejected from a second LAN device while the phone is reserved.
 - Verify reconnect-held reservations cannot be stolen or released by another LAN peer.
 - Verify native OBS controls continue to work while browser-origin requests cannot mutate the phone.
