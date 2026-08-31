@@ -11,25 +11,28 @@
 
 ## In progress
 
-- Physical phone → Wi-Fi → OBS acceptance testing remains the main outstanding validation; no additional code change is justified until that path exposes a real issue or a higher-value repository problem appears.
+- Receiver-side SRT reconnect hardening: the Android sender already uses live mode, too-late packet drop, a 2 s connect timeout and a 4 s peer-idle timeout, while the OBS auto-caller currently sets only mode + latency. Validate and implement a bounded FFmpeg/SRT read timeout so a silent Wi-Fi blackhole cannot leave OBS waiting on the socket longer than the reconnect policy intends. Keep the change limited to the auto-managed OpenStream SRT path and prove it with CI plus network-failure testing before calling it complete.
+- Physical phone → Wi-Fi → OBS acceptance testing remains outstanding for reconnect/control behavior, sustained latency, A/V sync, thermals and Virtual Camera startup.
 
 ## Tests performed
 
 - Added structural regression coverage requiring reservation-peer capture, rejection of different-source takeover before `onReserve()`, rejection of same-owner cross-peer renewal, fail-closed handling for unbound active reservations before reserve/release side effects, authorization before all camera-control side effects, peer-bound reservation release, peer cleanup when the reservation is released, no browser CORS/OPTIONS exposure, and `application/json` enforcement before mutating-route body parsing or dispatch.
-- Android APK and Windows OBS CI are both green on exact head `f004c3b` after correcting the stale structural assertion in the reservation contract test.
-- The earlier Android failure on `d7e1251` was isolated to that stale repository-test expectation; runtime behavior did not need to change.
+- Android APK and Windows OBS CI are both green on exact head `a4884eb`.
+- The earlier Android failure on `d7e1251` was isolated to a stale repository-test expectation; runtime behavior did not need to change.
+- Reviewed the native Android SRT socket configuration and the OBS FFmpeg receiver path. Android explicitly configures live transmission, too-late packet drop, 120 ms send timeout, 2 s connect timeout and 4 s peer-idle timeout; the OBS auto-caller currently has no explicit read timeout.
 
 ## Benchmarks
 
-- No performance benchmark in these changes; they are control-plane security/reliability fixes and do not alter the media path.
+- No new performance benchmark yet. The SRT reconnect task must measure blackhole/disconnect detection and reconnect time before it is marked complete.
 
 ## Known problems / regressions
 
+- A silent network blackhole can potentially leave the OBS receiver inside FFmpeg/SRT I/O until the underlying library timeout fires; the exact current worst-case reconnect time still needs fault-injection measurement.
 - Physical phone → Wi-Fi → OBS testing is still needed for sustained latency, A/V sync, thermals, reconnect behavior, Virtual Camera startup, and vendor-specific Android camera/codec behavior.
 
 ## Unresolved review feedback
 
-- No unresolved code/CI blocker is currently identified. Latest review found the corrected reservation contract aligned with the fail-closed implementation, and both exact-head workflows are green.
+- No unresolved CodeRabbit correctness/security blocker is currently identified for the completed camera-control hardening.
 - Approval is still intentionally withheld because the long-running PR remains draft and physical phone/OBS acceptance testing is outstanding.
 
 ## Inspect before merging
@@ -38,3 +41,4 @@
 - During the reconnect hold window, verify a second OBS source/peer cannot replace the existing reservation until it is explicitly released or expires.
 - Verify a `/release` replay from a different LAN peer cannot terminate the current reservation, while normal OBS stop/reconfigure still releases it successfully.
 - Verify native OBS camera controls continue to work with JSON requests while browser-origin `text/plain`/form POSTs and cross-origin JSON requests cannot mutate the phone.
+- For the SRT reconnect task, measure how quickly OBS exits `av_read_frame` and re-enters its 500 ms reconnect loop when Wi-Fi traffic is blackholed rather than cleanly disconnected.
