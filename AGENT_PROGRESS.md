@@ -6,17 +6,18 @@
 - Hardened reservation ownership so an active/reconnect-held reservation cannot be replaced by a different source ID, same-owner renewals cannot move to a different peer, and any unexpected reservation that lacks a bound controller now fails closed instead of allowing a LAN client to claim or release it.
 - Bound `/release` to the same controller peer before reservation-token validation, so a replayed/leaked token from another LAN host cannot terminate the active reservation.
 - Removed permissive browser CORS/preflight support from the native camera-control port and require `Content-Type: application/json` for every mutating route before body parsing/dispatch. This blocks CORS-safelisted `text/plain`/form POSTs from web pages running on the authorized OBS host while preserving the native OBS client.
+- Fixed the reservation contract regression introduced with the fail-closed guard: the test now expects the current `currentControllerAddress == null` behavior instead of the superseded `!= null` condition.
 - Synced `agent-dev` to the current `main` merge of the legacy Wi-Fi stability work before starting new maintenance.
 
 ## In progress
 
-- Validate the fail-closed unbound-reservation hardening through fresh Android/OBS CI and review feedback.
+- Re-run Android/OBS CI on the corrected reservation contract and confirm the fail-closed hardening remains green.
 
 ## Tests performed
 
 - Added structural regression coverage requiring reservation-peer capture, rejection of different-source takeover before `onReserve()`, rejection of same-owner cross-peer renewal, fail-closed handling for unbound active reservations before reserve/release side effects, authorization before all camera-control side effects, peer-bound reservation release, peer cleanup when the reservation is released, no browser CORS/OPTIONS exposure, and `application/json` enforcement before mutating-route body parsing or dispatch.
 - Android APK and Windows OBS CI passed on `a4693ee`, including the peer-bound controls, release authorization, CORS removal, and JSON-only mutating routes.
-- Fresh Android/OBS CI is pending for the unbound-reservation fail-closed guard.
+- On `d7e1251`, Windows OBS CI passed but Android failed during `python -m pytest -q`; investigation found one stale structural assertion expecting the old non-null controller guard. The assertion was corrected on `agent-dev`; fresh CI is pending.
 
 ## Benchmarks
 
@@ -28,7 +29,7 @@
 
 ## Unresolved review feedback
 
-- CodeRabbit's cross-peer same-owner, different-source takeover, browser-origin `text/plain` bypass, and unbound-reservation authorization risks are now covered by explicit fail-closed guards and regression contracts. Fresh review is pending on the latest head.
+- CodeRabbit confirmed the unbound-reservation fail-closed guard and found no new blocking issue in the reviewed authorization/lifecycle paths. Fresh CI is still required after the contract-test correction.
 
 ## Inspect before merging
 
