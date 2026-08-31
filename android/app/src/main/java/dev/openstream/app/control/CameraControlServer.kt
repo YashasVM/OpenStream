@@ -327,8 +327,9 @@ class CameraControlServer(
         }
         val currentControllerAddress = activeControllerAddress
         if (currentReservation == sourceInstanceId &&
-            currentControllerAddress != null &&
-            (controllerAddress.isEmpty() || controllerAddress != currentControllerAddress)
+            (currentControllerAddress == null ||
+                controllerAddress.isEmpty() ||
+                controllerAddress != currentControllerAddress)
         ) {
             return unauthorizedControlResponse()
         }
@@ -359,8 +360,9 @@ class CameraControlServer(
         val reservationToken = json.optString("reservationToken").trim().ifEmpty { null }
         val currentReservation = reservationProvider()
         if (currentReservation == sourceInstanceId &&
-            activeControllerAddress != null &&
-            (controllerAddress.isEmpty() || controllerAddress != activeControllerAddress)
+            (activeControllerAddress == null ||
+                controllerAddress.isEmpty() ||
+                controllerAddress != activeControllerAddress)
         ) {
             return unauthorizedControlResponse()
         }
