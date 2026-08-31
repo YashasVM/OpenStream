@@ -604,9 +604,6 @@ class PhoneDiscoveryReceiver {
       if (device.instance_id.size() > 256) {
         continue;
       }
-      // The UDP source address is authoritative. Trusting the JSON host lets a
-      // spoofed beacon redirect OBS to an arbitrary address or inject SRT query
-      // parameters into the URL assembled below.
       device.host = packet_host;
       device.port = json_int_value(json, "listenerPort").value_or(-1);
       device.control_port = json_int_value(json, "controlPort").value_or(-1);
@@ -836,7 +833,6 @@ void set_slot_status(OpenStreamSource *ctx, std::string status) {
   ctx->slot_status = std::move(status);
 }
 
-// Simple HTTP POST helper for camera controls
 bool send_control_command(const std::string &host, int port,
                           const std::string &path, const std::string &body) {
   if (port < 1 || port > 65535 || body.size() > 8192 || path.empty() || path.front() != '/') {
@@ -1082,13 +1078,9 @@ void openstream_stop_worker(OpenStreamSource *ctx) {
   std::optional<PhoneDevice> reserved_phone;
   {
     std::lock_guard<std::mutex> lock(ctx->settings_mutex);
-    // A live worker releases its reservation on its own stop path. Only queue
-    // a release for a reservation left behind by an interrupted/retry path.
     reserved_phone = ctx->active_phone;
   }
   if (reserved_phone.has_value()) {
-    // Source stop/reconfiguration can be called by an OBS/Qt callback. Queue
-    // the release so that callback never performs control-socket I/O.
     queue_release_phone(ctx, *reserved_phone);
   }
   set_active_phone(ctx, std::nullopt);
@@ -1541,7 +1533,6 @@ void decode_packets(OpenStreamSource *ctx,
       break;
     }
 
-    // Handle video packets
     if (packet->stream_index == video_stream_index) {
       int result = avcodec_send_packet(video_decoder_ctx, packet.get());
       if (result == AVERROR(EAGAIN)) {
@@ -1560,9 +1551,7 @@ void decode_packets(OpenStreamSource *ctx,
         continue;
       }
       drain_video();
-    }
-    // Handle audio packets
-    else if (audio_decoder_ctx && packet->stream_index == audio_stream_index) {
+    } else if (audio_decoder_ctx && packet->stream_index == audio_stream_index) {
       int result = avcodec_send_packet(audio_decoder_ctx, packet.get());
       if (result == AVERROR(EAGAIN)) {
         const int drain_result = drain_audio();
@@ -1590,12 +1579,21 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
       selected_phone_id.empty() || selected_phone_id == PhoneDiscoveryReceiver::kAutoPhoneId;
   std::string reconnect_phone_id;
   auto reconnect_deadline = std::chrono::steady_clock::time_point{};
+  bool reconnect_hold_exhausted = false;
   const auto hold_phone_for_reconnect = [&](const std::optional<PhoneDevice> &phone) {
-    if (!auto_phone_selection || !phone.has_value()) {
+    if (!auto_phone_selection || !phone.has_value() || reconnect_hold_exhausted) {
+      return;
+    }
+    if (!reconnect_phone_id.empty()) {
       return;
     }
     reconnect_phone_id = phone->instance_id;
     reconnect_deadline = std::chrono::steady_clock::now() + kReconnectReservationWindow;
+  };
+  const auto reset_reconnect_episode = [&]() {
+    reconnect_phone_id.clear();
+    reconnect_deadline = std::chrono::steady_clock::time_point{};
+    reconnect_hold_exhausted = false;
   };
 
   while (!ctx->stop_requested.load()) {
@@ -1606,19 +1604,19 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
       set_slot_status(ctx, "Waiting");
       while (!ctx->stop_requested.load()) {
         std::string effective_phone_id = selected_phone_id;
-      if (auto_phone_selection && !reconnect_phone_id.empty()) {
-        if (std::chrono::steady_clock::now() < reconnect_deadline) {
-          effective_phone_id = reconnect_phone_id;
-        } else {
-          blog(LOG_INFO,
-               "[OpenStream] Reconnect hold expired; allowing %s to choose another phone",
-               ctx->slot_label.c_str());
-          reconnect_phone_id.clear();
+        if (auto_phone_selection && !reconnect_phone_id.empty()) {
+          if (std::chrono::steady_clock::now() < reconnect_deadline) {
+            effective_phone_id = reconnect_phone_id;
+          } else {
+            blog(LOG_INFO,
+                 "[OpenStream] Reconnect hold expired; allowing %s to choose another phone",
+                 ctx->slot_label.c_str());
+            reconnect_phone_id.clear();
+            reconnect_hold_exhausted = true;
+          }
         }
-      }
-      phone = ctx->phone_discovery.select(effective_phone_id, ctx->instance_id);
+        phone = ctx->phone_discovery.select(effective_phone_id, ctx->instance_id);
         if (phone.has_value() && reserve_phone(ctx, *phone)) {
-          hold_phone_for_reconnect(phone);
           break;
         }
         if (auto_phone_selection && !reconnect_phone_id.empty()) {
@@ -1718,7 +1716,6 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
       break;
     }
 
-    // Try to open audio decoder (optional — video-only is fine)
     int audio_stream_index = -1;
     CodecContextPtr audio_decoder_ctx;
     open_audio_decoder(format_ctx.get(), &audio_stream_index, &audio_decoder_ctx);
@@ -1735,6 +1732,9 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     decode_packets(ctx, format_ctx.get(), video_stream_index, video_decoder_ctx.get(),
                    audio_stream_index, audio_decoder_ctx.get());
     ctx->phone_connected = false;
+    if (ctx->frames_output > 0) {
+      reset_reconnect_episode();
+    }
     if (!ctx->stop_requested.load()) {
       hold_phone_for_reconnect(reserved_phone);
       set_slot_status(ctx, "Reconnecting");
@@ -2096,7 +2096,6 @@ obs_properties_t *openstream_properties(void *data) {
 
   obs_properties_add_group(props, "slot_setup", "1. Camera Slot", OBS_GROUP_NORMAL, slot_group);
 
-  // ── Camera remote controls ──
   obs_properties_t *advanced_group = obs_properties_create();
   obs_properties_add_bool(advanced_group, "listener_enabled", "Listen for this camera slot");
   obs_properties_add_text(advanced_group, "source_instance_id", "Source instance ID", OBS_TEXT_INFO);
@@ -2131,7 +2130,6 @@ obs_properties_t *openstream_properties(void *data) {
     auto *ctx = static_cast<OpenStreamSource *>(priv);
     if (!ctx) return false;
     double zoom = obs_data_get_double(settings, "cam_zoom");
-    // Only send if value actually changed (avoid flooding)
     if (std::abs(zoom - ctx->last_cam_zoom) < 0.05) return false;
     ctx->last_cam_zoom = zoom;
     std::ostringstream body;
@@ -2187,8 +2185,6 @@ obs_properties_t *openstream_properties(void *data) {
   });
 
   obs_properties_add_group(props, "camera_controls", "2. Live Camera Controls", OBS_GROUP_NORMAL, camera_group);
-
-  // Credit
   obs_properties_add_text(props, "credit", "About", OBS_TEXT_INFO);
 
   return props;
