@@ -59,6 +59,19 @@ def test_same_owner_cannot_move_reservation_to_a_different_peer():
     )
 
 
+def test_unbound_active_reservation_fails_closed_for_renew_and_release():
+    reserve = _function("handleReserve")
+    release = _function("handleRelease")
+    assert "currentControllerAddress == null" in reserve
+    assert reserve.index("currentControllerAddress == null") < reserve.index(
+        "val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)"
+    )
+    assert "activeControllerAddress == null" in release
+    assert release.index("activeControllerAddress == null") < release.index(
+        "val released = onRelease(sourceInstanceId)"
+    )
+
+
 def test_mutating_controls_require_reservation_peer_before_side_effects():
     side_effects = {
         "handleZoom": "cameraProvider().setZoom(value)",
@@ -84,7 +97,7 @@ def test_release_requires_current_controller_peer_before_token_or_side_effects()
     release = _function("handleRelease")
     peer_guard = "controllerAddress != activeControllerAddress"
     assert "controllerAddress: String" in release
-    assert "activeControllerAddress != null" in release
+    assert "activeControllerAddress == null" in release
     assert peer_guard in release
     assert "return unauthorizedControlResponse()" in release
     assert release.index(peer_guard) < release.index(
