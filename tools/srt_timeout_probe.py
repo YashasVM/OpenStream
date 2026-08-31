@@ -2,9 +2,10 @@
 """Measure FFmpeg/libSRT behavior during receiver-side network blackholes.
 
 This is a calibration tool for OpenStream's OBS receiver timeout policy. It launches
-an FFmpeg SRT caller through a tiny UDP relay into an FFmpeg SRT listener, waits for
-media to flow, then either blackholes both directions until the receiver exits or
-restores traffic after a temporary outage and verifies the same receiver recovers.
+an FFmpeg SRT listener source through a tiny UDP relay into an FFmpeg SRT caller
+receiver, waits for decoded media to flow, then either blackholes both directions
+until the receiver exits or restores traffic after a temporary outage and verifies
+receiver-side frame progress resumes on the same receiver.
 """
 from __future__ import annotations
 
@@ -15,6 +16,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -22,8 +24,8 @@ from typing import Optional
 
 @dataclass
 class RelayState:
-    sender_addr: Optional[tuple[str, int]] = None
-    receiver_addr: Optional[tuple[str, int]] = None
+    caller_addr: Optional[tuple[str, int]] = None
+    listener_addr: Optional[tuple[str, int]] = None
     blackhole: bool = False
     forwarded_packets: int = 0
 
@@ -35,8 +37,8 @@ class RelayProtocol(asyncio.DatagramProtocol):
         self.peer_port = peer_port
 
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
-        if self.state.sender_addr is None:
-            self.state.sender_addr = addr
+        if self.state.caller_addr is None:
+            self.state.caller_addr = addr
         if self.state.blackhole:
             return
         self.peer_sock.sendto(data, ("127.0.0.1", self.peer_port))
@@ -44,16 +46,37 @@ class RelayProtocol(asyncio.DatagramProtocol):
 
 
 class ReturnProtocol(asyncio.DatagramProtocol):
-    def __init__(self, state: RelayState, sender_sock: socket.socket) -> None:
+    def __init__(self, state: RelayState, caller_sock: socket.socket) -> None:
         self.state = state
-        self.sender_sock = sender_sock
+        self.caller_sock = caller_sock
 
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
-        self.state.receiver_addr = addr
-        if self.state.blackhole or self.state.sender_addr is None:
+        self.state.listener_addr = addr
+        if self.state.blackhole or self.state.caller_addr is None:
             return
-        self.sender_sock.sendto(data, self.state.sender_addr)
+        self.caller_sock.sendto(data, self.state.caller_addr)
         self.state.forwarded_packets += 1
+
+
+class ReceiverProgress:
+    def __init__(self) -> None:
+        self._frame = 0
+        self._lock = threading.Lock()
+
+    def update_from_line(self, line: str) -> None:
+        if not line.startswith("frame="):
+            return
+        try:
+            value = int(line.split("=", 1)[1])
+        except ValueError:
+            return
+        with self._lock:
+            if value > self._frame:
+                self._frame = value
+
+    def frame(self) -> int:
+        with self._lock:
+            return self._frame
 
 
 def ffmpeg_path() -> str:
@@ -83,7 +106,13 @@ def terminate(proc: Optional[subprocess.Popen[str]]) -> None:
         proc.wait(timeout=2)
 
 
-async def wait_for_flow(
+def read_progress(proc: subprocess.Popen[str], progress: ReceiverProgress) -> None:
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        progress.update_from_line(line.strip())
+
+
+async def wait_for_transport_flow(
     state: RelayState,
     receiver: subprocess.Popen[str],
     sender: subprocess.Popen[str],
@@ -93,10 +122,28 @@ async def wait_for_flow(
     deadline = time.monotonic() + deadline_s
     while state.forwarded_packets < target_packets and time.monotonic() < deadline:
         if receiver.poll() is not None or sender.poll() is not None:
-            raise RuntimeError("FFmpeg process exited before media flow was established")
+            raise RuntimeError("FFmpeg process exited before SRT transport flow was established")
         await asyncio.sleep(0.05)
     if state.forwarded_packets < target_packets:
-        raise RuntimeError("SRT media flow was not established before timeout")
+        raise RuntimeError("SRT transport flow was not established before timeout")
+
+
+async def wait_for_frame_progress(
+    progress: ReceiverProgress,
+    receiver: subprocess.Popen[str],
+    sender: subprocess.Popen[str],
+    frame_after: int,
+    deadline_s: float,
+) -> float:
+    started = time.monotonic()
+    deadline = started + deadline_s
+    while progress.frame() <= frame_after and time.monotonic() < deadline:
+        if receiver.poll() is not None or sender.poll() is not None:
+            raise RuntimeError("FFmpeg process exited before receiver media progress was observed")
+        await asyncio.sleep(0.01)
+    if progress.frame() <= frame_after:
+        raise RuntimeError("receiver media did not resume before timeout")
+    return time.monotonic() - started
 
 
 async def run_probe(
@@ -108,6 +155,7 @@ async def run_probe(
     ffmpeg = ffmpeg_path()
     loop = asyncio.get_running_loop()
     state = RelayState()
+    progress = ReceiverProgress()
 
     ingress = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     ingress.bind(("127.0.0.1", 0))
@@ -118,13 +166,13 @@ async def run_probe(
     egress.bind(("127.0.0.1", 0))
     egress.setblocking(False)
 
-    receiver_port_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    receiver_port_sock.bind(("127.0.0.1", 0))
-    receiver_port = receiver_port_sock.getsockname()[1]
-    receiver_port_sock.close()
+    listener_port_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    listener_port_sock.bind(("127.0.0.1", 0))
+    listener_port = listener_port_sock.getsockname()[1]
+    listener_port_sock.close()
 
     ingress_transport, _ = await loop.create_datagram_endpoint(
-        lambda: RelayProtocol(state, egress, receiver_port), sock=ingress
+        lambda: RelayProtocol(state, egress, listener_port), sock=ingress
     )
     return_transport, _ = await loop.create_datagram_endpoint(
         lambda: ReturnProtocol(state, ingress), sock=egress
@@ -132,32 +180,11 @@ async def run_probe(
 
     receiver: Optional[subprocess.Popen[str]] = None
     sender: Optional[subprocess.Popen[str]] = None
+    progress_thread: Optional[threading.Thread] = None
     try:
-        receiver_url = (
-            f"srt://127.0.0.1:{receiver_port}?mode=listener"
-            f"&timeout={timeout_us}&latency=120000&transtype=live"
-        )
-        receiver = subprocess.Popen(
-            [
-                ffmpeg,
-                "-hide_banner",
-                "-loglevel",
-                "warning",
-                "-i",
-                receiver_url,
-                "-f",
-                "null",
-                "-",
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        await asyncio.sleep(0.25)
-
         sender_url = (
-            f"srt://127.0.0.1:{ingress_port}?mode=caller"
-            "&connect_timeout=2000&latency=120000&transtype=live&tlpktdrop=1"
+            f"srt://127.0.0.1:{listener_port}?mode=listener"
+            "&latency=120000&transtype=live&tlpktdrop=1"
         )
         sender = subprocess.Popen(
             [
@@ -181,8 +208,40 @@ async def run_probe(
             stderr=subprocess.PIPE,
             text=True,
         )
+        await asyncio.sleep(0.25)
 
-        await wait_for_flow(state, receiver, sender, 100, 8.0)
+        receiver_url = (
+            f"srt://127.0.0.1:{ingress_port}?mode=caller"
+            f"&timeout={timeout_us}&connect_timeout=2000"
+            "&latency=120000&transtype=live"
+        )
+        receiver = subprocess.Popen(
+            [
+                ffmpeg,
+                "-hide_banner",
+                "-loglevel",
+                "warning",
+                "-stats_period",
+                "0.1",
+                "-i",
+                receiver_url,
+                "-progress",
+                "pipe:1",
+                "-f",
+                "null",
+                "-",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        progress_thread = threading.Thread(
+            target=read_progress, args=(receiver, progress), daemon=True
+        )
+        progress_thread.start()
+
+        await wait_for_transport_flow(state, receiver, sender, 100, 8.0)
+        await wait_for_frame_progress(progress, receiver, sender, 0, 8.0)
         await asyncio.sleep(warmup_s)
         state.blackhole = True
         blackhole_at = time.monotonic()
@@ -193,14 +252,14 @@ async def run_probe(
                 raise RuntimeError(
                     f"receiver exited during {outage_s:.2f}s temporary blackhole"
                 )
-            packets_before_restore = state.forwarded_packets
+            frame_before_restore = progress.frame()
             state.blackhole = False
-            restore_at = time.monotonic()
-            target_packets = packets_before_restore + 100
-            await wait_for_flow(state, receiver, sender, target_packets, max_wait_s)
+            elapsed = await wait_for_frame_progress(
+                progress, receiver, sender, frame_before_restore, max_wait_s
+            )
             if receiver.poll() is not None:
                 raise RuntimeError("receiver exited instead of recovering after traffic restore")
-            return "recovery", time.monotonic() - restore_at
+            return "recovery", elapsed
 
         while receiver.poll() is None and time.monotonic() - blackhole_at < max_wait_s:
             await asyncio.sleep(0.02)
@@ -210,10 +269,12 @@ async def run_probe(
             )
         return "exit", time.monotonic() - blackhole_at
     finally:
-        terminate(sender)
         terminate(receiver)
+        terminate(sender)
         ingress_transport.close()
         return_transport.close()
+        if progress_thread is not None:
+            progress_thread.join(timeout=1)
 
 
 def parse_args() -> argparse.Namespace:
@@ -225,7 +286,7 @@ def parse_args() -> argparse.Namespace:
         "--outage-s",
         type=float,
         default=None,
-        help="restore traffic after this many seconds and verify the receiver recovers",
+        help="restore traffic after this many seconds and verify receiver frames resume",
     )
     return parser.parse_args()
 
@@ -248,9 +309,10 @@ def main() -> int:
         print(f"probe failed: {exc}", file=sys.stderr)
         return 1
     print(f"configured_timeout_us={args.timeout_us}")
+    print("receiver_role=caller")
     if mode == "recovery":
         print(f"temporary_blackhole_s={args.outage_s:.3f}")
-        print(f"traffic_restore_to_media_recovery_ms={elapsed * 1000:.1f}")
+        print(f"traffic_restore_to_receiver_frame_ms={elapsed * 1000:.1f}")
     else:
         print(f"blackhole_to_receiver_exit_ms={elapsed * 1000:.1f}")
     return 0
