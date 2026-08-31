@@ -95,6 +95,8 @@ constexpr int kDefaultBitrateMbps = 12;
 constexpr int kMinBitrateMbps = 8;
 constexpr int kMaxBitrateMbps = 50;
 constexpr uint64_t kMaximumMediaBacklogNs = 250'000'000;
+constexpr int64_t kSrtIoTimeoutUs = 4'500'000;
+constexpr int64_t kSrtConnectTimeoutMs = 2'000;
 constexpr auto kReconnectReservationWindow = std::chrono::seconds(45);
 constexpr const char *kOpenStreamSourceName = "OpenStream V8";
 constexpr const char *kDiscoveryMulticastAddress = "239.255.42.99";
@@ -1631,6 +1633,8 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     av_dict_set(&options, "flags", "low_delay", 0);
     av_dict_set(&options, "probesize", "262144", 0);
     av_dict_set(&options, "analyzeduration", "250000", 0);
+    av_dict_set_int(&options, "timeout", kSrtIoTimeoutUs, 0);
+    av_dict_set_int(&options, "connect_timeout", kSrtConnectTimeoutMs, 0);
 
     blog(LOG_INFO,
          "[OpenStream] Opening Android stream at %s",
