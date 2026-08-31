@@ -17,10 +17,7 @@ def test_auto_slot_reconnect_hold_is_single_shot_until_media_recovers() -> None:
 
     expiry = source.index("Reconnect hold expired; allowing %s to choose another phone")
     exhausted = source.index("reconnect_hold_exhausted = true;", expiry)
-    generic_select = source.index(
-        "phone = ctx->phone_discovery.select(effective_phone_id, ctx->instance_id);",
-        exhausted,
-    )
+    generic_select = source.index("phone = ctx->phone_discovery.select(", exhausted)
     assert expiry < exhausted < generic_select
 
     reset = source.index("const auto reset_reconnect_episode")
@@ -34,9 +31,38 @@ def test_auto_slot_reconnect_hold_is_single_shot_until_media_recovers() -> None:
 
 def test_reservation_success_does_not_refresh_reconnect_deadline() -> None:
     source = SOURCE.read_text(encoding="utf-8")
-    selection_start = source.index("while (!ctx->stop_requested.load()) {", source.index("srt_url == \"openstream:auto\""))
+    selection_start = source.index(
+        "while (!ctx->stop_requested.load()) {", source.index('srt_url == "openstream:auto"')
+    )
     selection_end = source.index("if (!phone.has_value())", selection_start)
     selection_loop = source[selection_start:selection_end]
 
     assert "reserve_phone(ctx, *phone)" in selection_loop
     assert "hold_phone_for_reconnect(phone)" not in selection_loop
+
+
+def test_expired_reconnect_phone_is_deprioritized_but_remains_fallback() -> None:
+    source = SOURCE.read_text(encoding="utf-8")
+
+    selector_start = source.index("std::optional<PhoneDevice> select(")
+    selector_end = source.index("\n private:", selector_start)
+    selector = source[selector_start:selector_end]
+    assert 'const std::string &deprioritized_id = ""' in selector
+
+    remember = selector.index("deprioritized = entry.second;")
+    skip_old = selector.index("continue;", remember)
+    choose_alternate = selector.index("return entry.second;", skip_old)
+    fallback_old = selector.index("return deprioritized;", choose_alternate)
+    assert remember < skip_old < choose_alternate < fallback_old
+
+    expiry = source.index("Reconnect hold expired; allowing %s to choose another phone")
+    remember_expired = source.index("expired_reconnect_phone_id = reconnect_phone_id;", expiry)
+    clear_pin = source.index("reconnect_phone_id.clear();", remember_expired)
+    exhausted = source.index("reconnect_hold_exhausted = true;", clear_pin)
+    deprioritize = source.index("const std::string deprioritized_phone_id", exhausted)
+    selection = source.index("phone = ctx->phone_discovery.select(", deprioritize)
+    assert expiry < remember_expired < clear_pin < exhausted < deprioritize < selection
+
+    reset = source.index("const auto reset_reconnect_episode")
+    reset_end = source.index("};", reset)
+    assert "expired_reconnect_phone_id.clear();" in source[reset:reset_end]
