@@ -73,9 +73,7 @@ jobs:
           if count != 1:
               raise SystemExit(f'reservation success insertion count was {count}')
 
-          wait_pattern = re.compile(
-              r'(?m)^(\s*)if \(selected_phone_id\.empty\(\) \|\| selected_phone_id == PhoneDiscoveryReceiver::kAutoPhoneId\) \{\s*$'
-          )
+          wait_pattern = re.compile(r'(?m)^(\s*)if \(selected_phone_id\.empty\(\) \|\| selected_phone_id == PhoneDiscoveryReceiver::kAutoPhoneId\) \{\s*$')
           def replace_wait(match):
               indent = match.group(1)
               return (indent + 'if (auto_phone_selection && !reconnect_phone_id.empty()) {\n'
@@ -85,9 +83,7 @@ jobs:
           if count != 1:
               raise SystemExit(f'waiting condition replacement count was {count}')
 
-          reconnect_pattern = re.compile(
-              r'(?m)^(\s*)if \(reserved_phone\.has_value\(\)\) \{\n(\s*)set_slot_status\(ctx, "Reconnecting"\);'
-          )
+          reconnect_pattern = re.compile(r'(?m)^(\s*)if \(reserved_phone\.has_value\(\)\) \{\n(\s*)set_slot_status\(ctx, "Reconnecting"\);')
           def replace_reconnect(match):
               return (match.group(1) + 'if (reserved_phone.has_value()) {\n'
                       + match.group(2) + 'hold_phone_for_reconnect(reserved_phone);\n'
@@ -96,9 +92,7 @@ jobs:
           if count != 2:
               raise SystemExit(f'reconnect failure insertion count was {count}')
 
-          disconnect_pattern = re.compile(
-              r'(?m)^(\s*)if \(!ctx->stop_requested\.load\(\)\) \{\n(\s*)set_slot_status\(ctx, "Reconnecting"\);\n(\s*)blog\(LOG_INFO, "\[OpenStream\] Holding %s for reconnect",'
-          )
+          disconnect_pattern = re.compile(r'(?m)^(\s*)if \(!ctx->stop_requested\.load\(\)\) \{\n(\s*)set_slot_status\(ctx, "Reconnecting"\);\n(\s*)blog\(LOG_INFO, "\[OpenStream\] Holding %s for reconnect",')
           def replace_disconnect(match):
               return (match.group(1) + 'if (!ctx->stop_requested.load()) {\n'
                       + match.group(2) + 'hold_phone_for_reconnect(reserved_phone);\n'
@@ -120,6 +114,8 @@ jobs:
           test_path.write_text(tests, encoding='utf-8')
 
           Path('.github/workflows/agent-stickiness-patch.yml').unlink()
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check pytest
       - name: Run focused contracts
         run: python -m pytest -q tests/test_repo_contract.py
       - name: Commit patch to agent-dev
