@@ -10,19 +10,21 @@
 - Wired the OBS FFmpeg input to a 4.5 s SRT I/O timeout plus 2 s connect timeout before `avformat_open_input`, with a contract test locking values and placement.
 - Re-ran the corrected caller-role probe. Hard blackholes exited in 4,830.3 ms, 4,837.8 ms, 4,823.4 ms, 4,744.4 ms and 4,754.6 ms; temporary 2.0-4.0 s blackholes all recovered on the same receiver after restore.
 - Fixed auto-slot reconnect stickiness: after an auto-selected phone disconnects, OBS now pins retries to that phone's instance ID for the 45 s reconnect reservation window instead of silently selecting another available camera. Generic auto-selection resumes only after the hold expires. Explicitly selected phones are unchanged.
+- Fixed the Windows reconnect-deadline compile failure caused by the Win32 `min` macro expanding inside `std::chrono::steady_clock::time_point::min()`; the deadline now uses a macro-safe default `time_point{}` initializer, with a contract regression guard.
 
 ## In progress
 
-- Validate the same-phone reconnect hold with the Windows OBS build and, when hardware is available, a real multi-phone Wi-Fi scenario where the active phone disappears from discovery while another phone remains available.
+- Validate the same-phone reconnect hold with an exact-head Windows OBS build and, when hardware is available, a real multi-phone Wi-Fi scenario where the active phone disappears from discovery while another phone remains available.
 - Physical phone → Wi-Fi → OBS acceptance testing remains outstanding for real reconnect behavior, sustained latency, A/V sync, thermals, controls and Virtual Camera startup.
 
 ## Tests performed
 
 - Focused repository contract suite after reconnect-stickiness implementation: 22 passed in 0.10 s.
-- Android APK and Windows OBS CI were green on the pre-stickiness head `475c26f`; fresh exact-head CI is required after the reconnect change.
-- Repository contract tests cover placement of the 4.5 s I/O and 2 s connect timeout before `avformat_open_input` and now assert the 45 s same-phone reconnect selection path exists.
+- Android APK and Windows OBS CI were green on the pre-stickiness head `475c26f`.
+- The first Windows OBS build after reconnect stickiness exposed a Win32 `min` macro collision in the reconnect deadline initializer; this is fixed on `agent-dev` at `0c9ef51` with a contract guard.
+- Fresh Android and Windows OBS runs for `0c9ef51` were created, but GitHub marked both `action_required` before creating any jobs, so there is no exact-head build result yet.
+- Repository contract tests cover placement of the 4.5 s I/O and 2 s connect timeout before `avformat_open_input` and assert the 45 s same-phone reconnect selection path exists.
 - Corrected caller-role FFmpeg/libSRT loopback probe completed successfully for permanent and temporary bidirectional blackholes.
-- Self-review confirmed the temporary patch workflow used to apply the connector-limited edit was removed from the final tree.
 
 ## Benchmarks
 
@@ -32,16 +34,18 @@
 
 ## Known problems / regressions
 
+- Exact-head Android/Windows CI is currently blocked by GitHub Actions approval (`action_required` with zero jobs created), not by a reported compile/test failure.
 - Physical phone → Wi-Fi → OBS testing is still needed for sustained latency, A/V sync, thermals, reconnect behavior, Virtual Camera startup, and vendor-specific Android camera/codec behavior.
 - The loopback probe validates the timeout policy and same-receiver recovery behavior, but does not measure the plugin's full blackhole → `av_read_frame()` exit → existing 500 ms reconnect-loop → phone reacquisition path.
 - The same-phone reconnect behavior is contract-tested but still needs a real two-phone acceptance test to prove no scene-source migration occurs during a discovery outage.
 
 ## Unresolved review feedback
 
-- No unresolved inline review findings currently. Approval remains intentionally withheld because the long-running PR is draft and physical phone/OBS acceptance testing is outstanding.
+- No unresolved inline review findings currently. Macroscope skipped the current head because of its own billing issue; this is not treated as code feedback.
 
 ## Inspect before merging
 
+- Approve/rerun the exact-head Android and Windows workflows and confirm the Windows reconnect build is green after `0c9ef51`.
 - Verify an auto-selected slot remains pinned to the same reserved phone during the 45 s reconnect window even when that phone disappears from discovery temporarily and other phones remain available; verify reassignment is allowed after expiry.
 - Verify camera controls work from the reserving OBS PC and are rejected from a second LAN device while the phone is reserved.
 - Verify reconnect-held reservations cannot be stolen or released by another LAN peer.
