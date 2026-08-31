@@ -50,20 +50,8 @@ jobs:
               raise SystemExit('openstream_worker anchor not found')
           source = source.replace(old, new, 1)
 
-          old = '''      while (!ctx->stop_requested.load()) {
-                phone = ctx->phone_discovery.select(selected_phone_id, ctx->instance_id);
-                if (phone.has_value() && reserve_phone(ctx, *phone)) {
-                  break;
-                }
-                if (selected_phone_id.empty() || selected_phone_id == PhoneDiscoveryReceiver::kAutoPhoneId) {
-                  blog(LOG_INFO, "[OpenStream] Waiting for available Android phone");
-                } else {
-                  blog(LOG_INFO, "[OpenStream] Waiting for selected Android phone");
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-              }'''
-          new = '''      while (!ctx->stop_requested.load()) {
-                std::string effective_phone_id = selected_phone_id;
+          call = '      phone = ctx->phone_discovery.select(selected_phone_id, ctx->instance_id);'
+          replacement = '''      std::string effective_phone_id = selected_phone_id;
                 if (auto_phone_selection && !reconnect_phone_id.empty()) {
                   if (std::chrono::steady_clock::now() < reconnect_deadline) {
                     effective_phone_id = reconnect_phone_id;
@@ -74,63 +62,74 @@ jobs:
                     reconnect_phone_id.clear();
                   }
                 }
-                phone = ctx->phone_discovery.select(effective_phone_id, ctx->instance_id);
-                if (phone.has_value() && reserve_phone(ctx, *phone)) {
+                phone = ctx->phone_discovery.select(effective_phone_id, ctx->instance_id);'''
+          if source.count(call) != 1:
+              raise SystemExit(f'selection call count was {source.count(call)}')
+          source = source.replace(call, replacement, 1)
+
+          success = '''      if (phone.has_value() && reserve_phone(ctx, *phone)) {
+                  break;
+                }'''
+          success_new = '''      if (phone.has_value() && reserve_phone(ctx, *phone)) {
                   hold_phone_for_reconnect(phone);
                   break;
-                }
-                if (auto_phone_selection && !reconnect_phone_id.empty()) {
+                }'''
+          if success not in source:
+              raise SystemExit('reservation success anchor not found')
+          source = source.replace(success, success_new, 1)
+
+          wait = '''      if (selected_phone_id.empty() || selected_phone_id == PhoneDiscoveryReceiver::kAutoPhoneId) {
+                  blog(LOG_INFO, "[OpenStream] Waiting for available Android phone");
+                } else {
+                  blog(LOG_INFO, "[OpenStream] Waiting for selected Android phone");
+                }'''
+          wait_new = '''      if (auto_phone_selection && !reconnect_phone_id.empty()) {
                   blog(LOG_INFO, "[OpenStream] Waiting for previously connected Android phone");
                 } else if (auto_phone_selection) {
                   blog(LOG_INFO, "[OpenStream] Waiting for available Android phone");
                 } else {
                   blog(LOG_INFO, "[OpenStream] Waiting for selected Android phone");
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-              }'''
-          if old not in source:
-              raise SystemExit('selection loop anchor not found')
-          source = source.replace(old, new, 1)
+                }'''
+          if wait not in source:
+              raise SystemExit('waiting log anchor not found')
+          source = source.replace(wait, wait_new, 1)
 
-          old = '''        if (reserved_phone.has_value()) {
-                  set_slot_status(ctx, "Reconnecting");
-                  set_active_phone(ctx, reserved_phone);
-                } else {'''
-          new = '''        if (reserved_phone.has_value()) {
-                  hold_phone_for_reconnect(reserved_phone);
-                  set_slot_status(ctx, "Reconnecting");
-                  set_active_phone(ctx, reserved_phone);
-                } else {'''
-          count = source.count(old)
+          reconnect = '''      if (reserved_phone.has_value()) {
+                set_slot_status(ctx, "Reconnecting");
+                set_active_phone(ctx, reserved_phone);
+              } else {'''
+          reconnect_new = '''      if (reserved_phone.has_value()) {
+                hold_phone_for_reconnect(reserved_phone);
+                set_slot_status(ctx, "Reconnecting");
+                set_active_phone(ctx, reserved_phone);
+              } else {'''
+          count = source.count(reconnect)
           if count != 2:
               raise SystemExit(f'expected 2 reconnect failure anchors, found {count}')
-          source = source.replace(old, new)
+          source = source.replace(reconnect, reconnect_new)
 
-          old = '''    if (!ctx->stop_requested.load()) {
+          disconnect = '''    if (!ctx->stop_requested.load()) {
               set_slot_status(ctx, "Reconnecting");
-              blog(LOG_INFO, "[OpenStream] Holding %s for reconnect",
-                   ctx->slot_label.c_str());'''
-          new = '''    if (!ctx->stop_requested.load()) {
+              blog(LOG_INFO, "[OpenStream] Holding %s for reconnect",'''
+          disconnect_new = '''    if (!ctx->stop_requested.load()) {
               hold_phone_for_reconnect(reserved_phone);
               set_slot_status(ctx, "Reconnecting");
-              blog(LOG_INFO, "[OpenStream] Holding %s for reconnect",
-                   ctx->slot_label.c_str());'''
-          if old not in source:
+              blog(LOG_INFO, "[OpenStream] Holding %s for reconnect",'''
+          if disconnect not in source:
               raise SystemExit('disconnect reconnect anchor not found')
-          source = source.replace(old, new, 1)
+          source = source.replace(disconnect, disconnect_new, 1)
           source_path.write_text(source, encoding='utf-8')
 
           test_path = Path('tests/test_repo_contract.py')
           tests = test_path.read_text(encoding='utf-8')
-          marker = '''def test_android_discovery_ui_parses_and_displays_obs_slots() -> None:\n'''
+          marker = 'def test_android_discovery_ui_parses_and_displays_obs_slots() -> None:\n'
           test = '''def test_auto_selected_obs_slot_sticks_to_same_phone_during_reconnect_hold() -> None:\n    source = read("obs-plugin/src/openstream-source.cpp")\n    assert "auto_phone_selection" in source\n    assert "reconnect_phone_id" in source\n    assert "reconnect_deadline" in source\n    assert "kReconnectReservationWindow" in source\n    assert "effective_phone_id = reconnect_phone_id" in source\n    assert "Reconnect hold expired; allowing %s to choose another phone" in source\n    assert "hold_phone_for_reconnect(reserved_phone)" in source\n    assert "Waiting for previously connected Android phone" in source\n\n\n'''
           if marker not in tests:
               raise SystemExit('test insertion anchor not found')
           tests = tests.replace(marker, test + marker, 1)
           test_path.write_text(tests, encoding='utf-8')
 
-          workflow = Path('.github/workflows/agent-stickiness-patch.yml')
-          workflow.unlink()
+          Path('.github/workflows/agent-stickiness-patch.yml').unlink()
       - name: Run focused contracts
         run: python -m pytest -q tests/test_repo_contract.py
       - name: Commit patch to agent-dev
