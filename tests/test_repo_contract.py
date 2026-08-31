@@ -163,6 +163,8 @@ def test_auto_selected_obs_slot_sticks_to_same_phone_during_reconnect_hold() -> 
     assert "auto_phone_selection" in source
     assert "reconnect_phone_id" in source
     assert "reconnect_deadline" in source
+    assert "std::chrono::steady_clock::time_point{}" in source
+    assert "time_point::min()" not in source
     assert "kReconnectReservationWindow" in source
     assert "effective_phone_id = reconnect_phone_id" in source
     assert "Reconnect hold expired; allowing %s to choose another phone" in source

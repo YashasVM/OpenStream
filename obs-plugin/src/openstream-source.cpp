@@ -1589,7 +1589,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
   const bool auto_phone_selection =
       selected_phone_id.empty() || selected_phone_id == PhoneDiscoveryReceiver::kAutoPhoneId;
   std::string reconnect_phone_id;
-  auto reconnect_deadline = std::chrono::steady_clock::time_point::min();
+  auto reconnect_deadline = std::chrono::steady_clock::time_point{};
   const auto hold_phone_for_reconnect = [&](const std::optional<PhoneDevice> &phone) {
     if (!auto_phone_selection || !phone.has_value()) {
       return;
