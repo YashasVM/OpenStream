@@ -148,7 +148,8 @@ def test_slot_reservation_allows_owned_busy_phone_and_reconnect_hold() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
     advertiser = read("android/app/src/main/java/dev/openstream/app/discovery/PhoneDiscoveryAdvertiser.kt")
-    assert "reserved_by == source_instance_id" in source
+    assert "entry.second.busy && entry.second.reserved_by != source_instance_id" in source
+    assert "found->second.busy && found->second.reserved_by != source_instance_id" in source
     assert "set_slot_status(ctx, \"Reconnecting\")" in source
     assert "set_active_phone(ctx, reserved_phone)" in source
     assert '"reservedBy"' in advertiser
