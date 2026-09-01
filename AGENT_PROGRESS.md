@@ -7,18 +7,19 @@
 - Added a production-like FFmpeg/libSRT caller fault-injection probe and wired OBS to a 4.5 s SRT I/O timeout plus 2 s connect timeout.
 - Added same-phone reconnect stickiness for auto-selected OBS slots, fixed the Windows reconnect-deadline compile break, and made the 45 s hold single-shot so reserve/open retries cannot extend it.
 - Made post-expiry failover deterministic: after the hold, auto-selection prefers another eligible phone and uses the failed phone only as sole-candidate fallback.
-- Repaired a stale repository contract that expected the old positive ownership-expression spelling; it now verifies both auto and explicit selection reject a busy phone only when another source owns it.
+- Repaired the stale ownership contract so both auto and explicit selection verify that a busy phone is rejected only when another source owns it.
 
 ## In progress
 
-- Finish exact-head Android and Windows/OBS CI after the ownership-contract repair.
 - Physical phone → Wi-Fi → OBS acceptance testing remains outstanding for reconnect behavior, sustained latency, A/V sync, thermals, controls and Virtual Camera startup.
 
 ## Tests performed
 
-- Post-expiry failover head `e90d037`: Windows OBS Plugin workflow passed; Android workflow reached repository tests and failed 79 passed / 1 failed on a stale string-based ownership assertion, before Gradle build/lint ran.
-- Contract-fix head `88e37bc`: Android repository-test step passed; Android Gradle build/lint and Windows OBS Plugin workflow are still running.
-- Earlier exact-head `f932bbb`: Android APK and Windows OBS Plugin workflows passed.
+- Exact head `266a4a6`: Android APK workflow passed.
+- Exact head `266a4a6`: Windows OBS Plugin workflow passed.
+- Post-expiry failover head `e90d037`: Windows OBS Plugin passed; Android repository tests stopped at 79 passed / 1 failed because an older string-based ownership assertion expected the previous expression spelling.
+- Contract-fix head `88e37bc`: Android repository-test step passed before the later exact-head full CI rerun.
+- Earlier exact head `f932bbb`: Android APK and Windows OBS Plugin workflows passed.
 - Focused reconnect-stickiness suite before post-expiry selection: 22 passed.
 - Corrected caller-role FFmpeg/libSRT loopback probe completed successfully for permanent and temporary bidirectional blackholes.
 
@@ -30,13 +31,13 @@
 
 ## Known problems / regressions
 
-- Full exact-head Android + Windows/OBS validation is still in progress after the test-contract repair; do not treat the current head as fully CI-green yet.
+- No current CI regression is known on `agent-dev`; Android APK and Windows OBS Plugin both pass on exact head `266a4a6`.
 - Physical phone → Wi-Fi → OBS testing is still needed for sustained latency, A/V sync, thermals, reconnect behavior, Virtual Camera startup, and vendor-specific Android camera/codec behavior.
 - The loopback probe validates timeout policy and same-receiver recovery, but not the complete plugin blackhole → `av_read_frame()` exit → reconnect loop → phone reacquisition path.
 
 ## Unresolved review feedback
 
-- No unresolved inline review threads currently. CodeRabbit's latest recorded review has no actionable comments; draft PRs are not automatically reviewed by default.
+- No unresolved inline review threads currently. The latest recorded review found no new high-confidence correctness/security blocker after the reservation takeover fixes; physical acceptance testing remains outstanding.
 
 ## Inspect before merging
 
