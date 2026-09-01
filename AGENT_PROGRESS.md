@@ -12,14 +12,15 @@
 ## In progress
 
 - Physical phone → Wi-Fi → OBS acceptance testing remains outstanding for reconnect behavior, sustained latency, A/V sync, thermals, controls and Virtual Camera startup.
+- The automated suite still does not exercise the complete production plugin path from a hard SRT blackhole through `av_read_frame()` exit, the 500 ms reconnect loop, discovery/reservation reacquisition, and restored media.
 
 ## Tests performed
 
-- Exact head `266a4a6`: Android APK workflow passed.
-- Exact head `266a4a6`: Windows OBS Plugin workflow passed.
+- Exact head `b3ff34a`: Android APK workflow passed.
+- Exact head `b3ff34a`: Windows OBS Plugin workflow passed.
+- Exact code head `266a4a6`: Android APK and Windows OBS Plugin workflows passed.
 - Post-expiry failover head `e90d037`: Windows OBS Plugin passed; Android repository tests stopped at 79 passed / 1 failed because an older string-based ownership assertion expected the previous expression spelling.
 - Contract-fix head `88e37bc`: Android repository-test step passed before the later exact-head full CI rerun.
-- Earlier exact head `f932bbb`: Android APK and Windows OBS Plugin workflows passed.
 - Focused reconnect-stickiness suite before post-expiry selection: 22 passed.
 - Corrected caller-role FFmpeg/libSRT loopback probe completed successfully for permanent and temporary bidirectional blackholes.
 
@@ -31,13 +32,13 @@
 
 ## Known problems / regressions
 
-- No current CI regression is known on `agent-dev`; Android APK and Windows OBS Plugin both pass on exact head `266a4a6`.
+- No current CI regression is known on `agent-dev`; Android APK and Windows OBS Plugin both pass on exact head `b3ff34a`.
 - Physical phone → Wi-Fi → OBS testing is still needed for sustained latency, A/V sync, thermals, reconnect behavior, Virtual Camera startup, and vendor-specific Android camera/codec behavior.
 - The loopback probe validates timeout policy and same-receiver recovery, but not the complete plugin blackhole → `av_read_frame()` exit → reconnect loop → phone reacquisition path.
 
 ## Unresolved review feedback
 
-- No unresolved inline review threads currently. The latest recorded review found no new high-confidence correctness/security blocker after the reservation takeover fixes; physical acceptance testing remains outstanding.
+- No unresolved inline review threads currently. The latest recorded review found no new high-confidence correctness/security blocker after the reconnect/failover fixes; physical acceptance testing remains outstanding.
 
 ## Inspect before merging
 
