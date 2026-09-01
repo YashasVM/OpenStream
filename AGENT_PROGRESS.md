@@ -16,8 +16,7 @@
 
 ## Tests performed
 
-- Exact current head `f25a1dc`: Android APK workflow passed.
-- Exact current head `f25a1dc`: Windows OBS Plugin workflow passed.
+- Latest validated branch head before this progress-only update, `533ae32`: Android APK and Windows OBS Plugin workflows both passed.
 - Exact code head `266a4a6`: Android APK and Windows OBS Plugin workflows passed.
 - Post-expiry failover head `e90d037`: Windows OBS Plugin passed; Android repository tests stopped at 79 passed / 1 failed because an older string-based ownership assertion expected the previous expression spelling.
 - Contract-fix head `88e37bc`: Android repository-test step passed before the later exact-head full CI rerun.
@@ -32,7 +31,7 @@
 
 ## Known problems / regressions
 
-- No current CI regression is known on `agent-dev`; Android APK and Windows OBS Plugin both pass on exact head `f25a1dc`.
+- No current CI regression is known on `agent-dev`; Android APK and Windows OBS Plugin both passed on validated head `533ae32`.
 - Physical phone → Wi-Fi → OBS testing is still needed for sustained latency, A/V sync, thermals, reconnect behavior, Virtual Camera startup, and vendor-specific Android camera/codec behavior.
 - The loopback probe validates timeout policy and same-receiver recovery, but not the complete plugin blackhole → `av_read_frame()` exit → reconnect loop → phone reacquisition path.
 
