@@ -5,33 +5,32 @@
 - Bound Android camera mutation controls (`/zoom`, `/torch`, `/lens`, `/identify`) and `/release` to the peer that owns the active reservation; cross-peer takeover and unexpected unbound reservation state fail closed.
 - Removed permissive browser CORS/preflight access from the native control port and require `Content-Type: application/json` for mutating routes.
 - Added a production-like FFmpeg/libSRT caller fault-injection probe and wired OBS to a 4.5 s SRT I/O timeout plus 2 s connect timeout.
-- Measured five caller-role hard blackholes at 4,830.3 ms, 4,837.8 ms, 4,823.4 ms, 4,744.4 ms and 4,754.6 ms; temporary 2.0-4.0 s blackholes recovered on the same receiver after traffic restore.
-- Added same-phone reconnect stickiness for auto-selected OBS slots and fixed the Windows `min` macro compile break in the reconnect deadline.
-- Made reconnect holds single-shot per failure episode so reserve/open retries cannot extend the 45 s deadline; a new hold starts only after actual media recovery.
-- Made post-expiry failover deterministic for the previous phone: after the 45 s hold, auto-selection prefers another eligible phone when one exists and uses the expired phone only as a fallback when it is the sole eligible candidate. Added focused contracts for the bounded hold and post-expiry selection semantics.
+- Added same-phone reconnect stickiness for auto-selected OBS slots, fixed the Windows reconnect-deadline compile break, and made the 45 s hold single-shot so reserve/open retries cannot extend it.
+- Made post-expiry failover deterministic: after the hold, auto-selection prefers another eligible phone and uses the failed phone only as sole-candidate fallback.
+- Repaired a stale repository contract that expected the old positive ownership-expression spelling; it now verifies both auto and explicit selection reject a busy phone only when another source owns it.
 
 ## In progress
 
-- Validate the new post-expiry failover head in Android and Windows/OBS CI.
+- Finish exact-head Android and Windows/OBS CI after the ownership-contract repair.
 - Physical phone → Wi-Fi → OBS acceptance testing remains outstanding for reconnect behavior, sustained latency, A/V sync, thermals, controls and Virtual Camera startup.
 
 ## Tests performed
 
-- Exact-head `f932bbb` Android APK workflow passed.
-- Exact-head `f932bbb` Windows OBS Plugin workflow passed.
-- Focused reconnect-stickiness repository contract suite before the post-expiry selection change: 22 passed.
-- Added post-expiry regression contracts covering alternate preference, sole-candidate fallback, and reset after media recovery; exact-head workflows have not appeared yet, so the new head is not claimed CI-green.
+- Post-expiry failover head `e90d037`: Windows OBS Plugin workflow passed; Android workflow reached repository tests and failed 79 passed / 1 failed on a stale string-based ownership assertion, before Gradle build/lint ran.
+- Contract-fix head `88e37bc`: Android repository-test step passed; Android Gradle build/lint and Windows OBS Plugin workflow are still running.
+- Earlier exact-head `f932bbb`: Android APK and Windows OBS Plugin workflows passed.
+- Focused reconnect-stickiness suite before post-expiry selection: 22 passed.
 - Corrected caller-role FFmpeg/libSRT loopback probe completed successfully for permanent and temporary bidirectional blackholes.
 
 ## Benchmarks
 
-- Caller-role hard blackhole, `timeout=4,500,000 us`: receiver exit in 4,830.3 ms, 4,837.8 ms, 4,823.4 ms, 4,744.4 ms and 4,754.6 ms across five runs (mean 4,798.1 ms).
-- Caller-role temporary blackholes recovered on the same FFmpeg receiver after restore: 2.0 s outage → 21.0 ms to next receiver frame; 3.0 s → 105.3 ms; 3.5 s → 187.9 ms; 4.0 s → 10.8 ms.
+- Caller-role hard blackhole with `timeout=4,500,000 us`: 4,830.3 ms, 4,837.8 ms, 4,823.4 ms, 4,744.4 ms and 4,754.6 ms to receiver exit (mean 4,798.1 ms).
+- Temporary blackholes recovered on the same FFmpeg receiver after restore: 2.0 s → 21.0 ms; 3.0 s → 105.3 ms; 3.5 s → 187.9 ms; 4.0 s → 10.8 ms to next receiver frame.
 - These are loopback fault-injection results, not physical Wi-Fi/phone measurements.
 
 ## Known problems / regressions
 
-- The post-expiry failover code is awaiting exact-head CI; do not treat it as validated until Android and Windows/OBS workflows pass.
+- Full exact-head Android + Windows/OBS validation is still in progress after the test-contract repair; do not treat the current head as fully CI-green yet.
 - Physical phone → Wi-Fi → OBS testing is still needed for sustained latency, A/V sync, thermals, reconnect behavior, Virtual Camera startup, and vendor-specific Android camera/codec behavior.
 - The loopback probe validates timeout policy and same-receiver recovery, but not the complete plugin blackhole → `av_read_frame()` exit → reconnect loop → phone reacquisition path.
 
@@ -41,8 +40,7 @@
 
 ## Inspect before merging
 
-- Verify repeated reserve/open failures cannot extend the original 45 s reconnect hold.
-- Verify an auto-selected slot stays on the same phone during the hold, then prefers a healthy alternate after expiry when one exists while retaining the original phone as sole-candidate fallback.
+- Verify an auto-selected slot stays on the same phone during the 45 s hold, repeated failures cannot extend that hold, and a healthy alternate is preferred after expiry.
+- Verify the failed phone remains usable as fallback when no alternate is eligible and a new hold starts only after actual media recovery.
 - Verify camera controls work from the reserving OBS PC and are rejected from a second LAN device while reserved.
-- Verify reconnect-held reservations cannot be stolen or released by another LAN peer.
-- Verify the 4.5 s timeout with a real phone stream blackhole, including the existing 500 ms reconnect loop and recovery from shorter Wi-Fi interruptions.
+- Verify the 4.5 s timeout with a real phone stream blackhole, including the 500 ms reconnect loop and recovery from shorter Wi-Fi interruptions.
