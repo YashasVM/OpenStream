@@ -5,6 +5,7 @@
 - Bound Android camera mutation controls (`/zoom`, `/torch`, `/lens`, `/identify`) and `/release` to the peer that owns the active reservation; cross-peer takeover and unexpected unbound reservation state fail closed.
 - Removed permissive browser CORS/preflight access from the native control port and require `Content-Type: application/json` for mutating routes.
 - Added a production-like FFmpeg/libSRT caller fault-injection probe and wired OBS to a 4.5 s SRT I/O timeout plus 2 s connect timeout.
+- Hardened the SRT timeout probe so FFmpeg diagnostic output cannot fill an unread stderr pipe and stall or distort timeout/recovery measurements; receiver frame progress remains explicitly consumed from stdout.
 - Added same-phone reconnect stickiness for auto-selected OBS slots, fixed the Windows reconnect-deadline compile break, and made the 45 s hold single-shot so reserve/open retries cannot extend it.
 - Made post-expiry failover deterministic: after the hold, auto-selection prefers another eligible phone and uses the failed phone only as sole-candidate fallback.
 - Repaired the stale ownership contract so both auto and explicit selection verify that a busy phone is rejected only when another source owns it.
@@ -16,28 +17,29 @@
 
 ## Tests performed
 
-- Latest validated branch head before this progress-only update, `533ae32`: Android APK and Windows OBS Plugin workflows both passed.
+- Exact pre-probe-hardening head `8577ab6`: Android APK and Windows OBS Plugin workflows both passed.
 - Exact code head `266a4a6`: Android APK and Windows OBS Plugin workflows passed.
 - Post-expiry failover head `e90d037`: Windows OBS Plugin passed; Android repository tests stopped at 79 passed / 1 failed because an older string-based ownership assertion expected the previous expression spelling.
 - Contract-fix head `88e37bc`: Android repository-test step passed before the later exact-head full CI rerun.
 - Focused reconnect-stickiness suite before post-expiry selection: 22 passed.
 - Corrected caller-role FFmpeg/libSRT loopback probe completed successfully for permanent and temporary bidirectional blackholes.
+- Added a focused structural contract that rejects unread FFmpeg stderr pipes while preserving the receiver progress pipe; exact-head CI is pending for this probe-only change.
 
 ## Benchmarks
 
 - Caller-role hard blackhole with `timeout=4,500,000 us`: 4,830.3 ms, 4,837.8 ms, 4,823.4 ms, 4,744.4 ms and 4,754.6 ms to receiver exit (mean 4,798.1 ms).
 - Temporary blackholes recovered on the same FFmpeg receiver after restore: 2.0 s → 21.0 ms; 3.0 s → 105.3 ms; 3.5 s → 187.9 ms; 4.0 s → 10.8 ms to next receiver frame.
-- These are loopback fault-injection results, not physical Wi-Fi/phone measurements.
+- These are loopback fault-injection results, not physical Wi-Fi/phone measurements. They predate the stderr backpressure hardening; no rerun was available in this execution environment.
 
 ## Known problems / regressions
 
-- No current CI regression is known on `agent-dev`; Android APK and Windows OBS Plugin both passed on validated head `533ae32`.
+- No current production-code regression is known on `agent-dev`; Android APK and Windows OBS Plugin both passed on `8577ab6` before the probe-only hardening.
 - Physical phone → Wi-Fi → OBS testing is still needed for sustained latency, A/V sync, thermals, reconnect behavior, Virtual Camera startup, and vendor-specific Android camera/codec behavior.
 - The loopback probe validates timeout policy and same-receiver recovery, but not the complete plugin blackhole → `av_read_frame()` exit → reconnect loop → phone reacquisition path.
 
 ## Unresolved review feedback
 
-- No unresolved inline review threads currently. The latest recorded review found no new high-confidence correctness/security blocker after the reconnect/failover fixes; physical acceptance testing remains outstanding.
+- No unresolved inline review threads currently. The prior review concern about unread FFmpeg stderr pipes in the timeout probe is now addressed with focused contract coverage; fresh exact-head CI remains to be observed.
 
 ## Inspect before merging
 
