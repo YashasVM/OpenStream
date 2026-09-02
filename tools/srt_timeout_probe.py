@@ -205,7 +205,7 @@ async def run_probe(
                 sender_url,
             ],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
             text=True,
         )
         await asyncio.sleep(0.25)
@@ -232,7 +232,7 @@ async def run_probe(
                 "-",
             ],
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
             text=True,
         )
         progress_thread = threading.Thread(
