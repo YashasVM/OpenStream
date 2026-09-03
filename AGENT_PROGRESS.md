@@ -14,7 +14,6 @@
 
 ## In progress
 
-- Exact-head Android/Windows CI is pending for the duplicate-reservation lease fix.
 - Physical two-phone → Wi-Fi → OBS acceptance testing remains outstanding for reconnect behavior, short/flapping decoded bursts, sustained latency, A/V sync, thermals, controls and Virtual Camera startup.
 - The automated suite still does not exercise the complete production plugin path from a hard SRT blackhole through `av_read_frame()` exit, the 500 ms reconnect loop, discovery/reservation reacquisition, and restored media.
 - A physical unreachable-phone teardown/release check remains outstanding for the new camera-control connect deadline.
@@ -22,7 +21,7 @@
 ## Tests performed
 
 - Added structural regression coverage ensuring identical `/reserve` retries rotate the token without calling the Android reservation owner again, while changed slot/bitrate configuration still propagates.
-- Exact current code head: CI pending.
+- Exact reservation-lease head `55fcb3b`: Android APK and Windows OBS Plugin workflows both passed.
 - Exact prior head `67163e7`: Android APK and Windows OBS Plugin workflows both passed.
 - Exact connect-deadline head `3032339`: Android APK and Windows OBS Plugin workflows both passed.
 - Exact reconnect-hysteresis head `4cb7112`: Android APK and Windows OBS Plugin workflows both passed.
@@ -37,7 +36,7 @@
 
 ## Known problems / regressions
 
-- No production-code regression is known on the prior validated head `67163e7`; exact-head CI for the reservation-lease fix is pending.
+- No production-code regression is known on the current validated reservation-lease head `55fcb3b`.
 - Physical phone → Wi-Fi → OBS testing is still needed for sustained latency, A/V sync, thermals, reconnect behavior, Virtual Camera startup, vendor-specific Android camera/codec behavior, and unreachable-phone control teardown.
 - The loopback probe validates timeout policy and same-receiver recovery, but not the complete plugin blackhole → `av_read_frame()` exit → reconnect loop → phone reacquisition path.
 
