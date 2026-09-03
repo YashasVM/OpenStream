@@ -59,6 +59,38 @@ def test_same_owner_cannot_move_reservation_to_a_different_peer():
     )
 
 
+def test_duplicate_reserve_retry_does_not_refresh_android_reconnect_lease():
+    reserve = _function("handleReserve")
+    same_config = "val sameReservationConfig = currentReservation == sourceInstanceId"
+    assert same_config in reserve
+    assert "activeReservationSlotLabel == slotLabel" in reserve
+    assert "activeReservationBitrateMbps == bitrateMbps" in reserve
+    duplicate_guard = "if (sameReservationConfig)"
+    on_reserve = "val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)"
+    assert duplicate_guard in reserve
+    assert reserve.index(duplicate_guard) < reserve.index(on_reserve)
+
+    duplicate_block = reserve[
+        reserve.index(duplicate_guard) : reserve.index(on_reserve)
+    ]
+    assert "activeReservationToken = reservationToken" in duplicate_block
+    assert 'put("ok", true)' in duplicate_block
+    assert "onReserve(" not in duplicate_block
+
+
+def test_reservation_config_change_still_reaches_reservation_owner():
+    reserve = _function("handleReserve")
+    same_config = reserve.index("val sameReservationConfig")
+    duplicate_guard = reserve.index("if (sameReservationConfig)", same_config)
+    on_reserve = reserve.index(
+        "val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)",
+        duplicate_guard,
+    )
+    cache_slot = reserve.index("activeReservationSlotLabel = slotLabel", on_reserve)
+    cache_bitrate = reserve.index("activeReservationBitrateMbps = bitrateMbps", cache_slot)
+    assert same_config < duplicate_guard < on_reserve < cache_slot < cache_bitrate
+
+
 def test_unbound_active_reservation_fails_closed_for_renew_and_release():
     reserve = _function("handleReserve")
     release = _function("handleRelease")
@@ -108,11 +140,15 @@ def test_release_requires_current_controller_peer_before_token_or_side_effects()
     )
 
 
-def test_release_clears_controller_peer_with_reservation_state():
+def test_release_clears_controller_peer_and_reservation_config_cache():
     release = _function("handleRelease")
     clear = "activeControllerAddress = null"
     assert clear in release
     assert release.index("activeReservationToken = null") < release.index(clear)
+    assert release.index(clear) < release.index("activeReservationSlotLabel = null")
+    assert release.index("activeReservationSlotLabel = null") < release.index(
+        "activeReservationBitrateMbps = null"
+    )
 
 
 def test_control_server_is_not_exposed_as_a_cross_origin_browser_api():
