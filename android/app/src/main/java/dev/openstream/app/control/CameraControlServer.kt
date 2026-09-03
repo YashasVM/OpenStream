@@ -45,6 +45,8 @@ class CameraControlServer(
     @Volatile private var worker: Thread? = null
     @Volatile private var activeReservationToken: String? = null
     @Volatile private var activeControllerAddress: String? = null
+    @Volatile private var activeReservationSlotLabel: String? = null
+    @Volatile private var activeReservationBitrateMbps: Int? = null
 
     fun start() {
         synchronized(lifecycleLock) {
@@ -340,10 +342,22 @@ class CameraControlServer(
                 StreamConfig.MAX_BITRATE_MBPS,
             )
         } else null
+        val sameReservationConfig = currentReservation == sourceInstanceId &&
+            activeReservationSlotLabel == slotLabel &&
+            activeReservationBitrateMbps == bitrateMbps
+        if (sameReservationConfig) {
+            activeReservationToken = reservationToken
+            return JSONObject()
+                .put("ok", true)
+                .put("reservedBy", sourceInstanceId)
+                .toString()
+        }
         val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)
         return if (accepted) {
             activeReservationToken = reservationToken
             activeControllerAddress = controllerAddress.ifEmpty { null }
+            activeReservationSlotLabel = slotLabel
+            activeReservationBitrateMbps = bitrateMbps
             JSONObject()
                 .put("ok", true)
                 .put("reservedBy", sourceInstanceId)
@@ -376,6 +390,8 @@ class CameraControlServer(
         if (released && reservationProvider() != sourceInstanceId) {
             activeReservationToken = null
             activeControllerAddress = null
+            activeReservationSlotLabel = null
+            activeReservationBitrateMbps = null
         }
         return """{"ok":$released}"""
     }
