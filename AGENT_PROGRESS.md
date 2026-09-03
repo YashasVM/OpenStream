@@ -19,7 +19,7 @@
 
 ## Tests performed
 
-- Baseline head `a687e77`: Android APK and Windows OBS Plugin workflows both passed before the camera-control connect-deadline change.
+- Exact connect-deadline head `3032339`: Android APK and Windows OBS Plugin workflows both passed.
 - Exact reconnect-hysteresis head `4cb7112`: Android APK and Windows OBS Plugin workflows both passed.
 - Exact runtime/probe head `d914235`: Android APK and Windows OBS Plugin workflows both passed.
 - Exact code head `266a4a6`: Android APK and Windows OBS Plugin workflows both passed.
@@ -34,13 +34,14 @@
 
 ## Known problems / regressions
 
-- No production-code regression is known on the fully validated baseline `a687e77`; the new connect-deadline change still needs physical unreachable-phone acceptance.
+- No production-code regression is currently known on exact validated head `3032339`; physical unreachable-phone acceptance for the new connect deadline is still outstanding.
 - Physical phone → Wi-Fi → OBS testing is still needed for sustained latency, A/V sync, thermals, reconnect behavior, Virtual Camera startup, vendor-specific Android camera/codec behavior, and unreachable-phone control teardown.
 - The loopback probe validates timeout policy and same-receiver recovery, but not the complete plugin blackhole → `av_read_frame()` exit → reconnect loop → phone reacquisition path.
 
 ## Unresolved review feedback
 
 - No unresolved inline review threads or high-confidence code-review blockers are currently known. The latest CodeRabbit pass produced no actionable comments.
+- Macroscope skipped the latest correctness review because of its workspace billing limit; this is a review-coverage gap, not a code failure.
 
 ## Inspect before merging
 
