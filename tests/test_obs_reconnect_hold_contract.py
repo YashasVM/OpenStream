@@ -23,10 +23,20 @@ def test_auto_slot_reconnect_hold_is_single_shot_until_media_recovers() -> None:
     reset = source.index("const auto reset_reconnect_episode")
     reset_clear = source.index("reconnect_hold_exhausted = false;", reset)
     decoded = source.index("decode_packets(ctx", reset_clear)
-    media_gate = source.index("if (ctx->frames_output > 0)", decoded)
+    media_gate = source.index(
+        "if (ctx->frames_output >= kReconnectRecoveryVideoFrames)", decoded
+    )
     reset_call = source.index("reset_reconnect_episode();", media_gate)
     next_hold = source.index("hold_phone_for_reconnect(reserved_phone);", reset_call)
     assert decoded < media_gate < reset_call < next_hold
+
+
+def test_reconnect_episode_requires_sustained_decoded_video() -> None:
+    source = SOURCE.read_text(encoding="utf-8")
+
+    assert "constexpr uint64_t kReconnectRecoveryVideoFrames = 30;" in source
+    assert "if (ctx->frames_output > 0)" not in source
+    assert "if (ctx->frames_output >= kReconnectRecoveryVideoFrames)" in source
 
 
 def test_reservation_success_does_not_refresh_reconnect_deadline() -> None:
