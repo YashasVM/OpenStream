@@ -10,20 +10,23 @@
 - Made post-expiry failover deterministic: another eligible phone is preferred after hold expiry, while the failed phone remains sole-candidate fallback.
 - Added reconnect-recovery hysteresis: a reopened stream must output 30 decoded video frames before the failure episode is reset, so one-frame/flapping reconnects cannot renew the same-phone hold.
 - Bounded OBS camera-control TCP connection establishment to 1 s with nonblocking connect completion checks, preventing an unreachable/blackholed phone from leaving reservation, release, or control work stuck in the OS TCP connect timeout.
+- Made duplicate same-source/same-peer `/reserve` retries idempotent on Android so OBS reconnect polling no longer restarts the phone's 45 s reservation-release timer; reservation token rotation still follows the newest retry and real slot/bitrate changes still reach the reservation owner.
 
 ## In progress
 
+- Exact-head Android/Windows CI is pending for the duplicate-reservation lease fix.
 - Physical two-phone → Wi-Fi → OBS acceptance testing remains outstanding for reconnect behavior, short/flapping decoded bursts, sustained latency, A/V sync, thermals, controls and Virtual Camera startup.
 - The automated suite still does not exercise the complete production plugin path from a hard SRT blackhole through `av_read_frame()` exit, the 500 ms reconnect loop, discovery/reservation reacquisition, and restored media.
 - A physical unreachable-phone teardown/release check remains outstanding for the new camera-control connect deadline.
 
 ## Tests performed
 
+- Added structural regression coverage ensuring identical `/reserve` retries rotate the token without calling the Android reservation owner again, while changed slot/bitrate configuration still propagates.
+- Exact current code head: CI pending.
+- Exact prior head `67163e7`: Android APK and Windows OBS Plugin workflows both passed.
 - Exact connect-deadline head `3032339`: Android APK and Windows OBS Plugin workflows both passed.
 - Exact reconnect-hysteresis head `4cb7112`: Android APK and Windows OBS Plugin workflows both passed.
 - Exact runtime/probe head `d914235`: Android APK and Windows OBS Plugin workflows both passed.
-- Exact code head `266a4a6`: Android APK and Windows OBS Plugin workflows both passed.
-- Focused reconnect-stickiness suite before post-expiry selection: 22 passed.
 - Corrected caller-role FFmpeg/libSRT loopback probe completed successfully for permanent and temporary bidirectional blackholes.
 
 ## Benchmarks
@@ -34,18 +37,19 @@
 
 ## Known problems / regressions
 
-- No production-code regression is currently known on exact validated head `3032339`; physical unreachable-phone acceptance for the new connect deadline is still outstanding.
+- No production-code regression is known on the prior validated head `67163e7`; exact-head CI for the reservation-lease fix is pending.
 - Physical phone → Wi-Fi → OBS testing is still needed for sustained latency, A/V sync, thermals, reconnect behavior, Virtual Camera startup, vendor-specific Android camera/codec behavior, and unreachable-phone control teardown.
 - The loopback probe validates timeout policy and same-receiver recovery, but not the complete plugin blackhole → `av_read_frame()` exit → reconnect loop → phone reacquisition path.
 
 ## Unresolved review feedback
 
 - No unresolved inline review threads or high-confidence code-review blockers are currently known. The latest CodeRabbit pass produced no actionable comments.
-- Macroscope skipped the latest correctness review because of its workspace billing limit; this is a review-coverage gap, not a code failure.
+- Macroscope correctness coverage remains limited by its workspace billing limit; this is a review-coverage gap, not a code failure.
 
 ## Inspect before merging
 
 - Verify an auto-selected slot stays on the same phone during the 45 s hold, repeated failures and short decoded bursts cannot renew that hold, and a healthy alternate is preferred after expiry.
+- Verify repeated OBS `/reserve` retries do not keep a disconnected phone busy beyond the original Android 45 s reservation lease, while a deliberate slot/bitrate change still updates the reservation.
 - Verify the failed phone remains usable as fallback when no alternate is eligible and a new hold starts only after sustained media recovery.
 - Verify camera controls work from the reserving OBS PC and are rejected from a second LAN device while reserved.
 - Verify stopping/removing an OBS source while the phone control IP is unreachable does not hang on TCP connect and reservation release retries remain bounded.
