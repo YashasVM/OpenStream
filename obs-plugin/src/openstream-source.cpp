@@ -98,6 +98,7 @@ constexpr uint64_t kMaximumMediaBacklogNs = 250'000'000;
 constexpr int64_t kSrtIoTimeoutUs = 4'500'000;
 constexpr int64_t kSrtConnectTimeoutMs = 2'000;
 constexpr auto kReconnectReservationWindow = std::chrono::seconds(45);
+constexpr uint64_t kReconnectRecoveryVideoFrames = 30;
 constexpr const char *kOpenStreamSourceName = "OpenStream V8";
 constexpr const char *kDiscoveryMulticastAddress = "239.255.42.99";
 constexpr const char *kPhoneDiscoveryPrefix = "OPENSTREAM_PHONE/1 ";
@@ -1747,7 +1748,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     decode_packets(ctx, format_ctx.get(), video_stream_index, video_decoder_ctx.get(),
                    audio_stream_index, audio_decoder_ctx.get());
     ctx->phone_connected = false;
-    if (ctx->frames_output > 0) {
+    if (ctx->frames_output >= kReconnectRecoveryVideoFrames) {
       reset_reconnect_episode();
     }
     if (!ctx->stop_requested.load()) {
