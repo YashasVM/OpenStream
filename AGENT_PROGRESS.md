@@ -9,14 +9,17 @@
 - Added same-phone reconnect stickiness for auto-selected OBS slots and made the 45 s hold single-shot so failed reserve/open retries cannot extend it.
 - Made post-expiry failover deterministic: another eligible phone is preferred after hold expiry, while the failed phone remains sole-candidate fallback.
 - Added reconnect-recovery hysteresis: a reopened stream must output 30 decoded video frames before the failure episode is reset, so one-frame/flapping reconnects cannot renew the same-phone hold.
+- Bounded OBS camera-control TCP connection establishment to 1 s with nonblocking connect completion checks, preventing an unreachable/blackholed phone from leaving reservation, release, or control work stuck in the OS TCP connect timeout.
 
 ## In progress
 
 - Physical two-phone → Wi-Fi → OBS acceptance testing remains outstanding for reconnect behavior, short/flapping decoded bursts, sustained latency, A/V sync, thermals, controls and Virtual Camera startup.
 - The automated suite still does not exercise the complete production plugin path from a hard SRT blackhole through `av_read_frame()` exit, the 500 ms reconnect loop, discovery/reservation reacquisition, and restored media.
+- A physical unreachable-phone teardown/release check remains outstanding for the new camera-control connect deadline.
 
 ## Tests performed
 
+- Baseline head `a687e77`: Android APK and Windows OBS Plugin workflows both passed before the camera-control connect-deadline change.
 - Exact reconnect-hysteresis head `4cb7112`: Android APK and Windows OBS Plugin workflows both passed.
 - Exact runtime/probe head `d914235`: Android APK and Windows OBS Plugin workflows both passed.
 - Exact code head `266a4a6`: Android APK and Windows OBS Plugin workflows both passed.
@@ -31,17 +34,18 @@
 
 ## Known problems / regressions
 
-- No current production-code regression is known on `agent-dev`; exact head `4cb7112` passed both Android and Windows/OBS CI.
-- Physical phone → Wi-Fi → OBS testing is still needed for sustained latency, A/V sync, thermals, reconnect behavior, Virtual Camera startup, and vendor-specific Android camera/codec behavior.
+- No production-code regression is known on the fully validated baseline `a687e77`; the new connect-deadline change still needs physical unreachable-phone acceptance.
+- Physical phone → Wi-Fi → OBS testing is still needed for sustained latency, A/V sync, thermals, reconnect behavior, Virtual Camera startup, vendor-specific Android camera/codec behavior, and unreachable-phone control teardown.
 - The loopback probe validates timeout policy and same-receiver recovery, but not the complete plugin blackhole → `av_read_frame()` exit → reconnect loop → phone reacquisition path.
 
 ## Unresolved review feedback
 
-- No unresolved inline review threads or high-confidence code-review blockers are currently known. Latest review on `4cb7112` found the 30-frame reconnect hysteresis internally consistent and exact-head CI green; physical acceptance remains outstanding.
+- No unresolved inline review threads or high-confidence code-review blockers are currently known. The latest CodeRabbit pass produced no actionable comments.
 
 ## Inspect before merging
 
 - Verify an auto-selected slot stays on the same phone during the 45 s hold, repeated failures and short decoded bursts cannot renew that hold, and a healthy alternate is preferred after expiry.
 - Verify the failed phone remains usable as fallback when no alternate is eligible and a new hold starts only after sustained media recovery.
 - Verify camera controls work from the reserving OBS PC and are rejected from a second LAN device while reserved.
+- Verify stopping/removing an OBS source while the phone control IP is unreachable does not hang on TCP connect and reservation release retries remain bounded.
 - Verify the 4.5 s timeout with a real phone stream blackhole, including the 500 ms reconnect loop and recovery from shorter Wi-Fi interruptions.

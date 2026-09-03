@@ -7,9 +7,11 @@
 #include <iphlpapi.h>
 #else
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <netinet/in.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
@@ -23,6 +25,7 @@
 
 #include <chrono>
 #include <atomic>
+#include <cerrno>
 #include <charconv>
 #include <cstdint>
 #include <inttypes.h>
@@ -97,6 +100,7 @@ constexpr int kMaxBitrateMbps = 50;
 constexpr uint64_t kMaximumMediaBacklogNs = 250'000'000;
 constexpr int64_t kSrtIoTimeoutUs = 4'500'000;
 constexpr int64_t kSrtConnectTimeoutMs = 2'000;
+constexpr auto kControlConnectTimeout = std::chrono::milliseconds(1000);
 constexpr auto kReconnectReservationWindow = std::chrono::seconds(45);
 constexpr uint64_t kReconnectRecoveryVideoFrames = 30;
 constexpr const char *kOpenStreamSourceName = "OpenStream V8";
@@ -117,6 +121,89 @@ void close_socket(SocketHandle socket) {
   close(socket);
 }
 #endif
+
+bool connect_socket_with_timeout(SocketHandle socket,
+                                 const sockaddr *address,
+                                 int address_length,
+                                 std::chrono::milliseconds timeout) {
+#ifdef _WIN32
+  u_long nonblocking = 1;
+  if (ioctlsocket(socket, FIONBIO, &nonblocking) != 0) {
+    return false;
+  }
+  const auto restore_blocking = [&]() {
+    u_long blocking = 0;
+    return ioctlsocket(socket, FIONBIO, &blocking) == 0;
+  };
+  const int connect_result = ::connect(socket, address, address_length);
+  if (connect_result == 0) {
+    return restore_blocking();
+  }
+  const int connect_error = WSAGetLastError();
+  if (connect_error != WSAEWOULDBLOCK &&
+      connect_error != WSAEINPROGRESS &&
+      connect_error != WSAEALREADY) {
+    restore_blocking();
+    return false;
+  }
+#else
+  const int original_flags = fcntl(socket, F_GETFL, 0);
+  if (original_flags < 0 ||
+      fcntl(socket, F_SETFL, original_flags | O_NONBLOCK) != 0) {
+    return false;
+  }
+  const auto restore_blocking = [&]() {
+    return fcntl(socket, F_SETFL, original_flags) == 0;
+  };
+  const int connect_result =
+      ::connect(socket, address, static_cast<socklen_t>(address_length));
+  if (connect_result == 0) {
+    return restore_blocking();
+  }
+  if (errno != EINPROGRESS && errno != EALREADY && errno != EWOULDBLOCK) {
+    restore_blocking();
+    return false;
+  }
+#endif
+
+  const int64_t timeout_ms = std::max<int64_t>(1, timeout.count());
+  timeval wait = {};
+  wait.tv_sec = static_cast<long>(timeout_ms / 1000);
+  wait.tv_usec = static_cast<long>((timeout_ms % 1000) * 1000);
+
+  fd_set write_fds;
+  fd_set error_fds;
+  FD_ZERO(&write_fds);
+  FD_ZERO(&error_fds);
+  FD_SET(socket, &write_fds);
+  FD_SET(socket, &error_fds);
+#ifdef _WIN32
+  const int selected = select(0, nullptr, &write_fds, &error_fds, &wait);
+#else
+  const int selected = select(socket + 1, nullptr, &write_fds, &error_fds, &wait);
+#endif
+
+  int socket_error = 0;
+#ifdef _WIN32
+  int error_length = sizeof(socket_error);
+  const bool completion_ok =
+      selected > 0 &&
+      getsockopt(socket,
+                 SOL_SOCKET,
+                 SO_ERROR,
+                 reinterpret_cast<char *>(&socket_error),
+                 &error_length) == 0 &&
+      socket_error == 0;
+#else
+  socklen_t error_length = sizeof(socket_error);
+  const bool completion_ok =
+      selected > 0 &&
+      getsockopt(socket, SOL_SOCKET, SO_ERROR, &socket_error, &error_length) == 0 &&
+      socket_error == 0;
+#endif
+  const bool restored = restore_blocking();
+  return completion_ok && restored;
+}
 
 std::string json_escape(const std::string &value) {
   std::string escaped;
@@ -868,7 +955,10 @@ bool send_control_command(const std::string &host, int port,
     return false;
   }
 
-  if (connect(sock, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) != 0) {
+  if (!connect_socket_with_timeout(sock,
+                                   reinterpret_cast<sockaddr *>(&addr),
+                                   static_cast<int>(sizeof(addr)),
+                                   kControlConnectTimeout)) {
     close_socket(sock);
     return false;
   }
