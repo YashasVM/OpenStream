@@ -1701,6 +1701,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     std::optional<PhoneDevice> reserved_phone;
     if (srt_url == "openstream:auto") {
       std::optional<PhoneDevice> phone;
+      bool reservation_acquired = false;
       set_slot_status(ctx, "Waiting");
       while (!ctx->stop_requested.load()) {
         std::string effective_phone_id = selected_phone_id;
@@ -1723,6 +1724,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
         phone = ctx->phone_discovery.select(
             effective_phone_id, ctx->instance_id, deprioritized_phone_id);
         if (phone.has_value() && reserve_phone(ctx, *phone)) {
+          reservation_acquired = true;
           break;
         }
         if (auto_phone_selection && !reconnect_phone_id.empty()) {
@@ -1734,7 +1736,11 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
       }
-      if (!phone.has_value()) {
+      if (!reservation_acquired || !phone.has_value()) {
+        break;
+      }
+      if (ctx->stop_requested.load()) {
+        queue_release_phone(ctx, *phone);
         break;
       }
       reserved_phone = phone;
