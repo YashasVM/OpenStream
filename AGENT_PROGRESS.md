@@ -15,13 +15,13 @@
 
 ## In progress
 
-- Exact-head Android and Windows CI is pending for the reservation teardown fix and its new lifecycle regression contract.
 - Physical two-phone → Wi-Fi → OBS acceptance testing remains outstanding for reconnect behavior, short/flapping decoded bursts, sustained latency, A/V sync, thermals, controls and Virtual Camera startup.
 - The automated suite still does not exercise the complete production plugin path from a hard SRT blackhole through `av_read_frame()` exit, the 500 ms reconnect loop, discovery/reservation reacquisition, and restored media.
 - A physical unreachable-phone teardown/release check remains outstanding for the new camera-control connect deadline.
 
 ## Tests performed
 
+- Exact teardown-fix head `bb0dc93`: Android APK and Windows OBS Plugin workflows both passed.
 - Added a Windows-CI reservation teardown contract that requires explicit reservation success before `reserved_phone`/SRT activation and requires immediate release when stop follows successful reservation.
 - Exact previous head `52b8257`: Android APK and Windows OBS Plugin workflows both passed.
 - Exact prior runtime head `fca54e7`: Android APK and Windows OBS Plugin workflows both passed.
@@ -48,7 +48,6 @@
 
 ## Inspect before merging
 
-- Confirm exact-head Windows/Android CI is green for the teardown fix before treating this branch as review-ready.
 - Verify an auto-selected slot stays on the same phone during the 45 s hold, repeated failures and short decoded bursts cannot renew that hold, and a healthy alternate is preferred after expiry.
 - Verify repeated OBS `/reserve` retries do not keep a disconnected phone busy beyond the original Android 45 s reservation lease, while a deliberate slot/bitrate change still updates the reservation.
 - Verify the failed phone remains usable as fallback when no alternate is eligible and a new hold starts only after sustained media recovery.
