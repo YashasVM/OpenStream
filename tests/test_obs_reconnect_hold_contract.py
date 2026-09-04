@@ -44,11 +44,31 @@ def test_reservation_success_does_not_refresh_reconnect_deadline() -> None:
     selection_start = source.index(
         "while (!ctx->stop_requested.load()) {", source.index('srt_url == "openstream:auto"')
     )
-    selection_end = source.index("if (!phone.has_value())", selection_start)
+    selection_end = source.index(
+        "if (!reservation_acquired || !phone.has_value())", selection_start
+    )
     selection_loop = source[selection_start:selection_end]
 
     assert "reserve_phone(ctx, *phone)" in selection_loop
     assert "hold_phone_for_reconnect(phone)" not in selection_loop
+
+
+def test_unreserved_phone_never_reaches_active_or_srt_state_on_stop() -> None:
+    source = SOURCE.read_text(encoding="utf-8")
+    auto_start = source.index('if (srt_url == "openstream:auto")')
+    success_flag = source.index("bool reservation_acquired = false;", auto_start)
+    reserve_success = source.index("reservation_acquired = true;", success_flag)
+    success_gate = source.index(
+        "if (!reservation_acquired || !phone.has_value())", reserve_success
+    )
+    stop_gate = source.index("if (ctx->stop_requested.load())", success_gate)
+    stop_release = source.index("queue_release_phone(ctx, *phone);", stop_gate)
+    reserved_assignment = source.index("reserved_phone = phone;", stop_release)
+    active_assignment = source.index("set_active_phone(ctx, phone);", reserved_assignment)
+    srt_assignment = source.index('srt_url = "srt://"', active_assignment)
+
+    assert success_flag < reserve_success < success_gate < stop_gate
+    assert stop_gate < stop_release < reserved_assignment < active_assignment < srt_assignment
 
 
 def test_expired_reconnect_phone_is_deprioritized_but_remains_fallback() -> None:
