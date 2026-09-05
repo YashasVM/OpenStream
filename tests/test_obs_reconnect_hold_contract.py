@@ -22,31 +22,52 @@ def test_auto_slot_reconnect_hold_is_single_shot_until_media_recovers() -> None:
 
     reset = source.index("const auto reset_reconnect_episode")
     reset_clear = source.index("reconnect_hold_exhausted = false;", reset)
-    attempt_counter_reset = source.index("ctx->frames_output = 0;", reset_clear)
-    decoded = source.index("decode_packets(ctx", attempt_counter_reset)
+    attempt_count = source.index("const uint64_t reconnect_attempt_video_frames", reset_clear)
+    decoded = source.index("decode_packets(ctx", attempt_count)
     media_gate = source.index(
-        "if (ctx->frames_output >= kReconnectRecoveryVideoFrames)", decoded
+        "if (reconnect_attempt_video_frames >= kReconnectRecoveryVideoFrames)", decoded
     )
     reset_call = source.index("reset_reconnect_episode();", media_gate)
     next_hold = source.index("hold_phone_for_reconnect(reserved_phone);", reset_call)
-    assert attempt_counter_reset < decoded < media_gate < reset_call < next_hold
+    assert attempt_count < decoded < media_gate < reset_call < next_hold
 
 
 def test_reconnect_episode_requires_sustained_decoded_video_per_reopen() -> None:
     source = SOURCE.read_text(encoding="utf-8")
 
     assert "constexpr uint64_t kReconnectRecoveryVideoFrames = 30;" in source
-    assert "if (ctx->frames_output > 0)" not in source
-    assert source.count("ctx->frames_output = 0;") == 1
+    assert "uint64_t decode_packets(OpenStreamSource *ctx," in source
+    assert "uint64_t video_frames_output = 0;" in source
+    assert "++video_frames_output;" in source
+    assert "return video_frames_output;" in source
+    assert "ctx->frames_output = 0;" not in source
 
     opened = source.index("ctx->phone_connected = true;")
-    attempt_counter_reset = source.index("ctx->frames_output = 0;", opened)
-    decoder_open = source.index("open_video_decoder(", attempt_counter_reset)
-    decoded = source.index("decode_packets(ctx", decoder_open)
+    decoder_open = source.index("open_video_decoder(", opened)
+    attempt_count = source.index("const uint64_t reconnect_attempt_video_frames", decoder_open)
+    decoded = source.index("decode_packets(ctx", attempt_count)
     media_gate = source.index(
-        "if (ctx->frames_output >= kReconnectRecoveryVideoFrames)", decoded
+        "if (reconnect_attempt_video_frames >= kReconnectRecoveryVideoFrames)", decoded
     )
-    assert opened < attempt_counter_reset < decoder_open < decoded < media_gate
+    assert "ctx->frames_output >= kReconnectRecoveryVideoFrames" not in source
+    assert opened < decoder_open < attempt_count < decoded < media_gate
+
+
+def test_short_or_flapping_reconnect_attempt_cannot_inherit_old_frame_count() -> None:
+    source = SOURCE.read_text(encoding="utf-8")
+
+    decode_start = source.index("uint64_t decode_packets(OpenStreamSource *ctx,")
+    worker_start = source.index("void openstream_worker(", decode_start)
+    decoder = source[decode_start:worker_start]
+    assert "uint64_t video_frames_output = 0;" in decoder
+    assert "if (output_decoded_frame(" in decoder
+    assert "++video_frames_output;" in decoder
+    assert "return video_frames_output;" in decoder
+
+    worker = source[worker_start:]
+    assert "const uint64_t reconnect_attempt_video_frames =" in worker
+    assert "if (reconnect_attempt_video_frames >= kReconnectRecoveryVideoFrames)" in worker
+    assert "if (ctx->frames_output >= kReconnectRecoveryVideoFrames)" not in worker
 
 
 def test_reservation_success_does_not_refresh_reconnect_deadline() -> None:

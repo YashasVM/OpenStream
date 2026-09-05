@@ -1475,18 +1475,18 @@ speaker_layout obs_speaker_layout_for_channels(int channels) {
   }
 }
 
-void decode_packets(OpenStreamSource *ctx,
-                    AVFormatContext *format_ctx,
-                    int video_stream_index,
-                    AVCodecContext *video_decoder_ctx,
-                    int audio_stream_index,
-                    AVCodecContext *audio_decoder_ctx) {
+uint64_t decode_packets(OpenStreamSource *ctx,
+                        AVFormatContext *format_ctx,
+                        int video_stream_index,
+                        AVCodecContext *video_decoder_ctx,
+                        int audio_stream_index,
+                        AVCodecContext *audio_decoder_ctx) {
   PacketPtr packet(av_packet_alloc());
   FramePtr frame(av_frame_alloc());
   FramePtr audio_frame(av_frame_alloc());
   if (!packet || !frame || !audio_frame) {
     blog(LOG_WARNING, "[OpenStream] Could not allocate decode packet/frame");
-    return;
+    return 0;
   }
 
   SwsContextPtr sws_ctx(nullptr);
@@ -1496,6 +1496,7 @@ void decode_packets(OpenStreamSource *ctx,
                                ? format_ctx->streams[audio_stream_index]
                                : nullptr;
   MediaClock media_clock;
+  uint64_t video_frames_output = 0;
   uint64_t audio_frames_output = 0;
 
   const auto drain_video = [&]() -> int {
@@ -1532,12 +1533,14 @@ void decode_packets(OpenStreamSource *ctx,
         av_frame_unref(frame.get());
         continue;
       }
-      output_decoded_frame(ctx,
-                           video_decoder_ctx,
-                           frame.get(),
-                           *timestamp_ns,
-                           &sws_ctx,
-                           &bgra_buffer);
+      if (output_decoded_frame(ctx,
+                               video_decoder_ctx,
+                               frame.get(),
+                               *timestamp_ns,
+                               &sws_ctx,
+                               &bgra_buffer)) {
+        ++video_frames_output;
+      }
       av_frame_unref(frame.get());
     }
     return AVERROR_EXIT;
@@ -1668,6 +1671,7 @@ void decode_packets(OpenStreamSource *ctx,
       av_packet_unref(packet.get());
     }
   }
+  return video_frames_output;
 }
 
 void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::string selected_phone_id) {
@@ -1806,7 +1810,6 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     FormatContextPtr format_ctx(raw_format_ctx);
     ctx->phone_connected = true;
     set_slot_status(ctx, "Live");
-    ctx->frames_output = 0;
     ctx->stale_video_frames = 0;
     ctx->stale_audio_frames = 0;
 
@@ -1841,10 +1844,11 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
          avcodec_get_name(codecpar->codec_id),
          audio_stream_index >= 0 ? " + audio" : "");
 
-    decode_packets(ctx, format_ctx.get(), video_stream_index, video_decoder_ctx.get(),
-                   audio_stream_index, audio_decoder_ctx.get());
+    const uint64_t reconnect_attempt_video_frames =
+        decode_packets(ctx, format_ctx.get(), video_stream_index, video_decoder_ctx.get(),
+                       audio_stream_index, audio_decoder_ctx.get());
     ctx->phone_connected = false;
-    if (ctx->frames_output >= kReconnectRecoveryVideoFrames) {
+    if (reconnect_attempt_video_frames >= kReconnectRecoveryVideoFrames) {
       reset_reconnect_episode();
     }
     if (!ctx->stop_requested.load()) {

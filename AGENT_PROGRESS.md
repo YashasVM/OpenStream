@@ -8,7 +8,7 @@
 - Hardened the SRT timeout probe so FFmpeg diagnostic output cannot fill an unread stderr pipe and distort timeout/recovery measurements.
 - Added same-phone reconnect stickiness for auto-selected OBS slots and made the 45 s hold single-shot so failed reserve/open retries cannot extend it.
 - Made post-expiry failover deterministic: another eligible phone is preferred after hold expiry, while the failed phone remains sole-candidate fallback.
-- Added reconnect-recovery hysteresis requiring 30 decoded video frames from the current successful reopen before a failure episode is reset. The worker resets `frames_output` after every successful SRT open and before decoder startup; a regression contract now locks that ordering.
+- Made reconnect recovery explicitly per-attempt: `decode_packets()` now returns the number of video frames successfully output during that invocation, and only that count can satisfy the 30-frame recovery gate. The shared `frames_output` diagnostic counter is no longer reset/reused as reconnect state.
 - Bounded OBS camera-control TCP connection establishment to 1 s with nonblocking connect completion checks, preventing an unreachable/blackholed phone from leaving reservation, release, or control work stuck in the OS TCP connect timeout.
 - Made duplicate same-source/same-peer `/reserve` retries idempotent on Android so OBS reconnect polling no longer restarts the phone's 45 s reservation-release timer; reservation token rotation still follows the newest retry and real slot/bitrate changes still reach the reservation owner.
 - Fixed the OBS selected-but-unreserved teardown race: the auto-phone worker now tracks reservation success explicitly, never marks/opens a selected phone after failed `/reserve`, and queues release if stop lands immediately after a successful reservation.
@@ -22,8 +22,7 @@
 ## Tests performed
 
 - Exact blocker-report head `88185e6`: Android APK and Windows OBS Plugin workflows both passed.
-- Source-path audit confirmed `ctx->frames_output = 0` executes after every successful SRT open and before video decoder startup / `decode_packets`, so the 30-frame reconnect-recovery gate is already scoped to the current reopen rather than source lifetime.
-- Added a reconnect regression contract that requires the per-reopen frame reset to precede decoder startup, decoding, and the 30-frame recovery gate.
+- Added reconnect contracts requiring an explicit per-`decode_packets()` video-frame count, forbidding the recovery gate from reading `ctx->frames_output`, and covering the case where an older/lifetime frame count is already above 30 but the current reconnect produces fewer than 30 frames.
 - Exact current head before the blocker report `e3f8281`: Android APK and Windows OBS Plugin workflows both passed.
 - Exact teardown-fix head `bb0dc93`: Android APK and Windows OBS Plugin workflows both passed.
 - Added a Windows-CI reservation teardown contract that requires explicit reservation success before `reserved_phone`/SRT activation and requires immediate release when stop follows successful reservation.
