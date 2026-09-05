@@ -22,21 +22,31 @@ def test_auto_slot_reconnect_hold_is_single_shot_until_media_recovers() -> None:
 
     reset = source.index("const auto reset_reconnect_episode")
     reset_clear = source.index("reconnect_hold_exhausted = false;", reset)
-    decoded = source.index("decode_packets(ctx", reset_clear)
+    attempt_counter_reset = source.index("ctx->frames_output = 0;", reset_clear)
+    decoded = source.index("decode_packets(ctx", attempt_counter_reset)
     media_gate = source.index(
         "if (ctx->frames_output >= kReconnectRecoveryVideoFrames)", decoded
     )
     reset_call = source.index("reset_reconnect_episode();", media_gate)
     next_hold = source.index("hold_phone_for_reconnect(reserved_phone);", reset_call)
-    assert decoded < media_gate < reset_call < next_hold
+    assert attempt_counter_reset < decoded < media_gate < reset_call < next_hold
 
 
-def test_reconnect_episode_requires_sustained_decoded_video() -> None:
+def test_reconnect_episode_requires_sustained_decoded_video_per_reopen() -> None:
     source = SOURCE.read_text(encoding="utf-8")
 
     assert "constexpr uint64_t kReconnectRecoveryVideoFrames = 30;" in source
     assert "if (ctx->frames_output > 0)" not in source
-    assert "if (ctx->frames_output >= kReconnectRecoveryVideoFrames)" in source
+    assert source.count("ctx->frames_output = 0;") == 1
+
+    opened = source.index("ctx->phone_connected = true;")
+    attempt_counter_reset = source.index("ctx->frames_output = 0;", opened)
+    decoder_open = source.index("open_video_decoder(", attempt_counter_reset)
+    decoded = source.index("decode_packets(ctx", decoder_open)
+    media_gate = source.index(
+        "if (ctx->frames_output >= kReconnectRecoveryVideoFrames)", decoded
+    )
+    assert opened < attempt_counter_reset < decoder_open < decoded < media_gate
 
 
 def test_reservation_success_does_not_refresh_reconnect_deadline() -> None:

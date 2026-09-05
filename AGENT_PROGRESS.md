@@ -8,28 +8,30 @@
 - Hardened the SRT timeout probe so FFmpeg diagnostic output cannot fill an unread stderr pipe and distort timeout/recovery measurements.
 - Added same-phone reconnect stickiness for auto-selected OBS slots and made the 45 s hold single-shot so failed reserve/open retries cannot extend it.
 - Made post-expiry failover deterministic: another eligible phone is preferred after hold expiry, while the failed phone remains sole-candidate fallback.
-- Added reconnect-recovery hysteresis intended to require 30 decoded video frames before a failure episode is reset.
+- Added reconnect-recovery hysteresis requiring 30 decoded video frames from the current successful reopen before a failure episode is reset. The worker resets `frames_output` after every successful SRT open and before decoder startup; a regression contract now locks that ordering.
 - Bounded OBS camera-control TCP connection establishment to 1 s with nonblocking connect completion checks, preventing an unreachable/blackholed phone from leaving reservation, release, or control work stuck in the OS TCP connect timeout.
 - Made duplicate same-source/same-peer `/reserve` retries idempotent on Android so OBS reconnect polling no longer restarts the phone's 45 s reservation-release timer; reservation token rotation still follows the newest retry and real slot/bitrate changes still reach the reservation owner.
 - Fixed the OBS selected-but-unreserved teardown race: the auto-phone worker now tracks reservation success explicitly, never marks/opens a selected phone after failed `/reserve`, and queues release if stop lands immediately after a successful reservation.
 
 ## In progress
 
-- Fix reconnect-recovery hysteresis to measure decoded video frames per reconnect attempt rather than the source-lifetime cumulative `frames_output` counter.
 - Physical two-phone → Wi-Fi → OBS acceptance testing remains outstanding for reconnect behavior, short/flapping decoded bursts, sustained latency, A/V sync, thermals, controls and Virtual Camera startup.
 - The automated suite still does not exercise the complete production plugin path from a hard SRT blackhole through `av_read_frame()` exit, the 500 ms reconnect loop, discovery/reservation reacquisition, and restored media.
 - A physical unreachable-phone teardown/release check remains outstanding for the new camera-control connect deadline.
 
 ## Tests performed
 
-- Exact current head before this progress update `e3f8281`: Android APK and Windows OBS Plugin workflows both passed.
+- Exact blocker-report head `88185e6`: Android APK and Windows OBS Plugin workflows both passed.
+- Source-path audit confirmed `ctx->frames_output = 0` executes after every successful SRT open and before video decoder startup / `decode_packets`, so the 30-frame reconnect-recovery gate is already scoped to the current reopen rather than source lifetime.
+- Added a reconnect regression contract that requires the per-reopen frame reset to precede decoder startup, decoding, and the 30-frame recovery gate.
+- Exact current head before the blocker report `e3f8281`: Android APK and Windows OBS Plugin workflows both passed.
 - Exact teardown-fix head `bb0dc93`: Android APK and Windows OBS Plugin workflows both passed.
 - Added a Windows-CI reservation teardown contract that requires explicit reservation success before `reserved_phone`/SRT activation and requires immediate release when stop follows successful reservation.
 - Exact previous head `52b8257`: Android APK and Windows OBS Plugin workflows both passed.
 - Exact prior runtime head `fca54e7`: Android APK and Windows OBS Plugin workflows both passed.
 - Exact reservation-lease head `55fcb3b`: Android APK and Windows OBS Plugin workflows both passed.
 - Exact connect-deadline head `3032339`: Android APK and Windows OBS Plugin workflows both passed.
-- Exact reconnect-hysteresis head `4cb7112`: Android APK and Windows OBS Plugin workflows both passed, but self-review later found the per-attempt recovery accounting bug described below.
+- Exact reconnect-hysteresis head `4cb7112`: Android APK and Windows OBS Plugin workflows both passed; a later source-path audit confirmed its recovery counter is reset per successful reopen.
 - Corrected caller-role FFmpeg/libSRT loopback probe completed successfully for permanent and temporary bidirectional blackholes.
 
 ## Benchmarks
@@ -40,7 +42,6 @@
 
 ## Known problems / regressions
 
-- Merge blocker: reconnect recovery currently checks the source-lifetime cumulative `ctx->frames_output >= 30`. Once a source has ever emitted 30 frames, a later reconnect attempt can reset the failure episode even if that attempt emits few or zero video frames. Recovery must instead compare frames emitted during the current reopen attempt.
 - Physical phone → Wi-Fi → OBS testing is still needed for sustained latency, A/V sync, thermals, reconnect behavior, Virtual Camera startup, vendor-specific Android camera/codec behavior, and unreachable-phone control teardown.
 - The loopback probe validates timeout policy and same-receiver recovery, but not the complete plugin blackhole → `av_read_frame()` exit → reconnect loop → phone reacquisition path.
 
@@ -51,8 +52,7 @@
 
 ## Inspect before merging
 
-- Do not merge until reconnect recovery is based on per-attempt decoded video frames rather than cumulative lifetime output.
-- Verify an auto-selected slot stays on the same phone during the 45 s hold, repeated failures and short decoded bursts cannot renew that hold, and a healthy alternate is preferred after expiry.
+- Verify an auto-selected slot stays on the same phone during the 45 s hold, repeated failures and short decoded bursts below 30 frames do not reset that reconnect episode, and a healthy alternate is preferred after expiry.
 - Verify repeated OBS `/reserve` retries do not keep a disconnected phone busy beyond the original Android 45 s reservation lease, while a deliberate slot/bitrate change still updates the reservation.
 - Verify the failed phone remains usable as fallback when no alternate is eligible and a new hold starts only after sustained media recovery.
 - Verify camera controls work from the reserving OBS PC and are rejected from a second LAN device while reserved.
