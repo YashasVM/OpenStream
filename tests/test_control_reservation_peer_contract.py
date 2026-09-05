@@ -177,3 +177,25 @@ def test_mutating_routes_require_application_json_before_body_or_dispatch():
 def test_unsupported_media_type_response_is_explicit():
     send_response = _function("sendResponse")
     assert '415 -> "Unsupported Media Type"' in send_response
+
+
+def test_duplicate_reserve_retry_cannot_reach_android_lease_scheduler():
+    activity = Path(
+        "android/app/src/main/java/dev/openstream/app/MainActivity.kt"
+    ).read_text(encoding="utf-8")
+
+    reserve = _function("handleReserve")
+    duplicate_start = reserve.index("if (sameReservationConfig)")
+    on_reserve = reserve.index(
+        "val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)"
+    )
+    duplicate_block = reserve[duplicate_start:on_reserve]
+    assert "onReserve(" not in duplicate_block
+
+    assert "onReserve = { sourceInstanceId, slotLabel, bitrateMbps ->" in activity
+    assert "reserveForSource(sourceInstanceId, slotLabel, bitrateMbps)" in activity
+
+    reserve_for_source = activity.index("private fun reserveForSource(")
+    schedule = activity.index("scheduleReservationRelease()", reserve_for_source)
+    generation = activity.index("reservationGeneration += 1", reserve_for_source)
+    assert reserve_for_source < generation < schedule
