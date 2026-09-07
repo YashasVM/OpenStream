@@ -12,12 +12,13 @@
 - Bounded OBS camera-control TCP connection establishment to 1 s with nonblocking connect completion checks, preventing an unreachable/blackholed phone from leaving reservation, release, or control work stuck in the OS TCP connect timeout.
 - Made duplicate same-source/same-peer `/reserve` retries idempotent on Android so OBS reconnect polling no longer restarts the phone's 45 s reservation-release timer; reservation token rotation still follows the newest retry and real slot/bitrate changes still reach the reservation owner.
 - Fixed the OBS selected-but-unreserved teardown race: the auto-phone worker now tracks reservation success explicitly, never marks/opens a selected phone after failed `/reserve`, and queues release if stop lands immediately after a successful reservation.
+- Tightened unreachable-phone teardown: executor shutdown now keeps only the newest pending reservation release, rejects new urgent work once stopping begins, and wakes out of retry backoff immediately so OBS destruction does not drain stale release retries.
 
 ## In progress
 
 - Physical two-phone → Wi-Fi → OBS acceptance testing remains outstanding for reconnect behavior, short/flapping decoded bursts, sustained latency, A/V sync, thermals, controls and Virtual Camera startup.
 - The automated suite still does not exercise the complete production plugin path from a hard SRT blackhole through `av_read_frame()` exit, the 500 ms reconnect loop, discovery/reservation reacquisition, and restored media.
-- A physical unreachable-phone teardown/release check remains outstanding for the new camera-control connect deadline. Automated contracts now also lock the 1 s connect deadline, asynchronous urgent release path, three-attempt retry cap, and 150 ms retry spacing.
+- A physical unreachable-phone teardown/release check remains outstanding. The source-destruction path is now structurally bounded to at most the currently executing/newest release attempt instead of draining the full retry backlog.
 
 ## Tests performed
 
@@ -33,12 +34,14 @@
 - Exact reconnect-hysteresis head `4cb7112`: Android APK and Windows OBS Plugin workflows both passed; a later source-path audit confirmed its recovery counter is reset per successful reopen.
 - Corrected caller-role FFmpeg/libSRT loopback probe completed successfully for permanent and temporary bidirectional blackholes.
 - Sandbox synthetic reconnect-chain probe: hard bidirectional SRT blackhole caused receiver exit in 4,764.3 ms; after the configured 500 ms retry delay, a second reservation attempt plus listener/receiver restart restored decoded frames. This validates the transport/retry sequence in loopback, not the compiled OBS worker or a physical phone.
+- Added teardown contracts requiring shutdown to collapse pending urgent releases to the newest token and interrupt the 150 ms retry backoff when stopping. Exact-head CI is pending for this change.
 
 ## Benchmarks
 
 - Caller-role hard blackhole with `timeout=4,500,000 us`: 4,830.3 ms, 4,837.8 ms, 4,823.4 ms, 4,744.4 ms and 4,754.6 ms to receiver exit (mean 4,798.1 ms).
 - Temporary blackholes recovered on the same FFmpeg receiver after restore: 2.0 s → 21.0 ms; 3.0 s → 105.3 ms; 3.5 s → 187.9 ms; 4.0 s → 10.8 ms to next receiver frame.
-- These are loopback fault-injection results, not physical Wi-Fi/phone measurements, and predate the stderr backpressure hardening.
+- Unreachable control connect is explicitly bounded to 1 s. Before the teardown tightening, destruction could drain up to three failed urgent attempts plus two 150 ms gaps (~3.3 s for a pure connect blackhole); shutdown now stops after the in-flight/newest attempt and skips retry backoff. This is a code-path bound, not a physical timing measurement.
+- These are loopback/code-path results, not physical Wi-Fi/phone measurements, and the SRT measurements predate the stderr backpressure hardening.
 
 ## Known problems / regressions
 
@@ -56,5 +59,5 @@
 - Verify repeated OBS `/reserve` retries do not keep a disconnected phone busy beyond the original Android 45 s reservation lease, while a deliberate slot/bitrate change still updates the reservation. Automated contracts now prove identical retries return before the `onReserve` callback that increments reservation generation and schedules the Android release timer.
 - Verify the failed phone remains usable as fallback when no alternate is eligible and a new hold starts only after sustained media recovery.
 - Verify camera controls work from the reserving OBS PC and are rejected from a second LAN device while reserved.
-- Verify stopping/removing an OBS source while the phone control IP is unreachable does not hang on TCP connect and reservation release retries remain bounded.
+- Verify stopping/removing an OBS source while the phone control IP is unreachable returns promptly; shutdown now collapses stale release work and does not wait through the normal three-attempt retry loop.
 - Verify the 4.5 s timeout with a real phone stream blackhole, including the 500 ms reconnect loop and recovery from shorter Wi-Fi interruptions.

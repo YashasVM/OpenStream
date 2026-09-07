@@ -37,6 +37,14 @@ def test_unreachable_release_teardown_has_bounded_urgent_retry_budget():
     assert "for (int attempt = 0; attempt < kUrgentRetryAttempts; ++attempt)" in impl
     assert "std::chrono::milliseconds(150)" in impl
 
+    # Normal operation retains the three-attempt release budget, but source
+    # destruction must not wait through all retries or a backlog of stale tokens.
+    assert "if (stopping_ || stopped_) return false;" in impl
+    assert "while (urgent_commands_.size() > 1)" in impl
+    assert "urgent_commands_.pop();" in impl
+    assert "wake_.wait_for(" in impl
+    assert "[this] { return stopping_; }" in impl
+
     source = SOURCE
     release_start = source.index("void queue_release_phone(")
     release_end = source.index("std::string av_error", release_start)

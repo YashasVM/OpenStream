@@ -22,10 +22,14 @@ void AsyncControlClient::stop() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (stopping_) return;
     stopping_ = true;
-    // Transient controls can be discarded at teardown, but reservation releases
-    // must drain so phones are not left busy after the OBS source disappears.
+    // Transient controls can be discarded at teardown. Keep only the newest
+    // pending reservation release: older tokens are superseded, and draining
+    // several unreachable-phone releases would stall OBS source destruction.
     std::queue<std::function<void()>> empty;
     commands_.swap(empty);
+    while (urgent_commands_.size() > 1) {
+      urgent_commands_.pop();
+    }
   }
   wake_.notify_one();
   if (worker_.joinable()) worker_.join();
@@ -35,9 +39,7 @@ bool AsyncControlClient::post_urgent(std::function<bool()> command) {
   if (!command) return false;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    // Continue accepting lifecycle-critical work while stop() is draining the
-    // executor. Once run() marks it fully stopped there is no worker to deliver it.
-    if (stopped_) return false;
+    if (stopping_ || stopped_) return false;
     urgent_commands_.push(std::move(command));
   }
   wake_.notify_one();
@@ -69,7 +71,12 @@ void AsyncControlClient::run() {
       for (int attempt = 0; attempt < kUrgentRetryAttempts; ++attempt) {
         if (urgent_command()) break;
         if (attempt + 1 < kUrgentRetryAttempts) {
-          std::this_thread::sleep_for(std::chrono::milliseconds(150));
+          std::unique_lock<std::mutex> lock(mutex_);
+          if (wake_.wait_for(lock,
+                             std::chrono::milliseconds(150),
+                             [this] { return stopping_; })) {
+            break;
+          }
         }
       }
       continue;
