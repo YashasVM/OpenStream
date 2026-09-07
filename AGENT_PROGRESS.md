@@ -22,19 +22,13 @@
 
 ## Tests performed
 
-- Exact blocker-report head `88185e6`: Android APK and Windows OBS Plugin workflows both passed.
+- Exact current head `f62ac6c`: Android APK and Windows OBS Plugin workflows both passed.
+- Focused CodeRabbit review of `f62ac6c` found no blocking correctness/lifecycle issue in shutdown/retry concurrency or newest-release preservation.
 - Added reconnect contracts requiring an explicit per-`decode_packets()` video-frame count, forbidding the recovery gate from reading `ctx->frames_output`, and covering the case where an older/lifetime frame count is already above 30 but the current reconnect produces fewer than 30 frames.
-- Exact current head before the blocker report `e3f8281`: Android APK and Windows OBS Plugin workflows both passed.
-- Exact teardown-fix head `bb0dc93`: Android APK and Windows OBS Plugin workflows both passed.
 - Added a Windows-CI reservation teardown contract that requires explicit reservation success before `reserved_phone`/SRT activation and requires immediate release when stop follows successful reservation.
-- Exact previous head `52b8257`: Android APK and Windows OBS Plugin workflows both passed.
-- Exact prior runtime head `fca54e7`: Android APK and Windows OBS Plugin workflows both passed.
-- Exact reservation-lease head `55fcb3b`: Android APK and Windows OBS Plugin workflows both passed.
-- Exact connect-deadline head `3032339`: Android APK and Windows OBS Plugin workflows both passed.
-- Exact reconnect-hysteresis head `4cb7112`: Android APK and Windows OBS Plugin workflows both passed; a later source-path audit confirmed its recovery counter is reset per successful reopen.
 - Corrected caller-role FFmpeg/libSRT loopback probe completed successfully for permanent and temporary bidirectional blackholes.
 - Sandbox synthetic reconnect-chain probe: hard bidirectional SRT blackhole caused receiver exit in 4,764.3 ms; after the configured 500 ms retry delay, a second reservation attempt plus listener/receiver restart restored decoded frames. This validates the transport/retry sequence in loopback, not the compiled OBS worker or a physical phone.
-- Added teardown contracts requiring shutdown to collapse pending urgent releases to the newest token and interrupt the 150 ms retry backoff when stopping. Exact-head CI is pending for this change.
+- Added teardown contracts requiring shutdown to collapse pending urgent releases to the newest token and interrupt the 150 ms retry backoff when stopping.
 
 ## Benchmarks
 
@@ -50,7 +44,7 @@
 
 ## Unresolved review feedback
 
-- No unresolved inline review threads are currently present. The latest CodeRabbit pass produced no actionable comments.
+- No unresolved inline review threads are currently present. The focused review of the current teardown change produced no blocking comments.
 - Macroscope correctness coverage remains limited by its workspace billing limit; this is a review-coverage gap, not a code failure.
 
 ## Inspect before merging
