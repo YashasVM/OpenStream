@@ -148,7 +148,8 @@ def test_slot_reservation_allows_owned_busy_phone_and_reconnect_hold() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
     advertiser = read("android/app/src/main/java/dev/openstream/app/discovery/PhoneDiscoveryAdvertiser.kt")
-    assert "reserved_by == source_instance_id" in source
+    assert "entry.second.busy && entry.second.reserved_by != source_instance_id" in source
+    assert "found->second.busy && found->second.reserved_by != source_instance_id" in source
     assert "set_slot_status(ctx, \"Reconnecting\")" in source
     assert "set_active_phone(ctx, reserved_phone)" in source
     assert '"reservedBy"' in advertiser
@@ -156,6 +157,20 @@ def test_slot_reservation_allows_owned_busy_phone_and_reconnect_hold() -> None:
     assert "Holding $it for reconnect" in app
     assert "scheduleReservationRelease" in app
     assert "cancelReservationRelease" in app
+
+
+def test_auto_selected_obs_slot_sticks_to_same_phone_during_reconnect_hold() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+    assert "auto_phone_selection" in source
+    assert "reconnect_phone_id" in source
+    assert "reconnect_deadline" in source
+    assert "std::chrono::steady_clock::time_point{}" in source
+    assert "time_point::min()" not in source
+    assert "kReconnectReservationWindow" in source
+    assert "effective_phone_id = reconnect_phone_id" in source
+    assert "Reconnect hold expired; allowing %s to choose another phone" in source
+    assert "hold_phone_for_reconnect(reserved_phone)" in source
+    assert "Waiting for previously connected Android phone" in source
 
 
 def test_android_discovery_ui_parses_and_displays_obs_slots() -> None:

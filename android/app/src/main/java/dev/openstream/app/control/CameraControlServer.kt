@@ -44,6 +44,9 @@ class CameraControlServer(
     @Volatile private var activeClient: Socket? = null
     @Volatile private var worker: Thread? = null
     @Volatile private var activeReservationToken: String? = null
+    @Volatile private var activeControllerAddress: String? = null
+    @Volatile private var activeReservationSlotLabel: String? = null
+    @Volatile private var activeReservationBitrateMbps: Int? = null
 
     fun start() {
         synchronized(lifecycleLock) {
@@ -135,6 +138,7 @@ class CameraControlServer(
             client.soTimeout = 5000
             val input = BufferedInputStream(client.getInputStream())
             val writer = PrintWriter(OutputStreamWriter(client.getOutputStream(), Charsets.UTF_8), false)
+            val controllerAddress = client.inetAddress?.hostAddress.orEmpty()
 
             // Parse request line
             val requestLine = readAsciiLine(input, MAX_REQUEST_LINE_BYTES) ?: return
@@ -146,8 +150,9 @@ class CameraControlServer(
             val method = parts[0]
             val path = parts[1]
 
-            // Read headers to get Content-Length
+            // Read headers to get Content-Length and validate native JSON requests.
             var contentLength = 0
+            var contentType: String? = null
             var headerBytes = 0
             var line = readAsciiLine(input, MAX_HEADER_LINE_BYTES)
             while (line != null && line.isNotEmpty()) {
@@ -159,12 +164,25 @@ class CameraControlServer(
                 if (line.startsWith("Content-Length:", ignoreCase = true)) {
                     contentLength = line.substringAfter(":").trim().toIntOrNull() ?: -1
                 }
+                if (line.startsWith("Content-Type:", ignoreCase = true)) {
+                    contentType = line.substringAfter(":").trim()
+                }
                 line = readAsciiLine(input, MAX_HEADER_LINE_BYTES)
             }
             if (line == null || contentLength !in 0..MAX_BODY_BYTES) {
                 sendResponse(writer, if (contentLength > MAX_BODY_BYTES) 413 else 400,
                     if (contentLength > MAX_BODY_BYTES) """{"error":"request too large"}"""
                     else """{"error":"bad request"}""")
+                return
+            }
+
+            val requiresJson = method == "POST" && when (path) {
+                "/zoom", "/torch", "/lens", "/reserve", "/release", "/identify" -> true
+                else -> false
+            }
+            val mediaType = contentType?.substringBefore(';')?.trim()
+            if (requiresJson && !mediaType.equals("application/json", ignoreCase = true)) {
+                sendResponse(writer, 415, """{"error":"application/json required"}""")
                 return
             }
 
@@ -183,16 +201,20 @@ class CameraControlServer(
                 String(bytes, Charsets.UTF_8)
             } else ""
 
-            // Route request
+            // This is a native LAN control protocol, not a browser API. Do not
+            // expose permissive CORS/preflight behavior: a web page running on
+            // the reserving OBS host would otherwise share the same peer IP and
+            // could satisfy the peer-authorization boundary. Requiring JSON for
+            // every mutating route also forces browsers through preflight, which
+            // this server intentionally does not support.
             val response = when {
                 method == "GET" && path == "/status" -> handleStatus()
-                method == "POST" && path == "/zoom" -> handleZoom(body)
-                method == "POST" && path == "/torch" -> handleTorch(body)
-                method == "POST" && path == "/lens" -> handleLens(body)
-                method == "POST" && path == "/reserve" -> handleReserve(body)
-                method == "POST" && path == "/release" -> handleRelease(body)
-                method == "POST" && path == "/identify" -> handleIdentify(body)
-                method == "OPTIONS" -> """{"ok":true}"""
+                method == "POST" && path == "/zoom" -> handleZoom(body, controllerAddress)
+                method == "POST" && path == "/torch" -> handleTorch(body, controllerAddress)
+                method == "POST" && path == "/lens" -> handleLens(body, controllerAddress)
+                method == "POST" && path == "/reserve" -> handleReserve(body, controllerAddress)
+                method == "POST" && path == "/release" -> handleRelease(body, controllerAddress)
+                method == "POST" && path == "/identify" -> handleIdentify(body, controllerAddress)
                 else -> {
                     sendResponse(writer, 404, """{"error":"not found"}""")
                     return
@@ -212,14 +234,12 @@ class CameraControlServer(
             400 -> "Bad Request"
             404 -> "Not Found"
             413 -> "Payload Too Large"
+            415 -> "Unsupported Media Type"
             else -> "Error"
         }
         val bodyBytes = body.toByteArray(Charsets.UTF_8)
         writer.print("HTTP/1.1 $code $status\r\n")
         writer.print("Content-Type: application/json\r\n")
-        writer.print("Access-Control-Allow-Origin: *\r\n")
-        writer.print("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n")
-        writer.print("Access-Control-Allow-Headers: Content-Type\r\n")
         writer.print("Content-Length: ${bodyBytes.size}\r\n")
         writer.print("Connection: close\r\n")
         writer.print("\r\n")
@@ -254,21 +274,38 @@ class CameraControlServer(
         return json.toString()
     }
 
-    private fun handleZoom(body: String): String {
+    private fun isAuthorizedController(controllerAddress: String): Boolean {
+        return reservationProvider() != null &&
+            controllerAddress.isNotEmpty() &&
+            controllerAddress == activeControllerAddress
+    }
+
+    private fun unauthorizedControlResponse(): String = """{"ok":false,"unauthorized":true}"""
+
+    private fun busyReservationResponse(currentReservation: String): String = JSONObject()
+        .put("ok", false)
+        .put("busy", true)
+        .put("reservedBy", currentReservation)
+        .toString()
+
+    private fun handleZoom(body: String, controllerAddress: String): String {
+        if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse()
         val json = JSONObject(body)
         val value = json.getDouble("value").toFloat()
         val applied = cameraProvider().setZoom(value)
         return """{"ok":true,"zoom":$applied}"""
     }
 
-    private fun handleTorch(body: String): String {
+    private fun handleTorch(body: String, controllerAddress: String): String {
+        if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse()
         val json = JSONObject(body)
         val enabled = json.getBoolean("enabled")
         onToggleTorch(enabled)
         return """{"ok":true,"torch":$enabled}"""
     }
 
-    private fun handleLens(body: String): String {
+    private fun handleLens(body: String, controllerAddress: String): String {
+        if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse()
         val json = JSONObject(body)
         val lensLabel = json.getString("lens")
         val available = lensListProvider()
@@ -278,13 +315,25 @@ class CameraControlServer(
         return """{"ok":true,"lens":"${target.shortLabel}"}"""
     }
 
-    private fun handleReserve(body: String): String {
+    private fun handleReserve(body: String, controllerAddress: String): String {
         val json = JSONObject(body)
         val sourceInstanceId = json.optString("sourceInstanceId").trim()
         if (sourceInstanceId.isEmpty()) return """{"error":"missing sourceInstanceId"}"""
         val reservationToken = json.optString("reservationToken").trim().ifEmpty { null }
         if (reservationToken != null && reservationToken.length > MAX_RESERVATION_TOKEN_CHARS) {
             return """{"error":"reservation token too large"}"""
+        }
+        val currentReservation = reservationProvider()
+        if (currentReservation != null && currentReservation != sourceInstanceId) {
+            return busyReservationResponse(currentReservation)
+        }
+        val currentControllerAddress = activeControllerAddress
+        if (currentReservation == sourceInstanceId &&
+            (currentControllerAddress == null ||
+                controllerAddress.isEmpty() ||
+                controllerAddress != currentControllerAddress)
+        ) {
+            return unauthorizedControlResponse()
         }
         val slotLabel = json.optString("slotLabel", "")
         val bitrateMbps = if (json.has("bitrateMbps")) {
@@ -293,28 +342,44 @@ class CameraControlServer(
                 StreamConfig.MAX_BITRATE_MBPS,
             )
         } else null
+        val sameReservationConfig = currentReservation == sourceInstanceId &&
+            activeReservationSlotLabel == slotLabel &&
+            activeReservationBitrateMbps == bitrateMbps
+        if (sameReservationConfig) {
+            activeReservationToken = reservationToken
+            return JSONObject()
+                .put("ok", true)
+                .put("reservedBy", sourceInstanceId)
+                .toString()
+        }
         val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)
         return if (accepted) {
             activeReservationToken = reservationToken
+            activeControllerAddress = controllerAddress.ifEmpty { null }
+            activeReservationSlotLabel = slotLabel
+            activeReservationBitrateMbps = bitrateMbps
             JSONObject()
                 .put("ok", true)
                 .put("reservedBy", sourceInstanceId)
                 .toString()
         } else {
-            JSONObject()
-                .put("ok", false)
-                .put("busy", true)
-                .put("reservedBy", reservationProvider().orEmpty())
-                .toString()
+            busyReservationResponse(reservationProvider().orEmpty())
         }
     }
 
-    private fun handleRelease(body: String): String {
+    private fun handleRelease(body: String, controllerAddress: String): String {
         val json = JSONObject(body)
         val sourceInstanceId = json.optString("sourceInstanceId").trim()
         if (sourceInstanceId.isEmpty()) return """{"error":"missing sourceInstanceId"}"""
         val reservationToken = json.optString("reservationToken").trim().ifEmpty { null }
         val currentReservation = reservationProvider()
+        if (currentReservation == sourceInstanceId &&
+            (activeControllerAddress == null ||
+                controllerAddress.isEmpty() ||
+                controllerAddress != activeControllerAddress)
+        ) {
+            return unauthorizedControlResponse()
+        }
         if (currentReservation == sourceInstanceId &&
             activeReservationToken != null &&
             reservationToken != activeReservationToken
@@ -324,11 +389,15 @@ class CameraControlServer(
         val released = onRelease(sourceInstanceId)
         if (released && reservationProvider() != sourceInstanceId) {
             activeReservationToken = null
+            activeControllerAddress = null
+            activeReservationSlotLabel = null
+            activeReservationBitrateMbps = null
         }
         return """{"ok":$released}"""
     }
 
-    private fun handleIdentify(body: String): String {
+    private fun handleIdentify(body: String, controllerAddress: String): String {
+        if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse()
         val json = JSONObject(body)
         val label = json.optString("label", "CAM").ifBlank { "CAM" }
         val subtitle = json.optString("subtitle", "")

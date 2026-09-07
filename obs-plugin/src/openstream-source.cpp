@@ -7,9 +7,11 @@
 #include <iphlpapi.h>
 #else
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <netinet/in.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
@@ -23,6 +25,7 @@
 
 #include <chrono>
 #include <atomic>
+#include <cerrno>
 #include <charconv>
 #include <cstdint>
 #include <inttypes.h>
@@ -95,7 +98,11 @@ constexpr int kDefaultBitrateMbps = 12;
 constexpr int kMinBitrateMbps = 8;
 constexpr int kMaxBitrateMbps = 50;
 constexpr uint64_t kMaximumMediaBacklogNs = 250'000'000;
+constexpr int64_t kSrtIoTimeoutUs = 4'500'000;
+constexpr int64_t kSrtConnectTimeoutMs = 2'000;
+constexpr auto kControlConnectTimeout = std::chrono::milliseconds(1000);
 constexpr auto kReconnectReservationWindow = std::chrono::seconds(45);
+constexpr uint64_t kReconnectRecoveryVideoFrames = 30;
 constexpr const char *kOpenStreamSourceName = "OpenStream V8";
 constexpr const char *kDiscoveryMulticastAddress = "239.255.42.99";
 constexpr const char *kPhoneDiscoveryPrefix = "OPENSTREAM_PHONE/1 ";
@@ -114,6 +121,89 @@ void close_socket(SocketHandle socket) {
   close(socket);
 }
 #endif
+
+bool connect_socket_with_timeout(SocketHandle socket,
+                                 const sockaddr *address,
+                                 int address_length,
+                                 std::chrono::milliseconds timeout) {
+#ifdef _WIN32
+  u_long nonblocking = 1;
+  if (ioctlsocket(socket, FIONBIO, &nonblocking) != 0) {
+    return false;
+  }
+  const auto restore_blocking = [&]() {
+    u_long blocking = 0;
+    return ioctlsocket(socket, FIONBIO, &blocking) == 0;
+  };
+  const int connect_result = ::connect(socket, address, address_length);
+  if (connect_result == 0) {
+    return restore_blocking();
+  }
+  const int connect_error = WSAGetLastError();
+  if (connect_error != WSAEWOULDBLOCK &&
+      connect_error != WSAEINPROGRESS &&
+      connect_error != WSAEALREADY) {
+    restore_blocking();
+    return false;
+  }
+#else
+  const int original_flags = fcntl(socket, F_GETFL, 0);
+  if (original_flags < 0 ||
+      fcntl(socket, F_SETFL, original_flags | O_NONBLOCK) != 0) {
+    return false;
+  }
+  const auto restore_blocking = [&]() {
+    return fcntl(socket, F_SETFL, original_flags) == 0;
+  };
+  const int connect_result =
+      ::connect(socket, address, static_cast<socklen_t>(address_length));
+  if (connect_result == 0) {
+    return restore_blocking();
+  }
+  if (errno != EINPROGRESS && errno != EALREADY && errno != EWOULDBLOCK) {
+    restore_blocking();
+    return false;
+  }
+#endif
+
+  const int64_t timeout_ms = std::max<int64_t>(1, timeout.count());
+  timeval wait = {};
+  wait.tv_sec = static_cast<long>(timeout_ms / 1000);
+  wait.tv_usec = static_cast<long>((timeout_ms % 1000) * 1000);
+
+  fd_set write_fds;
+  fd_set error_fds;
+  FD_ZERO(&write_fds);
+  FD_ZERO(&error_fds);
+  FD_SET(socket, &write_fds);
+  FD_SET(socket, &error_fds);
+#ifdef _WIN32
+  const int selected = select(0, nullptr, &write_fds, &error_fds, &wait);
+#else
+  const int selected = select(socket + 1, nullptr, &write_fds, &error_fds, &wait);
+#endif
+
+  int socket_error = 0;
+#ifdef _WIN32
+  int error_length = sizeof(socket_error);
+  const bool completion_ok =
+      selected > 0 &&
+      getsockopt(socket,
+                 SOL_SOCKET,
+                 SO_ERROR,
+                 reinterpret_cast<char *>(&socket_error),
+                 &error_length) == 0 &&
+      socket_error == 0;
+#else
+  socklen_t error_length = sizeof(socket_error);
+  const bool completion_ok =
+      selected > 0 &&
+      getsockopt(socket, SOL_SOCKET, SO_ERROR, &socket_error, &error_length) == 0 &&
+      socket_error == 0;
+#endif
+  const bool restored = restore_blocking();
+  return completion_ok && restored;
+}
 
 std::string json_escape(const std::string &value) {
   std::string escaped;
@@ -493,16 +583,23 @@ class PhoneDiscoveryReceiver {
   }
 
   std::optional<PhoneDevice> select(const std::string &selected_id,
-                                    const std::string &source_instance_id) {
+                                    const std::string &source_instance_id,
+                                    const std::string &deprioritized_id = "") {
     std::lock_guard<std::mutex> lock(mutex_);
     pruneExpiredLocked();
     if (selected_id.empty() || selected_id == kAutoPhoneId) {
+      std::optional<PhoneDevice> deprioritized;
       for (const auto &entry : devices_) {
-        if (!entry.second.busy || entry.second.reserved_by == source_instance_id) {
-          return entry.second;
+        if (entry.second.busy && entry.second.reserved_by != source_instance_id) {
+          continue;
         }
+        if (!deprioritized_id.empty() && entry.second.instance_id == deprioritized_id) {
+          deprioritized = entry.second;
+          continue;
+        }
+        return entry.second;
       }
-      return std::nullopt;
+      return deprioritized;
     }
 
     const auto found = devices_.find(selected_id);
@@ -602,9 +699,6 @@ class PhoneDiscoveryReceiver {
       if (device.instance_id.size() > 256) {
         continue;
       }
-      // The UDP source address is authoritative. Trusting the JSON host lets a
-      // spoofed beacon redirect OBS to an arbitrary address or inject SRT query
-      // parameters into the URL assembled below.
       device.host = packet_host;
       device.port = json_int_value(json, "listenerPort").value_or(-1);
       device.control_port = json_int_value(json, "controlPort").value_or(-1);
@@ -834,7 +928,6 @@ void set_slot_status(OpenStreamSource *ctx, std::string status) {
   ctx->slot_status = std::move(status);
 }
 
-// Simple HTTP POST helper for camera controls
 bool send_control_command(const std::string &host, int port,
                           const std::string &path, const std::string &body) {
   if (port < 1 || port > 65535 || body.size() > 8192 || path.empty() || path.front() != '/') {
@@ -862,7 +955,10 @@ bool send_control_command(const std::string &host, int port,
     return false;
   }
 
-  if (connect(sock, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) != 0) {
+  if (!connect_socket_with_timeout(sock,
+                                   reinterpret_cast<sockaddr *>(&addr),
+                                   static_cast<int>(sizeof(addr)),
+                                   kControlConnectTimeout)) {
     close_socket(sock);
     return false;
   }
@@ -1080,13 +1176,9 @@ void openstream_stop_worker(OpenStreamSource *ctx) {
   std::optional<PhoneDevice> reserved_phone;
   {
     std::lock_guard<std::mutex> lock(ctx->settings_mutex);
-    // A live worker releases its reservation on its own stop path. Only queue
-    // a release for a reservation left behind by an interrupted/retry path.
     reserved_phone = ctx->active_phone;
   }
   if (reserved_phone.has_value()) {
-    // Source stop/reconfiguration can be called by an OBS/Qt callback. Queue
-    // the release so that callback never performs control-socket I/O.
     queue_release_phone(ctx, *reserved_phone);
   }
   set_active_phone(ctx, std::nullopt);
@@ -1383,18 +1475,18 @@ speaker_layout obs_speaker_layout_for_channels(int channels) {
   }
 }
 
-void decode_packets(OpenStreamSource *ctx,
-                    AVFormatContext *format_ctx,
-                    int video_stream_index,
-                    AVCodecContext *video_decoder_ctx,
-                    int audio_stream_index,
-                    AVCodecContext *audio_decoder_ctx) {
+uint64_t decode_packets(OpenStreamSource *ctx,
+                        AVFormatContext *format_ctx,
+                        int video_stream_index,
+                        AVCodecContext *video_decoder_ctx,
+                        int audio_stream_index,
+                        AVCodecContext *audio_decoder_ctx) {
   PacketPtr packet(av_packet_alloc());
   FramePtr frame(av_frame_alloc());
   FramePtr audio_frame(av_frame_alloc());
   if (!packet || !frame || !audio_frame) {
     blog(LOG_WARNING, "[OpenStream] Could not allocate decode packet/frame");
-    return;
+    return 0;
   }
 
   SwsContextPtr sws_ctx(nullptr);
@@ -1404,6 +1496,7 @@ void decode_packets(OpenStreamSource *ctx,
                                ? format_ctx->streams[audio_stream_index]
                                : nullptr;
   MediaClock media_clock;
+  uint64_t video_frames_output = 0;
   uint64_t audio_frames_output = 0;
 
   const auto drain_video = [&]() -> int {
@@ -1440,12 +1533,14 @@ void decode_packets(OpenStreamSource *ctx,
         av_frame_unref(frame.get());
         continue;
       }
-      output_decoded_frame(ctx,
-                           video_decoder_ctx,
-                           frame.get(),
-                           *timestamp_ns,
-                           &sws_ctx,
-                           &bgra_buffer);
+      if (output_decoded_frame(ctx,
+                               video_decoder_ctx,
+                               frame.get(),
+                               *timestamp_ns,
+                               &sws_ctx,
+                               &bgra_buffer)) {
+        ++video_frames_output;
+      }
       av_frame_unref(frame.get());
     }
     return AVERROR_EXIT;
@@ -1539,7 +1634,6 @@ void decode_packets(OpenStreamSource *ctx,
       break;
     }
 
-    // Handle video packets
     if (packet->stream_index == video_stream_index) {
       int result = avcodec_send_packet(video_decoder_ctx, packet.get());
       if (result == AVERROR(EAGAIN)) {
@@ -1558,9 +1652,7 @@ void decode_packets(OpenStreamSource *ctx,
         continue;
       }
       drain_video();
-    }
-    // Handle audio packets
-    else if (audio_decoder_ctx && packet->stream_index == audio_stream_index) {
+    } else if (audio_decoder_ctx && packet->stream_index == audio_stream_index) {
       int result = avcodec_send_packet(audio_decoder_ctx, packet.get());
       if (result == AVERROR(EAGAIN)) {
         const int drain_result = drain_audio();
@@ -1579,30 +1671,80 @@ void decode_packets(OpenStreamSource *ctx,
       av_packet_unref(packet.get());
     }
   }
+  return video_frames_output;
 }
 
 void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::string selected_phone_id) {
   avformat_network_init();
+
+  const bool auto_phone_selection =
+      selected_phone_id.empty() || selected_phone_id == PhoneDiscoveryReceiver::kAutoPhoneId;
+  std::string reconnect_phone_id;
+  std::string expired_reconnect_phone_id;
+  auto reconnect_deadline = std::chrono::steady_clock::time_point{};
+  bool reconnect_hold_exhausted = false;
+  const auto hold_phone_for_reconnect = [&](const std::optional<PhoneDevice> &phone) {
+    if (!auto_phone_selection || !phone.has_value() || reconnect_hold_exhausted) {
+      return;
+    }
+    if (!reconnect_phone_id.empty()) {
+      return;
+    }
+    reconnect_phone_id = phone->instance_id;
+    reconnect_deadline = std::chrono::steady_clock::now() + kReconnectReservationWindow;
+  };
+  const auto reset_reconnect_episode = [&]() {
+    reconnect_phone_id.clear();
+    expired_reconnect_phone_id.clear();
+    reconnect_deadline = std::chrono::steady_clock::time_point{};
+    reconnect_hold_exhausted = false;
+  };
 
   while (!ctx->stop_requested.load()) {
     std::string srt_url = base_srt_url;
     std::optional<PhoneDevice> reserved_phone;
     if (srt_url == "openstream:auto") {
       std::optional<PhoneDevice> phone;
+      bool reservation_acquired = false;
       set_slot_status(ctx, "Waiting");
       while (!ctx->stop_requested.load()) {
-        phone = ctx->phone_discovery.select(selected_phone_id, ctx->instance_id);
+        std::string effective_phone_id = selected_phone_id;
+        if (auto_phone_selection && !reconnect_phone_id.empty()) {
+          if (std::chrono::steady_clock::now() < reconnect_deadline) {
+            effective_phone_id = reconnect_phone_id;
+          } else {
+            blog(LOG_INFO,
+                 "[OpenStream] Reconnect hold expired; allowing %s to choose another phone",
+                 ctx->slot_label.c_str());
+            expired_reconnect_phone_id = reconnect_phone_id;
+            reconnect_phone_id.clear();
+            reconnect_hold_exhausted = true;
+          }
+        }
+        const std::string deprioritized_phone_id =
+            auto_phone_selection && reconnect_hold_exhausted
+                ? expired_reconnect_phone_id
+                : std::string{};
+        phone = ctx->phone_discovery.select(
+            effective_phone_id, ctx->instance_id, deprioritized_phone_id);
         if (phone.has_value() && reserve_phone(ctx, *phone)) {
+          reservation_acquired = true;
           break;
         }
-        if (selected_phone_id.empty() || selected_phone_id == PhoneDiscoveryReceiver::kAutoPhoneId) {
+        if (auto_phone_selection && !reconnect_phone_id.empty()) {
+          blog(LOG_INFO, "[OpenStream] Waiting for previously connected Android phone");
+        } else if (auto_phone_selection) {
           blog(LOG_INFO, "[OpenStream] Waiting for available Android phone");
         } else {
           blog(LOG_INFO, "[OpenStream] Waiting for selected Android phone");
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
       }
-      if (!phone.has_value()) {
+      if (!reservation_acquired || !phone.has_value()) {
+        break;
+      }
+      if (ctx->stop_requested.load()) {
+        queue_release_phone(ctx, *phone);
         break;
       }
       reserved_phone = phone;
@@ -1631,6 +1773,8 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     av_dict_set(&options, "flags", "low_delay", 0);
     av_dict_set(&options, "probesize", "262144", 0);
     av_dict_set(&options, "analyzeduration", "250000", 0);
+    av_dict_set_int(&options, "timeout", kSrtIoTimeoutUs, 0);
+    av_dict_set_int(&options, "connect_timeout", kSrtConnectTimeoutMs, 0);
 
     blog(LOG_INFO,
          "[OpenStream] Opening Android stream at %s",
@@ -1648,6 +1792,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
           avformat_free_context(raw_format_ctx);
         }
         if (reserved_phone.has_value()) {
+          hold_phone_for_reconnect(reserved_phone);
           set_slot_status(ctx, "Reconnecting");
           set_active_phone(ctx, reserved_phone);
         } else {
@@ -1665,7 +1810,6 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     FormatContextPtr format_ctx(raw_format_ctx);
     ctx->phone_connected = true;
     set_slot_status(ctx, "Live");
-    ctx->frames_output = 0;
     ctx->stale_video_frames = 0;
     ctx->stale_audio_frames = 0;
 
@@ -1674,6 +1818,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     if (!open_video_decoder(format_ctx.get(), &video_stream_index, &video_decoder_ctx)) {
       ctx->phone_connected = false;
       if (reserved_phone.has_value()) {
+        hold_phone_for_reconnect(reserved_phone);
         set_slot_status(ctx, "Reconnecting");
         set_active_phone(ctx, reserved_phone);
       } else {
@@ -1686,7 +1831,6 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
       break;
     }
 
-    // Try to open audio decoder (optional — video-only is fine)
     int audio_stream_index = -1;
     CodecContextPtr audio_decoder_ctx;
     open_audio_decoder(format_ctx.get(), &audio_stream_index, &audio_decoder_ctx);
@@ -1700,10 +1844,15 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
          avcodec_get_name(codecpar->codec_id),
          audio_stream_index >= 0 ? " + audio" : "");
 
-    decode_packets(ctx, format_ctx.get(), video_stream_index, video_decoder_ctx.get(),
-                   audio_stream_index, audio_decoder_ctx.get());
+    const uint64_t reconnect_attempt_video_frames =
+        decode_packets(ctx, format_ctx.get(), video_stream_index, video_decoder_ctx.get(),
+                       audio_stream_index, audio_decoder_ctx.get());
     ctx->phone_connected = false;
+    if (reconnect_attempt_video_frames >= kReconnectRecoveryVideoFrames) {
+      reset_reconnect_episode();
+    }
     if (!ctx->stop_requested.load()) {
+      hold_phone_for_reconnect(reserved_phone);
       set_slot_status(ctx, "Reconnecting");
       blog(LOG_INFO, "[OpenStream] Holding %s for reconnect",
            ctx->slot_label.c_str());
@@ -2063,7 +2212,6 @@ obs_properties_t *openstream_properties(void *data) {
 
   obs_properties_add_group(props, "slot_setup", "1. Camera Slot", OBS_GROUP_NORMAL, slot_group);
 
-  // ── Camera remote controls ──
   obs_properties_t *advanced_group = obs_properties_create();
   obs_properties_add_bool(advanced_group, "listener_enabled", "Listen for this camera slot");
   obs_properties_add_text(advanced_group, "source_instance_id", "Source instance ID", OBS_TEXT_INFO);
@@ -2098,7 +2246,6 @@ obs_properties_t *openstream_properties(void *data) {
     auto *ctx = static_cast<OpenStreamSource *>(priv);
     if (!ctx) return false;
     double zoom = obs_data_get_double(settings, "cam_zoom");
-    // Only send if value actually changed (avoid flooding)
     if (std::abs(zoom - ctx->last_cam_zoom) < 0.05) return false;
     ctx->last_cam_zoom = zoom;
     std::ostringstream body;
@@ -2154,8 +2301,6 @@ obs_properties_t *openstream_properties(void *data) {
   });
 
   obs_properties_add_group(props, "camera_controls", "2. Live Camera Controls", OBS_GROUP_NORMAL, camera_group);
-
-  // Credit
   obs_properties_add_text(props, "credit", "About", OBS_TEXT_INFO);
 
   return props;

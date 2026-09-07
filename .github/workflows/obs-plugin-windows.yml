@@ -39,7 +39,7 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check aqtinstall
           python -m aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -O C:\Qt
-          "OPENSTREAM_QT_ROOT=C:\Qt\6.8.3\msvc2022_64" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "OPENSTREAM_QT_ROOT=C:\Qt\6.8.3\msvc2022_64" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Build plugin package
         shell: cmd
@@ -97,4 +97,3 @@ jobs:
             artifacts/openstream-obs-windows-x64.zip
             artifacts/openstream-obs-plugin-installer-windows-x64.exe
           if-no-files-found: error
-
