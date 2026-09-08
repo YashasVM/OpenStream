@@ -22,7 +22,7 @@
 
 ## Tests performed
 
-- Exact current branch head `d8b57e5`: Android APK and Windows OBS Plugin workflows both passed; this head changes only `AGENT_PROGRESS.md` and contains no runtime/source change.
+- Pre-progress head `9bf93e7`: Android APK and Windows OBS Plugin workflows both passed; that head changes only `AGENT_PROGRESS.md` relative to the latest runtime code and contains no runtime/source change.
 - Latest runtime head `f62ac6c`: Android APK and Windows OBS Plugin workflows both passed.
 - Focused CodeRabbit review of `f62ac6c` found no blocking correctness/lifecycle issue in shutdown/retry concurrency or newest-release preservation.
 - Added reconnect contracts requiring an explicit per-`decode_packets()` video-frame count, forbidding the recovery gate from reading `ctx->frames_output`, and covering the case where an older/lifetime frame count is already above 30 but the current reconnect produces fewer than 30 frames.
