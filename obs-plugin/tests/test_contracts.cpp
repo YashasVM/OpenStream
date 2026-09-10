@@ -1,6 +1,7 @@
 #include "../src/async-control-client.hpp"
 #include "../src/media-clock.hpp"
 
+#include <atomic>
 #include <cstdlib>
 #include <future>
 
@@ -51,13 +52,37 @@ int main() {
   }
 
   {
+    // Prove the normal three-attempt policy without racing stop() against the
+    // worker. Teardown has separate semantics and is tested below.
     AsyncControlClient client;
-    int attempts = 0;
+    std::atomic<int> attempts{0};
+    std::promise<void> completed;
     check(client.post_urgent([&] {
-      ++attempts;
-      return attempts >= 3;
+      const int current = ++attempts;
+      if (current == 3) {
+        completed.set_value();
+        return true;
+      }
+      return false;
     }));
+    completed.get_future().wait();
     client.stop();
-    check(attempts == 3);
+    check(attempts.load() == 3);
+  }
+
+  {
+    // Once destruction starts, retry backoff must wake immediately instead of
+    // draining the normal three-attempt lifecycle-critical release policy.
+    AsyncControlClient client;
+    std::atomic<int> attempts{0};
+    std::promise<void> first_attempt;
+    check(client.post_urgent([&] {
+      const int current = ++attempts;
+      if (current == 1) first_attempt.set_value();
+      return false;
+    }));
+    first_attempt.get_future().wait();
+    client.stop();
+    check(attempts.load() == 1);
   }
 }
