@@ -22,9 +22,10 @@
 
 ## Tests performed
 
-- Pre-progress head `9bf93e7`: Android APK and Windows OBS Plugin workflows both passed; that head changes only `AGENT_PROGRESS.md` relative to the latest runtime code and contains no runtime/source change.
+- Pre-progress head `25763a1`: Android APK and Windows OBS Plugin workflows both passed; this head adds deterministic control-teardown retry tests and contains no runtime/source change relative to `f62ac6c`.
 - Latest runtime head `f62ac6c`: Android APK and Windows OBS Plugin workflows both passed.
 - Focused CodeRabbit review of `f62ac6c` found no blocking correctness/lifecycle issue in shutdown/retry concurrency or newest-release preservation.
+- Added deterministic teardown retry coverage that separately proves normal operation retains the full three-attempt policy and that teardown interrupts the 150 ms retry backoff and stops after the in-flight attempt.
 - Added reconnect contracts requiring an explicit per-`decode_packets()` video-frame count, forbidding the recovery gate from reading `ctx->frames_output`, and covering the case where an older/lifetime frame count is already above 30 but the current reconnect produces fewer than 30 frames.
 - Added a Windows-CI reservation teardown contract that requires explicit reservation success before `reserved_phone`/SRT activation and requires immediate release when stop follows successful reservation.
 - Corrected caller-role FFmpeg/libSRT loopback probe completed successfully for permanent and temporary bidirectional blackholes.
