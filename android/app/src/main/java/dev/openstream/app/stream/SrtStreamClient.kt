@@ -84,7 +84,12 @@ class SrtStreamClient {
             markSendFailure(generation)
             return SrtSendResult(false, generation, recoveryRequired = true)
         }
-        val sent = SrtNativeBridge.sendVideo(accessUnit.data, accessUnit.presentationTimeUs, accessUnit.flags)
+        val sent = SrtNativeBridge.sendVideo(
+            accessUnit.data,
+            accessUnit.presentationTimeUs,
+            accessUnit.flags,
+            generation,
+        )
         val isCodecConfig = (accessUnit.flags and BUFFER_FLAG_CODEC_CONFIG) != 0
         if (sent) {
             if (!isCodecConfig) {
@@ -102,8 +107,7 @@ class SrtStreamClient {
                 }
             }
         } else {
-            sendFailures.incrementAndGet()
-            markSendFailure(generation)
+            markNativeSendFailure(generation)
         }
         return SrtSendResult(sent, generation, recoveryRequired = !sent)
     }
@@ -125,10 +129,14 @@ class SrtStreamClient {
             markSendFailure(generation)
             return SrtSendResult(false, generation, recoveryRequired = true)
         }
-        val sent = SrtNativeBridge.sendAudio(accessUnit.data, accessUnit.presentationTimeUs, accessUnit.flags)
+        val sent = SrtNativeBridge.sendAudio(
+            accessUnit.data,
+            accessUnit.presentationTimeUs,
+            accessUnit.flags,
+            generation,
+        )
         if (!sent) {
-            sendFailures.incrementAndGet()
-            markSendFailure(generation)
+            markNativeSendFailure(generation)
         }
         return SrtSendResult(sent, generation, recoveryRequired = !sent)
     }
@@ -230,6 +238,15 @@ class SrtStreamClient {
         }
     }
 
+    private fun markNativeSendFailure(generation: Long) {
+        synchronized(stateLock) {
+            if (sessionGeneration.get() == generation) {
+                sendFailures.incrementAndGet()
+                connected = false
+            }
+        }
+    }
+
     companion object {
         private const val BUFFER_FLAG_KEY_FRAME = 1
         private const val BUFFER_FLAG_CODEC_CONFIG = 2
@@ -258,7 +275,17 @@ private object SrtNativeBridge {
         fps: Int,
         sessionGeneration: Long,
     ): Boolean
-    external fun sendVideo(data: ByteArray, presentationTimeUs: Long, flags: Int): Boolean
-    external fun sendAudio(data: ByteArray, presentationTimeUs: Long, flags: Int): Boolean
+    external fun sendVideo(
+        data: ByteArray,
+        presentationTimeUs: Long,
+        flags: Int,
+        sessionGeneration: Long,
+    ): Boolean
+    external fun sendAudio(
+        data: ByteArray,
+        presentationTimeUs: Long,
+        flags: Int,
+        sessionGeneration: Long,
+    ): Boolean
     external fun disconnect(sessionGeneration: Long)
 }

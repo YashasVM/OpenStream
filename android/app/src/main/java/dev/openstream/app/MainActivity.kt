@@ -100,7 +100,7 @@ class MainActivity : Activity() {
     private var pendingConnectAfterSettings = false
     private var currentDevices: List<DiscoveredObsDevice> = emptyList()
     private var activeStreamBitrate: Int = streamConfig.bitrate
-    private var lastObsSlotRenderKeys: List<String> = emptyList()
+    private var lastObsSlotRenderKeys: List<String>? = null
     private val callerLifecycleLock = Any()
 
     private val statsTicker = object : Runnable {
@@ -543,7 +543,7 @@ class MainActivity : Activity() {
         // alive; without this, each beacon paid removeAllViews() + N TextView
         // inflations on the UI thread even when nothing changed.
         val renderKeys = devices.map { device ->
-            "${device.sourceInstanceId}|${device.displayLabel}|${device.busy}|${reservedBy == device.sourceInstanceId}|$phoneConnected"
+            "${device.sourceInstanceId}|${device.displayLabel}|${device.busy}|${device.bitrateMbps}|${reservedBy == device.sourceInstanceId}|$phoneConnected"
         }
         if (renderKeys == lastObsSlotRenderKeys) return
         lastObsSlotRenderKeys = renderKeys
