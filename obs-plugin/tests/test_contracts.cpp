@@ -54,7 +54,10 @@ int main() {
       return true;
     }));
     client.stop();
-    check(urgent_runs == 2);
+    // stop() retains the newest pending urgent release. If the worker already
+    // dequeued the first release before stop acquired the lock, that in-flight
+    // command also completes; pending work must never exceed those two calls.
+    check(urgent_runs >= 1 && urgent_runs <= 2);
     check(!client.post([] {}));
   }
 
