@@ -93,10 +93,17 @@ if not exist "%QT_ROOT%\lib\cmake\Qt6\Qt6Config.cmake" (
     exit /b 1
 )
 rem Pin the exact Qt version OBS 32.2.1 was built against; a different Qt6
-rem still provides Qt6Config.cmake but breaks ABI at load time.
-findstr /C:"6.8.3" "%QT_ROOT%\lib\cmake\Qt6\Qt6ConfigVersion.cmake" >nul 2>&1
-if errorlevel 1 (
-    echo ERROR: Expected Qt 6.8.3 for OBS 32.2.1, but Qt6ConfigVersion.cmake does not report 6.8.3.
+rem still provides Qt6Config.cmake but breaks ABI at load time. Qt's top-level
+rem ConfigVersion file delegates to another file and does not necessarily
+rem contain the version literal, so query the installed Qt tool instead.
+if not exist "%QT_ROOT%\bin\qmake.exe" (
+    echo ERROR: qmake.exe was not found under OPENSTREAM_QT_ROOT: %QT_ROOT%
+    exit /b 1
+)
+set "OPENSTREAM_QT_VERSION="
+for /f "usebackq delims=" %%V in (`"%QT_ROOT%\bin\qmake.exe" -query QT_VERSION`) do set "OPENSTREAM_QT_VERSION=%%V"
+if not "!OPENSTREAM_QT_VERSION!"=="6.8.3" (
+    echo ERROR: Expected Qt 6.8.3 for OBS 32.2.1, found !OPENSTREAM_QT_VERSION!.
     echo Check OPENSTREAM_QT_ROOT: %QT_ROOT%
     exit /b 1
 )
