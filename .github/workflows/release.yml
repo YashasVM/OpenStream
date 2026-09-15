@@ -38,7 +38,9 @@ jobs:
           java-version: "17"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
 
       - name: Install Android build packages
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "cmake;3.22.1" "ndk;27.0.12077973"
@@ -243,6 +245,9 @@ jobs:
           test -f dist/openstream-android.apk.sha256
           test -f dist/openstream-obs-plugin-installer-windows-x64.exe
           test -f dist/openstream-obs-windows-x64.zip
+          test -f dist/openstream-obs-windows-x64.zip.sha256
+          (cd dist && sha256sum --check openstream-android.apk.sha256)
+          (cd dist && sha256sum --check openstream-obs-windows-x64.zip.sha256)
 
       - name: Create release
         env:
@@ -255,6 +260,7 @@ jobs:
             dist/openstream-android.apk.sha256 \
             dist/openstream-obs-plugin-installer-windows-x64.exe \
             dist/openstream-obs-windows-x64.zip \
+            dist/openstream-obs-windows-x64.zip.sha256 \
             --target "$GITHUB_SHA" \
             --title "OpenStream ${TAG_NAME}" \
             --notes-file docs/release-notes-template.md

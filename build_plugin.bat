@@ -122,6 +122,12 @@ if not exist "%OBS_SDK_DIR%\libobs\obs-module.h" (
         )
     )
 
+    for /f %%H in ('powershell -NoProfile -Command "(Get-FileHash -LiteralPath '%OBS_SDK_ZIP%' -Algorithm SHA256).Hash.ToLowerInvariant()"') do set "OBS_SDK_ACTUAL=%%H"
+    if /I not "!OBS_SDK_ACTUAL!"=="%OBS_SDK_SHA256%" (
+        echo ERROR: OBS source checksum mismatch.
+        exit /b 1
+    )
+
     echo [2/6] Extracting OBS source headers...
     if not exist "%OBS_SDK_DIR%" mkdir "%OBS_SDK_DIR%"
     tar -xzf "%OBS_SDK_ZIP%" -C "%OBS_SDK_DIR%" --strip-components=1
@@ -141,8 +147,9 @@ if not exist "%OBS_SDK_DIR%\libobs\obs-module.h" (
 
 echo [3/6] Setting up pinned OBS FFmpeg headers and import libraries...
 rem Always verify both archives regardless of extraction cache, so a poisoned
-rem or truncated cache cannot survive across builds. Verification runs even on
-rem cache hits whenever the zips are present.
+rem or truncated cache cannot survive across builds. Source archives needed for
+rem extraction are verified above before tar sees them; this also covers cache
+rem hits whenever the zip is present.
 if exist "%OBS_SDK_ZIP%" (
     for /f %%H in ('powershell -NoProfile -Command "(Get-FileHash -LiteralPath '%OBS_SDK_ZIP%' -Algorithm SHA256).Hash.ToLowerInvariant()"') do set "OBS_SDK_ACTUAL=%%H"
     if /I not "!OBS_SDK_ACTUAL!"=="%OBS_SDK_SHA256%" (
