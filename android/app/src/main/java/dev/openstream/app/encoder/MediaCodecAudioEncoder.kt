@@ -91,7 +91,14 @@ class MediaCodecAudioEncoder(
                 Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
                 val pcmBuffer = ByteArray(bytesForDurationMs(20))
                 var capturedSamples = 0L
+                // PTS anchor: presentation times are derived from the capture-start
+                // wall clock plus the count of PCM samples consumed so far. This does
+                // NOT use AudioRecord timestamps/getTimestamp, so it cannot observe
+                // microphone underruns directly; any input-side drops are surfaced
+                // via the droppedInputFrames counter below (recording-gap logging).
+                // Timestamp math is intentionally unchanged here (out of scope).
                 val startPresentationTimeUs = System.nanoTime() / 1000
+                var droppedInputFrames = 0L
                 try {
                     while (captureGeneration == generation) {
                         val bytesRead = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -113,7 +120,13 @@ class MediaCodecAudioEncoder(
                                     inputBuffer.clear()
                                     inputBuffer.put(pcmBuffer, 0, bytesRead)
                                     encoder.queueInputBuffer(inputIndex, 0, bytesRead, presentationTimeUs, 0)
+                                } else {
+                                    droppedInputFrames += 1
+                                    Log.w(TAG, "Dropping audio input frame: codec input buffer null (total dropped=$droppedInputFrames)")
                                 }
+                            } else {
+                                droppedInputFrames += 1
+                                Log.w(TAG, "Dropping audio input frame: no codec input buffer available (total dropped=$droppedInputFrames)")
                             }
                             capturedSamples += samplesRead
                             drainEncoder(encoder, generation)
@@ -160,7 +173,23 @@ class MediaCodecAudioEncoder(
         audioRecord = null
         runCatching { recorder?.stop() }
         runCatching { recorder?.release() }
-        captureThread?.join(500)
+        // The capture thread may be blocked in READ_BLOCKING AudioRecord.read or a
+        // 10 s dequeueInputBuffer; stopping the recorder above unblocks the read,
+        // but never release the codec underneath a still-alive capture thread.
+        val capture = captureThread
+        if (capture != null && capture !== Thread.currentThread()) {
+            runCatching { capture.join(CAPTURE_THREAD_JOIN_TIMEOUT_MS) }
+                .onFailure { Thread.currentThread().interrupt() }
+            if (capture.isAlive) {
+                Log.w(TAG, "Audio capture thread did not exit within timeout; interrupting")
+                capture.interrupt()
+                runCatching { capture.join(CAPTURE_THREAD_JOIN_TIMEOUT_MS) }
+                    .onFailure { Thread.currentThread().interrupt() }
+            }
+            if (capture.isAlive) {
+                Log.w(TAG, "Audio capture thread still alive; releasing codec anyway")
+            }
+        }
         captureThread = null
 
         val encoder = codec
@@ -314,5 +343,6 @@ class MediaCodecAudioEncoder(
         private const val TAG = "OpenStreamAudioEncoder"
         private const val BYTES_PER_PCM16_SAMPLE = 2
         private const val MAX_CAPTURE_BUFFER_MS = 80
+        private const val CAPTURE_THREAD_JOIN_TIMEOUT_MS = 500L
     }
 }

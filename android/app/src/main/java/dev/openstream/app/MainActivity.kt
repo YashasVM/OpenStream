@@ -100,6 +100,7 @@ class MainActivity : Activity() {
     private var pendingConnectAfterSettings = false
     private var currentDevices: List<DiscoveredObsDevice> = emptyList()
     private var activeStreamBitrate: Int = streamConfig.bitrate
+    private var lastObsSlotRenderKeys: List<String> = emptyList()
     private val callerLifecycleLock = Any()
 
     private val statsTicker = object : Runnable {
@@ -537,6 +538,15 @@ class MainActivity : Activity() {
     // ─────────────────────────── Connection ───────────────────────────
 
     private fun renderObsSlots(devices: List<DiscoveredObsDevice>) {
+        // Diff by sourceInstanceId + visible state instead of rebuilding views on
+        // every 1s discovery beacon. Beacons re-fire continuously while OBS is
+        // alive; without this, each beacon paid removeAllViews() + N TextView
+        // inflations on the UI thread even when nothing changed.
+        val renderKeys = devices.map { device ->
+            "${device.sourceInstanceId}|${device.displayLabel}|${device.busy}|${reservedBy == device.sourceInstanceId}|$phoneConnected"
+        }
+        if (renderKeys == lastObsSlotRenderKeys) return
+        lastObsSlotRenderKeys = renderKeys
         obsSlotList.removeAllViews()
         if (devices.isEmpty()) {
             val empty = TextView(this).apply {
@@ -604,7 +614,12 @@ class MainActivity : Activity() {
 
     private fun reserveForSlot(device: DiscoveredObsDevice) {
         if (device.busy && reservedBy != device.sourceInstanceId) return
-        
+
+        // UI-initiated reservation is local-only: it sets reservedBy/slot state
+        // here without binding CameraControlServer.activeControllerAddress. The
+        // OBS host binds its peer IP on its next POST /reserve with the same
+        // sourceInstanceId (the server allows adoption while unbound), so no
+        // separate mirror call is needed and no network work happens here.
         // If connected to someone else and user explicitly taps a new slot, disconnect the old stream
         if (phoneConnected && reservedBy != device.sourceInstanceId) {
             stopStream(updateStatus = false)
@@ -1080,9 +1095,16 @@ class MainActivity : Activity() {
     private fun changePort(newPort: Int) {
         val clamped = newPort.coerceIn(1024, 65535)
         if (clamped == currentPort) return
+        // Gate restart on prior mode: never flip an active caller-mode session
+        // (manual OBS connection, phoneServerRunning == false) into a listener.
+        // Caller sessions keep running; the new port applies to discovery
+        // advertisements and to the next listener start.
+        val wasListenerMode = phoneServerRunning
         currentPort = clamped
-        // Restart the phone server on the new port
-        stopPhoneServer(clearReservation = false)
+        if (wasListenerMode) {
+            // Restart the phone server on the new port
+            stopPhoneServer(clearReservation = false)
+        }
         // Re-create the advertiser with new port
         phoneAdvertiser.stop()
         phoneAdvertiser = PhoneDiscoveryAdvertiser(
@@ -1093,7 +1115,9 @@ class MainActivity : Activity() {
             reservedByProvider = { reservedBy },
         )
         phoneAdvertiser.start()
-        startPhoneServerIfAllowed()
+        if (wasListenerMode) {
+            startPhoneServerIfAllowed()
+        }
     }
 
     // ─────────────────────────── Preview aspect ratio fix ───────────────────────────

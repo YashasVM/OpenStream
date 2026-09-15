@@ -8,6 +8,7 @@ then launches ffmpeg or ffplay against one Android caller stream.
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -31,6 +32,19 @@ def require_binary(name: str) -> str:
     if not path:
         raise SystemExit(f"Required binary not found on PATH: {name}")
     return path
+
+
+def default_null_sink() -> str:
+    return "NUL" if os.name == "nt" else "/dev/null"
+
+
+def is_null_sink(output: str) -> bool:
+    # NUL-equivalent: case-insensitive "NUL" on Windows, "/dev/null" elsewhere.
+    # Accept both spellings on any OS so an explicit cross-platform value
+    # still selects the null muxer instead of creating a stray file.
+    if output == "/dev/null":
+        return True
+    return output.upper() == "NUL"
 
 
 def ffmpeg_supports_srt(ffmpeg: str) -> bool:
@@ -58,7 +72,7 @@ def build_command(config: ReceiverConfig) -> list[str]:
         ]
 
     ffmpeg = require_binary("ffmpeg")
-    output = config.output or "NUL"
+    output = config.output or default_null_sink()
     return [
         ffmpeg,
         "-hide_banner",
@@ -74,7 +88,7 @@ def build_command(config: ReceiverConfig) -> list[str]:
         "-c",
         "copy",
         "-f",
-        "null" if output.upper() == "NUL" else "mpegts",
+        "null" if is_null_sink(output) else "mpegts",
         output,
     ]
 
@@ -89,8 +103,16 @@ def parse_args(argv: list[str]) -> ReceiverConfig:
 
     if not 1 <= args.port <= 65535:
         parser.error("--port must be between 1 and 65535")
+    if args.port < 1024:
+        parser.error("--port below 1024 requires admin/root privileges; use --port >= 1024 or run elevated")
     if not 20 <= args.latency_ms <= 1000:
         parser.error("--latency-ms must be between 20 and 1000")
+    if not 80 <= args.latency_ms <= 200:
+        print(
+            f"warning: --latency-ms {args.latency_ms} is outside the OBS/Android spec range "
+            "80-200 ms; OBS/Android clamp latency to 80-200 ms",
+            file=sys.stderr,
+        )
 
     return ReceiverConfig(
         port=args.port,
@@ -105,6 +127,10 @@ def main(argv: list[str]) -> int:
     ffmpeg = require_binary("ffmpeg")
     if not ffmpeg_supports_srt(ffmpeg):
         raise SystemExit("The FFmpeg build on PATH does not list SRT protocol support.")
+    if config.ffplay:
+        ffplay = require_binary("ffplay")
+        if not ffmpeg_supports_srt(ffplay):
+            raise SystemExit("The ffplay build on PATH does not list SRT protocol support.")
 
     print("OpenStream receiver listening for Android caller:")
     print(f"  {config.srt_url}")
@@ -113,7 +139,21 @@ def main(argv: list[str]) -> int:
     print()
 
     command = build_command(config)
-    return subprocess.call(command)
+    proc = subprocess.Popen(command)
+    try:
+        return proc.wait()
+    except KeyboardInterrupt:
+        print("\nInterrupted, stopping receiver...", file=sys.stderr)
+        try:
+            proc.terminate()
+            proc.wait(timeout=2)
+        except Exception:
+            try:
+                proc.kill()
+                proc.wait(timeout=2)
+            except Exception:
+                pass
+        return 130
 
 
 if __name__ == "__main__":

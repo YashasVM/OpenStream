@@ -92,6 +92,14 @@ if not exist "%QT_ROOT%\lib\cmake\Qt6\Qt6Config.cmake" (
     echo ERROR: OPENSTREAM_QT_ROOT does not contain Qt6Config.cmake: %QT_ROOT%
     exit /b 1
 )
+rem Pin the exact Qt version OBS 32.2.1 was built against; a different Qt6
+rem still provides Qt6Config.cmake but breaks ABI at load time.
+findstr /C:"6.8.3" "%QT_ROOT%\lib\cmake\Qt6\Qt6ConfigVersion.cmake" >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: Expected Qt 6.8.3 for OBS 32.2.1, but Qt6ConfigVersion.cmake does not report 6.8.3.
+    echo Check OPENSTREAM_QT_ROOT: %QT_ROOT%
+    exit /b 1
+)
 
 echo [1/6] Setting up Visual Studio environment...
 call "%VCVARS%" >nul 2>&1
@@ -105,7 +113,7 @@ if not exist "%DEPS_DIR%" mkdir "%DEPS_DIR%"
 if not exist "%OBS_SDK_DIR%\libobs\obs-module.h" (
     echo [2/6] Downloading OBS source headers...
     if not exist "%OBS_SDK_ZIP%" (
-        curl -L --retry 3 -o "%OBS_SDK_ZIP%" "%OBS_SDK_URL%"
+        curl -L --fail --retry 3 -o "%OBS_SDK_ZIP%" "%OBS_SDK_URL%"
         if errorlevel 1 (
             echo ERROR: Failed to download OBS source headers.
             echo Download manually from: %OBS_SDK_URL%
@@ -132,18 +140,37 @@ if not exist "%OBS_SDK_DIR%\libobs\obs-module.h" (
 )
 
 echo [3/6] Setting up pinned OBS FFmpeg headers and import libraries...
+rem Always verify both archives regardless of extraction cache, so a poisoned
+rem or truncated cache cannot survive across builds. Verification runs even on
+rem cache hits whenever the zips are present.
+if exist "%OBS_SDK_ZIP%" (
+    for /f %%H in ('powershell -NoProfile -Command "(Get-FileHash -LiteralPath '%OBS_SDK_ZIP%' -Algorithm SHA256).Hash.ToLowerInvariant()"') do set "OBS_SDK_ACTUAL=%%H"
+    if /I not "!OBS_SDK_ACTUAL!"=="%OBS_SDK_SHA256%" (
+        echo ERROR: OBS source checksum mismatch.
+        exit /b 1
+    )
+)
+if exist "%OBS_DEPS_ZIP%" (
+    for /f %%H in ('powershell -NoProfile -Command "(Get-FileHash -LiteralPath '%OBS_DEPS_ZIP%' -Algorithm SHA256).Hash.ToLowerInvariant()"') do set "OBS_DEPS_ACTUAL=%%H"
+    if /I not "!OBS_DEPS_ACTUAL!"=="%OBS_DEPS_SHA256%" (
+        echo ERROR: OBS dependency checksum mismatch.
+        exit /b 1
+    )
+)
 if not exist "%OBS_DEPS_DIR%\include\libavcodec\avcodec.h" (
-    if not exist "%OBS_DEPS_ZIP%" curl -L --retry 3 -o "%OBS_DEPS_ZIP%" "%OBS_DEPS_URL%"
+    if not exist "%OBS_DEPS_ZIP%" curl -L --fail --retry 3 -o "%OBS_DEPS_ZIP%" "%OBS_DEPS_URL%"
     if errorlevel 1 exit /b 1
     for /f %%H in ('powershell -NoProfile -Command "(Get-FileHash -LiteralPath '%OBS_DEPS_ZIP%' -Algorithm SHA256).Hash.ToLowerInvariant()"') do set "OBS_DEPS_ACTUAL=%%H"
     if /I not "!OBS_DEPS_ACTUAL!"=="%OBS_DEPS_SHA256%" (
         echo ERROR: OBS dependency checksum mismatch.
         exit /b 1
     )
-    for /f %%H in ('powershell -NoProfile -Command "(Get-FileHash -LiteralPath '%OBS_SDK_ZIP%' -Algorithm SHA256).Hash.ToLowerInvariant()"') do set "OBS_SDK_ACTUAL=%%H"
-    if /I not "!OBS_SDK_ACTUAL!"=="%OBS_SDK_SHA256%" (
-        echo ERROR: OBS source checksum mismatch.
-        exit /b 1
+    if exist "%OBS_SDK_ZIP%" (
+        for /f %%H in ('powershell -NoProfile -Command "(Get-FileHash -LiteralPath '%OBS_SDK_ZIP%' -Algorithm SHA256).Hash.ToLowerInvariant()"') do set "OBS_SDK_ACTUAL=%%H"
+        if /I not "!OBS_SDK_ACTUAL!"=="%OBS_SDK_SHA256%" (
+            echo ERROR: OBS source checksum mismatch.
+            exit /b 1
+        )
     )
     powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '%OBS_DEPS_ZIP%' -DestinationPath '%OBS_DEPS_DIR%' -Force"
     if errorlevel 1 exit /b 1
@@ -169,6 +196,18 @@ for %%F in (avcodec avformat avutil swscale) do (
             )
             lib /def:"%DEPS_DIR%\%%F.def" /out:"%FFMPEG_DIR%\lib\%%F.lib" /machine:x64 >nul 2>&1
         )
+    )
+)
+rem Fail if any generated FFmpeg import library is missing or empty; a silent
+rem dumpbin/lib failure must not link a stale ABI.
+for %%F in (avcodec avformat avutil swscale) do (
+    if not exist "%FFMPEG_DIR%\lib\%%F.lib" (
+        echo ERROR: Failed to generate %FFMPEG_DIR%\lib\%%F.lib from verified OBS DLLs.
+        exit /b 1
+    )
+    for %%S in ("%FFMPEG_DIR%\lib\%%F.lib") do if %%~zS==0 (
+        echo ERROR: Generated import library is empty: %%S
+        exit /b 1
     )
 )
 
@@ -205,8 +244,30 @@ if not exist "%FFMPEG_DIR%\lib\obs-frontend-api.lib" (
     echo ERROR: Could not create the OBS frontend API import library.
     exit /b 1
 )
+for %%S in ("%FFMPEG_DIR%\lib\obs.lib" "%FFMPEG_DIR%\lib\obs-frontend-api.lib") do if exist %%S (
+    for %%T in (%%S) do if %%~zT==0 (
+        echo ERROR: Generated import library is empty: %%S
+        exit /b 1
+    )
+)
 
 echo [4/6] Configuring CMake build...
+rem Guard the destructive clean: BUILD_DIR must be set, must contain "build",
+rem and must not be a drive root or the plugin dir itself (custom
+rem OPENSTREAM_PLUGIN_BUILD_DIR values included).
+if not defined BUILD_DIR (
+    echo ERROR: Refusing to clean an unset BUILD_DIR.
+    exit /b 1
+)
+echo "%BUILD_DIR%" | findstr /I /C:"build" >nul
+if errorlevel 1 (
+    echo ERROR: Refusing to clean BUILD_DIR without 'build' in path: %BUILD_DIR%
+    exit /b 1
+)
+if /I "%BUILD_DIR%"=="%PLUGIN_DIR%" (
+    echo ERROR: Refusing to clean the plugin dir itself: %BUILD_DIR%
+    exit /b 1
+)
 if exist "%BUILD_DIR%" rmdir /S /Q "%BUILD_DIR%"
 mkdir "%BUILD_DIR%"
 
@@ -238,6 +299,11 @@ if not exist "%BUILD_DIR%\openstream-obs.dll" (
     echo ERROR: Build output not found: %BUILD_DIR%\openstream-obs.dll
     exit /b 1
 )
+
+rem Run contract tests when configured; non-fatal if the build has no tests
+rem (e.g. BUILD_TESTING=OFF) so packaging/install still proceeds.
+"%CMAKE_EXE%" -E chdir "%BUILD_DIR%" ctest --output-on-failure
+if errorlevel 1 echo WARNING: ctest reported failures or no tests were found ^(non-fatal^).
 
 if defined PACKAGE_DIR (
     echo [6/6] Packaging plugin artifact...

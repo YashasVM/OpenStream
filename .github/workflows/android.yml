@@ -9,10 +9,16 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded PR runs; keep pushes to main.
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     name: Test, lint, and build debug APK
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository

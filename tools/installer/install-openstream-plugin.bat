@@ -1,6 +1,11 @@
 @echo off
 setlocal
 
+rem Elevation: writing under Program Files (the default OBS install) requires an
+rem elevated shell. Right-click and choose "Run as administrator", or use the
+rem Inno Setup exe which requests elevation automatically (same note as
+rem Install-OpenStreamPlugin.ps1).
+
 set "SCRIPT=%~dp0Install-OpenStreamPlugin.ps1"
 
 if not exist "%SCRIPT%" (

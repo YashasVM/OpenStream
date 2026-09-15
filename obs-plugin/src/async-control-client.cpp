@@ -40,6 +40,10 @@ bool AsyncControlClient::post_urgent(std::function<bool()> command) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (stopping_ || stopped_) return false;
+    // Bound the urgent queue (AGENTS.md: never unbounded). Overflow policy is
+    // drop-newest: reject the newcomer so the caller can blog(LOG_WARNING).
+    // This mirrors the normal queue policy (post() rejects when full).
+    if (urgent_commands_.size() >= kUrgentCapacity) return false;
     urgent_commands_.push(std::move(command));
   }
   wake_.notify_one();

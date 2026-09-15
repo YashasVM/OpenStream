@@ -85,4 +85,93 @@ int main() {
     client.stop();
     check(attempts.load() == 1);
   }
+
+  {
+    // Urgent queue is bounded (kUrgentCapacity=4, drop-newest). Fill it while
+    // the worker is blocked on a normal command; the 5th urgent must be
+    // rejected so a disconnected phone cannot build an unbounded backlog.
+    AsyncControlClient client;
+    std::promise<void> started;
+    std::promise<void> release;
+    const auto release_signal = release.get_future().share();
+    check(client.post([&] {
+      started.set_value();
+      release_signal.wait();
+    }));
+    started.get_future().wait();
+
+    std::atomic<int> urgent_runs{0};
+    std::promise<void> last_urgent_done;
+    for (int i = 0; i < 4; ++i) {
+      const bool is_last = (i == 3);
+      check(client.post_urgent([&, is_last] {
+        ++urgent_runs;
+        if (is_last) last_urgent_done.set_value();
+        return true;
+      }));
+    }
+    check(!client.post_urgent([&] {
+      ++urgent_runs;
+      return true;
+    }));
+    release.set_value();
+    last_urgent_done.get_future().wait();
+    client.stop();
+    check(urgent_runs.load() == 4);
+  }
+
+  {
+    // Queue overflow policy: both queues are bounded drop-newest (reject the
+    // newcomer, caller logs the warning). Normal capacity is 16, urgent is 4.
+    AsyncControlClient client;
+    std::promise<void> started;
+    std::promise<void> release;
+    const auto release_signal = release.get_future().share();
+    check(client.post([&] {
+      started.set_value();
+      release_signal.wait();
+    }));
+    started.get_future().wait();
+    for (int i = 0; i < 16; ++i) {
+      check(client.post([] {}));
+    }
+    check(!client.post([] {}));
+    for (int i = 0; i < 4; ++i) {
+      check(client.post_urgent([] { return true; }));
+    }
+    check(!client.post_urgent([] { return true; }));
+    release.set_value();
+    client.stop();
+    check(!client.post([] {}));
+    check(!client.post_urgent([] { return true; }));
+  }
+
+  {
+    // MediaClock discontinuity: a >2 s jump re-anchors the origin and counts
+    // a surfaced gap instead of teleporting OBS timestamps forever.
+    MediaClock clock;
+    const uint64_t origin = 10'000'000'000ULL;
+    check(clock.map(1'000'000, origin).value() == origin);
+    check(clock.map(1'033'333, origin + 33'333).value() == origin + 33'333);
+    check(clock.gap_count() == 0);
+
+    bool reanchored = false;
+    const auto jumped =
+        clock.map(1'000'000 + 5'000'000'000LL, origin + 66'666, &reanchored);
+    check(reanchored);
+    check(jumped.has_value() && jumped.value() == origin + 66'666);
+    check(clock.gap_count() == 1);
+
+    bool steady = false;
+    check(clock.map(1'000'000 + 5'000'000'000LL + 33'333, origin + 99'999, &steady).value() ==
+          origin + 99'999);
+    check(!steady);
+    check(clock.gap_count() == 1);
+
+    bool rewound = false;
+    const auto back = clock.map(1'000'000, origin + 200'000, &rewound);
+    check(rewound);
+    check(back.has_value() && back.value() == origin + 200'000);
+    check(clock.gap_count() == 2);
+  }
 }

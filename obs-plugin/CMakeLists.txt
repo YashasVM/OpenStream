@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.24)
 project(openstream_obs_plugin VERSION 1.0.1 LANGUAGES CXX)
 include(CTest)
 find_package(Threads REQUIRED)
+# Version-consistency: keep 1.0.1 in sync with android/app/build.gradle.kts
+# ("1.0.1"), tools/installer/openstream-obs-plugin.iss (#define OpenStreamVersion),
+# and build_plugin.bat OPENSTREAM_VERSION. Releases ship the APK + plugin atomically.
 set(OPENSTREAM_VERSION "${PROJECT_VERSION}" CACHE STRING "Version embedded in the OBS plugin")
 
 # Releases are built against OBS Studio 32.2.1 x64.  Its bundled FFmpeg ABI is
@@ -37,8 +40,11 @@ endif()
 find_package(Qt6 6.2 COMPONENTS Network Widgets REQUIRED)
 find_path(OBS_FRONTEND_INCLUDE_DIR NAMES obs-frontend-api.h
     HINTS ${OBS_ROOT} PATH_SUFFIXES frontend/api REQUIRED)
+# NOTE: OBS_FRONTEND_LIBRARY must resolve from OBS_ROOT only. Resolving it from
+# FFMPEG_ROOT (our generated import-lib staging dir) risks linking a stale
+# frontend ABI instead of the version-checked OBS 32.2.1 binaries.
 find_library(OBS_FRONTEND_LIBRARY NAMES obs-frontend-api
-    HINTS ${OBS_ROOT} ${FFMPEG_ROOT}
+    HINTS ${OBS_ROOT}
     PATH_SUFFIXES lib lib/x64 build/frontend/api/Release REQUIRED)
 
 find_path(OBS_INCLUDE_DIR
@@ -79,7 +85,13 @@ find_library(SWSCALE_LIBRARY
     REQUIRED
 )
 
-if (WIN32 AND DEFINED OPENSTREAM_OBS_BIN)
+if (WIN32)
+    # Enforce the FFmpeg ABI gate even when OPENSTREAM_OBS_BIN is unset: fail
+    # explicitly instead of silently skipping verification and linking an
+    # unchecked ABI.
+    if (NOT DEFINED OPENSTREAM_OBS_BIN OR "${OPENSTREAM_OBS_BIN}" STREQUAL "")
+        message(FATAL_ERROR "OPENSTREAM_OBS_BIN must point to the OBS ${OPENSTREAM_OBS_BASELINE} x64 bin dir for FFmpeg ABI verification.")
+    endif()
     foreach(_openstream_ffmpeg_dll IN LISTS OPENSTREAM_FFMPEG_ABI)
         if (NOT EXISTS "${OPENSTREAM_OBS_BIN}/${_openstream_ffmpeg_dll}.dll" AND
             NOT EXISTS "${OPENSTREAM_OBS_BIN}/${_openstream_ffmpeg_dll}.DLL")

@@ -57,6 +57,10 @@ function Get-OpenStreamPluginTarget {
 
 function Get-OpenStreamPluginCopies {
     param([Parameter(Mandatory)][string]$ObsRoot)
+    # Stale-path set aligned with tools/installer/openstream-obs-plugin.iss
+    # [InstallDelete]: canonical per-user/per-machine plugin dirs for both
+    # openstream-obs.dll and openstream-beta-obs.dll, plus the legacy
+    # top-level per-user copy (obs-studio\plugins\openstream-obs.dll).
     $roots = @(
         (Join-Path $ObsRoot "obs-plugins\64bit"),
         (Join-Path $ProgramDataRoot "obs-studio\plugins\openstream-beta-obs\bin\64bit"),
@@ -68,6 +72,11 @@ function Get-OpenStreamPluginCopies {
         foreach ($name in "openstream-beta-obs.dll", "openstream-obs.dll") {
             Join-Path $root $name
         }
+    }
+    # Legacy top-level per-user copies (see .iss InstallDelete).
+    foreach ($name in "openstream-obs.dll", "openstream-beta-obs.dll") {
+        if ($AppDataRoot) { Join-Path $AppDataRoot "obs-studio\plugins\$name" }
+        if ($ProgramDataRoot) { Join-Path $ProgramDataRoot "obs-studio\plugins\$name" }
     }
 }
 
@@ -90,8 +99,24 @@ if ($runningObs) {
 
 $targetDll = Get-OpenStreamPluginTarget -ObsRoot $obsRoot
 $targetDir = Split-Path -Parent $targetDll
+# Elevation: writing under Program Files (the default OBS install) requires an
+# elevated shell. Right-click PowerShell and choose "Run as administrator", or
+# use the Inno Setup exe which requests elevation automatically (same note as
+# install-openstream-plugin.bat).
+# Atomic install: stage the new DLL to a temp file in the target dir, verify it,
+# then move it over the canonical copy. Stale copies are removed only after the
+# new DLL is verified, so a failed copy never leaves OBS without a plugin.
+$stageDll = Join-Path $targetDir ("openstream-obs.dll.new-" + [guid]::NewGuid())
+New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+Copy-Item -LiteralPath $pluginDll -Destination $stageDll -Force
+$staged = Get-Item -LiteralPath $stageDll
+if ($staged.Length -le 0) {
+    Remove-Item -LiteralPath $stageDll -Force -ErrorAction SilentlyContinue
+    throw "Staged plugin DLL failed verification (empty file): $stageDll"
+}
+Move-Item -LiteralPath $stageDll -Destination $targetDll -Force
 foreach ($copy in Get-OpenStreamPluginCopies -ObsRoot $obsRoot) {
-    if (Test-Path -LiteralPath $copy) {
+    if ($copy -ne $targetDll -and (Test-Path -LiteralPath $copy)) {
         Remove-Item -LiteralPath $copy -Force
     }
 }
@@ -99,8 +124,6 @@ $staleData = Join-Path $obsRoot "data\obs-plugins\openstream-beta-obs"
 if (Test-Path -LiteralPath $staleData) {
     Remove-Item -LiteralPath $staleData -Recurse -Force
 }
-New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
-Copy-Item -LiteralPath $pluginDll -Destination $targetDll -Force
 
 Write-Host ""
 Write-Host "OpenStream OBS plugin installed successfully."

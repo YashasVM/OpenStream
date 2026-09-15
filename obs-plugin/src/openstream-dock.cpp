@@ -23,6 +23,7 @@
 #include <QUrl>
 
 #include <cmath>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -73,13 +74,36 @@ class OpenStreamDock final : public QWidget {
     auto *connection = new QHBoxLayout();
     auto *retry = new QPushButton("Connect / retry", this);
     auto *stop = new QPushButton("Stop", this);
+    // Never perform network or disk work on the UI thread (AGENTS.md rule 6):
+    // start/stop join worker threads and may block on SRT/connect timeouts.
+    // Offload to a background thread holding an obs_source ref so the source
+    // cannot be freed mid-call. Status text is set synchronously; the refresh
+    // timer re-reads openstream_source_status() after the worker changes state.
     connect(retry, &QPushButton::clicked, this, [this] {
-      const bool started = openstream_start_camera_source(currentSource());
-      status_->setText(started ? "Connection started" : "Choose an OpenStream source first");
+      obs_source_t *selected = currentSource();
+      if (!selected) {
+        status_->setText("Choose an OpenStream source first");
+        return;
+      }
+      obs_source_get_ref(selected);
+      status_->setText("Connection starting in background...");
+      std::thread([selected] {
+        openstream_start_camera_source(selected);
+        obs_source_release(selected);
+      }).detach();
     });
     connect(stop, &QPushButton::clicked, this, [this] {
-      const bool stopped = openstream_stop_camera_source(currentSource());
-      status_->setText(stopped ? "Camera slot stopped" : "Choose an OpenStream source first");
+      obs_source_t *selected = currentSource();
+      if (!selected) {
+        status_->setText("Choose an OpenStream source first");
+        return;
+      }
+      obs_source_get_ref(selected);
+      status_->setText("Stopping camera slot in background...");
+      std::thread([selected] {
+        openstream_stop_camera_source(selected);
+        obs_source_release(selected);
+      }).detach();
     });
     connection->addWidget(retry);
     connection->addWidget(stop);

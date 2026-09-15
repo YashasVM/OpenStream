@@ -10,7 +10,14 @@ data class ConnectionTarget(
     val latencyMs: Int,
     val bitrateMbps: Int? = null,
 ) {
-    fun toSrtCallerUrl(): String = "srt://$host:$port?mode=caller&latency=$latencyMs"
+    fun toSrtCallerUrl(): String {
+        val urlHost = if (':' in host && !(host.startsWith("[") && host.endsWith("]"))) {
+            "[$host]"
+        } else {
+            host
+        }
+        return "srt://$urlHost:$port?mode=caller&latency=$latencyMs"
+    }
 
     companion object {
         const val DEFAULT_NAME = "OpenStream Phone Link"

@@ -11,6 +11,7 @@
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -25,6 +26,7 @@
 
 #include <chrono>
 #include <atomic>
+#include <cctype>
 #include <cerrno>
 #include <charconv>
 #include <cstdint>
@@ -45,6 +47,7 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavutil/error.h>
+#include <libavutil/hwcontext.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/opt.h>
 #include <libavutil/pixdesc.h>
@@ -167,6 +170,8 @@ bool connect_socket_with_timeout(SocketHandle socket,
 #endif
 
   const int64_t timeout_ms = std::max<int64_t>(1, timeout.count());
+#ifdef _WIN32
+  // Winsock select() takes ignored nfds and works for any SOCKET value.
   timeval wait = {};
   wait.tv_sec = static_cast<long>(timeout_ms / 1000);
   wait.tv_usec = static_cast<long>((timeout_ms % 1000) * 1000);
@@ -177,10 +182,16 @@ bool connect_socket_with_timeout(SocketHandle socket,
   FD_ZERO(&error_fds);
   FD_SET(socket, &write_fds);
   FD_SET(socket, &error_fds);
-#ifdef _WIN32
   const int selected = select(0, nullptr, &write_fds, &error_fds, &wait);
 #else
-  const int selected = select(socket + 1, nullptr, &write_fds, &error_fds, &wait);
+  // Control-channel hardening: poll() instead of select() so control sockets
+  // with fd >= FD_SETSIZE (1024) cannot overflow fd_set. Timeout stays bounded
+  // by kControlConnectTimeout (AGENTS.md: no network work may block the UI).
+  pollfd poll_fd = {};
+  poll_fd.fd = socket;
+  poll_fd.events = POLLOUT;
+  const int selected =
+      poll(&poll_fd, 1, static_cast<int>(timeout_ms > INT32_MAX ? INT32_MAX : timeout_ms));
 #endif
 
   int socket_error = 0;
@@ -272,7 +283,12 @@ std::string cam_label_for_index(size_t index) {
 struct OpenStreamSource;
 std::mutex g_slot_registry_mutex;
 std::map<const void *, std::string> g_source_slots;
-std::map<obs_source_t *, OpenStreamSource *> g_source_contexts;
+// UAF mitigation: g_source_contexts stores shared ownership + generation ids.
+// The map itself is defined after OpenStreamSource (shared_ptr needs a
+// complete type). Lookups copy the shared_ptr under g_slot_registry_mutex so
+// concurrent openstream_destroy() cannot free the object mid-use in
+// openstream_post/start/stop_camera_source and dock send paths. Generation is
+// bumped on erase to invalidate stale raw pointers.
 
 std::string next_available_slot_label_locked() {
   for (size_t index = 0; index < 256; ++index) {
@@ -459,6 +475,10 @@ std::string first_pairing_host() {
 }
 
 std::optional<std::string> json_string_value(const std::string &json, const std::string &key) {
+  // Minimal phone-JSON reader. Keys are phone-generated (no escapes in keys);
+  // values are scanned escape-aware so an embedded \" does not truncate the
+  // match. This is not a full JSON parser (no \u handling, no nesting).
+  // TODO: replace with a vendored JSON parser if control payloads grow.
   const std::string quoted_key = "\"" + key + "\"";
   const size_t key_pos = json.find(quoted_key);
   if (key_pos == std::string::npos) {
@@ -472,11 +492,23 @@ std::optional<std::string> json_string_value(const std::string &json, const std:
   if (start_quote == std::string::npos) {
     return std::nullopt;
   }
-  const size_t end_quote = json.find('"', start_quote + 1);
-  if (end_quote == std::string::npos) {
-    return std::nullopt;
+  size_t cursor = start_quote + 1;
+  while (cursor < json.size()) {
+    const size_t end_quote = json.find('"', cursor);
+    if (end_quote == std::string::npos) {
+      return std::nullopt;
+    }
+    size_t backslashes = 0;
+    for (size_t i = end_quote; i > start_quote + 1 && json[i - 1] == '\\'; --i) {
+      ++backslashes;
+      if (i - 1 == start_quote + 1) break;
+    }
+    if (backslashes % 2 == 0) {
+      return json.substr(start_quote + 1, end_quote - start_quote - 1);
+    }
+    cursor = end_quote + 1;
   }
-  return json.substr(start_quote + 1, end_quote - start_quote - 1);
+  return std::nullopt;
 }
 
 std::optional<int> json_int_value(const std::string &json, const std::string &key) {
@@ -548,26 +580,67 @@ class PhoneDiscoveryReceiver {
  public:
   static constexpr const char *kAutoPhoneId = "auto";
 
+  // Process-wide refcounted singleton (AGENTS.md rule 8: one camera failure
+  // must not interrupt another). Previously each OpenStreamSource owned a
+  // PhoneDiscoveryReceiver that bound UDP 51515; the second source failed to
+  // bind and its devices()/select() stayed empty, breaking multi-camera.
+  // Now all sources share one Core: first start() binds, last stop() joins.
+  // Per-source filtering is preserved via select(source_instance_id).
+  // SO_REUSEADDR (+SO_REUSEPORT where available) is set defensively so a
+  // stale socket does not block rebinding after a crash.
   void start() {
-    if (running_.exchange(true)) {
-      return;
+    // First acquirer binds; join any stale worker outside the lock before
+    // launching so we never assign over a joinable std::thread (terminate).
+    Core &core = shared_core();
+    std::thread stale;
+    bool need_launch = false;
+    {
+      std::lock_guard<std::mutex> lock(core.mutex);
+      if (++core.refcount == 1) {
+        if (core.worker.joinable()) {
+          stale = std::move(core.worker);
+        }
+        core.running = true;
+        need_launch = true;
+      }
     }
-    worker_ = std::thread(&PhoneDiscoveryReceiver::run, this);
+    if (stale.joinable()) stale.join();
+    if (need_launch) {
+      std::lock_guard<std::mutex> lock(core.mutex);
+      if (!core.worker.joinable() && core.running.load()) {
+        core.worker = std::thread(&PhoneDiscoveryReceiver::run_shared, &core);
+      }
+    }
   }
 
   void stop() {
-    running_ = false;
-    if (worker_.joinable()) {
-      worker_.join();
+    Core &core = shared_core();
+    std::thread to_join;
+    {
+      std::lock_guard<std::mutex> lock(core.mutex);
+      if (core.refcount == 0) {
+        return;
+      }
+      if (--core.refcount == 0) {
+        core.running = false;
+        if (core.worker.joinable()) {
+          to_join = std::move(core.worker);
+        }
+      }
+    }
+    // Join outside the mutex: the worker locks it briefly for prune/insert.
+    if (to_join.joinable()) {
+      to_join.join();
     }
   }
 
   std::vector<PhoneDevice> devices() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pruneExpiredLocked();
+    Core &core = shared_core();
+    std::lock_guard<std::mutex> lock(core.mutex);
+    pruneExpiredLocked(core);
     std::vector<PhoneDevice> snapshot;
-    snapshot.reserve(devices_.size());
-    for (const auto &entry : devices_) {
+    snapshot.reserve(core.devices_.size());
+    for (const auto &entry : core.devices_) {
       snapshot.push_back(entry.second);
     }
     std::sort(snapshot.begin(), snapshot.end(), [](const PhoneDevice &lhs, const PhoneDevice &rhs) {
@@ -585,11 +658,12 @@ class PhoneDiscoveryReceiver {
   std::optional<PhoneDevice> select(const std::string &selected_id,
                                     const std::string &source_instance_id,
                                     const std::string &deprioritized_id = "") {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pruneExpiredLocked();
+    Core &core = shared_core();
+    std::lock_guard<std::mutex> lock(core.mutex);
+    pruneExpiredLocked(core);
     if (selected_id.empty() || selected_id == kAutoPhoneId) {
       std::optional<PhoneDevice> deprioritized;
-      for (const auto &entry : devices_) {
+      for (const auto &entry : core.devices_) {
         if (entry.second.busy && entry.second.reserved_by != source_instance_id) {
           continue;
         }
@@ -602,8 +676,8 @@ class PhoneDiscoveryReceiver {
       return deprioritized;
     }
 
-    const auto found = devices_.find(selected_id);
-    if (found == devices_.end() ||
+    const auto found = core.devices_.find(selected_id);
+    if (found == core.devices_.end() ||
         (found->second.busy && found->second.reserved_by != source_instance_id)) {
       return std::nullopt;
     }
@@ -613,26 +687,44 @@ class PhoneDiscoveryReceiver {
  private:
   static constexpr auto kDeviceTtl = std::chrono::seconds(5);
 
-  void pruneExpiredLocked() {
+  struct Core {
+    std::atomic<bool> running{false};
+    std::thread worker;
+    std::mutex mutex;
+    int refcount = 0;
+    std::map<std::string, PhoneDevice> devices_;
+  };
+
+  static Core &shared_core() {
+    static Core core;
+    return core;
+  }
+
+  static void pruneExpiredLocked(Core &core) {
     const auto cutoff = std::chrono::steady_clock::now() - kDeviceTtl;
-    for (auto it = devices_.begin(); it != devices_.end();) {
+    for (auto it = core.devices_.begin(); it != core.devices_.end();) {
       if (it->second.last_seen < cutoff) {
-        it = devices_.erase(it);
+        it = core.devices_.erase(it);
       } else {
         ++it;
       }
     }
   }
 
-  void run() {
+  static void run_shared(Core *core) {
     SocketHandle socket = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (socket == kInvalidSocket) {
       blog(LOG_WARNING, "[OpenStream] Could not create phone discovery socket");
+      std::lock_guard<std::mutex> lock(core->mutex);
+      core->running = false;
       return;
     }
 
     int reuse = 1;
     setsockopt(socket, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&reuse), sizeof(reuse));
+#ifdef SO_REUSEPORT
+    setsockopt(socket, SOL_SOCKET, SO_REUSEPORT, reinterpret_cast<const char *>(&reuse), sizeof(reuse));
+#endif
 #ifdef _WIN32
     DWORD timeout = 500;
     setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char *>(&timeout), sizeof(timeout));
@@ -649,6 +741,8 @@ class PhoneDiscoveryReceiver {
     if (bind(socket, reinterpret_cast<sockaddr *>(&local), sizeof(local)) != 0) {
       blog(LOG_WARNING, "[OpenStream] Could not bind phone discovery UDP port");
       close_socket(socket);
+      std::lock_guard<std::mutex> lock(core->mutex);
+      core->running = false;
       return;
     }
     ip_mreq multicast_request = {};
@@ -660,7 +754,7 @@ class PhoneDiscoveryReceiver {
                reinterpret_cast<const char *>(&multicast_request),
                sizeof(multicast_request));
 
-    while (running_.load()) {
+    while (core->running.load()) {
       char buffer[4096] = {};
       sockaddr_in source = {};
 #ifdef _WIN32
@@ -676,8 +770,8 @@ class PhoneDiscoveryReceiver {
                    reinterpret_cast<sockaddr *>(&source),
                    &source_len);
       if (received <= 0) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        pruneExpiredLocked();
+        std::lock_guard<std::mutex> lock(core->mutex);
+        pruneExpiredLocked(*core);
         continue;
       }
       std::string payload(buffer, buffer + received);
@@ -721,9 +815,9 @@ class PhoneDiscoveryReceiver {
       device.reserved_by = json_string_value(json, "reservedBy").value_or("");
       device.last_seen = std::chrono::steady_clock::now();
       {
-        std::lock_guard<std::mutex> lock(mutex_);
-        pruneExpiredLocked();
-        devices_[device.instance_id] = device;
+        std::lock_guard<std::mutex> lock(core->mutex);
+        pruneExpiredLocked(*core);
+        core->devices_[device.instance_id] = device;
       }
       blog(LOG_INFO,
            "[OpenStream] Discovered phone %s at %s:%d%s",
@@ -735,11 +829,6 @@ class PhoneDiscoveryReceiver {
 
     close_socket(socket);
   }
-
-  std::atomic<bool> running_ = false;
-  std::thread worker_;
-  mutable std::mutex mutex_;
-  std::map<std::string, PhoneDevice> devices_;
 };
 
 class DiscoveryAdvertiser {
@@ -881,6 +970,11 @@ struct OpenStreamSource {
   PhoneDiscoveryReceiver phone_discovery;
   std::thread worker;
   std::mutex settings_mutex;
+  // Serializes openstream_start_worker/stop_worker (worker assign/join and
+  // active_* snapshot). Recursive so start() can call stop() for restarts
+  // without deadlocking. Dock/properties offload start/stop to background
+  // threads; this mutex is what keeps those racing calls safe.
+  std::recursive_mutex start_stop_mutex;
   std::string active_srt_url;
   int active_listener_port = 0;
   int active_latency_ms = 0;
@@ -897,6 +991,41 @@ struct OpenStreamSource {
   std::shared_ptr<AsyncControlClient> camera_controls =
       std::make_shared<AsyncControlClient>();
 };
+
+// Context registry with UAF mitigation (see comment at forward declaration).
+// Entry holds shared ownership so a lookup can keep the source alive across
+// the lock boundary; generation is bumped on destroy so stale raw pointers
+// can be recognized and never resurrected.
+struct SourceContextEntry {
+  std::shared_ptr<OpenStreamSource> ref;
+  uint64_t generation = 0;
+};
+std::map<obs_source_t *, SourceContextEntry> g_source_contexts;
+uint64_t g_source_generation_counter = 0;
+
+// Locked lookup returning shared ownership. Callers hold the returned
+// shared_ptr for the duration of start/stop/post work, then re-validate
+// (null-check) before dereferencing. Never store the raw pointer beyond the
+// call.
+std::shared_ptr<OpenStreamSource> lookup_source_context(obs_source_t *source) {
+  if (!source) return nullptr;
+  std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
+  const auto found = g_source_contexts.find(source);
+  if (found == g_source_contexts.end() || !found->second.ref) return nullptr;
+  return found->second.ref;
+}
+
+// Lookup by private data for properties-button callbacks (which receive void*
+// data, not obs_source_t*). Returns shared ownership to keep the source alive
+// if the callback offloads work to a background thread.
+std::shared_ptr<OpenStreamSource> lookup_source_context_by_raw(OpenStreamSource *raw) {
+  if (!raw) return nullptr;
+  std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
+  for (const auto &entry : g_source_contexts) {
+    if (entry.second.ref.get() == raw) return entry.second.ref;
+  }
+  return nullptr;
+}
 
 bool send_control_command(const std::string &host, int port,
                           const std::string &path, const std::string &body);
@@ -1012,7 +1141,26 @@ bool send_control_command(const std::string &host, int port,
     return false;
   }
 
-  const size_t length_header = response.find("Content-Length:");
+  // Control-channel hardening: HTTP header names are case-insensitive
+  // (RFC 9110). Phones may send "content-length", "Content-length", etc.
+  size_t length_header = std::string::npos;
+  {
+    static constexpr char kNeedle[] = "content-length:";
+    constexpr size_t kNeedleLen = sizeof(kNeedle) - 1;
+    for (size_t i = 0; i + kNeedleLen <= header_end; ++i) {
+      bool match = true;
+      for (size_t j = 0; j < kNeedleLen; ++j) {
+        if (std::tolower(static_cast<unsigned char>(response[i + j])) != kNeedle[j]) {
+          match = false;
+          break;
+        }
+      }
+      if (match) {
+        length_header = i;
+        break;
+      }
+    }
+  }
   if (length_header == std::string::npos || length_header > header_end) {
     return false;
   }
@@ -1166,6 +1314,10 @@ const char *openstream_get_name(void *) {
 }
 
 void openstream_stop_worker(OpenStreamSource *ctx) {
+  if (!ctx) return;
+  // Serialize start/stop (AGENTS.md: no UI network work, no torn worker
+  // assign/join). Recursive mutex: start() calls stop() for restarts.
+  std::lock_guard<std::recursive_mutex> lock(ctx->start_stop_mutex);
   ctx->stop_requested = true;
   ctx->listener_running = false;
   ctx->phone_connected = false;
@@ -1212,6 +1364,56 @@ bool open_video_decoder(AVFormatContext *format_ctx,
          "[OpenStream] No FFmpeg decoder found for codec id %d",
          stream->codecpar->codec_id);
     return false;
+  }
+
+  // Hardware decode probe with explicit software fallback (AGENTS.md rules
+  // 9/18: never enable a software codec silently; HW must have an explicit
+  // fallback and warning). Full zero-copy AVHWFramesContext wiring is still
+  // TODO; today we probe device availability so the fallback is explicit and
+  // logged instead of silent. This never re-encodes ISO video (rule 2).
+  {
+    const char *codec_name = avcodec_get_name(stream->codecpar->codec_id);
+    blog(LOG_INFO, "[OpenStream] Probing hardware decode for codec %s",
+         codec_name ? codec_name : "unknown");
+    bool hw_device_available = false;
+#ifdef _WIN32
+    for (const char *hw_name : {"d3d11va", "qsv"}) {
+      const AVHWDeviceType hw_type = av_hwdevice_find_type_by_name(hw_name);
+      if (hw_type == AV_HWDEVICE_TYPE_NONE) continue;
+      AVBufferRef *probe = nullptr;
+      if (av_hwdevice_ctx_create(&probe, hw_type, nullptr, nullptr, 0) == 0) {
+        av_buffer_unref(&probe);
+        hw_device_available = true;
+        blog(LOG_INFO, "[OpenStream] HW decode device %s available", hw_name);
+        break;
+      }
+    }
+#else
+    for (const char *hw_name : {"vaapi", "qsv", "videotoolbox", "drm"}) {
+      const AVHWDeviceType hw_type = av_hwdevice_find_type_by_name(hw_name);
+      if (hw_type == AV_HWDEVICE_TYPE_NONE) continue;
+      AVBufferRef *probe = nullptr;
+      if (av_hwdevice_ctx_create(&probe, hw_type, nullptr, nullptr, 0) == 0) {
+        av_buffer_unref(&probe);
+        hw_device_available = true;
+        blog(LOG_INFO, "[OpenStream] HW decode device %s available", hw_name);
+        break;
+      }
+    }
+#endif
+    if (!hw_device_available) {
+      blog(LOG_WARNING,
+           "[OpenStream] No hardware decode device available; using explicit "
+           "software decode fallback (codec=%s)",
+           codec_name ? codec_name : "unknown");
+    } else {
+      // TODO(hw-frames): attach AVHWFramesContext/get_format to decoder_ctx
+      // for zero-copy output; until then fall back explicitly with warning.
+      blog(LOG_WARNING,
+           "[OpenStream] Hardware device present but zero-copy HW frame path "
+           "not wired yet; using explicit software decode fallback (codec=%s)",
+           codec_name ? codec_name : "unknown");
+    }
   }
 
   CodecContextPtr codec_ctx(avcodec_alloc_context3(decoder));
@@ -1495,7 +1697,11 @@ uint64_t decode_packets(OpenStreamSource *ctx,
   AVStream *audio_stream = audio_stream_index >= 0
                                ? format_ctx->streams[audio_stream_index]
                                : nullptr;
-  MediaClock media_clock;
+  // Per-stream clocks (AGENTS.md: never replace source timestamps). Video and
+  // audio share the MPEG-TS program clock but drift/re-anchor independently so
+  // a discontinuity in one stream cannot teleport the other's timeline.
+  MediaClock video_clock;
+  MediaClock audio_clock;
   uint64_t video_frames_output = 0;
   uint64_t audio_frames_output = 0;
 
@@ -1512,9 +1718,17 @@ uint64_t decode_packets(OpenStreamSource *ctx,
         return result;
       }
       const auto source_ns = source_timestamp_ns(frame.get(), video_stream);
+      bool video_reanchored = false;
       const auto timestamp_ns = source_ns
-                                    ? media_clock.map(*source_ns, os_gettime_ns())
+                                    ? video_clock.map(*source_ns, os_gettime_ns(), &video_reanchored)
                                     : std::nullopt;
+      if (video_reanchored) {
+        blog(LOG_WARNING,
+             "[OpenStream] MediaClock discontinuity: video clock re-anchored "
+             "(jump exceeded %lld ms; media gap surfaced, total video gaps=%" PRIu64 ")",
+             static_cast<long long>(MediaClock::kMaxJumpNs / 1'000'000),
+             video_clock.gap_count());
+      }
       if (!timestamp_ns) {
         blog(LOG_WARNING,
              "[OpenStream] Dropping video frame without a usable source timestamp (media gap surfaced)");
@@ -1573,9 +1787,17 @@ uint64_t decode_packets(OpenStreamSource *ctx,
       }
 
       const auto source_ns = source_timestamp_ns(audio_frame.get(), audio_stream);
+      bool audio_reanchored = false;
       const auto timestamp_ns = source_ns
-                                    ? media_clock.map(*source_ns, os_gettime_ns())
+                                    ? audio_clock.map(*source_ns, os_gettime_ns(), &audio_reanchored)
                                     : std::nullopt;
+      if (audio_reanchored) {
+        blog(LOG_WARNING,
+             "[OpenStream] MediaClock discontinuity: audio clock re-anchored "
+             "(jump exceeded %lld ms; media gap surfaced, total audio gaps=%" PRIu64 ")",
+             static_cast<long long>(MediaClock::kMaxJumpNs / 1'000'000),
+             audio_clock.gap_count());
+      }
       if (!timestamp_ns) {
         blog(LOG_WARNING,
              "[OpenStream] Dropping audio frame without a usable source timestamp (media gap surfaced)");
@@ -1760,7 +1982,14 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
       set_active_phone(ctx, std::nullopt);
     }
 
-    AVFormatContext *raw_format_ctx = avformat_alloc_context();
+    // FFmpeg ownership contract: avformat_open_input() takes ownership of
+    // *ps. On failure it may already have freed *ps and set it to nullptr, so
+    // the caller must NOT call avformat_free_context() on the same pointer
+    // (double-free). Use the null-safe avformat_close_input(&ptr) guard which
+    // no-ops on nullptr and nulls out on success. raw_format_ctx starts as
+    // nullptr so every exit path is defined even if alloc fails.
+    AVFormatContext *raw_format_ctx = nullptr;
+    raw_format_ctx = avformat_alloc_context();
     if (!raw_format_ctx) {
       blog(LOG_WARNING, "[OpenStream] Could not allocate FFmpeg format context");
       break;
@@ -1788,9 +2017,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
         blog(LOG_WARNING,
              "[OpenStream] Could not open SRT input: %s",
              av_error(result).c_str());
-        if (raw_format_ctx) {
-          avformat_free_context(raw_format_ctx);
-        }
+        avformat_close_input(&raw_format_ctx);
         if (reserved_phone.has_value()) {
           hold_phone_for_reconnect(reserved_phone);
           set_slot_status(ctx, "Reconnecting");
@@ -1801,13 +2028,12 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         continue;
       }
-      if (raw_format_ctx) {
-        avformat_free_context(raw_format_ctx);
-      }
+      avformat_close_input(&raw_format_ctx);
       break;
     }
 
     FormatContextPtr format_ctx(raw_format_ctx);
+    raw_format_ctx = nullptr;
     ctx->phone_connected = true;
     set_slot_status(ctx, "Live");
     ctx->stale_video_frames = 0;
@@ -1872,6 +2098,12 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
 }
 
 void openstream_start_worker(OpenStreamSource *ctx) {
+  if (!ctx) return;
+  // Serialize against concurrent stop()/start() from dock, properties, and
+  // update paths. Holds start_stop_mutex across the active_* snapshot and the
+  // worker assign/join so two starters cannot double-launch or tear down a
+  // freshly launched thread. Recursive: calls openstream_stop_worker() below.
+  std::lock_guard<std::recursive_mutex> guard(ctx->start_stop_mutex);
   std::string srt_url;
   int listener_port = kDefaultListenerPort;
   int latency_ms = 120;
@@ -1898,6 +2130,7 @@ void openstream_start_worker(OpenStreamSource *ctx) {
                             : ctx->selected_phone_id;
   }
 
+  // active_* snapshot is guarded by start_stop_mutex (held above).
   const bool same_active_config =
       ctx->active_srt_url == srt_url &&
       ctx->active_listener_port == listener_port &&
@@ -2027,7 +2260,8 @@ void openstream_update(void *data, obs_data_t *settings) {
 }
 
 void *openstream_create(obs_data_t *settings, obs_source_t *source) {
-  auto *ctx = new OpenStreamSource();
+  auto shared = std::make_shared<OpenStreamSource>();
+  OpenStreamSource *ctx = shared.get();
   ctx->source = source;
   const char *saved_source_instance_id = obs_data_get_string(settings, "source_instance_id");
   ctx->instance_id =
@@ -2042,7 +2276,7 @@ void *openstream_create(obs_data_t *settings, obs_source_t *source) {
     ctx->slot_label =
         (saved_slot_label && saved_slot_label[0] != '\0') ? saved_slot_label : next_available_slot_label_locked();
     g_source_slots[ctx] = ctx->slot_label;
-    g_source_contexts[source] = ctx;
+    g_source_contexts[source] = SourceContextEntry{shared, ++g_source_generation_counter};
   }
   obs_data_set_string(settings, "source_instance_id", ctx->instance_id.c_str());
   obs_data_set_string(settings, "slot_id", ctx->slot_id.c_str());
@@ -2053,16 +2287,31 @@ void *openstream_create(obs_data_t *settings, obs_source_t *source) {
 }
 
 void openstream_destroy(void *data) {
-  auto *ctx = static_cast<OpenStreamSource *>(data);
+  auto *raw = static_cast<OpenStreamSource *>(data);
+  // Hold shared ownership across teardown so concurrent dock/properties paths
+  // that already copied their shared_ptr cannot UAF. Erase first (bump
+  // generation) so late lookups miss instead of resurrecting a dying source.
+  std::shared_ptr<OpenStreamSource> owned;
+  {
+    std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
+    for (auto it = g_source_contexts.begin(); it != g_source_contexts.end(); ++it) {
+      if (it->second.ref.get() == raw) {
+        owned = it->second.ref;
+        ++g_source_generation_counter;
+        g_source_contexts.erase(it);
+        break;
+      }
+    }
+    g_source_slots.erase(raw);
+  }
+  if (!owned) {
+    return;
+  }
+  OpenStreamSource *ctx = owned.get();
   openstream_stop_worker(ctx);
   ctx->phone_discovery.stop();
   ctx->camera_controls->stop();
-  {
-    std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
-    g_source_slots.erase(ctx);
-    g_source_contexts.erase(ctx->source);
-  }
-  delete ctx;
+  // owned releases here; object is deleted once concurrent lookups release.
 }
 
 void openstream_defaults(obs_data_t *settings) {
@@ -2175,21 +2424,27 @@ obs_properties_t *openstream_properties(void *data) {
 
   obs_property_t *connect_button =
       obs_properties_add_button(slot_group, "connect", "Start / Retry Connection", [](obs_properties_t *, obs_property_t *, void *data) {
-    auto *ctx = static_cast<OpenStreamSource *>(data);
-    if (!ctx) {
+    auto *raw = static_cast<OpenStreamSource *>(data);
+    const auto owned = lookup_source_context_by_raw(raw);
+    if (!owned) {
       return false;
     }
-    openstream_start_worker(ctx);
-    if (const auto phone = ctx->phone_discovery.select(ctx->selected_phone_id, ctx->instance_id)) {
-      blog(LOG_INFO,
-           "[OpenStream] Selected Android phone for %s: %s",
-           ctx->slot_label.c_str(),
-           phone->name.c_str());
-    } else {
-      blog(LOG_INFO,
-           "[OpenStream] No available Android phone for %s yet",
-           ctx->slot_label.c_str());
-    }
+    // Never block the UI thread on network/worker join (AGENTS.md rule 6).
+    // Shared ownership keeps the source alive in the background thread even
+    // if the source is removed concurrently.
+    std::thread([owned] {
+      openstream_start_worker(owned.get());
+      if (const auto phone = owned->phone_discovery.select(owned->selected_phone_id, owned->instance_id)) {
+        blog(LOG_INFO,
+             "[OpenStream] Selected Android phone for %s: %s",
+             owned->slot_label.c_str(),
+             phone->name.c_str());
+      } else {
+        blog(LOG_INFO,
+             "[OpenStream] No available Android phone for %s yet",
+             owned->slot_label.c_str());
+      }
+    }).detach();
     return true;
   });
   obs_property_set_long_description(
@@ -2198,12 +2453,16 @@ obs_properties_t *openstream_properties(void *data) {
 
   obs_property_t *disconnect_button =
       obs_properties_add_button(slot_group, "disconnect", "Stop This Slot", [](obs_properties_t *, obs_property_t *, void *data) {
-    auto *ctx = static_cast<OpenStreamSource *>(data);
-    if (!ctx) {
+    auto *raw = static_cast<OpenStreamSource *>(data);
+    const auto owned = lookup_source_context_by_raw(raw);
+    if (!owned) {
       return false;
     }
-    openstream_stop_worker(ctx);
-    blog(LOG_INFO, "[OpenStream] Listener stopped");
+    // Offload blocking stop/join off the UI thread; shared_ptr keeps alive.
+    std::thread([owned] {
+      openstream_stop_worker(owned.get());
+      blog(LOG_INFO, "[OpenStream] Listener stopped");
+    }).detach();
     return true;
   });
   obs_property_set_long_description(
@@ -2341,23 +2600,18 @@ bool openstream_is_camera_source(obs_source_t *source) {
 bool openstream_post_camera_command(obs_source_t *source, const char *path,
                                     const char *json_body) {
   if (!openstream_is_camera_source(source) || !path || !json_body) return false;
-  OpenStreamSource *ctx = nullptr;
-  {
-    std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
-    const auto found = g_source_contexts.find(source);
-    if (found != g_source_contexts.end()) ctx = found->second;
-  }
+  // Shared ownership keeps ctx alive even if openstream_destroy() erases the
+  // registry concurrently. Null-check after the locked lookup.
+  const auto owned = lookup_source_context(source);
+  OpenStreamSource *ctx = owned ? owned.get() : nullptr;
+  if (!ctx) return false;
   return queue_control_command(ctx, path, json_body);
 }
 
 bool openstream_start_camera_source(obs_source_t *source) {
   if (!openstream_is_camera_source(source)) return false;
-  OpenStreamSource *ctx = nullptr;
-  {
-    std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
-    const auto found = g_source_contexts.find(source);
-    if (found != g_source_contexts.end()) ctx = found->second;
-  }
+  const auto owned = lookup_source_context(source);
+  OpenStreamSource *ctx = owned ? owned.get() : nullptr;
   if (!ctx) return false;
   openstream_start_worker(ctx);
   return true;
@@ -2365,12 +2619,8 @@ bool openstream_start_camera_source(obs_source_t *source) {
 
 bool openstream_stop_camera_source(obs_source_t *source) {
   if (!openstream_is_camera_source(source)) return false;
-  OpenStreamSource *ctx = nullptr;
-  {
-    std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
-    const auto found = g_source_contexts.find(source);
-    if (found != g_source_contexts.end()) ctx = found->second;
-  }
+  const auto owned = lookup_source_context(source);
+  OpenStreamSource *ctx = owned ? owned.get() : nullptr;
   if (!ctx) return false;
   openstream_stop_worker(ctx);
   return true;
@@ -2380,12 +2630,8 @@ const char *openstream_source_status(obs_source_t *source) {
   thread_local std::string status;
   status = "Camera unavailable";
   if (!openstream_is_camera_source(source)) return status.c_str();
-  OpenStreamSource *ctx = nullptr;
-  {
-    std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
-    const auto found = g_source_contexts.find(source);
-    if (found != g_source_contexts.end()) ctx = found->second;
-  }
+  const auto owned = lookup_source_context(source);
+  OpenStreamSource *ctx = owned ? owned.get() : nullptr;
   if (!ctx) return status.c_str();
   std::lock_guard<std::mutex> lock(ctx->settings_mutex);
   status = ctx->slot_label + " — " + ctx->slot_status;
