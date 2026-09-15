@@ -14,6 +14,7 @@ second copy of OBS/FFmpeg DLLs.
 | `openstream-android.apk.sha256` | Android users and automation | SHA-256 checksum for the exact APK in the release. |
 | `openstream-obs-plugin-installer-windows-x64.exe` | Windows OBS users | Recommended one-click OBS plugin installer. |
 | `openstream-obs-windows-x64.zip` | Technical users | Manual plugin package with DLL and install scripts. |
+| `openstream-obs-windows-x64.zip.sha256` | Technical users and automation | SHA-256 checksum for the exact manual plugin package. |
 
 ### Android compatibility note
 
@@ -36,7 +37,7 @@ The `Release` workflow builds:
 | Job | Output |
 |---|---|
 | Android APK | `openstream-android.apk`, `openstream-android.apk.sha256` |
-| OBS plugin package | `openstream-obs-windows-x64.zip` |
+| OBS plugin package | `openstream-obs-windows-x64.zip`, `openstream-obs-windows-x64.zip.sha256` |
 | OBS plugin installer | `openstream-obs-plugin-installer-windows-x64.exe` |
 
 The publish job runs only after the repository tests, Android unit tests and
@@ -130,6 +131,7 @@ only; do not publish that APK as a release.
 - Confirm the setup guide links to the same APK, installer EXE, and plugin zip.
 - Confirm pytest, Android unit tests, lint, and both production builds passed.
 - Confirm `openstream-android.apk.sha256` matches the APK.
+- Confirm `openstream-obs-windows-x64.zip.sha256` matches the manual plugin package.
 - Confirm OBS lists `OpenStream V8` and can still load saved `openstream_phone_v7_source` scenes.
 - Confirm the dependency report names `avformat-62.dll`, `avcodec-62.dll`, `avutil-60.dll`, and `swscale-9.dll`, and the clean OBS 32.2.1 log has no OpenStream module-load error.
 - Seed `openstream-obs.dll`, run both installer forms, and confirm stale Program Files, ProgramData, and AppData copies were migrated without touching OBS settings or scenes.

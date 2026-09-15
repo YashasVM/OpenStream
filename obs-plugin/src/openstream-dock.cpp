@@ -73,13 +73,27 @@ class OpenStreamDock final : public QWidget {
     auto *connection = new QHBoxLayout();
     auto *retry = new QPushButton("Connect / retry", this);
     auto *stop = new QPushButton("Stop", this);
+    // These API calls only publish into the source's bounded, coalescing
+    // lifecycle slot. Network work and worker joins happen off the UI thread.
     connect(retry, &QPushButton::clicked, this, [this] {
-      const bool started = openstream_start_camera_source(currentSource());
-      status_->setText(started ? "Connection started" : "Choose an OpenStream source first");
+      obs_source_t *selected = currentSource();
+      if (!selected) {
+        status_->setText("Choose an OpenStream source first");
+        return;
+      }
+      const bool queued = openstream_start_camera_source(selected);
+      status_->setText(queued ? "Connection starting in background..."
+                              : "Camera source is shutting down");
     });
     connect(stop, &QPushButton::clicked, this, [this] {
-      const bool stopped = openstream_stop_camera_source(currentSource());
-      status_->setText(stopped ? "Camera slot stopped" : "Choose an OpenStream source first");
+      obs_source_t *selected = currentSource();
+      if (!selected) {
+        status_->setText("Choose an OpenStream source first");
+        return;
+      }
+      const bool queued = openstream_stop_camera_source(selected);
+      status_->setText(queued ? "Stopping camera slot in background..."
+                              : "Camera source is shutting down");
     });
     connection->addWidget(retry);
     connection->addWidget(stop);

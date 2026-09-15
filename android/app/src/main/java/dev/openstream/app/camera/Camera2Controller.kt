@@ -33,8 +33,8 @@ class Camera2Controller(
     private val targetFps: Int = 30,
 ) {
     private val cameraManager = context.getSystemService(CameraManager::class.java)
-    private val thread = HandlerThread("OpenStreamCamera")
-    private lateinit var handler: Handler
+    private var thread: HandlerThread? = null
+    private var handler: Handler? = null
     private var camera: CameraDevice? = null
     private var session: CameraCaptureSession? = null
     private var streamingSurface: Surface? = null
@@ -57,6 +57,7 @@ class Camera2Controller(
 
     // Torch state
     private var torchEnabled = false
+    private var flashAvailable = false
 
     /** Zoom value as a fraction [minZoom, maxZoom]. */
     val zoomRatio: Float get() = synchronized(lifecycleLock) { currentZoomRatio }
@@ -65,6 +66,8 @@ class Camera2Controller(
 
     companion object {
         private const val TAG = "OpenStreamCamera"
+        private const val BACK_DUAL_FOCAL_RATIO_THRESHOLD = 1.5f
+        private const val CAMERA_THREAD_JOIN_TIMEOUT_MS = 500L
     }
 
     /**
@@ -73,16 +76,42 @@ class Camera2Controller(
      */
     fun availableLenses(): List<CameraLens> {
         val result = mutableListOf<CameraLens>()
-        val cameraIds = cameraManager.cameraIdList
+        val cameraIds: Array<String> = try {
+            cameraManager.cameraIdList
+        } catch (error: CameraAccessException) {
+            Log.w(TAG, "Could not enumerate cameras", error)
+            return listOf(CameraLens.Back)
+        } catch (error: SecurityException) {
+            Log.w(TAG, "Camera permission missing while enumerating cameras", error)
+            return listOf(CameraLens.Back)
+        } catch (error: IllegalArgumentException) {
+            Log.w(TAG, "Could not enumerate cameras", error)
+            return listOf(CameraLens.Back)
+        }
+        if (cameraIds.isEmpty()) {
+            Log.w(TAG, "Device reports no cameras; falling back to a single Back lens entry")
+            return listOf(CameraLens.Back)
+        }
 
         // Collect all back-facing cameras with their focal lengths
         data class CamInfo(val id: String, val focalLength: Float, val facing: Int)
         val cameras = cameraIds.mapNotNull { id ->
-            val chars = cameraManager.getCameraCharacteristics(id)
-            val facing = chars.get(CameraCharacteristics.LENS_FACING) ?: return@mapNotNull null
-            val focalLengths = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
-            val focal = focalLengths?.firstOrNull() ?: 0f
-            CamInfo(id, focal, facing)
+            try {
+                val chars = cameraManager.getCameraCharacteristics(id)
+                val facing = chars.get(CameraCharacteristics.LENS_FACING) ?: return@mapNotNull null
+                val focalLengths = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+                val focal = focalLengths?.firstOrNull() ?: 0f
+                CamInfo(id, focal, facing)
+            } catch (error: CameraAccessException) {
+                Log.w(TAG, "Skipping camera $id during enumeration", error)
+                null
+            } catch (error: SecurityException) {
+                Log.w(TAG, "Skipping camera $id during enumeration", error)
+                null
+            } catch (error: IllegalArgumentException) {
+                Log.w(TAG, "Skipping camera $id during enumeration", error)
+                null
+            }
         }
 
         val backCams = cameras.filter { it.facing == CameraCharacteristics.LENS_FACING_BACK }
@@ -95,7 +124,7 @@ class Camera2Controller(
             result.add(CameraLens.BackTelephoto)
         } else if (backCams.size == 2) {
             val ratio = if (backCams[0].focalLength > 0) backCams[1].focalLength / backCams[0].focalLength else 1f
-            if (ratio > 1.5f) {
+            if (ratio > BACK_DUAL_FOCAL_RATIO_THRESHOLD) {
                 result.add(CameraLens.Back)
                 result.add(CameraLens.BackTelephoto)
             } else {
@@ -250,6 +279,23 @@ class Camera2Controller(
             cancelCameraRecoveryLocked()
             closeCamera()
             streamingSurface = null
+            quitCameraThreadLocked()
+        }
+    }
+
+    /**
+     * Quits the camera HandlerThread so a stopped controller never leaks it.
+     * The next start recreates the thread via [ensureThread]. Safe to call
+     * multiple times and from any thread.
+     */
+    fun release() {
+        synchronized(lifecycleLock) {
+            desiredRunning = false
+            lifecycleGeneration += 1
+            cancelCameraRecoveryLocked()
+            closeCamera()
+            streamingSurface = null
+            quitCameraThreadLocked()
         }
     }
 
@@ -267,11 +313,6 @@ class Camera2Controller(
         }
     }
 
-    fun setManualExposure(iso: Int, exposureTimeNs: Long) {
-        require(iso > 0)
-        require(exposureTimeNs > 0)
-    }
-
     fun setTorch(enabled: Boolean) {
         synchronized(lifecycleLock) {
             torchEnabled = enabled
@@ -280,10 +321,28 @@ class Camera2Controller(
     }
 
     private fun ensureThread() {
-        if (!thread.isAlive) {
-            thread.start()
+        if (thread?.isAlive == true && handler != null) return
+        // A quit HandlerThread cannot be restarted; drop it and create a fresh one.
+        thread?.let { dead -> runCatching { dead.quitSafely() } }
+        thread = null
+        handler = null
+        val fresh = HandlerThread("OpenStreamCamera").apply { start() }
+        thread = fresh
+        handler = Handler(fresh.looper)
+    }
+
+    private fun quitCameraThreadLocked() {
+        val old = thread ?: return
+        thread = null
+        handler = null
+        old.quitSafely()
+        if (Thread.currentThread() != old) {
+            runCatching { old.join(CAMERA_THREAD_JOIN_TIMEOUT_MS) }
+            if (old.isAlive) {
+                Log.w(TAG, "Camera thread did not exit within timeout")
+                old.quit()
+            }
         }
-        handler = Handler(thread.looper)
     }
 
     private fun closeCamera() {
@@ -342,7 +401,19 @@ class Camera2Controller(
     }
 
     private fun loadZoomCapabilities(cameraId: String) {
-        val chars = cameraManager.getCameraCharacteristics(cameraId)
+        val chars = try {
+            cameraManager.getCameraCharacteristics(cameraId)
+        } catch (error: CameraAccessException) {
+            Log.w(TAG, "Could not read characteristics for camera $cameraId", error)
+            return
+        } catch (error: SecurityException) {
+            Log.w(TAG, "Could not read characteristics for camera $cameraId", error)
+            return
+        } catch (error: IllegalArgumentException) {
+            Log.w(TAG, "Could not read characteristics for camera $cameraId", error)
+            return
+        }
+        flashAvailable = chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
         val availableFpsRanges = chars
             .get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
             .orEmpty()
@@ -509,9 +580,11 @@ class Camera2Controller(
     }
 
     private fun applyTorch(builder: CaptureRequest.Builder) {
-        if (torchEnabled) {
-            builder.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH)
-        }
+        if (!flashAvailable) return
+        builder.set(
+            CaptureRequest.FLASH_MODE,
+            if (torchEnabled) CaptureRequest.FLASH_MODE_TORCH else CaptureRequest.FLASH_MODE_OFF,
+        )
     }
 
     private fun rebuildRepeatingRequest() {
@@ -565,29 +638,89 @@ class Camera2Controller(
     }
 
     private fun selectCameraId(lens: CameraLens): String {
-        val cameraIds = cameraManager.cameraIdList
+        val cameraIds: Array<String> = try {
+            cameraManager.cameraIdList
+        } catch (error: CameraAccessException) {
+            Log.w(TAG, "Could not enumerate cameras for lens $lens", error)
+            return activeCameraId
+                ?: throw IllegalStateException("No cameras available on this device", error)
+        } catch (error: SecurityException) {
+            Log.w(TAG, "Camera permission missing while selecting lens $lens", error)
+            return activeCameraId
+                ?: throw IllegalStateException("No cameras available on this device", error)
+        } catch (error: IllegalArgumentException) {
+            Log.w(TAG, "Could not enumerate cameras for lens $lens", error)
+            return activeCameraId
+                ?: throw IllegalStateException("No cameras available on this device", error)
+        }
+        if (cameraIds.isEmpty()) {
+            return activeCameraId
+                ?: throw IllegalStateException("No cameras available on this device")
+        }
         val candidates = cameraIds.filter { id ->
-            val chars = cameraManager.getCameraCharacteristics(id)
-            chars.get(CameraCharacteristics.LENS_FACING) == lens.facing
+            try {
+                cameraManager.getCameraCharacteristics(id)
+                    .get(CameraCharacteristics.LENS_FACING) == lens.facing
+            } catch (error: CameraAccessException) {
+                Log.w(TAG, "Skipping camera $id while selecting lens $lens", error)
+                false
+            } catch (error: SecurityException) {
+                Log.w(TAG, "Skipping camera $id while selecting lens $lens", error)
+                false
+            } catch (error: IllegalArgumentException) {
+                Log.w(TAG, "Skipping camera $id while selecting lens $lens", error)
+                false
+            }
         }
 
-        if (candidates.isEmpty()) return cameraIds.first()
+        if (candidates.isEmpty()) {
+            Log.w(TAG, "No camera matches lens $lens; using ${cameraIds.first()}")
+            return activeCameraId ?: cameraIds.first()
+        }
         if (candidates.size == 1 || lens.isFrontFacing) return candidates.first()
 
         data class CamCandidate(val id: String, val focalLength: Float)
-        val sorted = candidates.map { id ->
-            val chars = cameraManager.getCameraCharacteristics(id)
-            val focal = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull() ?: 0f
-            CamCandidate(id, focal)
+        val sorted = candidates.mapNotNull { id ->
+            try {
+                val chars = cameraManager.getCameraCharacteristics(id)
+                val focal = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull() ?: 0f
+                CamCandidate(id, focal)
+            } catch (error: CameraAccessException) {
+                Log.w(TAG, "Skipping camera $id while selecting lens $lens", error)
+                null
+            } catch (error: SecurityException) {
+                Log.w(TAG, "Skipping camera $id while selecting lens $lens", error)
+                null
+            } catch (error: IllegalArgumentException) {
+                Log.w(TAG, "Skipping camera $id while selecting lens $lens", error)
+                null
+            }
         }.sortedBy { it.focalLength }
+        if (sorted.isEmpty()) {
+            return activeCameraId ?: candidates.first()
+        }
 
         return when (lens.focalHint) {
             CameraLens.FocalHint.Ultrawide -> sorted.first().id
             CameraLens.FocalHint.Telephoto -> sorted.last().id
             CameraLens.FocalHint.Normal -> {
-                if (sorted.size >= 3) sorted[1].id
-                else if (sorted.size == 2) sorted[1].id
-                else sorted.first().id
+                if (sorted.size >= 3) {
+                    sorted[1].id
+                } else if (sorted.size == 2) {
+                    // Single source of truth mirrored with availableLenses(): a 2-camera
+                    // back array with a wide focal spread advertises Back+Tele, so Normal
+                    // must take the short end to differ from Telephoto (long end).
+                    // A narrow spread advertises Ultrawide+Back, so Normal takes the
+                    // long end to differ from Ultrawide (short end).
+                    val ratio = if (sorted[0].focalLength > 0) {
+                        sorted[1].focalLength / sorted[0].focalLength
+                    } else {
+                        1f
+                    }
+                    if (ratio > BACK_DUAL_FOCAL_RATIO_THRESHOLD) sorted[0].id else sorted[1].id
+                } else {
+                    sorted.first().id
+                }
             }
         }
     }

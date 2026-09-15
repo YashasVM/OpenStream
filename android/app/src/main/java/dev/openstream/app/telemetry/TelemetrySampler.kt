@@ -20,6 +20,8 @@ data class DeviceTelemetry(
 )
 
 class TelemetrySampler(private val context: Context) {
+    // TODO: wire periodic sample() calls into the streaming UI/stats path; today
+    // MainActivity only constructs this sampler and never samples.
     fun sample(
         streamUrl: String,
         codec: String,
@@ -38,8 +40,8 @@ class TelemetrySampler(private val context: Context) {
             height = height,
             fps = fps,
             bitrate = bitrate,
-            batteryPercent = battery.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY),
-            wifiRssi = wifi.connectionInfo?.rssi,
+            batteryPercent = battery?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1,
+            wifiRssi = wifi?.connectionInfo?.rssi,
             temperatureCelsius = null,
             encoderState = "streaming",
         )

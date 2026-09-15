@@ -163,6 +163,7 @@ class MediaCodecVideoEncoder(
                 }
             }
             codec = null
+            runCatching { surface?.release() }
             surface = null
             synchronized(callbackLock) {
                 runCatching { encoder.stop() }
@@ -179,6 +180,7 @@ class MediaCodecVideoEncoder(
         }
         val encoder = codec
         codec = null
+        runCatching { surface?.release() }
         surface = null
         if (encoder != null) {
             synchronized(callbackLock) {
@@ -210,6 +212,7 @@ class MediaCodecVideoEncoder(
                 }
                 return encoder
             } catch (error: Throwable) {
+                runCatching { surface?.release() }
                 surface = null
                 runCatching { encoder.release() }
                 if (!applyOptionalTuning) {

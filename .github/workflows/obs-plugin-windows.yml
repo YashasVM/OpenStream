@@ -9,10 +9,16 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded PR runs; keep pushes to main.
+concurrency:
+  group: obs-plugin-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     name: Build Windows x64 plugin
     runs-on: windows-latest
+    timeout-minutes: 60
 
     steps:
       - name: Check out repository
@@ -47,6 +53,17 @@ jobs:
           set OPENSTREAM_SKIP_INSTALL=1
           set OPENSTREAM_PLUGIN_PACKAGE_DIR=%CD%\artifacts
           call build_plugin.bat
+
+      - name: Run C++ contract tests (ctest)
+        shell: powershell
+        run: |
+          ctest --test-dir obs-plugin/build --output-on-failure
+
+      - name: Run repository behavioural tests (pytest)
+        shell: powershell
+        run: |
+          python -m pip install --disable-pip-version-check pytest
+          python -m pytest -q
 
       - name: Verify OBS 32 FFmpeg ABI dependencies
         shell: powershell

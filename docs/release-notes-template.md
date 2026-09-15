@@ -20,6 +20,7 @@ OpenStream V1.0.1 is a fixed Android-to-OBS camera release with V8 source naming
 | `openstream-android.apk.sha256` | Verify the downloaded APK before installation. |
 | `openstream-obs-plugin-installer-windows-x64.exe` | Recommended Windows installer for the OBS plugin. |
 | `openstream-obs-windows-x64.zip` | Manual plugin package with DLL and install scripts. |
+| `openstream-obs-windows-x64.zip.sha256` | Verify the downloaded manual plugin package. |
 
 > [!NOTE]
 > The Android APK is release-signed and accompanied by a SHA-256 checksum. Public releases fail instead of publishing a debug-signed fallback when signing inputs are unavailable.

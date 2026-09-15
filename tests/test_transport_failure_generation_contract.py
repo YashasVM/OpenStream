@@ -35,7 +35,12 @@ def test_send_failures_preserve_transport_generation_for_recovery():
         client.index("fun sendAudioAccessUnit") : client.index("fun isCurrentSessionGeneration")
     ]
     for send in (video, audio):
-        assert "val generation = sessionGeneration.get()" in send
+        assert "val generation: Long" in send
+        assert "val wasConnected: Boolean" in send
+        snapshot = _block_after(send, "synchronized(stateLock)")
+        assert "generation = sessionGeneration.get()" in snapshot
+        assert "wasConnected = connected" in snapshot
+        assert "SrtNativeBridge.send" not in snapshot
         assert "SrtSendResult(sent, generation, recoveryRequired = !sent)" in send
 
 

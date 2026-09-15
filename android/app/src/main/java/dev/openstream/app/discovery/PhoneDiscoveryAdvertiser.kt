@@ -21,13 +21,18 @@ class PhoneDiscoveryAdvertiser(
     private val reservedByProvider: () -> String? = { null },
 ) {
     private val running = AtomicBoolean(false)
+    @Volatile private var pendingRestart = false
     @Volatile private var worker: Thread? = null
     private val instanceId = UUID.randomUUID().toString()
 
     fun start() {
         if (running.get()) return
-        if (worker?.isAlive == true) return
+        if (worker?.isAlive == true) {
+            pendingRestart = true
+            return
+        }
         if (!running.compareAndSet(false, true)) return
+        pendingRestart = false
         worker = Thread(::run, "OpenStreamPhoneAdvertiser").apply {
             isDaemon = true
             start()
@@ -35,6 +40,7 @@ class PhoneDiscoveryAdvertiser(
     }
 
     fun stop() {
+        pendingRestart = false
         running.set(false)
         val thread = worker
         thread?.interrupt()
@@ -51,6 +57,10 @@ class PhoneDiscoveryAdvertiser(
         }.getOrElse {
             running.set(false)
             if (worker === Thread.currentThread()) worker = null
+            if (pendingRestart) {
+                pendingRestart = false
+                start()
+            }
             return
         }
         try {
@@ -75,6 +85,10 @@ class PhoneDiscoveryAdvertiser(
             socket.close()
             if (worker === Thread.currentThread()) worker = null
             running.set(false)
+            if (pendingRestart) {
+                pendingRestart = false
+                start()
+            }
         }
     }
 

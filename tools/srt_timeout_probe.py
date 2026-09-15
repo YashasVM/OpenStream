@@ -92,7 +92,44 @@ def ffmpeg_path() -> str:
     protocols = {line.strip() for line in probe.stdout.splitlines()}
     if "srt" not in protocols:
         raise RuntimeError("ffmpeg was built without SRT support")
+    _require_ffmpeg_component(path, "-formats", "lavfi", "lavfi test-source input")
+    _require_ffmpeg_component(path, "-encoders", "mpeg2video", "mpeg2video encoder")
+    _require_ffmpeg_component(path, "-muxers", "mpegts", "mpegts muxer")
     return path
+
+
+def _ffmpeg_list_contains(path: str, list_arg: str, token: str) -> bool:
+    probe = subprocess.run(
+        [path, "-hide_banner", list_arg],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    combined = f"{probe.stdout}\n{probe.stderr}"
+    return token in combined.split()
+
+
+def _require_ffmpeg_component(path: str, list_arg: str, token: str, label: str) -> None:
+    try:
+        if _ffmpeg_list_contains(path, list_arg, token):
+            return
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(f"ffmpeg capability check failed for {label}: {exc}") from exc
+    raise RuntimeError(f"ffmpeg was built without {label} support (missing {token})")
+
+
+def _candidate_free_port() -> int:
+    """Return an OS-assigned free UDP port candidate.
+
+    The socket is closed before return, so callers must handle the
+    bind-then-use race by retrying on EADDRINUSE (see run_probe).
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+    finally:
+        sock.close()
 
 
 def terminate(proc: Optional[subprocess.Popen[str]]) -> None:
@@ -151,6 +188,11 @@ async def run_probe(
     warmup_s: float,
     max_wait_s: float,
     outage_s: Optional[float],
+    sender_startup_s: float = 0.25,
+    flow_packets: int = 100,
+    flow_timeout_s: float = 8.0,
+    frame_timeout_s: float = 8.0,
+    sender_bind_retries: int = 5,
 ) -> tuple[str, float]:
     ffmpeg = ffmpeg_path()
     loop = asyncio.get_running_loop()
@@ -166,10 +208,9 @@ async def run_probe(
     egress.bind(("127.0.0.1", 0))
     egress.setblocking(False)
 
-    listener_port_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    listener_port_sock.bind(("127.0.0.1", 0))
-    listener_port = listener_port_sock.getsockname()[1]
-    listener_port_sock.close()
+    # Avoid port-reserve TOCTOU: the listener port cannot be held open
+    # (ffmpeg must bind it), so reserve a candidate and retry on collision.
+    listener_port = _candidate_free_port()
 
     ingress_transport, _ = await loop.create_datagram_endpoint(
         lambda: RelayProtocol(state, egress, listener_port), sock=ingress
@@ -182,33 +223,49 @@ async def run_probe(
     sender: Optional[subprocess.Popen[str]] = None
     progress_thread: Optional[threading.Thread] = None
     try:
-        sender_url = (
-            f"srt://127.0.0.1:{listener_port}?mode=listener"
-            "&latency=120000&transtype=live&tlpktdrop=1"
-        )
-        sender = subprocess.Popen(
-            [
-                ffmpeg,
-                "-hide_banner",
-                "-loglevel",
-                "warning",
-                "-re",
-                "-f",
-                "lavfi",
-                "-i",
-                "testsrc2=size=320x180:rate=30",
-                "-an",
-                "-c:v",
-                "mpeg2video",
-                "-f",
-                "mpegts",
-                sender_url,
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
-        await asyncio.sleep(0.25)
+        sender_args_base = [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "warning",
+            "-re",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=320x180:rate=30",
+            "-an",
+            "-c:v",
+            "mpeg2video",
+            "-f",
+            "mpegts",
+        ]
+        for attempt in range(max(1, sender_bind_retries)):
+            sender_url = (
+                f"srt://127.0.0.1:{listener_port}?mode=listener"
+                "&latency=120000&transtype=live&tlpktdrop=1"
+            )
+            sender = subprocess.Popen(
+                [*sender_args_base, sender_url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+            await asyncio.sleep(sender_startup_s)
+            if sender.poll() is None:
+                break
+            # Sender exited during startup: most likely the reserved UDP port
+            # was stolen between reserve and bind (TOCTOU). Retry with a fresh
+            # candidate instead of failing on a transient collision.
+            terminate(sender)
+            sender = None
+            if attempt + 1 >= max(1, sender_bind_retries):
+                raise RuntimeError(
+                    "FFmpeg sender exited during startup; "
+                    "listener port may be in use or the ffmpeg build cannot serve SRT"
+                )
+            listener_port = _candidate_free_port()
+            ingress_transport.get_protocol().peer_port = listener_port  # type: ignore[attr-defined]
+        assert sender is not None and sender.poll() is None
 
         receiver_url = (
             f"srt://127.0.0.1:{ingress_port}?mode=caller"
@@ -240,8 +297,8 @@ async def run_probe(
         )
         progress_thread.start()
 
-        await wait_for_transport_flow(state, receiver, sender, 100, 8.0)
-        await wait_for_frame_progress(progress, receiver, sender, 0, 8.0)
+        await wait_for_transport_flow(state, receiver, sender, flow_packets, flow_timeout_s)
+        await wait_for_frame_progress(progress, receiver, sender, 0, frame_timeout_s)
         await asyncio.sleep(warmup_s)
         state.blackhole = True
         blackhole_at = time.monotonic()
@@ -288,6 +345,36 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="restore traffic after this many seconds and verify receiver frames resume",
     )
+    parser.add_argument(
+        "--sender-startup-s",
+        type=float,
+        default=0.25,
+        help="delay after launching the SRT sender before launching the receiver",
+    )
+    parser.add_argument(
+        "--flow-packets",
+        type=int,
+        default=100,
+        help="relay packets required before transport flow is considered established",
+    )
+    parser.add_argument(
+        "--flow-timeout-s",
+        type=float,
+        default=8.0,
+        help="deadline for transport flow establishment",
+    )
+    parser.add_argument(
+        "--frame-timeout-s",
+        type=float,
+        default=8.0,
+        help="deadline for initial receiver frame progress",
+    )
+    parser.add_argument(
+        "--sender-bind-retries",
+        type=int,
+        default=5,
+        help="sender listener-port bind attempts before giving up (TOCTOU retry)",
+    )
     return parser.parse_args()
 
 
@@ -298,12 +385,27 @@ def main() -> int:
         or args.warmup_s < 0
         or args.max_wait_s <= 0
         or (args.outage_s is not None and args.outage_s <= 0)
+        or args.sender_startup_s < 0
+        or args.flow_packets <= 0
+        or args.flow_timeout_s <= 0
+        or args.frame_timeout_s <= 0
+        or args.sender_bind_retries <= 0
     ):
         print("timeout/wait values must be positive", file=sys.stderr)
         return 2
     try:
         mode, elapsed = asyncio.run(
-            run_probe(args.timeout_us, args.warmup_s, args.max_wait_s, args.outage_s)
+            run_probe(
+                args.timeout_us,
+                args.warmup_s,
+                args.max_wait_s,
+                args.outage_s,
+                args.sender_startup_s,
+                args.flow_packets,
+                args.flow_timeout_s,
+                args.frame_timeout_s,
+                args.sender_bind_retries,
+            )
         )
     except Exception as exc:
         print(f"probe failed: {exc}", file=sys.stderr)

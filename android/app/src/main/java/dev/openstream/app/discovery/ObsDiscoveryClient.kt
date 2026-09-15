@@ -22,20 +22,26 @@ class ObsDiscoveryClient(
     private val nowMs: () -> Long = { System.currentTimeMillis() },
 ) {
     private val running = AtomicBoolean(false)
+    @Volatile private var pendingRestart = false
     private val mainHandler = Handler(Looper.getMainLooper())
+    // Bounded: every queue/map declares capacity + overflow policy (AGENTS.md rule 16).
+    // Oldest-seen entries are evicted first when the cap is reached.
     private val devices = linkedMapOf<String, DiscoveredObsDevice>()
     @Volatile private var socket: MulticastSocket? = null
     @Volatile private var worker: Thread? = null
-    private var multicastLock: WifiManager.MulticastLock? = null
+    @Volatile private var multicastLock: WifiManager.MulticastLock? = null
+    @Volatile private var lastPublishMs = 0L
+    @Volatile private var publishPending = false
 
     fun start() {
         if (running.get()) return
         if (worker?.isAlive == true) {
-            Log.w(TAG, "Discovery worker is still stopping; delaying restart")
+            Log.w(TAG, "Discovery worker is still stopping; restart will follow")
+            pendingRestart = true
             return
         }
         if (!running.compareAndSet(false, true)) return
-        acquireMulticastLock()
+        pendingRestart = false
         worker = Thread(::receiveLoop, "OpenStreamDiscovery").apply {
             isDaemon = true
             start()
@@ -43,6 +49,7 @@ class ObsDiscoveryClient(
     }
 
     fun stop() {
+        pendingRestart = false
         running.set(false)
         socket?.close()
         socket = null
@@ -53,6 +60,8 @@ class ObsDiscoveryClient(
                 .onFailure { Thread.currentThread().interrupt() }
         }
         if (worker === thread && thread?.isAlive != true) worker = null
+        mainHandler.removeCallbacks(publishRunnable)
+        publishPending = false
         synchronized(devices) {
             devices.clear()
         }
@@ -78,8 +87,13 @@ class ObsDiscoveryClient(
     }
 
     private fun receiveLoop() {
+        // The multicast lock lifetime is paired to this worker: acquired here
+        // (off the UI thread) and released in finally, so start()/stop() can
+        // never leak a held lock.
         var udp: MulticastSocket? = null
         try {
+            runCatching { acquireMulticastLock() }
+                .onFailure { Log.w(TAG, "Could not acquire multicast lock", it) }
             val multicast = MulticastSocket(null).apply {
                 reuseAddress = true
                 soTimeout = 500
@@ -98,13 +112,23 @@ class ObsDiscoveryClient(
                     val host = packet.address.hostAddress ?: continue
                     val device = ObsDiscoveryProtocol.parseBeacon(payload, host, nowMs()) ?: continue
                     synchronized(devices) {
-                        devices[device.instanceId.ifBlank { "${device.host}:${device.port}" }] = device
+                        val key = device.instanceId.ifBlank { "${device.host}:${device.port}" }
+                        if (key !in devices && devices.size >= MAX_DEVICES) {
+                            // Overflow policy: evict the oldest-seen entry first.
+                            val oldest = devices.minByOrNull { it.value.lastSeenMs }?.key
+                                ?: devices.keys.firstOrNull()
+                            if (oldest != null) {
+                                Log.w(TAG, "Discovery device cap ($MAX_DEVICES) reached; evicting $oldest")
+                                devices.remove(oldest)
+                            }
+                        }
+                        devices[key] = device
                     }
                     pruneExpired()
-                    publishDevices()
+                    publishDevicesDebounced()
                 } catch (_: SocketTimeoutException) {
                     if (pruneExpired()) {
-                        publishDevices()
+                        publishDevicesDebounced()
                     }
                 } catch (error: Exception) {
                     if (multicast.isClosed) {
@@ -116,7 +140,7 @@ class ObsDiscoveryClient(
                     if (running.get()) {
                         Log.w(TAG, "Discovery receive failed", error)
                         if (pruneExpired()) {
-                            publishDevices()
+                            publishDevicesDebounced()
                         }
                     }
                 }
@@ -126,8 +150,13 @@ class ObsDiscoveryClient(
         } finally {
             runCatching { udp?.close() }
             if (socket === udp) socket = null
+            releaseMulticastLock()
             if (worker === Thread.currentThread()) worker = null
             running.set(false)
+            if (pendingRestart) {
+                pendingRestart = false
+                start()
+            }
         }
     }
 
@@ -152,6 +181,7 @@ class ObsDiscoveryClient(
     }
 
     private fun publishDevices() {
+        lastPublishMs = nowMs()
         val snapshot = synchronized(devices) {
             devices.values.sortedWith(
                 compareBy<DiscoveredObsDevice> { it.displayLabel }
@@ -163,12 +193,33 @@ class ObsDiscoveryClient(
         }
     }
 
+    private val publishRunnable = Runnable {
+        publishPending = false
+        publishDevices()
+    }
+
+    /** Coalesces beacon bursts so the UI is not republished more often than ~300 ms. */
+    private fun publishDevicesDebounced() {
+        val now = nowMs()
+        if (now - lastPublishMs >= PUBLISH_DEBOUNCE_MS) {
+            publishDevices()
+            return
+        }
+        if (!publishPending) {
+            publishPending = true
+            val delay = (PUBLISH_DEBOUNCE_MS - (now - lastPublishMs)).coerceAtLeast(0L)
+            mainHandler.postDelayed(publishRunnable, delay)
+        }
+    }
+
     companion object {
         private const val TAG = "OpenStreamDiscovery"
         const val DISCOVERY_PORT = 51515
         const val DISCOVERY_MULTICAST_ADDRESS = "239.255.42.99"
         const val DEVICE_TTL_MS = 5_000L
         private const val STOP_TIMEOUT_MS = 1_000L
+        private const val MAX_DEVICES = 64
+        private const val PUBLISH_DEBOUNCE_MS = 300L
     }
 }
 

@@ -40,7 +40,7 @@ function PhonePreview() {
   return (
     <div className="phone" aria-label="OpenStream Android camera preview mockup">
       <div className="phone-top"><strong>OpenStream</strong><span className="live"><i /> LIVE</span></div>
-      <div className="phone-meta"><span>1080p60</span><span>AAC</span><span>Wi-Fi</span></div>
+      <div className="phone-meta"><span>1080p30</span><span>AAC</span><span>Wi-Fi</span></div>
       <div className="camera-scene"><div className="camera-frame" /><div className="subject">CAM A</div></div>
       <div className="phone-tools"><span>↻</span><span>▦</span><strong>1.8×</strong><span>☼</span></div>
       <div className="phone-slider"><span>ZOOM</span><i><b /></i></div>
@@ -67,7 +67,7 @@ function Hero() {
       <section className="hero" id="top">
         <div className="hero-copy">
           <h1>Your Android phone.<br/>Now an OBS camera.</h1>
-          <p>Low-latency 1080p60 video, AAC audio, live camera controls, and reliable reconnects over local Wi-Fi.</p>
+          <p>Low-latency 1080p30 video, AAC audio, live camera controls, and reliable reconnects over local Wi-Fi.</p>
           <div className="actions">
             <a className="button button-dark" href={links.apk}><Icon>◆</Icon>Download for Android</a>
             <a className="button button-light" href={links.installer}><Icon>✚</Icon>Install OBS plugin</a>
@@ -76,7 +76,7 @@ function Hero() {
         </div>
         <div className="hero-visual"><PhonePreview /><ObsPreview /></div>
       </section>
-      <div className="signal-strip" aria-label="OpenStream media defaults"><span>▣ <b>1080p60</b></span><span>⌁ <b>SRT 120 ms</b></span><span>▥ <b>AAC audio</b></span><span>⌁ <b>Local Wi-Fi</b></span></div>
+      <div className="signal-strip" aria-label="OpenStream media defaults"><span>▣ <b>1080p30</b></span><span>⌁ <b>SRT 120 ms</b></span><span>▥ <b>AAC audio</b></span><span>⌁ <b>Local Wi-Fi</b></span></div>
     </>
   );
 }
@@ -149,7 +149,7 @@ function Pipeline() {
     <section className="pipeline">
       <div><h2>Local network.<br/>Explicit pipes.</h2><p>Your media stays on the LAN. Camera2 and MediaCodec handle capture, MPEG-TS carries hardware AVC/H.264 plus AAC, and SRT delivers it to the native OBS source.</p></div>
       <div className="flow" aria-label="OpenStream media pipeline"><span>ANDROID CAMERA<small>Camera2 + MediaCodec</small></span><b>→</b><span>SRT STREAM<small>MPEG-TS · port 9000</small></span><b>→</b><span>OBS SOURCE<small>FFmpeg decode + mixer</small></span></div>
-      <dl><div><dt>Media</dt><dd>SRT :9000</dd></div><div><dt>Discovery</dt><dd>UDP :51515</dd></div><div><dt>Control</dt><dd>HTTP :9001</dd></div><div><dt>Default bitrate</dt><dd>16 Mbps</dd></div></dl>
+      <dl><div><dt>Media</dt><dd>SRT :9000</dd></div><div><dt>Discovery</dt><dd>UDP :51515</dd></div><div><dt>Control</dt><dd>HTTP :9001</dd></div><div><dt>Default bitrate</dt><dd>12 Mbps</dd></div></dl>
     </section>
   );
 }

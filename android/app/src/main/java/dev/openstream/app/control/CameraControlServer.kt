@@ -4,6 +4,7 @@ import android.util.Log
 import dev.openstream.app.camera.Camera2Controller
 import dev.openstream.app.camera.CameraLens
 import dev.openstream.app.stream.StreamConfig
+import org.json.JSONException
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.OutputStreamWriter
@@ -207,8 +208,12 @@ class CameraControlServer(
             // could satisfy the peer-authorization boundary. Requiring JSON for
             // every mutating route also forces browsers through preflight, which
             // this server intentionally does not support.
-            val response = when {
-                method == "GET" && path == "/status" -> handleStatus()
+            // Handlers return (HTTP status, JSON body) so peer/token failures
+            // surface as 401/403/409 instead of always 200. Error bodies use
+            // the envelope {"ok":false,"error":...} plus the legacy
+            // unauthorized/busy/stale flags for compatibility.
+            val (statusCode, response) = when {
+                method == "GET" && path == "/status" -> 200 to handleStatus()
                 method == "POST" && path == "/zoom" -> handleZoom(body, controllerAddress)
                 method == "POST" && path == "/torch" -> handleTorch(body, controllerAddress)
                 method == "POST" && path == "/lens" -> handleLens(body, controllerAddress)
@@ -216,11 +221,11 @@ class CameraControlServer(
                 method == "POST" && path == "/release" -> handleRelease(body, controllerAddress)
                 method == "POST" && path == "/identify" -> handleIdentify(body, controllerAddress)
                 else -> {
-                    sendResponse(writer, 404, """{"error":"not found"}""")
+                    sendResponse(writer, 404, """{"ok":false,"error":"not found"}""")
                     return
                 }
             }
-            sendResponse(writer, 200, response)
+            sendResponse(writer, statusCode, response)
         } catch (e: Exception) {
             Log.w(TAG, "Error handling control request", e)
         } finally {
@@ -232,7 +237,10 @@ class CameraControlServer(
         val status = when (code) {
             200 -> "OK"
             400 -> "Bad Request"
+            401 -> "Unauthorized"
+            403 -> "Forbidden"
             404 -> "Not Found"
+            409 -> "Conflict"
             413 -> "Payload Too Large"
             415 -> "Unsupported Media Type"
             else -> "Error"
@@ -280,64 +288,97 @@ class CameraControlServer(
             controllerAddress == activeControllerAddress
     }
 
-    private fun unauthorizedControlResponse(): String = """{"ok":false,"unauthorized":true}"""
+    private fun unauthorizedControlResponse(): String =
+        """{"ok":false,"unauthorized":true,"error":"unauthorized"}"""
 
     private fun busyReservationResponse(currentReservation: String): String = JSONObject()
         .put("ok", false)
         .put("busy", true)
         .put("reservedBy", currentReservation)
+        .put("error", "busy")
         .toString()
 
-    private fun handleZoom(body: String, controllerAddress: String): String {
-        if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse()
-        val json = JSONObject(body)
-        val value = json.getDouble("value").toFloat()
+    private fun handleZoom(body: String, controllerAddress: String): Pair<Int, String> {
+        if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse().let { 401 to it }
+        // Malformed JSON must return 400 with an error envelope, never hang
+        // or close the connection without a response (bounded queue rule:
+        // every request gets exactly one bounded response).
+        val value = try {
+            JSONObject(body).getDouble("value").toFloat()
+        } catch (e: JSONException) {
+            return 400 to """{"ok":false,"error":"malformed zoom request"}"""
+        }
         val applied = cameraProvider().setZoom(value)
-        return """{"ok":true,"zoom":$applied}"""
+        return 200 to """{"ok":true,"zoom":$applied}"""
     }
 
-    private fun handleTorch(body: String, controllerAddress: String): String {
-        if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse()
-        val json = JSONObject(body)
-        val enabled = json.getBoolean("enabled")
+    private fun handleTorch(body: String, controllerAddress: String): Pair<Int, String> {
+        if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse().let { 401 to it }
+        val enabled = try {
+            JSONObject(body).getBoolean("enabled")
+        } catch (e: JSONException) {
+            return 400 to """{"ok":false,"error":"malformed torch request"}"""
+        }
         onToggleTorch(enabled)
-        return """{"ok":true,"torch":$enabled}"""
+        return 200 to """{"ok":true,"torch":$enabled}"""
     }
 
-    private fun handleLens(body: String, controllerAddress: String): String {
-        if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse()
-        val json = JSONObject(body)
-        val lensLabel = json.getString("lens")
+    private fun handleLens(body: String, controllerAddress: String): Pair<Int, String> {
+        if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse().let { 401 to it }
+        val lensLabel = try {
+            JSONObject(body).getString("lens")
+        } catch (e: JSONException) {
+            return 400 to """{"ok":false,"error":"malformed lens request"}"""
+        }
         val available = lensListProvider()
         val target = available.firstOrNull { it.shortLabel == lensLabel }
-            ?: return """{"error":"lens not found","available":${available.map { "\"${it.shortLabel}\"" }}}"""
+            ?: return 404 to """{"ok":false,"error":"lens not found","available":${available.map { "\"${it.shortLabel}\"" }}}"""
         onSwitchLens(target)
-        return """{"ok":true,"lens":"${target.shortLabel}"}"""
+        return 200 to """{"ok":true,"lens":"${target.shortLabel}"}"""
     }
 
-    private fun handleReserve(body: String, controllerAddress: String): String {
-        val json = JSONObject(body)
+    private fun handleReserve(body: String, controllerAddress: String): Pair<Int, String> {
+        val json = try {
+            JSONObject(body)
+        } catch (e: JSONException) {
+            return 400 to """{"ok":false,"error":"malformed reserve request"}"""
+        }
         val sourceInstanceId = json.optString("sourceInstanceId").trim()
-        if (sourceInstanceId.isEmpty()) return """{"error":"missing sourceInstanceId"}"""
+        if (sourceInstanceId.isEmpty()) return 400 to """{"ok":false,"error":"missing sourceInstanceId"}"""
         val reservationToken = json.optString("reservationToken").trim().ifEmpty { null }
         if (reservationToken != null && reservationToken.length > MAX_RESERVATION_TOKEN_CHARS) {
-            return """{"error":"reservation token too large"}"""
+            return 400 to """{"ok":false,"error":"reservation token too large"}"""
         }
         val currentReservation = reservationProvider()
         if (currentReservation != null && currentReservation != sourceInstanceId) {
-            return busyReservationResponse(currentReservation)
+            return busyReservationResponse(currentReservation).let { 403 to it }
         }
         val currentControllerAddress = activeControllerAddress
+        // UI-made (local-only) reservations leave currentControllerAddress == null
+        // until the first network reserve binds the peer. Allow the legitimate
+        // OBS host claiming the same sourceInstanceId to adopt/bind here instead
+        // of failing closed and leaving the reservation sticky. Once bound, only
+        // the matching peer may renew; a different peer still gets 401.
+        val isUnboundLocalReservation = currentControllerAddress == null
         if (currentReservation == sourceInstanceId &&
-            (currentControllerAddress == null ||
-                controllerAddress.isEmpty() ||
+            !isUnboundLocalReservation &&
+            (controllerAddress.isEmpty() ||
                 controllerAddress != currentControllerAddress)
         ) {
-            return unauthorizedControlResponse()
+            return unauthorizedControlResponse().let { 401 to it }
         }
         val slotLabel = json.optString("slotLabel", "")
         val bitrateMbps = if (json.has("bitrateMbps")) {
-            json.optInt("bitrateMbps").coerceIn(
+            // Strict validation: only plain integers are accepted. The previous
+            // optInt() path coerced booleans, strings, and doubles to 0 and then
+            // to 8 Mbps silently; non-integers are now a 400.
+            val rawBitrate = json.opt("bitrateMbps")
+            val intBitrate = when (rawBitrate) {
+                is Int -> rawBitrate
+                is Long -> if (rawBitrate in Int.MIN_VALUE..Int.MAX_VALUE) rawBitrate.toInt() else null
+                else -> null
+            } ?: return 400 to """{"ok":false,"error":"invalid bitrateMbps"}"""
+            intBitrate.coerceIn(
                 StreamConfig.MIN_BITRATE_MBPS,
                 StreamConfig.MAX_BITRATE_MBPS,
             )
@@ -347,7 +388,8 @@ class CameraControlServer(
             activeReservationBitrateMbps == bitrateMbps
         if (sameReservationConfig) {
             activeReservationToken = reservationToken
-            return JSONObject()
+            activeControllerAddress = controllerAddress.ifEmpty { null }
+            return 200 to JSONObject()
                 .put("ok", true)
                 .put("reservedBy", sourceInstanceId)
                 .toString()
@@ -358,33 +400,42 @@ class CameraControlServer(
             activeControllerAddress = controllerAddress.ifEmpty { null }
             activeReservationSlotLabel = slotLabel
             activeReservationBitrateMbps = bitrateMbps
-            JSONObject()
+            200 to JSONObject()
                 .put("ok", true)
                 .put("reservedBy", sourceInstanceId)
                 .toString()
         } else {
-            busyReservationResponse(reservationProvider().orEmpty())
+            busyReservationResponse(reservationProvider().orEmpty()).let { 403 to it }
         }
     }
 
-    private fun handleRelease(body: String, controllerAddress: String): String {
-        val json = JSONObject(body)
+    private fun handleRelease(body: String, controllerAddress: String): Pair<Int, String> {
+        val json = try {
+            JSONObject(body)
+        } catch (e: JSONException) {
+            return 400 to """{"ok":false,"error":"malformed release request"}"""
+        }
         val sourceInstanceId = json.optString("sourceInstanceId").trim()
-        if (sourceInstanceId.isEmpty()) return """{"error":"missing sourceInstanceId"}"""
+        if (sourceInstanceId.isEmpty()) return 400 to """{"ok":false,"error":"missing sourceInstanceId"}"""
         val reservationToken = json.optString("reservationToken").trim().ifEmpty { null }
         val currentReservation = reservationProvider()
+        // Same local-only adoption rule as reserve: an unbound reservation
+        // (activeControllerAddress == null, made from the phone UI) may be
+        // released by the matching sourceInstanceId so it cannot stick forever.
+        // Bound reservations still require the matching controller peer first.
+        val unboundLocalRelease = activeControllerAddress == null
         if (currentReservation == sourceInstanceId &&
-            (activeControllerAddress == null ||
-                controllerAddress.isEmpty() ||
+            !unboundLocalRelease &&
+            (controllerAddress.isEmpty() ||
                 controllerAddress != activeControllerAddress)
         ) {
-            return unauthorizedControlResponse()
+            return unauthorizedControlResponse().let { 401 to it }
         }
         if (currentReservation == sourceInstanceId &&
             activeReservationToken != null &&
             reservationToken != activeReservationToken
         ) {
-            return """{"ok":false,"stale":true}"""
+            return 409 to """{"ok":false,"stale":true,"error":"stale reservation token"}"""
         }
         val released = onRelease(sourceInstanceId)
         if (released && reservationProvider() != sourceInstanceId) {
@@ -393,16 +444,20 @@ class CameraControlServer(
             activeReservationSlotLabel = null
             activeReservationBitrateMbps = null
         }
-        return """{"ok":$released}"""
+        return 200 to """{"ok":$released}"""
     }
 
-    private fun handleIdentify(body: String, controllerAddress: String): String {
-        if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse()
-        val json = JSONObject(body)
+    private fun handleIdentify(body: String, controllerAddress: String): Pair<Int, String> {
+        if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse().let { 401 to it }
+        val json = try {
+            JSONObject(body)
+        } catch (e: JSONException) {
+            return 400 to """{"ok":false,"error":"malformed identify request"}"""
+        }
         val label = json.optString("label", "CAM").ifBlank { "CAM" }
         val subtitle = json.optString("subtitle", "")
         onIdentify(label, subtitle)
-        return """{"ok":true}"""
+        return 200 to """{"ok":true}"""
     }
 
     companion object {
