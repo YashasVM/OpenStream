@@ -40,11 +40,11 @@ endif()
 find_package(Qt6 6.2 COMPONENTS Network Widgets REQUIRED)
 find_path(OBS_FRONTEND_INCLUDE_DIR NAMES obs-frontend-api.h
     HINTS ${OBS_ROOT} PATH_SUFFIXES frontend/api REQUIRED)
-# NOTE: OBS_FRONTEND_LIBRARY must resolve from OBS_ROOT only. Resolving it from
-# FFMPEG_ROOT (our generated import-lib staging dir) risks linking a stale
-# frontend ABI instead of the version-checked OBS 32.2.1 binaries.
+# build_plugin.bat generates this import library from the version-checked OBS
+# binary and stages it in FFMPEG_ROOT. Source archives do not contain a built
+# frontend import library, so retain that verified staging path.
 find_library(OBS_FRONTEND_LIBRARY NAMES obs-frontend-api
-    HINTS ${OBS_ROOT}
+    HINTS ${OBS_ROOT} ${FFMPEG_ROOT}
     PATH_SUFFIXES lib lib/x64 build/frontend/api/Release REQUIRED)
 
 find_path(OBS_INCLUDE_DIR

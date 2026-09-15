@@ -26,6 +26,7 @@
 
 #include <chrono>
 #include <atomic>
+#include <condition_variable>
 #include <cctype>
 #include <cerrno>
 #include <charconv>
@@ -281,6 +282,8 @@ std::string cam_label_for_index(size_t index) {
 }
 
 struct OpenStreamSource;
+void openstream_stop_worker(OpenStreamSource *ctx);
+void openstream_start_worker(OpenStreamSource *ctx);
 std::mutex g_slot_registry_mutex;
 std::map<const void *, std::string> g_source_slots;
 // UAF mitigation: g_source_contexts stores shared ownership + generation ids.
@@ -972,9 +975,18 @@ struct OpenStreamSource {
   std::mutex settings_mutex;
   // Serializes openstream_start_worker/stop_worker (worker assign/join and
   // active_* snapshot). Recursive so start() can call stop() for restarts
-  // without deadlocking. Dock/properties offload start/stop to background
-  // threads; this mutex is what keeps those racing calls safe.
+  // without deadlocking. The lifecycle worker is the sole asynchronous caller;
+  // this mutex also protects teardown against an in-flight lifecycle request.
   std::recursive_mutex start_stop_mutex;
+  // Lifecycle requests use a single coalescing slot (capacity 1,
+  // overwrite-oldest). This keeps OBS callbacks non-blocking without creating
+  // unbounded detached threads.
+  std::mutex lifecycle_mutex;
+  std::condition_variable lifecycle_wake;
+  std::optional<bool> lifecycle_request;
+  bool lifecycle_shutdown = false;
+  std::thread lifecycle_worker;
+  std::atomic<bool> destroying = false;
   std::string active_srt_url;
   int active_listener_port = 0;
   int active_latency_ms = 0;
@@ -1025,6 +1037,39 @@ std::shared_ptr<OpenStreamSource> lookup_source_context_by_raw(OpenStreamSource 
     if (entry.second.ref.get() == raw) return entry.second.ref;
   }
   return nullptr;
+}
+
+bool queue_lifecycle_request(const std::shared_ptr<OpenStreamSource> &ctx,
+                             bool should_start) {
+  if (!ctx || ctx->destroying.load()) return false;
+  {
+    std::lock_guard<std::mutex> lock(ctx->lifecycle_mutex);
+    if (ctx->lifecycle_shutdown || ctx->destroying.load()) return false;
+    ctx->lifecycle_request = should_start;
+  }
+  ctx->lifecycle_wake.notify_one();
+  return true;
+}
+
+void run_lifecycle_worker(OpenStreamSource *ctx) {
+  for (;;) {
+    std::optional<bool> request;
+    {
+      std::unique_lock<std::mutex> lock(ctx->lifecycle_mutex);
+      ctx->lifecycle_wake.wait(lock, [ctx] {
+        return ctx->lifecycle_shutdown || ctx->lifecycle_request.has_value();
+      });
+      if (ctx->lifecycle_shutdown) return;
+      request = ctx->lifecycle_request;
+      ctx->lifecycle_request.reset();
+    }
+    if (ctx->destroying.load()) continue;
+    if (*request) {
+      openstream_start_worker(ctx);
+    } else {
+      openstream_stop_worker(ctx);
+    }
+  }
 }
 
 bool send_control_command(const std::string &host, int port,
@@ -1697,11 +1742,10 @@ uint64_t decode_packets(OpenStreamSource *ctx,
   AVStream *audio_stream = audio_stream_index >= 0
                                ? format_ctx->streams[audio_stream_index]
                                : nullptr;
-  // Per-stream clocks (AGENTS.md: never replace source timestamps). Video and
-  // audio share the MPEG-TS program clock but drift/re-anchor independently so
-  // a discontinuity in one stream cannot teleport the other's timeline.
-  MediaClock video_clock;
-  MediaClock audio_clock;
+  // One clock preserves the shared MPEG-TS A/V epoch. Gap observations are
+  // tracked per stream inside MediaClock so interleaved audio/video frames do
+  // not look like timestamp rewinds.
+  MediaClock media_clock;
   uint64_t video_frames_output = 0;
   uint64_t audio_frames_output = 0;
 
@@ -1718,16 +1762,18 @@ uint64_t decode_packets(OpenStreamSource *ctx,
         return result;
       }
       const auto source_ns = source_timestamp_ns(frame.get(), video_stream);
-      bool video_reanchored = false;
+      bool video_discontinuity = false;
       const auto timestamp_ns = source_ns
-                                    ? video_clock.map(*source_ns, os_gettime_ns(), &video_reanchored)
+                                    ? media_clock.map(*source_ns, os_gettime_ns(),
+                                                      &video_discontinuity,
+                                                      MediaClock::Stream::Video)
                                     : std::nullopt;
-      if (video_reanchored) {
+      if (video_discontinuity) {
         blog(LOG_WARNING,
-             "[OpenStream] MediaClock discontinuity: video clock re-anchored "
-             "(jump exceeded %lld ms; media gap surfaced, total video gaps=%" PRIu64 ")",
+             "[OpenStream] MediaClock discontinuity: video gap surfaced "
+             "(jump exceeded %lld ms; total media gaps=%" PRIu64 ")",
              static_cast<long long>(MediaClock::kMaxJumpNs / 1'000'000),
-             video_clock.gap_count());
+             media_clock.gap_count());
       }
       if (!timestamp_ns) {
         blog(LOG_WARNING,
@@ -1787,16 +1833,18 @@ uint64_t decode_packets(OpenStreamSource *ctx,
       }
 
       const auto source_ns = source_timestamp_ns(audio_frame.get(), audio_stream);
-      bool audio_reanchored = false;
+      bool audio_discontinuity = false;
       const auto timestamp_ns = source_ns
-                                    ? audio_clock.map(*source_ns, os_gettime_ns(), &audio_reanchored)
+                                    ? media_clock.map(*source_ns, os_gettime_ns(),
+                                                      &audio_discontinuity,
+                                                      MediaClock::Stream::Audio)
                                     : std::nullopt;
-      if (audio_reanchored) {
+      if (audio_discontinuity) {
         blog(LOG_WARNING,
-             "[OpenStream] MediaClock discontinuity: audio clock re-anchored "
-             "(jump exceeded %lld ms; media gap surfaced, total audio gaps=%" PRIu64 ")",
+             "[OpenStream] MediaClock discontinuity: audio gap surfaced "
+             "(jump exceeded %lld ms; total media gaps=%" PRIu64 ")",
              static_cast<long long>(MediaClock::kMaxJumpNs / 1'000'000),
-             audio_clock.gap_count());
+             media_clock.gap_count());
       }
       if (!timestamp_ns) {
         blog(LOG_WARNING,
@@ -2098,12 +2146,13 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
 }
 
 void openstream_start_worker(OpenStreamSource *ctx) {
-  if (!ctx) return;
+  if (!ctx || ctx->destroying.load()) return;
   // Serialize against concurrent stop()/start() from dock, properties, and
   // update paths. Holds start_stop_mutex across the active_* snapshot and the
   // worker assign/join so two starters cannot double-launch or tear down a
   // freshly launched thread. Recursive: calls openstream_stop_worker() below.
   std::lock_guard<std::recursive_mutex> guard(ctx->start_stop_mutex);
+  if (ctx->destroying.load()) return;
   std::string srt_url;
   int listener_port = kDefaultListenerPort;
   int latency_ms = 120;
@@ -2253,9 +2302,9 @@ void openstream_update(void *data, obs_data_t *settings) {
     should_start = ctx->listener_enabled;
   }
   if (should_start) {
-    openstream_start_worker(ctx);
+    queue_lifecycle_request(lookup_source_context_by_raw(ctx), true);
   } else {
-    openstream_stop_worker(ctx);
+    queue_lifecycle_request(lookup_source_context_by_raw(ctx), false);
   }
 }
 
@@ -2278,6 +2327,7 @@ void *openstream_create(obs_data_t *settings, obs_source_t *source) {
     g_source_slots[ctx] = ctx->slot_label;
     g_source_contexts[source] = SourceContextEntry{shared, ++g_source_generation_counter};
   }
+  ctx->lifecycle_worker = std::thread(run_lifecycle_worker, ctx);
   obs_data_set_string(settings, "source_instance_id", ctx->instance_id.c_str());
   obs_data_set_string(settings, "slot_id", ctx->slot_id.c_str());
   obs_data_set_string(settings, "slot_label", ctx->slot_label.c_str());
@@ -2308,6 +2358,14 @@ void openstream_destroy(void *data) {
     return;
   }
   OpenStreamSource *ctx = owned.get();
+  ctx->destroying = true;
+  {
+    std::lock_guard<std::mutex> lock(ctx->lifecycle_mutex);
+    ctx->lifecycle_shutdown = true;
+    ctx->lifecycle_request.reset();
+  }
+  ctx->lifecycle_wake.notify_one();
+  if (ctx->lifecycle_worker.joinable()) ctx->lifecycle_worker.join();
   openstream_stop_worker(ctx);
   ctx->phone_discovery.stop();
   ctx->camera_controls->stop();
@@ -2429,23 +2487,7 @@ obs_properties_t *openstream_properties(void *data) {
     if (!owned) {
       return false;
     }
-    // Never block the UI thread on network/worker join (AGENTS.md rule 6).
-    // Shared ownership keeps the source alive in the background thread even
-    // if the source is removed concurrently.
-    std::thread([owned] {
-      openstream_start_worker(owned.get());
-      if (const auto phone = owned->phone_discovery.select(owned->selected_phone_id, owned->instance_id)) {
-        blog(LOG_INFO,
-             "[OpenStream] Selected Android phone for %s: %s",
-             owned->slot_label.c_str(),
-             phone->name.c_str());
-      } else {
-        blog(LOG_INFO,
-             "[OpenStream] No available Android phone for %s yet",
-             owned->slot_label.c_str());
-      }
-    }).detach();
-    return true;
+    return queue_lifecycle_request(owned, true);
   });
   obs_property_set_long_description(
       connect_button,
@@ -2458,12 +2500,7 @@ obs_properties_t *openstream_properties(void *data) {
     if (!owned) {
       return false;
     }
-    // Offload blocking stop/join off the UI thread; shared_ptr keeps alive.
-    std::thread([owned] {
-      openstream_stop_worker(owned.get());
-      blog(LOG_INFO, "[OpenStream] Listener stopped");
-    }).detach();
-    return true;
+    return queue_lifecycle_request(owned, false);
   });
   obs_property_set_long_description(
       disconnect_button,
@@ -2611,19 +2648,15 @@ bool openstream_post_camera_command(obs_source_t *source, const char *path,
 bool openstream_start_camera_source(obs_source_t *source) {
   if (!openstream_is_camera_source(source)) return false;
   const auto owned = lookup_source_context(source);
-  OpenStreamSource *ctx = owned ? owned.get() : nullptr;
-  if (!ctx) return false;
-  openstream_start_worker(ctx);
-  return true;
+  if (!owned) return false;
+  return queue_lifecycle_request(owned, true);
 }
 
 bool openstream_stop_camera_source(obs_source_t *source) {
   if (!openstream_is_camera_source(source)) return false;
   const auto owned = lookup_source_context(source);
-  OpenStreamSource *ctx = owned ? owned.get() : nullptr;
-  if (!ctx) return false;
-  openstream_stop_worker(ctx);
-  return true;
+  if (!owned) return false;
+  return queue_lifecycle_request(owned, false);
 }
 
 const char *openstream_source_status(obs_source_t *source) {

@@ -174,4 +174,34 @@ int main() {
     check(back.has_value() && back.value() == origin + 200'000);
     check(clock.gap_count() == 2);
   }
+
+  {
+    // Audio and video retain their source-clock offset even when their first
+    // decoded frames arrive at different times.
+    MediaClock clock;
+    const uint64_t obs_origin = 10'000'000'000ULL;
+    check(clock.map(1'000'000'000LL, obs_origin, nullptr,
+                    MediaClock::Stream::Video).value() == obs_origin);
+    check(clock.map(980'000'000LL, obs_origin + 10'000'000ULL, nullptr,
+                    MediaClock::Stream::Audio).value() ==
+          obs_origin - 20'000'000ULL);
+  }
+
+  {
+    // A real-time multi-second source gap must be surfaced even when the OBS
+    // arrival clock advances by the same amount. Its mapped timestamp remains
+    // source-derived rather than being replaced with arrival time.
+    MediaClock clock;
+    const uint64_t obs_origin = 20'000'000'000ULL;
+    check(clock.map(1'000'000'000LL, obs_origin, nullptr,
+                    MediaClock::Stream::Video).value() == obs_origin);
+    bool discontinuity = false;
+    const auto after_gap = clock.map(6'000'000'000LL,
+                                     obs_origin + 5'000'000'000ULL,
+                                     &discontinuity,
+                                     MediaClock::Stream::Video);
+    check(discontinuity);
+    check(after_gap.value() == obs_origin + 5'000'000'000ULL);
+    check(clock.gap_count() == 1);
+  }
 }

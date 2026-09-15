@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -11,32 +12,32 @@
 //
 // Discontinuity policy (AGENTS.md: every recording gap must be surfaced and
 // logged; never replace source timestamps with arrival time):
-// - If the mapped timestamp jumps more than kMaxJumpNs (2 s) away from the
-//   OBS arrival clock, the origin is re-anchored to (source_ns, obs_now_ns)
-//   and map() returns obs_now_ns. The caller must blog(LOG_WARNING) the gap
-//   (see decode path: "MediaClock discontinuity ... media gap surfaced").
+// - If the mapped timestamp jumps more than kMaxJumpNs (2 s) ahead of the OBS
+//   arrival clock, or a stream rewinds by that amount, the origin is
+//   re-anchored to (source_ns, obs_now_ns). Forward source gaps are surfaced
+//   but retain their source-derived mapping. The caller logs every event.
 // - Re-anchoring preserves subsequent source offsets instead of freezing a
 //   stale origin forever. Stale/backlog drops remain the caller's job.
 // - This header stays OBS-free so obs-plugin/tests/test_contracts.cpp can
 //   build without libobs; logging lives with the caller. gap_count() and
 //   last_gap_ns() expose the event for tests and telemetry.
-// - Prefer one MediaClock per stream (video_clock/audio_clock). Sharing a
-//   single clock across audio+video would let one stream's jump re-anchor the
-//   other's timeline.
-// TODO(per-stream-split): if a shared clock ever returns, route video and
-// audio through separate instances; see decode_packets video_clock/audio_clock.
+// - One shared origin preserves the A/V offset carried by MPEG-TS. Per-stream
+//   observations detect gaps without replacing that common epoch.
 class MediaClock {
  public:
   static constexpr int64_t kMaxJumpNs = 2'000'000'000LL;
+  enum class Stream : std::size_t { Generic = 0, Video = 1, Audio = 2 };
 
   std::optional<uint64_t> map(int64_t source_ns, uint64_t obs_now_ns,
-                              bool *reanchored_out = nullptr) {
-    if (reanchored_out) *reanchored_out = false;
+                              bool *discontinuity_out = nullptr,
+                              Stream stream = Stream::Generic) {
+    if (discontinuity_out) *discontinuity_out = false;
     if (source_ns < 0) return std::nullopt;
+    const std::size_t stream_index = static_cast<std::size_t>(stream);
     if (!source_origin_ns_) {
       source_origin_ns_ = source_ns;
       obs_origin_ns_ = obs_now_ns;
-      last_source_ns_ = source_ns;
+      last_source_ns_[stream_index] = source_ns;
       return obs_now_ns;
     }
 
@@ -62,31 +63,56 @@ class MediaClock {
     // only re-anchor when the jump would otherwise freeze or teleport the
     // timeline by more than kMaxJumpNs.
     const uint64_t mapped_ns = *mapped;
-    const int64_t gap_vs_now = (mapped_ns >= obs_now_ns)
-                                   ? static_cast<int64_t>(mapped_ns - obs_now_ns)
-                                   : -static_cast<int64_t>(obs_now_ns - mapped_ns);
-    const uint64_t abs_gap = gap_vs_now >= 0
-                                 ? static_cast<uint64_t>(gap_vs_now)
-                                 : static_cast<uint64_t>(-(gap_vs_now + 1)) + 1u;
     // Re-anchor on large forward jumps (mapped far ahead of arrival) and on
     // large source-clock rewinds (delta < 0 with magnitude > threshold).
     // Backward mapped-behind-now is the normal stale/backlog case and is not
     // re-anchored here so the caller's stale-frame drop still surfaces it.
-    const bool source_rewound = (delta < 0) &&
-                                (static_cast<uint64_t>(-(delta + 1)) + 1u >
-                                 static_cast<uint64_t>(kMaxJumpNs));
-    const bool mapped_ahead = (gap_vs_now > kMaxJumpNs);
-    if (source_rewound || mapped_ahead) {
+    bool source_rewound = false;
+    const bool mapped_ahead = mapped_ns > obs_now_ns &&
+                              mapped_ns - obs_now_ns >
+                                  static_cast<uint64_t>(kMaxJumpNs);
+    bool source_gap = false;
+    if (last_source_ns_[stream_index].has_value()) {
+      const int64_t last = *last_source_ns_[stream_index];
+      source_gap = source_ns > last &&
+                   static_cast<uint64_t>(source_ns) -
+                           static_cast<uint64_t>(last) >
+                       static_cast<uint64_t>(kMaxJumpNs);
+      source_rewound = source_ns < last &&
+                       static_cast<uint64_t>(last) -
+                               static_cast<uint64_t>(source_ns) >
+                           static_cast<uint64_t>(kMaxJumpNs);
+    }
+    if (source_rewound || mapped_ahead || source_gap) {
       ++gap_count_;
-      last_gap_ns_ = gap_vs_now;
-      source_origin_ns_ = source_ns;
-      obs_origin_ns_ = obs_now_ns;
-      last_source_ns_ = source_ns;
-      if (reanchored_out) *reanchored_out = true;
-      return obs_now_ns;
+      if (source_gap && last_source_ns_[stream_index].has_value()) {
+        last_gap_ns_ = source_ns - *last_source_ns_[stream_index];
+      } else if (mapped_ns >= obs_now_ns) {
+        const uint64_t difference = mapped_ns - obs_now_ns;
+        last_gap_ns_ = difference > static_cast<uint64_t>((std::numeric_limits<int64_t>::max)())
+                           ? (std::numeric_limits<int64_t>::max)()
+                           : static_cast<int64_t>(difference);
+      } else {
+        const uint64_t difference = obs_now_ns - mapped_ns;
+        last_gap_ns_ = difference > static_cast<uint64_t>((std::numeric_limits<int64_t>::max)())
+                           ? (std::numeric_limits<int64_t>::min)()
+                           : -static_cast<int64_t>(difference);
+      }
+      if (discontinuity_out) *discontinuity_out = true;
+
+      // A rewind or timestamp that would land far in the future indicates an
+      // epoch reset. A real-time forward gap is already correctly represented
+      // by the source timestamp, so surface it without replacing the epoch.
+      if (source_rewound || mapped_ahead) {
+        source_origin_ns_ = source_ns;
+        obs_origin_ns_ = obs_now_ns;
+        last_source_ns_.fill(std::nullopt);
+        last_source_ns_[stream_index] = source_ns;
+        return obs_now_ns;
+      }
     }
 
-    last_source_ns_ = source_ns;
+    last_source_ns_[stream_index] = source_ns;
     return mapped;
   }
 
@@ -96,7 +122,7 @@ class MediaClock {
  private:
   std::optional<int64_t> source_origin_ns_;
   uint64_t obs_origin_ns_ = 0;
-  int64_t last_source_ns_ = 0;
+  std::array<std::optional<int64_t>, 3> last_source_ns_{};
   uint64_t gap_count_ = 0;
   int64_t last_gap_ns_ = 0;
 };

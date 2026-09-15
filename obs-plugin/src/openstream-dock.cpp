@@ -23,7 +23,6 @@
 #include <QUrl>
 
 #include <cmath>
-#include <thread>
 #include <vector>
 
 namespace {
@@ -74,23 +73,17 @@ class OpenStreamDock final : public QWidget {
     auto *connection = new QHBoxLayout();
     auto *retry = new QPushButton("Connect / retry", this);
     auto *stop = new QPushButton("Stop", this);
-    // Never perform network or disk work on the UI thread (AGENTS.md rule 6):
-    // start/stop join worker threads and may block on SRT/connect timeouts.
-    // Offload to a background thread holding an obs_source ref so the source
-    // cannot be freed mid-call. Status text is set synchronously; the refresh
-    // timer re-reads openstream_source_status() after the worker changes state.
+    // These API calls only publish into the source's bounded, coalescing
+    // lifecycle slot. Network work and worker joins happen off the UI thread.
     connect(retry, &QPushButton::clicked, this, [this] {
       obs_source_t *selected = currentSource();
       if (!selected) {
         status_->setText("Choose an OpenStream source first");
         return;
       }
-      obs_source_get_ref(selected);
-      status_->setText("Connection starting in background...");
-      std::thread([selected] {
-        openstream_start_camera_source(selected);
-        obs_source_release(selected);
-      }).detach();
+      const bool queued = openstream_start_camera_source(selected);
+      status_->setText(queued ? "Connection starting in background..."
+                              : "Camera source is shutting down");
     });
     connect(stop, &QPushButton::clicked, this, [this] {
       obs_source_t *selected = currentSource();
@@ -98,12 +91,9 @@ class OpenStreamDock final : public QWidget {
         status_->setText("Choose an OpenStream source first");
         return;
       }
-      obs_source_get_ref(selected);
-      status_->setText("Stopping camera slot in background...");
-      std::thread([selected] {
-        openstream_stop_camera_source(selected);
-        obs_source_release(selected);
-      }).detach();
+      const bool queued = openstream_stop_camera_source(selected);
+      status_->setText(queued ? "Stopping camera slot in background..."
+                              : "Camera source is shutting down");
     });
     connection->addWidget(retry);
     connection->addWidget(stop);
