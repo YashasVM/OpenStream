@@ -12,6 +12,8 @@ static void require(bool ok, const char *message) {
 }
 
 int main() {
+  require((openstream_legacy_source_info.output_flags & OBS_SOURCE_CAP_DISABLED) != 0,
+          "legacy V7 source is still exposed in the Add Source menu");
   obs_data_t *settings = obs_data_create();
   openstream_defaults(settings);
   auto context = std::make_shared<OpenStreamSource>();

@@ -2540,7 +2540,10 @@ obs_source_info openstream_source_info = {
 obs_source_info openstream_legacy_source_info = {
     .id = "openstream_phone_v7_source",
     .type = OBS_SOURCE_TYPE_INPUT,
-    .output_flags = OBS_SOURCE_ASYNC_VIDEO | OBS_SOURCE_AUDIO,
+    // Keep V7 scenes loadable without exposing a second identical source in
+    // the OBS Add Source menu.
+    .output_flags = OBS_SOURCE_ASYNC_VIDEO | OBS_SOURCE_AUDIO |
+                    OBS_SOURCE_DEPRECATED | OBS_SOURCE_CAP_DISABLED,
     .get_name = openstream_get_name,
     .create = openstream_create,
     .destroy = openstream_destroy,
