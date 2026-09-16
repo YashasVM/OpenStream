@@ -110,7 +110,9 @@ constexpr int64_t kSrtConnectTimeoutMs = 2'000;
 constexpr auto kControlConnectTimeout = std::chrono::milliseconds(1000);
 constexpr auto kReconnectReservationWindow = std::chrono::seconds(45);
 constexpr uint64_t kReconnectRecoveryVideoFrames = 30;
-constexpr const char *kOpenStreamSourceName = "OpenStream V8";
+// Keep the historical source IDs below for scene compatibility, but expose the
+// installed release as V1 in the OBS UI and logs.
+constexpr const char *kOpenStreamSourceName = "OpenStream V1";
 constexpr const char *kDiscoveryMulticastAddress = "239.255.42.99";
 constexpr const char *kPhoneDiscoveryPrefix = "OPENSTREAM_PHONE/1 ";
 
@@ -2605,7 +2607,7 @@ bool obs_module_load(void) {
   obs_register_source(&openstream_source_info);
   obs_register_source(&openstream_legacy_source_info);
   openstream_register_dock();
-  blog(LOG_INFO, "[OpenStream] OBS plugin loaded: V8 — video + audio + remote controls (Made by @yashas.vm)");
+  blog(LOG_INFO, "[OpenStream] OBS plugin loaded: V1 — video + audio + remote controls (Made by @yashas.vm)");
   return true;
 }
 

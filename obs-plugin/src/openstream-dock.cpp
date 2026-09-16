@@ -190,7 +190,7 @@ class OpenStreamDock final : public QWidget {
       source_->setText("Multiple legacy sources found");
       status_->setText("Keep one OpenStream source. To show it in another scene, use Add Existing. Remove extra camera sources to use these controls.");
     } else {
-      status_->setText("Add an OpenStream V8 source to control your phone here.");
+      status_->setText("Add an OpenStream V1 source to control your phone here.");
     }
   }
 
