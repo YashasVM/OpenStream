@@ -41,7 +41,7 @@ function PhonePreview() {
     <div className="phone" aria-label="OpenStream Android camera preview mockup">
       <div className="phone-top"><strong>OpenStream</strong><span className="live"><i /> LIVE</span></div>
       <div className="phone-meta"><span>1080p30</span><span>AAC</span><span>Wi-Fi</span></div>
-      <div className="camera-scene"><div className="camera-frame" /><div className="subject">CAM A</div></div>
+      <div className="camera-scene"><div className="camera-frame" /><div className="subject">PHONE</div></div>
       <div className="phone-tools"><span>↻</span><span>▦</span><strong>1.8×</strong><span>☼</span></div>
       <div className="phone-slider"><span>ZOOM</span><i><b /></i></div>
       <span className="preview-stop" aria-hidden="true"><i /></span>
@@ -54,7 +54,7 @@ function ObsPreview() {
     <div className="obs" aria-label="OBS Studio with OpenStream source and control dock mockup">
       <div className="obs-bar"><span className="obs-dot">●</span> OBS Studio <span>— □ ×</span></div>
       <div className="obs-menu">File &nbsp; Edit &nbsp; View &nbsp; Docks &nbsp; Profile &nbsp; Scene Collection</div>
-      <div className="obs-video"><div className="signal-corners" /><strong>OPENSTREAM / CAM A</strong><span>LIVE · 30 FPS</span></div>
+      <div className="obs-video"><div className="signal-corners" /><strong>OPENSTREAM / PHONE</strong><span>LIVE · 30 FPS</span></div>
       <div className="obs-panels"><div>Scenes<br/><b>Camera</b><br/>Overlay</div><div>Sources<br/><b>OpenStream</b><br/>Audio</div><div className="mixer">Audio Mixer<br/><b>▮▮▮▮▮▯▯</b><br/>OpenStream AAC</div></div>
       <div className="dock-mini"><div className="dock-title"><Mark /> OpenStream Camera Control <span>● Connected</span></div><div className="dock-actions"><span>Rear</span><span>Front</span><span>Torch</span><span>Identify</span></div><div className="dock-zoom">Zoom <i><b /></i><strong>1.8×</strong></div></div>
     </div>
@@ -83,7 +83,7 @@ function Hero() {
 
 const benefits = [
   ["⌕", "Smooth live zoom", "Zoom responds continuously while you drag the OBS slider, without stale commands piling up."],
-  ["▤", "Stable camera slots", "Reserve CAM A, CAM B, and production positions so phones reconnect to the right source."],
+  ["▤", "One phone camera", "Connect one phone to OBS and reuse its source across your scenes."],
   ["↻", "Fast reconnects", "Discovery, bounded queues, and reservation-aware recovery keep brief Wi-Fi drops manageable."],
   ["▥", "Separate AAC audio", "Phone microphone audio arrives in its own OBS mixer channel, separate from desktop audio."],
 ];
@@ -93,7 +93,7 @@ function ControlDock() {
     <div className="control-window">
       <div className="control-title"><Mark /><strong>OpenStream Camera Control</strong><span>•••</span></div>
       <div className="control-body">
-        <div className="connection-panel"><small>CONNECTION</small><p><i /> Connected</p><small>SOURCE</small><div className="faux-select">CAM A — Pixel 8 Pro <span>⌄</span></div><div className="connection-buttons"><span>Connect / retry</span><span>Stop</span></div></div>
+        <div className="connection-panel"><small>CONNECTION</small><p><i /> Connected</p><small>SOURCE</small><div className="faux-select">Pixel 8 Pro</div><div className="connection-buttons"><span>Connect / retry</span><span>Stop</span></div></div>
         <div className="camera-panel"><small>CAMERA</small><div className="segmented"><span className="active">Rear</span><span>Front</span></div><div className="camera-actions"><span>Torch on</span><span>Torch off</span><span>Identify</span></div><label>Zoom <span>1.8×</span></label><div className="zoom-track"><i /></div></div>
       </div>
     </div>
@@ -129,8 +129,8 @@ function Downloads() {
 const steps = [
   ["01", "Install the Android app", "Download the signed APK, install it, and grant camera and microphone access."],
   ["02", "Install the OBS plugin", "Close OBS, run the Windows installer once, then reopen OBS Studio."],
-  ["03", "Create a camera slot", "Add an OpenStream source in OBS and name it for your production position."],
-  ["04", "Pair on local Wi-Fi", "Choose the discovered OBS slot on your phone. Manual IP remains available if discovery is blocked."],
+  ["03", "Add your camera", "Add one OpenStream source in OBS. Use Add Existing to reuse it in other scenes."],
+  ["04", "Pair on local Wi-Fi", "Choose your OBS computer on the phone. Enable manual receive in OBS if discovery is blocked."],
   ["05", "Frame and go live", "Open the Camera Control dock, verify audio, adjust zoom or lens, and stream."],
 ];
 

@@ -1,0 +1,89 @@
+name: OBS Plugin Linux
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Cancel superseded PR runs; keep pushes to main.
+concurrency:
+  group: obs-plugin-linux-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build Linux x86_64 plugin
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake \
+            g++ \
+            pkg-config \
+            libobs-dev \
+            libavformat-dev \
+            libavcodec-dev \
+            libavutil-dev \
+            libswscale-dev \
+            qt6-base-dev
+          echo "System ABI under test:"
+          pkg-config --modversion libobs
+          pkg-config --modversion libavformat
+          pkg-config --modversion Qt6Core
+          # Fail visibly below these floors: the plugin needs libobs 30+ and
+          # a Qt6 compatible with find_package(Qt6 6.2). Noble (24.04)
+          # provides libobs-dev 30.0.2 and qt6-base-dev 6.4.2.
+          pkg-config --atleast-version=30 libobs
+          pkg-config --atleast-version=6.2 Qt6Core
+
+      - name: Build plugin package
+        run: |
+          export OPENSTREAM_PLUGIN_PACKAGE_DIR="$PWD/artifacts"
+          ./build_plugin_linux.sh
+
+      - name: Verify system ABI linkage
+        run: |
+          test -f obs-plugin/build/openstream-obs.so
+          ldd obs-plugin/build/openstream-obs.so
+          ldd obs-plugin/build/openstream-obs.so | grep -E "libobs\.so"
+          ldd obs-plugin/build/openstream-obs.so | grep -E "libavformat\.so"
+          ldd obs-plugin/build/openstream-obs.so | grep -E "libQt6(Widgets|Network)"
+
+      - name: Run repository behavioural tests (pytest)
+        run: |
+          python3 -m pip install --disable-pip-version-check pytest
+          python3 -m pytest -q tests/test_repo_contract.py tests/test_obs_control_connect_contract.py tests/test_obs_reconnect_hold_contract.py tests/test_obs_srt_timeout_contract.py tests/test_reservation_token_contract.py
+
+      - name: Verify Linux package tarball and installer layout
+        run: |
+          test -f artifacts/openstream-obs-linux-x86_64.tar.gz
+          tar -tzf artifacts/openstream-obs-linux-x86_64.tar.gz
+          tmpdir="$(mktemp -d)"
+          tar -xzf artifacts/openstream-obs-linux-x86_64.tar.gz -C "$tmpdir"
+          test -f "$tmpdir/openstream-obs-linux-x86_64/openstream-obs.so"
+          test -f "$tmpdir/openstream-obs-linux-x86_64/install-openstream-plugin-linux.sh"
+          # Installer smoke test in an isolated --dest-dir: validates the
+          # packaged no-argument sibling lookup without touching HOME.
+          (cd "$tmpdir/openstream-obs-linux-x86_64" && ./install-openstream-plugin-linux.sh --dest-dir "$tmpdir/install-root")
+          test -f "$tmpdir/install-root/openstream-obs.so"
+          rm -rf "$tmpdir"
+
+      - name: Upload plugin package
+        uses: actions/upload-artifact@v4
+        with:
+          name: openstream-obs-linux-x86_64
+          path: artifacts/openstream-obs-linux-x86_64.tar.gz
+          if-no-files-found: error

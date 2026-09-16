@@ -2,7 +2,6 @@
 
 #include <obs-frontend-api.h>
 
-#include <QComboBox>
 #include <QByteArray>
 #include <QDesktopServices>
 #include <QDoubleSpinBox>
@@ -63,10 +62,10 @@ class OpenStreamDock final : public QWidget {
   OpenStreamDock() {
     setObjectName("OpenStreamCameraControl");
     auto *layout = new QVBoxLayout(this);
-    source_ = new QComboBox(this);
+    source_ = new QLabel(this);
     status_ = new QLabel("No OpenStream camera source", this);
     status_->setWordWrap(true);
-    layout->addWidget(new QLabel("Camera source", this));
+    layout->addWidget(new QLabel("Your phone camera", this));
     layout->addWidget(source_);
     layout->addWidget(status_);
 
@@ -78,7 +77,7 @@ class OpenStreamDock final : public QWidget {
     connect(retry, &QPushButton::clicked, this, [this] {
       obs_source_t *selected = currentSource();
       if (!selected) {
-        status_->setText("Choose an OpenStream source first");
+        status_->setText("Add one OpenStream source in OBS to connect your phone.");
         return;
       }
       const bool queued = openstream_start_camera_source(selected);
@@ -88,11 +87,11 @@ class OpenStreamDock final : public QWidget {
     connect(stop, &QPushButton::clicked, this, [this] {
       obs_source_t *selected = currentSource();
       if (!selected) {
-        status_->setText("Choose an OpenStream source first");
+        status_->setText("Add one OpenStream source in OBS to connect your phone.");
         return;
       }
       const bool queued = openstream_stop_camera_source(selected);
-      status_->setText(queued ? "Stopping camera slot in background..."
+      status_->setText(queued ? "Stopping camera in background..."
                               : "Camera source is shutting down");
     });
     connection->addWidget(retry);
@@ -165,10 +164,7 @@ class OpenStreamDock final : public QWidget {
   }
 
   obs_source_t *currentSource() const {
-    const int index = source_->currentIndex();
-    return index >= 0 && static_cast<size_t>(index) < sources_.size()
-               ? sources_[static_cast<size_t>(index)]
-               : nullptr;
+    return sources_.size() == 1 ? sources_.front() : nullptr;
   }
 
   void releaseSources() {
@@ -177,7 +173,6 @@ class OpenStreamDock final : public QWidget {
   }
 
   void refreshSources() {
-    const QString selected = source_->currentText();
     releaseSources();
     source_->clear();
     obs_enum_sources(
@@ -185,14 +180,15 @@ class OpenStreamDock final : public QWidget {
           auto *self = static_cast<OpenStreamDock *>(opaque);
           if (!openstream_is_camera_source(source)) return true;
           self->sources_.push_back(obs_source_get_ref(source));
-          self->source_->addItem(QString::fromUtf8(obs_source_get_name(source)));
           return true;
         },
         this);
-    const int old = source_->findText(selected);
-    if (old >= 0) source_->setCurrentIndex(old);
     if (obs_source_t *source = currentSource()) {
+      source_->setText(QString::fromUtf8(obs_source_get_name(source)));
       status_->setText(QString::fromUtf8(openstream_source_status(source)));
+    } else if (sources_.size() > 1) {
+      source_->setText("Multiple legacy sources found");
+      status_->setText("Keep one OpenStream source. To show it in another scene, use Add Existing. Remove extra camera sources to use these controls.");
     } else {
       status_->setText("Add an OpenStream V8 source to control your phone here.");
     }
@@ -225,7 +221,7 @@ class OpenStreamDock final : public QWidget {
     });
   }
 
-  QComboBox *source_ = nullptr;
+  QLabel *source_ = nullptr;
   QLabel *status_ = nullptr;
   QDoubleSpinBox *zoom_ = nullptr;
   QTimer *refresh_ = nullptr;
