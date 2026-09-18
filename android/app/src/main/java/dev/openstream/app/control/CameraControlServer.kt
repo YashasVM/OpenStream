@@ -298,38 +298,44 @@ class CameraControlServer(
         .put("error", "busy")
         .toString()
 
+    /** Parses a control-request body; null means malformed JSON (caller replies 400). */
+    private fun parseJson(body: String): JSONObject? {
+        return try {
+            JSONObject(body)
+        } catch (_: JSONException) {
+            null
+        }
+    }
+
+    private fun malformedResponse(name: String): Pair<Int, String> =
+        400 to """{"ok":false,"error":"malformed $name request"}"""
+
     private fun handleZoom(body: String, controllerAddress: String): Pair<Int, String> {
         if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse().let { 401 to it }
         // Malformed JSON must return 400 with an error envelope, never hang
         // or close the connection without a response (bounded queue rule:
         // every request gets exactly one bounded response).
-        val value = try {
-            JSONObject(body).getDouble("value").toFloat()
-        } catch (e: JSONException) {
-            return 400 to """{"ok":false,"error":"malformed zoom request"}"""
-        }
+        val value = parseJson(body)?.let { json ->
+            runCatching { json.getDouble("value").toFloat() }.getOrNull()
+        } ?: return malformedResponse("zoom")
         val applied = cameraProvider().setZoom(value)
         return 200 to """{"ok":true,"zoom":$applied}"""
     }
 
     private fun handleTorch(body: String, controllerAddress: String): Pair<Int, String> {
         if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse().let { 401 to it }
-        val enabled = try {
-            JSONObject(body).getBoolean("enabled")
-        } catch (e: JSONException) {
-            return 400 to """{"ok":false,"error":"malformed torch request"}"""
-        }
+        val enabled = parseJson(body)?.let { json ->
+            runCatching { json.getBoolean("enabled") }.getOrNull()
+        } ?: return malformedResponse("torch")
         onToggleTorch(enabled)
         return 200 to """{"ok":true,"torch":$enabled}"""
     }
 
     private fun handleLens(body: String, controllerAddress: String): Pair<Int, String> {
         if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse().let { 401 to it }
-        val lensLabel = try {
-            JSONObject(body).getString("lens")
-        } catch (e: JSONException) {
-            return 400 to """{"ok":false,"error":"malformed lens request"}"""
-        }
+        val lensLabel = parseJson(body)?.let { json ->
+            runCatching { json.getString("lens") }.getOrNull()
+        } ?: return malformedResponse("lens")
         val available = lensListProvider()
         val target = available.firstOrNull { it.shortLabel == lensLabel }
             ?: return 404 to """{"ok":false,"error":"lens not found","available":${available.map { "\"${it.shortLabel}\"" }}}"""
@@ -338,11 +344,7 @@ class CameraControlServer(
     }
 
     private fun handleReserve(body: String, controllerAddress: String): Pair<Int, String> {
-        val json = try {
-            JSONObject(body)
-        } catch (e: JSONException) {
-            return 400 to """{"ok":false,"error":"malformed reserve request"}"""
-        }
+        val json = parseJson(body) ?: return malformedResponse("reserve")
         val sourceInstanceId = json.optString("sourceInstanceId").trim()
         if (sourceInstanceId.isEmpty()) return 400 to """{"ok":false,"error":"missing sourceInstanceId"}"""
         val reservationToken = json.optString("reservationToken").trim().ifEmpty { null }
@@ -410,11 +412,7 @@ class CameraControlServer(
     }
 
     private fun handleRelease(body: String, controllerAddress: String): Pair<Int, String> {
-        val json = try {
-            JSONObject(body)
-        } catch (e: JSONException) {
-            return 400 to """{"ok":false,"error":"malformed release request"}"""
-        }
+        val json = parseJson(body) ?: return malformedResponse("release")
         val sourceInstanceId = json.optString("sourceInstanceId").trim()
         if (sourceInstanceId.isEmpty()) return 400 to """{"ok":false,"error":"missing sourceInstanceId"}"""
         val reservationToken = json.optString("reservationToken").trim().ifEmpty { null }
@@ -449,11 +447,7 @@ class CameraControlServer(
 
     private fun handleIdentify(body: String, controllerAddress: String): Pair<Int, String> {
         if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse().let { 401 to it }
-        val json = try {
-            JSONObject(body)
-        } catch (e: JSONException) {
-            return 400 to """{"ok":false,"error":"malformed identify request"}"""
-        }
+        val json = parseJson(body) ?: return malformedResponse("identify")
         val label = json.optString("label", "CAM").ifBlank { "CAM" }
         val subtitle = json.optString("subtitle", "")
         onIdentify(label, subtitle)

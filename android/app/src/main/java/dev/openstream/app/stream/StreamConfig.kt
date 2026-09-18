@@ -36,18 +36,5 @@ data class StreamConfig(
             audioChannelCount = 1,
             audioBitrate = 128_000,
         )
-
-        val Fallback720p30 = StreamConfig(
-            width = 1280,
-            height = 720,
-            fps = 30,
-            bitrate = 8_000_000,
-            keyframeIntervalSeconds = 1,
-            latencyMs = 120,
-            codecPreference = CodecPreference.ForceAvc,
-            audioSampleRate = 48_000,
-            audioChannelCount = 1,
-            audioBitrate = 128_000,
-        )
     }
 }

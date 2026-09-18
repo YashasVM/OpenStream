@@ -39,7 +39,7 @@ bool AsyncControlClient::post_urgent(std::function<bool()> command) {
   if (!command) return false;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (stopping_ || stopped_) return false;
+    if (stopping_) return false;
     // Bound the urgent queue (AGENTS.md: never unbounded). Overflow policy is
     // drop-newest: reject the newcomer so the caller can blog(LOG_WARNING).
     // This mirrors the normal queue policy (post() rejects when full).
@@ -63,7 +63,6 @@ void AsyncControlClient::run() {
         urgent_command = std::move(urgent_commands_.front());
         urgent_commands_.pop();
       } else if (stopping_) {
-        stopped_ = true;
         return;
       } else {
         command = std::move(commands_.front());

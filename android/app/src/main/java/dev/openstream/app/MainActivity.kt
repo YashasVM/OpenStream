@@ -36,7 +36,6 @@ import dev.openstream.app.encoder.MediaCodecVideoEncoder
 import dev.openstream.app.stream.ConnectionTarget
 import dev.openstream.app.stream.StreamConfig
 import dev.openstream.app.stream.SrtStreamClient
-import dev.openstream.app.telemetry.TelemetrySampler
 
 class MainActivity : Activity() {
 
@@ -66,7 +65,6 @@ class MainActivity : Activity() {
     private lateinit var encoder: MediaCodecVideoEncoder
     private lateinit var audioEncoder: MediaCodecAudioEncoder
     private lateinit var streamClient: SrtStreamClient
-    private lateinit var telemetry: TelemetrySampler
     private lateinit var phoneAdvertiser: PhoneDiscoveryAdvertiser
     private lateinit var obsDiscoveryClient: ObsDiscoveryClient
     private lateinit var controlServer: CameraControlServer
@@ -127,7 +125,6 @@ class MainActivity : Activity() {
             ?: ConnectionTarget.DEFAULT_PORT
 
         streamClient = SrtStreamClient()
-        telemetry = TelemetrySampler(this)
         phoneAdvertiser = PhoneDiscoveryAdvertiser(
             context = this,
             config = streamConfig,
@@ -171,13 +168,7 @@ class MainActivity : Activity() {
             onToggleTorch = { enabled -> runOnUiThread {
                 torchOn = enabled
                 camera.setTorch(enabled)
-                if (enabled) {
-                    btnTorch.setBackgroundResource(R.drawable.bg_btn_accent)
-                    btnTorch.setTextColor(getColor(R.color.os_black))
-                } else {
-                    btnTorch.setBackgroundResource(R.drawable.bg_btn_ghost)
-                    btnTorch.setTextColor(getColor(R.color.os_text_secondary))
-                }
+                setTorchUi(enabled)
             }},
             reservationProvider = { reservedBy },
             onReserve = { sourceInstanceId, slotLabel, bitrateMbps ->
@@ -195,7 +186,7 @@ class MainActivity : Activity() {
             }
             override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
                 // Fix stretched preview: adjust SurfaceView to maintain camera aspect ratio
-                adjustPreviewAspectRatio(width, height)
+                adjustPreviewAspectRatio()
             }
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 // Close the camera before encoder teardown tries to rebuild a
@@ -443,8 +434,7 @@ class MainActivity : Activity() {
         // Turn off torch when switching cameras
         if (torchOn) {
             torchOn = false
-            btnTorch.setBackgroundResource(R.drawable.bg_btn_ghost)
-            btnTorch.setTextColor(getColor(R.color.os_text_secondary))
+            setTorchUi(false)
         }
         val wasStreaming = activeTargetName != null
         // Stop the encoder before switching cameras to avoid surface conflicts
@@ -513,7 +503,11 @@ class MainActivity : Activity() {
         if (currentLens.isFrontFacing) return
         torchOn = !torchOn
         camera.setTorch(torchOn)
-        if (torchOn) {
+        setTorchUi(torchOn)
+    }
+
+    private fun setTorchUi(enabled: Boolean) {
+        if (enabled) {
             btnTorch.setBackgroundResource(R.drawable.bg_btn_accent)
             btnTorch.setTextColor(getColor(R.color.os_black))
         } else {
@@ -1122,7 +1116,7 @@ class MainActivity : Activity() {
 
     // ─────────────────────────── Preview aspect ratio fix ───────────────────────────
 
-    private fun adjustPreviewAspectRatio(surfaceWidth: Int, surfaceHeight: Int) {
+    private fun adjustPreviewAspectRatio() {
         // Camera outputs in landscape (e.g. 1920x1080) but phone is portrait
         // The preview surface should match the camera aspect ratio to avoid stretching
         val cameraAspect = streamConfig.width.toFloat() / streamConfig.height.toFloat()

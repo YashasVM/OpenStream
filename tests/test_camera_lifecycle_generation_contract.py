@@ -1,78 +1,65 @@
 from pathlib import Path
 
+from _helpers import block_after
+
 
 SOURCE = Path(
     "android/app/src/main/java/dev/openstream/app/camera/Camera2Controller.kt"
 ).read_text()
 
 
-def _block_after(source: str, marker: str) -> str:
-    start = source.index(marker)
-    brace = source.index("{", start)
-    depth = 0
-    for index in range(brace, len(source)):
-        char = source[index]
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return source[brace + 1 : index]
-    raise AssertionError(f"unterminated block after {marker!r}")
-
-
 def test_stale_camera_device_callbacks_cannot_replace_new_device():
-    start_preview = _block_after(SOURCE, "private fun startPreviewLocked()")
-    opened = _block_after(start_preview, "override fun onOpened(device: CameraDevice)")
-    disconnected = _block_after(start_preview, "override fun onDisconnected(device: CameraDevice)")
-    errored = _block_after(start_preview, "override fun onError(device: CameraDevice, error: Int)")
+    start_preview = block_after(SOURCE, "private fun startPreviewLocked()")
+    opened = block_after(start_preview, "override fun onOpened(device: CameraDevice)")
+    disconnected = block_after(start_preview, "override fun onDisconnected(device: CameraDevice)")
+    errored = block_after(start_preview, "override fun onError(device: CameraDevice, error: Int)")
 
     assert "val generation = cameraGeneration.get()" in start_preview
     assert "val expectedLifecycleGeneration = lifecycleGeneration" in start_preview
 
     for callback in (opened, disconnected, errored):
-        lifecycle_critical = _block_after(callback, "synchronized(lifecycleLock)")
+        lifecycle_critical = block_after(callback, "synchronized(lifecycleLock)")
         assert "!desiredRunning" in lifecycle_critical
         assert "lifecycleGeneration != expectedLifecycleGeneration" in lifecycle_critical
         assert "cameraGeneration.get() != generation" in lifecycle_critical
         assert "activeCameraId != desiredId" in lifecycle_critical
 
-    opened_critical = _block_after(opened, "synchronized(lifecycleLock)")
+    opened_critical = block_after(opened, "synchronized(lifecycleLock)")
     assert opened_critical.index("device.close()") < opened_critical.index("camera = device")
     assert "cancelCameraRecoveryLocked()" in opened_critical
 
 
 def test_camera_lifecycle_mutators_share_device_callback_lock():
-    switch_lens = _block_after(SOURCE, "fun switchLens(lens: CameraLens)")
-    switch_critical = _block_after(switch_lens, "synchronized(lifecycleLock)")
+    switch_lens = block_after(SOURCE, "fun switchLens(lens: CameraLens)")
+    switch_critical = block_after(switch_lens, "synchronized(lifecycleLock)")
     assert "activeCameraId = newId" in switch_critical
     assert "closeCamera()" in switch_critical
     assert switch_critical.index("closeCamera()") < switch_critical.index("startPreview()")
 
-    start_streaming = _block_after(SOURCE, "fun startStreaming(encodedSurface: Surface)")
-    start_critical = _block_after(start_streaming, "synchronized(lifecycleLock)")
+    start_streaming = block_after(SOURCE, "fun startStreaming(encodedSurface: Surface)")
+    start_critical = block_after(start_streaming, "synchronized(lifecycleLock)")
     assert "streamingSurface = encodedSurface" in start_critical
     assert "startPreview()" in start_critical
     assert "createSession()" in start_critical
 
-    stop_streaming = _block_after(SOURCE, "fun stopStreaming()")
-    stop_critical = _block_after(stop_streaming, "synchronized(lifecycleLock)")
+    stop_streaming = block_after(SOURCE, "fun stopStreaming()")
+    stop_critical = block_after(stop_streaming, "synchronized(lifecycleLock)")
     assert "streamingSurface = null" in stop_critical
     assert "createSession()" in stop_critical
 
 
 def test_camera_controls_share_session_lifecycle_lock():
-    set_zoom = _block_after(SOURCE, "fun setZoom(ratio: Float): Float")
-    zoom_critical = _block_after(set_zoom, "synchronized(lifecycleLock)")
+    set_zoom = block_after(SOURCE, "fun setZoom(ratio: Float): Float")
+    zoom_critical = block_after(set_zoom, "synchronized(lifecycleLock)")
     assert "currentZoomRatio = ratio.coerceIn(minZoomRatio, maxZoomRatio)" in zoom_critical
     assert "updateZoomInSession()" in zoom_critical
 
-    scale_zoom = _block_after(SOURCE, "fun scaleZoom(scaleFactor: Float): Float")
-    scale_critical = _block_after(scale_zoom, "synchronized(lifecycleLock)")
+    scale_zoom = block_after(SOURCE, "fun scaleZoom(scaleFactor: Float): Float")
+    scale_critical = block_after(scale_zoom, "synchronized(lifecycleLock)")
     assert "setZoom(currentZoomRatio * scaleFactor)" in scale_critical
 
-    set_torch = _block_after(SOURCE, "fun setTorch(enabled: Boolean)")
-    torch_critical = _block_after(set_torch, "synchronized(lifecycleLock)")
+    set_torch = block_after(SOURCE, "fun setTorch(enabled: Boolean)")
+    torch_critical = block_after(set_torch, "synchronized(lifecycleLock)")
     assert "torchEnabled = enabled" in torch_critical
     assert "rebuildRepeatingRequest()" in torch_critical
 
@@ -81,8 +68,8 @@ def test_camera_controls_share_session_lifecycle_lock():
 
 
 def test_session_recovery_cannot_race_lifecycle_mutation():
-    recovery = _block_after(SOURCE, "private fun recoverFromSessionFailure(")
-    lifecycle_critical = _block_after(recovery, "synchronized(lifecycleLock)")
+    recovery = block_after(SOURCE, "private fun recoverFromSessionFailure(")
+    lifecycle_critical = block_after(recovery, "synchronized(lifecycleLock)")
 
     assert "!desiredRunning" in lifecycle_critical
     assert "sessionGeneration.get() != generation" in lifecycle_critical
@@ -95,12 +82,12 @@ def test_session_recovery_cannot_race_lifecycle_mutation():
 
 
 def test_stale_capture_session_callbacks_are_closed_not_published():
-    create_session = _block_after(SOURCE, "private fun createSession()")
-    configured = _block_after(
+    create_session = block_after(SOURCE, "private fun createSession()")
+    configured = block_after(
         create_session,
         "override fun onConfigured(captureSession: CameraCaptureSession)",
     )
-    failed = _block_after(
+    failed = block_after(
         create_session,
         "override fun onConfigureFailed(captureSession: CameraCaptureSession)",
     )
@@ -108,7 +95,7 @@ def test_stale_capture_session_callbacks_are_closed_not_published():
     assert "val generation = sessionGeneration.incrementAndGet()" in create_session
     guard = "sessionGeneration.get() != generation || camera !== device"
 
-    configured_critical = _block_after(configured, "synchronized(lifecycleLock)")
+    configured_critical = block_after(configured, "synchronized(lifecycleLock)")
     assert "!desiredRunning" in configured_critical
     assert guard in configured_critical
     assert configured_critical.index("captureSession.close()") < configured_critical.index(
@@ -116,7 +103,7 @@ def test_stale_capture_session_callbacks_are_closed_not_published():
     )
     assert "captureSession.setRepeatingRequest(request, null, handler)" in configured_critical
 
-    failed_critical = _block_after(failed, "synchronized(lifecycleLock)")
+    failed_critical = block_after(failed, "synchronized(lifecycleLock)")
     assert "!desiredRunning" in failed_critical
     assert guard in failed_critical
     assert "captureSession.close()" in failed_critical
@@ -124,7 +111,7 @@ def test_stale_capture_session_callbacks_are_closed_not_published():
 
 
 def test_close_invalidates_device_and_session_callbacks_before_teardown():
-    close_camera = _block_after(SOURCE, "private fun closeCamera()")
+    close_camera = block_after(SOURCE, "private fun closeCamera()")
 
     camera_invalidate = close_camera.index("cameraGeneration.incrementAndGet()")
     session_invalidate = close_camera.index("sessionGeneration.incrementAndGet()")

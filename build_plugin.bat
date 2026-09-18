@@ -129,11 +129,8 @@ if not exist "%OBS_SDK_DIR%\libobs\obs-module.h" (
         )
     )
 
-    for /f %%H in ('powershell -NoProfile -Command "(Get-FileHash -LiteralPath '%OBS_SDK_ZIP%' -Algorithm SHA256).Hash.ToLowerInvariant()"') do set "OBS_SDK_ACTUAL=%%H"
-    if /I not "!OBS_SDK_ACTUAL!"=="%OBS_SDK_SHA256%" (
-        echo ERROR: OBS source checksum mismatch.
-        exit /b 1
-    )
+    call :verify_sha256 "%OBS_SDK_ZIP%" "%OBS_SDK_SHA256%" "OBS source"
+    if errorlevel 1 exit /b 1
 
     echo [2/6] Extracting OBS source headers...
     if not exist "%OBS_SDK_DIR%" mkdir "%OBS_SDK_DIR%"
@@ -158,33 +155,21 @@ rem or truncated cache cannot survive across builds. Source archives needed for
 rem extraction are verified above before tar sees them; this also covers cache
 rem hits whenever the zip is present.
 if exist "%OBS_SDK_ZIP%" (
-    for /f %%H in ('powershell -NoProfile -Command "(Get-FileHash -LiteralPath '%OBS_SDK_ZIP%' -Algorithm SHA256).Hash.ToLowerInvariant()"') do set "OBS_SDK_ACTUAL=%%H"
-    if /I not "!OBS_SDK_ACTUAL!"=="%OBS_SDK_SHA256%" (
-        echo ERROR: OBS source checksum mismatch.
-        exit /b 1
-    )
+    call :verify_sha256 "%OBS_SDK_ZIP%" "%OBS_SDK_SHA256%" "OBS source"
+    if errorlevel 1 exit /b 1
 )
 if exist "%OBS_DEPS_ZIP%" (
-    for /f %%H in ('powershell -NoProfile -Command "(Get-FileHash -LiteralPath '%OBS_DEPS_ZIP%' -Algorithm SHA256).Hash.ToLowerInvariant()"') do set "OBS_DEPS_ACTUAL=%%H"
-    if /I not "!OBS_DEPS_ACTUAL!"=="%OBS_DEPS_SHA256%" (
-        echo ERROR: OBS dependency checksum mismatch.
-        exit /b 1
-    )
+    call :verify_sha256 "%OBS_DEPS_ZIP%" "%OBS_DEPS_SHA256%" "OBS dependency"
+    if errorlevel 1 exit /b 1
 )
 if not exist "%OBS_DEPS_DIR%\include\libavcodec\avcodec.h" (
     if not exist "%OBS_DEPS_ZIP%" curl -L --fail --retry 3 -o "%OBS_DEPS_ZIP%" "%OBS_DEPS_URL%"
     if errorlevel 1 exit /b 1
-    for /f %%H in ('powershell -NoProfile -Command "(Get-FileHash -LiteralPath '%OBS_DEPS_ZIP%' -Algorithm SHA256).Hash.ToLowerInvariant()"') do set "OBS_DEPS_ACTUAL=%%H"
-    if /I not "!OBS_DEPS_ACTUAL!"=="%OBS_DEPS_SHA256%" (
-        echo ERROR: OBS dependency checksum mismatch.
-        exit /b 1
-    )
+    call :verify_sha256 "%OBS_DEPS_ZIP%" "%OBS_DEPS_SHA256%" "OBS dependency"
+    if errorlevel 1 exit /b 1
     if exist "%OBS_SDK_ZIP%" (
-        for /f %%H in ('powershell -NoProfile -Command "(Get-FileHash -LiteralPath '%OBS_SDK_ZIP%' -Algorithm SHA256).Hash.ToLowerInvariant()"') do set "OBS_SDK_ACTUAL=%%H"
-        if /I not "!OBS_SDK_ACTUAL!"=="%OBS_SDK_SHA256%" (
-            echo ERROR: OBS source checksum mismatch.
-            exit /b 1
-        )
+        call :verify_sha256 "%OBS_SDK_ZIP%" "%OBS_SDK_SHA256%" "OBS source"
+        if errorlevel 1 exit /b 1
     )
     powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '%OBS_DEPS_ZIP%' -DestinationPath '%OBS_DEPS_DIR%' -Force"
     if errorlevel 1 exit /b 1
@@ -202,13 +187,7 @@ for %%F in (avcodec avformat avutil swscale) do (
     for %%D in ("%OBS_BIN%\%%F-*.dll") do (
         if exist "%%D" (
             echo   Creating %%F.lib from verified %%~nxD...
-            dumpbin /exports "%%D" > "%DEPS_DIR%\%%F_exports.txt" 2>nul
-            echo LIBRARY %%~nxD> "%DEPS_DIR%\%%F.def"
-            echo EXPORTS>> "%DEPS_DIR%\%%F.def"
-            for /f "usebackq skip=19 tokens=4" %%E in ("%DEPS_DIR%\%%F_exports.txt") do (
-                if not "%%E"=="" echo %%E>> "%DEPS_DIR%\%%F.def"
-            )
-            lib /def:"%DEPS_DIR%\%%F.def" /out:"%FFMPEG_DIR%\lib\%%F.lib" /machine:x64 >nul 2>&1
+            call :gen_lib "%%D" "%DEPS_DIR%\%%F.def" "%FFMPEG_DIR%\lib\%%F.lib" "%%~nxD"
         )
     )
 )
@@ -232,26 +211,14 @@ if not exist "%FFMPEG_DIR%\lib\obs.lib" (
         copy /Y "%OBS_SDK_DIR%\lib\obs.lib" "%FFMPEG_DIR%\lib\obs.lib" >nul
     ) else if exist "%OBS_BIN%\obs.dll" (
         echo   Creating obs.lib from obs.dll...
-        dumpbin /exports "%OBS_BIN%\obs.dll" > "%DEPS_DIR%\obs_exports.txt" 2>nul
-        echo LIBRARY obs.dll> "%DEPS_DIR%\obs.def"
-        echo EXPORTS>> "%DEPS_DIR%\obs.def"
-        for /f "usebackq skip=19 tokens=4" %%E in ("%DEPS_DIR%\obs_exports.txt") do (
-            if not "%%E"=="" echo %%E>> "%DEPS_DIR%\obs.def"
-        )
-        lib /def:"%DEPS_DIR%\obs.def" /out:"%FFMPEG_DIR%\lib\obs.lib" /machine:x64 >nul 2>&1
+        call :gen_lib "%OBS_BIN%\obs.dll" "%DEPS_DIR%\obs.def" "%FFMPEG_DIR%\lib\obs.lib" "obs.dll"
     )
 )
 
 if not exist "%FFMPEG_DIR%\lib\obs-frontend-api.lib" (
     if exist "%OBS_BIN%\obs-frontend-api.dll" (
         echo   Creating obs-frontend-api.lib from obs-frontend-api.dll...
-        dumpbin /exports "%OBS_BIN%\obs-frontend-api.dll" > "%DEPS_DIR%\obs_frontend_exports.txt" 2>nul
-        echo LIBRARY obs-frontend-api.dll> "%DEPS_DIR%\obs-frontend-api.def"
-        echo EXPORTS>> "%DEPS_DIR%\obs-frontend-api.def"
-        for /f "usebackq skip=19 tokens=4" %%E in ("%DEPS_DIR%\obs_frontend_exports.txt") do (
-            if not "%%E"=="" echo %%E>> "%DEPS_DIR%\obs-frontend-api.def"
-        )
-        lib /def:"%DEPS_DIR%\obs-frontend-api.def" /out:"%FFMPEG_DIR%\lib\obs-frontend-api.lib" /machine:x64 >nul 2>&1
+        call :gen_lib "%OBS_BIN%\obs-frontend-api.dll" "%DEPS_DIR%\obs-frontend-api.def" "%FFMPEG_DIR%\lib\obs-frontend-api.lib" "obs-frontend-api.dll"
     )
 )
 if not exist "%FFMPEG_DIR%\lib\obs-frontend-api.lib" (
@@ -362,4 +329,27 @@ echo.
 echo Restart OBS Studio, then add an OpenStream source.
 echo.
 
+goto :openstream_end
+
+:verify_sha256
+rem %1=file %2=expected sha256 %3=label for the error message.
+for /f %%H in ('powershell -NoProfile -Command "(Get-FileHash -LiteralPath '%~1' -Algorithm SHA256).Hash.ToLowerInvariant()"') do set "OPENSTREAM_VERIFY_ACTUAL=%%H"
+if /I not "!OPENSTREAM_VERIFY_ACTUAL!"=="%~2" (
+    echo ERROR: %~3 checksum mismatch.
+    exit /b 1
+)
+exit /b 0
+
+:gen_lib
+rem %1=dll %2=def %3=lib %4=LIBRARY name for the .def header.
+dumpbin /exports "%~1" > "%~2.exports.txt" 2>nul
+echo LIBRARY %~4> "%~2"
+echo EXPORTS>> "%~2"
+for /f "usebackq skip=19 tokens=4" %%E in ("%~2.exports.txt") do (
+    if not "%%E"=="" echo %%E>> "%~2"
+)
+lib /def:"%~2" /out:"%~3" /machine:x64 >nul 2>&1
+exit /b 0
+
+:openstream_end
 endlocal

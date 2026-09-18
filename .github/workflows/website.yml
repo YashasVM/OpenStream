@@ -40,4 +40,4 @@ jobs:
         run: npm ci
 
       - name: Build website
-        run: npm run check
+        run: npm run build

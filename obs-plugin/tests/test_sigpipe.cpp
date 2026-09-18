@@ -21,21 +21,10 @@
 // checks that contract.
 
 #include "../src/socket-send.hpp"
+#include "contract_helpers.hpp"
 
 #include <cstdio>
 #include <cstdlib>
-
-namespace {
-void check_at(bool condition, int line) {
-  if (!condition) {
-    std::fprintf(stderr, "OpenStream SIGPIPE test failed at line %d\n", line);
-    std::fflush(stderr);
-    std::abort();
-  }
-}
-}  // namespace
-
-#define check(condition) check_at((condition), __LINE__)
 
 #ifdef _WIN32
 int main() {

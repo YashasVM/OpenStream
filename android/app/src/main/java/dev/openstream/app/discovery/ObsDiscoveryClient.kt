@@ -25,8 +25,17 @@ class ObsDiscoveryClient(
     @Volatile private var pendingRestart = false
     private val mainHandler = Handler(Looper.getMainLooper())
     // Bounded: every queue/map declares capacity + overflow policy (AGENTS.md rule 16).
-    // Oldest-seen entries are evicted first when the cap is reached.
-    private val devices = linkedMapOf<String, DiscoveredObsDevice>()
+    // Access-ordered so a re-put refreshes recency; the eldest entry (oldest
+    // last-seen beacon) is evicted first when the cap is reached.
+    private val devices = object : LinkedHashMap<String, DiscoveredObsDevice>(MAX_DEVICES + 1, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, DiscoveredObsDevice>): Boolean {
+            if (size > MAX_DEVICES) {
+                Log.w(TAG, "Discovery device cap ($MAX_DEVICES) reached; evicting ${eldest.key}")
+                return true
+            }
+            return false
+        }
+    }
     @Volatile private var socket: MulticastSocket? = null
     @Volatile private var worker: Thread? = null
     @Volatile private var multicastLock: WifiManager.MulticastLock? = null
@@ -113,15 +122,6 @@ class ObsDiscoveryClient(
                     val device = ObsDiscoveryProtocol.parseBeacon(payload, host, nowMs()) ?: continue
                     synchronized(devices) {
                         val key = device.instanceId.ifBlank { "${device.host}:${device.port}" }
-                        if (key !in devices && devices.size >= MAX_DEVICES) {
-                            // Overflow policy: evict the oldest-seen entry first.
-                            val oldest = devices.minByOrNull { it.value.lastSeenMs }?.key
-                                ?: devices.keys.firstOrNull()
-                            if (oldest != null) {
-                                Log.w(TAG, "Discovery device cap ($MAX_DEVICES) reached; evicting $oldest")
-                                devices.remove(oldest)
-                            }
-                        }
                         devices[key] = device
                     }
                     pruneExpired()
@@ -237,6 +237,7 @@ object ObsDiscoveryProtocol {
         if (port !in 1..65535) return null
         val advertisedHost = json.optString("host").trim()
         val host = advertisedHost.ifBlank { packetHost }
+        val fallbackId = json.optString("instanceId", "$packetHost:$port")
 
         return DiscoveredObsDevice(
             name = json.optString("name", "OpenStream Phone Link").ifBlank { "OpenStream Phone Link" },
@@ -247,9 +248,9 @@ object ObsDiscoveryProtocol {
                 StreamConfig.MIN_BITRATE_MBPS,
                 StreamConfig.MAX_BITRATE_MBPS,
             ),
-            instanceId = json.optString("instanceId", "$packetHost:$port"),
-            sourceInstanceId = json.optString("sourceInstanceId", json.optString("instanceId", "$packetHost:$port")),
-            slotId = json.optString("slotId", json.optString("instanceId", "$packetHost:$port")),
+            instanceId = fallbackId,
+            sourceInstanceId = json.optString("sourceInstanceId", fallbackId),
+            slotId = json.optString("slotId", fallbackId),
             slotLabel = json.optString("slotLabel", json.optString("name", "CAM A")).ifBlank { "CAM A" },
             pairingUrl = json.optString("pairingUrl", ""),
             lastSeenMs = nowMs,

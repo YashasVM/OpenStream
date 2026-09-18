@@ -47,6 +47,5 @@ class AsyncControlClient {
   std::queue<std::function<void()>> commands_;
   std::queue<std::function<bool()>> urgent_commands_;
   bool stopping_ = false;
-  bool stopped_ = false;
   std::thread worker_;
 };

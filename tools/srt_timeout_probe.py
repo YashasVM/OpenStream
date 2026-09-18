@@ -30,31 +30,29 @@ class RelayState:
     forwarded_packets: int = 0
 
 
-class RelayProtocol(asyncio.DatagramProtocol):
-    def __init__(self, state: RelayState, peer_sock: socket.socket, peer_port: int) -> None:
+class ForwardingProtocol(asyncio.DatagramProtocol):
+    """Single parameterized UDP relay; mode="relay" (caller->listener) or "return"."""
+
+    def __init__(
+        self, state: RelayState, sock: socket.socket, peer_port: int = 0, mode: str = "relay"
+    ) -> None:
         self.state = state
-        self.peer_sock = peer_sock
+        self.sock = sock
         self.peer_port = peer_port
+        self.mode = mode
 
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
-        if self.state.caller_addr is None:
-            self.state.caller_addr = addr
-        if self.state.blackhole:
-            return
-        self.peer_sock.sendto(data, ("127.0.0.1", self.peer_port))
-        self.state.forwarded_packets += 1
-
-
-class ReturnProtocol(asyncio.DatagramProtocol):
-    def __init__(self, state: RelayState, caller_sock: socket.socket) -> None:
-        self.state = state
-        self.caller_sock = caller_sock
-
-    def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
-        self.state.listener_addr = addr
-        if self.state.blackhole or self.state.caller_addr is None:
-            return
-        self.caller_sock.sendto(data, self.state.caller_addr)
+        if self.mode == "return":
+            self.state.listener_addr = addr
+            if self.state.blackhole or self.state.caller_addr is None:
+                return
+            self.sock.sendto(data, self.state.caller_addr)
+        else:
+            if self.state.caller_addr is None:
+                self.state.caller_addr = addr
+            if self.state.blackhole:
+                return
+            self.sock.sendto(data, ("127.0.0.1", self.peer_port))
         self.state.forwarded_packets += 1
 
 
@@ -64,10 +62,11 @@ class ReceiverProgress:
         self._lock = threading.Lock()
 
     def update_from_line(self, line: str) -> None:
-        if not line.startswith("frame="):
+        rest = line.removeprefix("frame=")
+        if rest == line:
             return
         try:
-            value = int(line.split("=", 1)[1])
+            value = int(rest)
         except ValueError:
             return
         with self._lock:
@@ -77,6 +76,10 @@ class ReceiverProgress:
     def frame(self) -> int:
         with self._lock:
             return self._frame
+
+
+def ffmpeg_output_has_token(output: str, token: str) -> bool:
+    return token in output.split()
 
 
 def ffmpeg_path() -> str:
@@ -89,12 +92,19 @@ def ffmpeg_path() -> str:
         capture_output=True,
         text=True,
     )
-    protocols = {line.strip() for line in probe.stdout.splitlines()}
-    if "srt" not in protocols:
+    if not ffmpeg_output_has_token(probe.stdout, "srt"):
         raise RuntimeError("ffmpeg was built without SRT support")
-    _require_ffmpeg_component(path, "-formats", "lavfi", "lavfi test-source input")
-    _require_ffmpeg_component(path, "-encoders", "mpeg2video", "mpeg2video encoder")
-    _require_ffmpeg_component(path, "-muxers", "mpegts", "mpegts muxer")
+    for list_arg, token, label in [
+        ("-formats", "lavfi", "lavfi test-source input"),
+        ("-encoders", "mpeg2video", "mpeg2video encoder"),
+        ("-muxers", "mpegts", "mpegts muxer"),
+    ]:
+        try:
+            ok = _ffmpeg_list_contains(path, list_arg, token)
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(f"ffmpeg capability check failed for {label}: {exc}") from exc
+        if not ok:
+            raise RuntimeError(f"ffmpeg was built without {label} support (missing {token})")
     return path
 
 
@@ -105,17 +115,7 @@ def _ffmpeg_list_contains(path: str, list_arg: str, token: str) -> bool:
         capture_output=True,
         text=True,
     )
-    combined = f"{probe.stdout}\n{probe.stderr}"
-    return token in combined.split()
-
-
-def _require_ffmpeg_component(path: str, list_arg: str, token: str, label: str) -> None:
-    try:
-        if _ffmpeg_list_contains(path, list_arg, token):
-            return
-    except subprocess.CalledProcessError as exc:
-        raise RuntimeError(f"ffmpeg capability check failed for {label}: {exc}") from exc
-    raise RuntimeError(f"ffmpeg was built without {label} support (missing {token})")
+    return ffmpeg_output_has_token(f"{probe.stdout}\n{probe.stderr}", token)
 
 
 def _candidate_free_port() -> int:
@@ -143,10 +143,26 @@ def terminate(proc: Optional[subprocess.Popen[str]]) -> None:
         proc.wait(timeout=2)
 
 
-def read_progress(proc: subprocess.Popen[str], progress: ReceiverProgress) -> None:
-    assert proc.stdout is not None
-    for line in proc.stdout:
-        progress.update_from_line(line.strip())
+async def wait_until(
+    predicate,
+    timeout_s: float,
+    desc: str,
+    receiver: Optional[subprocess.Popen[str]] = None,
+    sender: Optional[subprocess.Popen[str]] = None,
+    exited_desc: str = "FFmpeg process exited",
+    poll_s: float = 0.05,
+) -> float:
+    started = time.monotonic()
+    deadline = started + timeout_s
+    while not predicate() and time.monotonic() < deadline:
+        if (receiver is not None and receiver.poll() is not None) or (
+            sender is not None and sender.poll() is not None
+        ):
+            raise RuntimeError(exited_desc)
+        await asyncio.sleep(poll_s)
+    if not predicate():
+        raise RuntimeError(desc)
+    return time.monotonic() - started
 
 
 async def wait_for_transport_flow(
@@ -156,13 +172,15 @@ async def wait_for_transport_flow(
     target_packets: int,
     deadline_s: float,
 ) -> None:
-    deadline = time.monotonic() + deadline_s
-    while state.forwarded_packets < target_packets and time.monotonic() < deadline:
-        if receiver.poll() is not None or sender.poll() is not None:
-            raise RuntimeError("FFmpeg process exited before SRT transport flow was established")
-        await asyncio.sleep(0.05)
-    if state.forwarded_packets < target_packets:
-        raise RuntimeError("SRT transport flow was not established before timeout")
+    await wait_until(
+        lambda: state.forwarded_packets >= target_packets,
+        deadline_s,
+        "SRT transport flow was not established before timeout",
+        receiver,
+        sender,
+        "FFmpeg process exited before SRT transport flow was established",
+        0.05,
+    )
 
 
 async def wait_for_frame_progress(
@@ -172,15 +190,15 @@ async def wait_for_frame_progress(
     frame_after: int,
     deadline_s: float,
 ) -> float:
-    started = time.monotonic()
-    deadline = started + deadline_s
-    while progress.frame() <= frame_after and time.monotonic() < deadline:
-        if receiver.poll() is not None or sender.poll() is not None:
-            raise RuntimeError("FFmpeg process exited before receiver media progress was observed")
-        await asyncio.sleep(0.01)
-    if progress.frame() <= frame_after:
-        raise RuntimeError("receiver media did not resume before timeout")
-    return time.monotonic() - started
+    return await wait_until(
+        lambda: progress.frame() > frame_after,
+        deadline_s,
+        "receiver media did not resume before timeout",
+        receiver,
+        sender,
+        "FFmpeg process exited before receiver media progress was observed",
+        0.01,
+    )
 
 
 async def run_probe(
@@ -213,10 +231,10 @@ async def run_probe(
     listener_port = _candidate_free_port()
 
     ingress_transport, _ = await loop.create_datagram_endpoint(
-        lambda: RelayProtocol(state, egress, listener_port), sock=ingress
+        lambda: ForwardingProtocol(state, egress, listener_port, "relay"), sock=ingress
     )
     return_transport, _ = await loop.create_datagram_endpoint(
-        lambda: ReturnProtocol(state, ingress), sock=egress
+        lambda: ForwardingProtocol(state, ingress, mode="return"), sock=egress
     )
 
     receiver: Optional[subprocess.Popen[str]] = None
@@ -292,8 +310,11 @@ async def run_probe(
             stderr=subprocess.DEVNULL,
             text=True,
         )
+        assert receiver.stdout is not None
+        stdout = receiver.stdout
         progress_thread = threading.Thread(
-            target=read_progress, args=(receiver, progress), daemon=True
+            target=lambda: [progress.update_from_line(line.strip()) for line in stdout],
+            daemon=True,
         )
         progress_thread.start()
 

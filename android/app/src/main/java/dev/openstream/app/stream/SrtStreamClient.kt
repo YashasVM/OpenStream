@@ -183,8 +183,7 @@ class SrtStreamClient {
             InetAddress.getAllByName(host)
                 .mapNotNull { address ->
                     address.hostAddress?.let { numericHost ->
-                        val authorityHost = if (numericHost.contains(':')) "[$numericHost]" else numericHost
-                        "srt://$authorityHost:$port$querySuffix"
+                        "srt://${ConnectionTarget.bracketForUrl(numericHost)}:$port$querySuffix"
                     }
                 }
                 .distinct()

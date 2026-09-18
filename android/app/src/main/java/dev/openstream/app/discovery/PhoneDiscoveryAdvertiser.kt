@@ -3,6 +3,8 @@ package dev.openstream.app.discovery
 import android.content.Context
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.text.format.Formatter
+import dev.openstream.app.control.CameraControlServer
 import dev.openstream.app.encoder.advertisedMimeType
 import dev.openstream.app.stream.StreamConfig
 import org.json.JSONObject
@@ -106,7 +108,7 @@ class PhoneDiscoveryAdvertiser(
             .put("width", config.width)
             .put("height", config.height)
             .put("fps", config.fps)
-            .put("controlPort", 9001)
+            .put("controlPort", CameraControlServer.CONTROL_PORT)
             .put("busy", busyProvider())
             .put("reservedBy", reservedByProvider().orEmpty())
         return "$PREFIX $json"
@@ -116,12 +118,8 @@ class PhoneDiscoveryAdvertiser(
         val wifi = context.applicationContext.getSystemService(WifiManager::class.java) ?: return null
         val ip = wifi.connectionInfo?.ipAddress ?: return null
         if (ip == 0) return null
-        return listOf(
-            ip and 0xff,
-            ip shr 8 and 0xff,
-            ip shr 16 and 0xff,
-            ip shr 24 and 0xff,
-        ).joinToString(".")
+        // WifiInfo reports little-endian; Formatter applies the same LSB-first order.
+        return Formatter.formatIpAddress(ip)
     }
 
     companion object {

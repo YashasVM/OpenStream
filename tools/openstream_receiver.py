@@ -12,19 +12,9 @@ import os
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
 
-
-@dataclass(frozen=True)
-class ReceiverConfig:
-    port: int
-    latency_ms: int
-    ffplay: bool
-    output: str | None
-
-    @property
-    def srt_url(self) -> str:
-        return f"srt://0.0.0.0:{self.port}?mode=listener&latency={self.latency_ms}"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from srt_timeout_probe import ffmpeg_output_has_token, terminate
 
 
 def require_binary(name: str) -> str:
@@ -35,16 +25,11 @@ def require_binary(name: str) -> str:
 
 
 def default_null_sink() -> str:
-    return "NUL" if os.name == "nt" else "/dev/null"
+    return os.devnull
 
 
 def is_null_sink(output: str) -> bool:
-    # NUL-equivalent: case-insensitive "NUL" on Windows, "/dev/null" elsewhere.
-    # Accept both spellings on any OS so an explicit cross-platform value
-    # still selects the null muxer instead of creating a stray file.
-    if output == "/dev/null":
-        return True
-    return output.upper() == "NUL"
+    return output in (os.devnull, "/dev/null") or output.upper() == "NUL"
 
 
 def ffmpeg_supports_srt(ffmpeg: str) -> bool:
@@ -54,25 +39,25 @@ def ffmpeg_supports_srt(ffmpeg: str) -> bool:
         capture_output=True,
         text=True,
     )
-    return result.returncode == 0 and "srt" in result.stdout.split()
+    return result.returncode == 0 and ffmpeg_output_has_token(result.stdout, "srt")
 
 
-def build_command(config: ReceiverConfig) -> list[str]:
-    if config.ffplay:
-        player = require_binary("ffplay")
+def build_command(args: argparse.Namespace) -> list[str]:
+    srt_url = f"srt://0.0.0.0:{args.port}?mode=listener&latency={args.latency_ms}"
+    if args.ffplay:
         return [
-            player,
+            require_binary("ffplay"),
             "-hide_banner",
             "-fflags",
             "nobuffer",
             "-flags",
             "low_delay",
             "-i",
-            config.srt_url,
+            srt_url,
         ]
 
     ffmpeg = require_binary("ffmpeg")
-    output = config.output or default_null_sink()
+    output = args.output or default_null_sink()
     return [
         ffmpeg,
         "-hide_banner",
@@ -82,7 +67,7 @@ def build_command(config: ReceiverConfig) -> list[str]:
         "-flags",
         "low_delay",
         "-i",
-        config.srt_url,
+        srt_url,
         "-map",
         "0",
         "-c",
@@ -93,7 +78,7 @@ def build_command(config: ReceiverConfig) -> list[str]:
     ]
 
 
-def parse_args(argv: list[str]) -> ReceiverConfig:
+def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Listen for one OpenStream SRT feed.")
     parser.add_argument("--port", type=int, default=9000)
     parser.add_argument("--latency-ms", type=int, default=120)
@@ -107,52 +92,41 @@ def parse_args(argv: list[str]) -> ReceiverConfig:
         parser.error("--port below 1024 requires admin/root privileges; use --port >= 1024 or run elevated")
     if not 20 <= args.latency_ms <= 1000:
         parser.error("--latency-ms must be between 20 and 1000")
-    if not 80 <= args.latency_ms <= 200:
+    elif not 80 <= args.latency_ms <= 200:
         print(
             f"warning: --latency-ms {args.latency_ms} is outside the OBS/Android spec range "
             "80-200 ms; OBS/Android clamp latency to 80-200 ms",
             file=sys.stderr,
         )
 
-    return ReceiverConfig(
-        port=args.port,
-        latency_ms=args.latency_ms,
-        ffplay=args.ffplay,
-        output=args.output,
-    )
+    return args
 
 
 def main(argv: list[str]) -> int:
-    config = parse_args(argv)
+    args = parse_args(argv)
     ffmpeg = require_binary("ffmpeg")
     if not ffmpeg_supports_srt(ffmpeg):
         raise SystemExit("The FFmpeg build on PATH does not list SRT protocol support.")
-    if config.ffplay:
+    if args.ffplay:
         ffplay = require_binary("ffplay")
         if not ffmpeg_supports_srt(ffplay):
             raise SystemExit("The ffplay build on PATH does not list SRT protocol support.")
 
     print("OpenStream receiver listening for Android caller:")
-    print(f"  {config.srt_url}")
+    print(f"  srt://0.0.0.0:{args.port}?mode=listener&latency={args.latency_ms}")
     print("Android target URL:")
-    print(f"  srt://<windows-ip>:{config.port}?mode=caller&latency={config.latency_ms}")
+    print(f"  srt://<windows-ip>:{args.port}?mode=caller&latency={args.latency_ms}")
     print()
 
-    command = build_command(config)
-    proc = subprocess.Popen(command)
+    proc = subprocess.Popen(build_command(args))
     try:
         return proc.wait()
     except KeyboardInterrupt:
         print("\nInterrupted, stopping receiver...", file=sys.stderr)
         try:
-            proc.terminate()
-            proc.wait(timeout=2)
+            terminate(proc)
         except Exception:
-            try:
-                proc.kill()
-                proc.wait(timeout=2)
-            except Exception:
-                pass
+            pass
         return 130
 
 

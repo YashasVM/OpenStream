@@ -258,14 +258,7 @@ class MediaCodecAudioEncoder(
         }
     }
 
-    private fun codecConfigFrom(format: MediaFormat): ByteArray? {
-        val csd0 = format.getByteBuffer("csd-0") ?: return null
-        val dup = csd0.duplicate()
-        dup.position(0)
-        val bytes = ByteArray(dup.remaining())
-        dup.get(bytes)
-        return bytes.takeIf { it.isNotEmpty() }
-    }
+    private fun codecConfigFrom(format: MediaFormat): ByteArray? = format.codecConfigBytes()
 
     private fun createAudioCodec(mime: String, format: MediaFormat): MediaCodec {
         val candidates = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
