@@ -57,8 +57,10 @@ function Get-OpenStreamPluginTarget {
 
 function Get-OpenStreamPluginCopies {
     param([Parameter(Mandatory)][string]$ObsRoot)
-    # Stale-path set aligned with tools/installer/openstream-obs-plugin.iss
-    # [InstallDelete]: canonical per-user/per-machine plugin dirs for both
+    # CANONICAL Windows stale-copy list (.dll names only).
+    # Mirrored by tools/installer/openstream-obs-plugin.iss [InstallDelete].
+    # Linux .so names live separately in tools/installer/install-openstream-plugin-linux.sh; do not unify.
+    # Covers canonical per-user/per-machine plugin dirs for both
     # openstream-obs.dll and openstream-beta-obs.dll, plus the legacy
     # top-level per-user copy (obs-studio\plugins\openstream-obs.dll).
     $roots = @(
