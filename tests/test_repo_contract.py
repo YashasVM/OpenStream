@@ -96,7 +96,7 @@ def test_audio_path_uses_adts_aac_and_obs_planar_formats() -> None:
     assert "obs_source_output_audio" in source
 
 
-def test_obs_plugin_routes_multiple_phones_by_selected_slot() -> None:
+def test_obs_plugin_pairs_the_selected_phone() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
     assert "selected_phone_id" in source
     assert "Discovered phones" in source
@@ -110,11 +110,13 @@ def test_obs_plugin_routes_multiple_phones_by_selected_slot() -> None:
     assert "control_phone(ctx)" in source
 
 
-def test_obs_sources_are_named_camera_slots_with_advanced_transport() -> None:
+def test_obs_solo_camera_preserves_legacy_identity_and_advanced_transport() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
-    assert "cam_label_for_index" in source
-    assert '"CAM "' in source
-    assert "next_available_slot_label_locked" in source
+    assert "cam_label_for_index" not in source
+    assert "next_available_slot_label_locked" not in source
+    assert "g_camera_lease.acquire(ctx)" in source
+    assert "g_camera_lease.release(ctx)" in source
+    assert '"Phone Camera"' in source
     assert "source_instance_id" in source
     assert "slot_id" in source
     assert "slot_label" in source
@@ -191,7 +193,7 @@ def test_android_discovery_ui_parses_and_displays_obs_slots() -> None:
     assert "device.busy && reservedBy != device.sourceInstanceId" in app
     assert "compareBy<DiscoveredObsDevice> { it.displayLabel }" in discovery
     assert "obsSlotList" in layout
-    assert 'name="status_waiting">Choose an OBS camera slot<' in strings
+    assert 'name="status_waiting">Choose your OBS computer<' in strings
     assert "btnSettings" in app
 
 
@@ -200,7 +202,7 @@ def test_identify_camera_control_round_trip_exists() -> None:
     control = read("android/app/src/main/java/dev/openstream/app/control/CameraControlServer.kt")
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
     layout = read("android/app/src/main/res/layout/activity_main.xml")
-    assert "Show Slot Label on Phone" in source
+    assert "Identify Phone" in source
     assert '"/identify"' in source
     assert 'path == "/identify"' in control
     assert "handleIdentify" in control

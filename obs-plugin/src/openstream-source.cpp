@@ -21,7 +21,10 @@
 
 #include "async-control-client.hpp"
 #include "media-clock.hpp"
+#include "control-json.hpp"
+#include "solo-camera-lease.hpp"
 #include "openstream-control-api.hpp"
+#include "socket-send.hpp"
 #include <util/platform.h>
 
 #include <chrono>
@@ -107,7 +110,9 @@ constexpr int64_t kSrtConnectTimeoutMs = 2'000;
 constexpr auto kControlConnectTimeout = std::chrono::milliseconds(1000);
 constexpr auto kReconnectReservationWindow = std::chrono::seconds(45);
 constexpr uint64_t kReconnectRecoveryVideoFrames = 30;
-constexpr const char *kOpenStreamSourceName = "OpenStream V8";
+// Keep the historical source IDs below for scene compatibility, but expose the
+// installed release as V1 in the OBS UI and logs.
+constexpr const char *kOpenStreamSourceName = "OpenStream V1";
 constexpr const char *kDiscoveryMulticastAddress = "239.255.42.99";
 constexpr const char *kPhoneDiscoveryPrefix = "OPENSTREAM_PHONE/1 ";
 
@@ -268,47 +273,16 @@ std::string make_instance_id(const void *source) {
   return stream.str();
 }
 
-std::string cam_label_for_index(size_t index) {
-  std::string suffix;
-  do {
-    const char letter = static_cast<char>('A' + (index % 26));
-    suffix.insert(suffix.begin(), letter);
-    index = index / 26;
-    if (index > 0) {
-      --index;
-    }
-  } while (index > 0);
-  return "CAM " + suffix;
-}
-
 struct OpenStreamSource;
 void openstream_stop_worker(OpenStreamSource *ctx);
 void openstream_start_worker(OpenStreamSource *ctx);
 std::mutex g_slot_registry_mutex;
-std::map<const void *, std::string> g_source_slots;
 // UAF mitigation: g_source_contexts stores shared ownership + generation ids.
 // The map itself is defined after OpenStreamSource (shared_ptr needs a
 // complete type). Lookups copy the shared_ptr under g_slot_registry_mutex so
 // concurrent openstream_destroy() cannot free the object mid-use in
 // openstream_post/start/stop_camera_source and dock send paths. Generation is
 // bumped on erase to invalidate stale raw pointers.
-
-std::string next_available_slot_label_locked() {
-  for (size_t index = 0; index < 256; ++index) {
-    const std::string candidate = cam_label_for_index(index);
-    bool used = false;
-    for (const auto &entry : g_source_slots) {
-      if (entry.second == candidate) {
-        used = true;
-        break;
-      }
-    }
-    if (!used) {
-      return candidate;
-    }
-  }
-  return cam_label_for_index(g_source_slots.size());
-}
 
 std::string pairing_url_for_slot(const std::string &host,
                                  int listener_port,
@@ -475,91 +449,6 @@ std::string first_pairing_host() {
     }
   }
   return "<OBS-PC-IP>";
-}
-
-std::optional<std::string> json_string_value(const std::string &json, const std::string &key) {
-  // Minimal phone-JSON reader. Keys are phone-generated (no escapes in keys);
-  // values are scanned escape-aware so an embedded \" does not truncate the
-  // match. This is not a full JSON parser (no \u handling, no nesting).
-  // TODO: replace with a vendored JSON parser if control payloads grow.
-  const std::string quoted_key = "\"" + key + "\"";
-  const size_t key_pos = json.find(quoted_key);
-  if (key_pos == std::string::npos) {
-    return std::nullopt;
-  }
-  const size_t colon = json.find(':', key_pos + quoted_key.size());
-  if (colon == std::string::npos) {
-    return std::nullopt;
-  }
-  const size_t start_quote = json.find('"', colon + 1);
-  if (start_quote == std::string::npos) {
-    return std::nullopt;
-  }
-  size_t cursor = start_quote + 1;
-  while (cursor < json.size()) {
-    const size_t end_quote = json.find('"', cursor);
-    if (end_quote == std::string::npos) {
-      return std::nullopt;
-    }
-    size_t backslashes = 0;
-    for (size_t i = end_quote; i > start_quote + 1 && json[i - 1] == '\\'; --i) {
-      ++backslashes;
-      if (i - 1 == start_quote + 1) break;
-    }
-    if (backslashes % 2 == 0) {
-      return json.substr(start_quote + 1, end_quote - start_quote - 1);
-    }
-    cursor = end_quote + 1;
-  }
-  return std::nullopt;
-}
-
-std::optional<int> json_int_value(const std::string &json, const std::string &key) {
-  const std::string quoted_key = "\"" + key + "\"";
-  const size_t key_pos = json.find(quoted_key);
-  if (key_pos == std::string::npos) {
-    return std::nullopt;
-  }
-  const size_t colon = json.find(':', key_pos + quoted_key.size());
-  if (colon == std::string::npos) {
-    return std::nullopt;
-  }
-  const size_t first_digit = json.find_first_of("0123456789", colon + 1);
-  if (first_digit == std::string::npos) {
-    return std::nullopt;
-  }
-  const size_t end = json.find_first_not_of("0123456789", first_digit);
-  const char *begin_ptr = json.data() + first_digit;
-  const char *end_ptr = json.data() + (end == std::string::npos ? json.size() : end);
-  int value = 0;
-  const auto parsed = std::from_chars(begin_ptr, end_ptr, value);
-  if (parsed.ec != std::errc{} || parsed.ptr != end_ptr) {
-    return std::nullopt;
-  }
-  return value;
-}
-
-std::optional<bool> json_bool_value(const std::string &json, const std::string &key) {
-  const std::string quoted_key = "\"" + key + "\"";
-  const size_t key_pos = json.find(quoted_key);
-  if (key_pos == std::string::npos) {
-    return std::nullopt;
-  }
-  const size_t colon = json.find(':', key_pos + quoted_key.size());
-  if (colon == std::string::npos) {
-    return std::nullopt;
-  }
-  const size_t value_start = json.find_first_not_of(" \t\r\n", colon + 1);
-  if (value_start == std::string::npos) {
-    return std::nullopt;
-  }
-  if (json.compare(value_start, 4, "true") == 0) {
-    return true;
-  }
-  if (json.compare(value_start, 5, "false") == 0) {
-    return false;
-  }
-  return std::nullopt;
 }
 
 struct PhoneDevice {
@@ -923,10 +812,12 @@ class DiscoveryAdvertiser {
     while (!stop_requested_.load()) {
       const std::string payload = beacon_payload();
       for (sockaddr_in &target : destinations) {
+        // Datagram sends never raise SIGPIPE, but keep the same suppression
+        // flags so a future stream-socket reuse cannot reintroduce the crash.
         sendto(socket,
                payload.c_str(),
                static_cast<int>(payload.size()),
-               0,
+               openstream_socket_send_flags(),
                reinterpret_cast<sockaddr *>(&target),
                sizeof(target));
       }
@@ -944,7 +835,7 @@ class DiscoveryAdvertiser {
   std::string source_name_ = kOpenStreamSourceName;
   std::string instance_id_;
   std::string slot_id_;
-  std::string slot_label_ = "CAM A";
+  std::string slot_label_ = "Phone Camera";
   std::string pairing_url_;
   std::atomic<bool> *busy_ = nullptr;
 };
@@ -958,8 +849,8 @@ struct OpenStreamSource {
   std::string pairing_url;
   std::string instance_id;
   std::string slot_id;
-  std::string slot_label = "CAM A";
-  std::string slot_status = "Empty Slot";
+  std::string slot_label = "Phone Camera";
+  std::string slot_status = "Waiting for phone";
   std::string selected_phone_id = PhoneDiscoveryReceiver::kAutoPhoneId;
   int listener_port = 0;
   int latency_ms = 120;
@@ -1014,6 +905,7 @@ struct SourceContextEntry {
 };
 std::map<obs_source_t *, SourceContextEntry> g_source_contexts;
 uint64_t g_source_generation_counter = 0;
+SoloCameraLease g_camera_lease;
 
 // Locked lookup returning shared ownership. Callers hold the returned
 // shared_ptr for the duration of start/stop/post work, then re-validate
@@ -1146,12 +1038,17 @@ bool send_control_command(const std::string &host, int port,
           << "\r\n"
           << body;
   const std::string req = request.str();
+  // SIGPIPE hardening (AGENTS.md rule 8): a disconnected phone must fail this
+  // command with EPIPE, never terminate OBS. MSG_NOSIGNAL suppresses SIGPIPE
+  // per send() on Linux; SO_NOSIGPIPE covers platforms without it.
+  openstream_suppress_send_sigpipe(sock);
+  const int send_flags = openstream_socket_send_flags();
   size_t sent_total = 0;
   while (sent_total < req.size()) {
     const int sent = send(sock,
                           req.data() + sent_total,
                           static_cast<int>(req.size() - sent_total),
-                          0);
+                          send_flags);
     if (sent <= 0) {
       close_socket(sock);
       return false;
@@ -1380,6 +1277,7 @@ void openstream_stop_worker(OpenStreamSource *ctx) {
   }
   set_active_phone(ctx, std::nullopt);
   set_slot_status(ctx, "Offline");
+  g_camera_lease.release(ctx);
 }
 
 bool open_video_decoder(AVFormatContext *format_ctx,
@@ -2028,6 +1926,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
            srt_url.c_str());
     } else {
       set_active_phone(ctx, std::nullopt);
+      set_slot_status(ctx, "Waiting for manual phone connection");
     }
 
     // FFmpeg ownership contract: avformat_open_input() takes ownership of
@@ -2196,6 +2095,12 @@ void openstream_start_worker(OpenStreamSource *ctx) {
 
   openstream_stop_worker(ctx);
 
+  if (!g_camera_lease.acquire(ctx)) {
+    set_slot_status(ctx, "Another OpenStream camera is active. Use Add Existing to reuse it, or stop it before retrying.");
+    blog(LOG_WARNING, "[OpenStream] Additional camera session blocked: solo-camera mode permits one active source");
+    return;
+  }
+
   ctx->active_srt_url = srt_url;
   ctx->active_listener_port = listener_port;
   ctx->active_latency_ms = latency_ms;
@@ -2208,7 +2113,8 @@ void openstream_start_worker(OpenStreamSource *ctx) {
   ctx->stop_requested = false;
   ctx->listener_running = true;
   ctx->phone_connected = false;
-  ctx->discovery.start(listener_port,
+  if (srt_url == "openstream:auto") {
+    ctx->discovery.start(listener_port,
                        latency_ms,
                        bitrate_mbps,
                        source_name,
@@ -2216,7 +2122,8 @@ void openstream_start_worker(OpenStreamSource *ctx) {
                        slot_id,
                        slot_label,
                        pairing_url,
-                       &ctx->slot_busy);
+                         &ctx->slot_busy);
+  }
   ctx->worker = std::thread(openstream_worker, ctx, srt_url, selected_phone_id);
 }
 
@@ -2253,17 +2160,18 @@ void openstream_update(void *data, obs_data_t *settings) {
     }
     obs_data_set_string(settings, "source_instance_id", ctx->instance_id.c_str());
     if (ctx->slot_label.empty()) {
-      ctx->slot_label = "CAM A";
+      ctx->slot_label = "Phone Camera";
       obs_data_set_string(settings, "slot_label", ctx->slot_label.c_str());
-    }
-    {
-      std::lock_guard<std::mutex> registry_lock(g_slot_registry_mutex);
-      g_source_slots[ctx] = ctx->slot_label;
     }
     const char *selected_phone = obs_data_get_string(settings, "selected_phone_id");
     ctx->selected_phone_id =
         (selected_phone && selected_phone[0] != '\0') ? selected_phone : PhoneDiscoveryReceiver::kAutoPhoneId;
-    ctx->srt_url = "openstream:auto";
+    // Legacy phone manual-connect is an SRT caller. It needs an actual OBS
+    // listener; automatic pairing instead calls the phone's SRT listener.
+    ctx->srt_url = obs_data_get_bool(settings, "manual_receive")
+        ? "srt://0.0.0.0:" + std::to_string(ctx->listener_port) +
+              "?mode=listener&latency=" + std::to_string(ctx->latency_ms)
+        : "openstream:auto";
     obs_data_set_string(settings, "srt_url", ctx->srt_url.c_str());
     ctx->pairing_url = pairing_url_for_slot(first_pairing_host(),
                                             ctx->listener_port,
@@ -2323,8 +2231,7 @@ void *openstream_create(obs_data_t *settings, obs_source_t *source) {
   {
     std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
     ctx->slot_label =
-        (saved_slot_label && saved_slot_label[0] != '\0') ? saved_slot_label : next_available_slot_label_locked();
-    g_source_slots[ctx] = ctx->slot_label;
+        (saved_slot_label && saved_slot_label[0] != '\0') ? saved_slot_label : "Phone Camera";
     g_source_contexts[source] = SourceContextEntry{shared, ++g_source_generation_counter};
   }
   ctx->lifecycle_worker = std::thread(run_lifecycle_worker, ctx);
@@ -2352,7 +2259,6 @@ void openstream_destroy(void *data) {
         break;
       }
     }
-    g_source_slots.erase(raw);
   }
   if (!owned) {
     return;
@@ -2374,17 +2280,18 @@ void openstream_destroy(void *data) {
 
 void openstream_defaults(obs_data_t *settings) {
   obs_data_set_default_bool(settings, "listener_enabled", true);
-  obs_data_set_default_string(settings, "device_name", "Close-up");
+  obs_data_set_default_string(settings, "device_name", "Phone Camera");
   obs_data_set_default_string(settings, "slot_id", "");
   obs_data_set_default_string(settings, "source_instance_id", "");
   obs_data_set_default_string(settings, "slot_label", "");
-  obs_data_set_default_string(settings, "slot_status", "Empty Slot");
+  obs_data_set_default_string(settings, "slot_status", "Waiting for phone");
   obs_data_set_default_string(settings, "srt_url", "openstream:auto");
   obs_data_set_default_string(settings, "selected_phone_id", PhoneDiscoveryReceiver::kAutoPhoneId);
-  obs_data_set_default_string(settings, "phone_target_hint", "Waiting for a phone to choose CAM A");
-  obs_data_set_default_string(settings, "pairing_hint", "Open OpenStream on your phone, choose CAM A, and keep both devices on the same Wi-Fi.");
+  obs_data_set_default_string(settings, "phone_target_hint", "Open OpenStream on your phone to pair");
+  obs_data_set_default_string(settings, "pairing_hint", "Open OpenStream on your phone and choose this OBS computer. Keep both devices on the same Wi-Fi.");
   obs_data_set_default_string(settings, "pairing_url", "openstream://connect");
   obs_data_set_default_bool(settings, "show_advanced", false);
+  obs_data_set_default_bool(settings, "manual_receive", false);
   obs_data_set_default_int(settings, "listener_port", kDefaultListenerPort);
   obs_data_set_default_int(settings, "latency_ms", 120);
   obs_data_set_default_int(settings, "bitrate_mbps", kDefaultBitrateMbps);
@@ -2406,7 +2313,7 @@ obs_properties_t *openstream_properties(void *data) {
   obs_property_t *slot_summary = obs_properties_add_text(
       slot_group,
       "phone_target_hint",
-      "Slot summary",
+      "Connection",
       OBS_TEXT_INFO);
   obs_property_text_set_info_word_wrap(slot_summary, true);
   obs_property_set_long_description(
@@ -2414,13 +2321,13 @@ obs_properties_t *openstream_properties(void *data) {
       "Shows whether this OBS source has an available phone or is waiting for one.");
 
   obs_property_t *slot_label =
-      obs_properties_add_text(slot_group, "slot_label", "OBS slot name", OBS_TEXT_DEFAULT);
+      obs_properties_add_text(slot_group, "slot_label", "Camera name", OBS_TEXT_DEFAULT);
   obs_property_set_long_description(
       slot_label,
-      "The name shown in the Android app, such as CAM A, CAM B, or Close-up.");
+      "The name of this camera shown on your phone.");
 
   obs_property_t *camera_label =
-      obs_properties_add_text(slot_group, "device_name", "Production label", OBS_TEXT_DEFAULT);
+      obs_properties_add_text(slot_group, "device_name", "Connection label", OBS_TEXT_DEFAULT);
   obs_property_set_long_description(
       camera_label,
       "A friendly label for this source in discovery messages and phone identify overlays.");
@@ -2434,7 +2341,7 @@ obs_properties_t *openstream_properties(void *data) {
   if (ctx) {
     if (slot_status_snapshot == "Reconnecting" ||
         slot_status_snapshot == "Offline" ||
-        slot_status_snapshot == "Empty Slot") {
+        slot_status_snapshot == "Waiting for phone") {
       obs_property_text_set_info_type(slot_status, OBS_TEXT_INFO_WARNING);
     }
   }
@@ -2451,7 +2358,7 @@ obs_properties_t *openstream_properties(void *data) {
   obs_property_set_long_description(
       phone_list,
       "Choose a specific Android phone, or let any available phone connect from the app.");
-  obs_property_list_add_string(phone_list, "Let the phone choose this slot", PhoneDiscoveryReceiver::kAutoPhoneId);
+  obs_property_list_add_string(phone_list, "Pair from the phone app", PhoneDiscoveryReceiver::kAutoPhoneId);
   if (ctx) {
     bool selected_listed = selected_phone_id_snapshot.empty() ||
                            selected_phone_id_snapshot == PhoneDiscoveryReceiver::kAutoPhoneId;
@@ -2467,12 +2374,24 @@ obs_properties_t *openstream_properties(void *data) {
     }
   }
   obs_property_t *refresh_button =
-      obs_properties_add_button(slot_group, "refresh_devices", "Refresh Phones", [](obs_properties_t *, obs_property_t *, void *data) {
-    auto *ctx = static_cast<OpenStreamSource *>(data);
-    if (ctx) {
-      blog(LOG_INFO,
-           "[OpenStream] Refreshing discovered phones for %s",
-           ctx->slot_label.c_str());
+      obs_properties_add_button(slot_group, "refresh_devices", "Refresh Phones", [](obs_properties_t *properties, obs_property_t *, void *data) {
+    const auto owned = lookup_source_context_by_raw(static_cast<OpenStreamSource *>(data));
+    auto *list = obs_properties_get(properties, "selected_phone_id");
+    if (!owned || !list) return false;
+    std::string selected;
+    {
+      std::lock_guard<std::mutex> lock(owned->settings_mutex);
+      selected = owned->selected_phone_id;
+    }
+    obs_property_list_clear(list);
+    obs_property_list_add_string(list, "Pair from the phone app", PhoneDiscoveryReceiver::kAutoPhoneId);
+    bool selected_listed = selected.empty() || selected == PhoneDiscoveryReceiver::kAutoPhoneId;
+    for (const auto &phone : owned->phone_discovery.devices()) {
+      obs_property_list_add_string(list, phone_label(phone).c_str(), phone.instance_id.c_str());
+      selected_listed = selected_listed || phone.instance_id == selected;
+    }
+    if (!selected_listed) {
+      obs_property_list_add_string(list, "Selected phone unavailable", selected.c_str());
     }
     return true;
   });
@@ -2491,10 +2410,10 @@ obs_properties_t *openstream_properties(void *data) {
   });
   obs_property_set_long_description(
       connect_button,
-      "Starts listening for the selected phone, or retries the current camera slot.");
+      "Connects your phone, or retries the current connection.");
 
   obs_property_t *disconnect_button =
-      obs_properties_add_button(slot_group, "disconnect", "Stop This Slot", [](obs_properties_t *, obs_property_t *, void *data) {
+      obs_properties_add_button(slot_group, "disconnect", "Stop Camera", [](obs_properties_t *, obs_property_t *, void *data) {
     auto *raw = static_cast<OpenStreamSource *>(data);
     const auto owned = lookup_source_context_by_raw(raw);
     if (!owned) {
@@ -2506,15 +2425,19 @@ obs_properties_t *openstream_properties(void *data) {
       disconnect_button,
       "Stops this OBS source from listening without removing it from the scene.");
 
-  obs_properties_add_group(props, "slot_setup", "1. Camera Slot", OBS_GROUP_NORMAL, slot_group);
+  obs_properties_add_group(props, "slot_setup", "1. Camera", OBS_GROUP_NORMAL, slot_group);
 
   obs_properties_t *advanced_group = obs_properties_create();
-  obs_properties_add_bool(advanced_group, "listener_enabled", "Listen for this camera slot");
+  obs_properties_add_bool(advanced_group, "listener_enabled", "Enable camera connection");
+  auto *manual_receive = obs_properties_add_bool(
+      advanced_group, "manual_receive", "Receive manual connection from phone");
+  obs_property_set_long_description(manual_receive,
+      "Enable only when discovery fails. Apply these settings, then enter this computer's IPv4 address and SRT port in the phone's manual connection settings. Camera controls remain on the phone in this mode.");
   obs_properties_add_text(advanced_group, "source_instance_id", "Source instance ID", OBS_TEXT_INFO);
-  obs_properties_add_text(advanced_group, "slot_id", "Slot ID", OBS_TEXT_INFO);
+  obs_properties_add_text(advanced_group, "slot_id", "Legacy pairing ID", OBS_TEXT_INFO);
   obs_property_t *listener_port =
       obs_properties_add_int(advanced_group, "listener_port", "Phone SRT port", 1024, 65535, 1);
-  obs_property_set_long_description(listener_port, "The local UDP/SRT port OBS listens on for this camera slot.");
+  obs_property_set_long_description(listener_port, "The SRT port used to connect your phone.");
   obs_properties_add_text(advanced_group, "srt_url", "SRT mode", OBS_TEXT_INFO);
   obs_property_t *pairing_url =
       obs_properties_add_text(advanced_group, "pairing_url", "Deep-link pairing URL", OBS_TEXT_INFO);
@@ -2531,7 +2454,7 @@ obs_properties_t *openstream_properties(void *data) {
                                     kMaxBitrateMbps,
                                     1);
   obs_property_int_set_suffix(bitrate, " Mbps");
-  obs_property_set_long_description(bitrate, "Used in discovery so the phone can tune stream quality for this slot.");
+  obs_property_set_long_description(bitrate, "Used in discovery so the phone can tune stream quality.");
   obs_properties_add_group(props, "show_advanced", "3. Network & Pairing (Advanced)", OBS_GROUP_CHECKABLE, advanced_group);
 
   obs_properties_t *camera_group = obs_properties_create();
@@ -2582,7 +2505,7 @@ obs_properties_t *openstream_properties(void *data) {
     return true;
   });
 
-  obs_properties_add_button(camera_group, "identify_camera", "Show Slot Label on Phone", [](obs_properties_t *, obs_property_t *, void *data) {
+  obs_properties_add_button(camera_group, "identify_camera", "Identify Phone", [](obs_properties_t *, obs_property_t *, void *data) {
     auto *ctx = static_cast<OpenStreamSource *>(data);
     if (!ctx) return false;
     std::ostringstream body;
@@ -2617,7 +2540,10 @@ obs_source_info openstream_source_info = {
 obs_source_info openstream_legacy_source_info = {
     .id = "openstream_phone_v7_source",
     .type = OBS_SOURCE_TYPE_INPUT,
-    .output_flags = OBS_SOURCE_ASYNC_VIDEO | OBS_SOURCE_AUDIO,
+    // Keep V7 scenes loadable without exposing a second identical source in
+    // the OBS Add Source menu.
+    .output_flags = OBS_SOURCE_ASYNC_VIDEO | OBS_SOURCE_AUDIO |
+                    OBS_SOURCE_DEPRECATED | OBS_SOURCE_CAP_DISABLED,
     .get_name = openstream_get_name,
     .create = openstream_create,
     .destroy = openstream_destroy,
@@ -2684,7 +2610,7 @@ bool obs_module_load(void) {
   obs_register_source(&openstream_source_info);
   obs_register_source(&openstream_legacy_source_info);
   openstream_register_dock();
-  blog(LOG_INFO, "[OpenStream] OBS plugin loaded: V8 — video + audio + remote controls (Made by @yashas.vm)");
+  blog(LOG_INFO, "[OpenStream] OBS plugin loaded: V1 — video + audio + remote controls (Made by @yashas.vm)");
   return true;
 }
 

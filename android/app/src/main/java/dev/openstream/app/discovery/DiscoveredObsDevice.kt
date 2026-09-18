@@ -17,8 +17,15 @@ data class DiscoveredObsDevice(
     val displayEndpoint: String
         get() = "$host:$port"
 
+    /**
+     * Solo-camera display label: prefer the OBS computer name. Legacy
+     * production slot fields ([slotLabel]/[slotId]/[sourceInstanceId]) are
+     * preserved untouched for protocol compatibility with multi-slot OBS
+     * beacons; they are used as diff keys and reservation identity, not as
+     * the primary user-facing picker text.
+     */
     val displayLabel: String
-        get() = slotLabel.ifBlank { name }
+        get() = name.ifBlank { slotLabel.ifBlank { "$host:$port" } }
 
     val availabilityLabel: String
         get() = if (busy) "Busy" else "Available"

@@ -20,16 +20,19 @@
 
     <!-- Status -->
     <string name="status_ready">READY</string>
-    <string name="status_waiting">Choose an OBS camera slot</string>
+    <string name="status_waiting">Choose your OBS computer</string>
     <string name="status_streaming">LIVE → %1$s</string>
     <string name="status_stopped">STOPPED</string>
-    <string name="status_no_slots">NO OBS CAMERA SLOTS FOUND</string>
+    <string name="status_no_slots">NO OBS FOUND</string>
 
     <!-- Sections -->
     <string name="section_connection">CONNECTION</string>
     <string name="section_manual">ADVANCED</string>
     <string name="section_settings">SETTINGS</string>
-    <string name="section_obs_slots">OBS CAMERAS</string>
+    <!-- Solo-camera picker: one phone camera to one OBS computer. Multiple
+         discovered computers remain selectable; legacy slot protocol fields
+         (sourceInstanceId/slotId/slotLabel) are preserved for compatibility. -->
+    <string name="section_obs_slots">OBS</string>
 
     <!-- Hints -->
     <string name="hint_obs_host">OBS PC IP address</string>

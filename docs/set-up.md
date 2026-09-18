@@ -2,6 +2,8 @@
 
 This guide is the slower, screenshot-led path for installing OpenStream V1.0.1 on an Android phone and a Windows OBS Studio PC.
 
+For native Linux, follow [Linux setup](linux.md). Published Windows/APK downloads predate the solo-camera changes on this branch.
+
 For the fast technical version, use the [README quick start](../README.md#quick-start).
 
 ---
@@ -104,8 +106,8 @@ openstream-obs.dll -> C:\Program Files\obs-studio\obs-plugins\64bit\openstream-o
 1. Open OBS Studio.
 2. In `Sources`, click `+`.
 3. Choose `OpenStream V8`.
-4. In `1. Camera Slot`, keep `Let the phone choose this slot` selected for the first test.
-5. Rename `OBS slot name` if you want a production label such as `Main CAM` or `Desk CAM`.
+4. In `1. Camera`, keep automatic phone pairing selected for the first test.
+5. Keep one OpenStream source. Use **Add Existing** to reuse it in other scenes; remove extra legacy camera sources.
 6. Use `Refresh Phones` if your Android device appears after the properties window is already open.
 7. Leave `3. Network & Pairing (Advanced)` collapsed unless discovery fails.
 8. Click OK.
@@ -121,12 +123,12 @@ The source can stay blank until a phone connects. That is normal.
 1. Put the phone and PC on the same Wi-Fi network.
 2. Open OpenStream on the phone.
 3. Wait for the OBS device to appear.
-4. Tap the discovered OBS slot, such as `CAM A`, `Main CAM`, or `Backup cam`.
+4. Tap your OBS computer in the discovered devices list.
 5. The phone camera should appear in OBS.
 
 ![Android connect screenshot](assets/setup/android-connect.svg)
 
-If the phone does not find OBS, use manual connect:
+If the phone does not find OBS, open the source’s **Network & Pairing (Advanced)** settings, enable **Receive manual connection from phone**, and apply. Then use manual connect on the phone. This uses the phone’s camera controls; remote controls in OBS require automatic pairing. Both devices still need direct LAN connectivity:
 
 | Value | Default |
 |---|---|
@@ -146,7 +148,7 @@ In OBS:
 4. Try the zoom slider.
 5. Try torch on/off if the selected phone camera supports it.
 6. Switch rear/front camera from the source properties or phone UI.
-7. Use `Show Slot Label on Phone` to confirm which physical phone belongs to the OBS source.
+7. Use `Identify Phone` to show a connection label on your phone.
 
 ---
 

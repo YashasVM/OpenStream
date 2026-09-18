@@ -652,7 +652,7 @@ class MainActivity : Activity() {
             val bitrateMbps = uri.getQueryParameter("bitrateMbps")?.toIntOrNull()
                 ?.coerceIn(StreamConfig.MIN_BITRATE_MBPS, StreamConfig.MAX_BITRATE_MBPS)
             if (reserveForSource(sourceInstanceId, slotLabel, bitrateMbps)) {
-                statusText.text = "Paired to ${slotLabel.ifBlank { "OBS slot" }}"
+                statusText.text = "Paired to ${slotLabel.ifBlank { "OBS computer" }}"
                 statusDetail.text = "Waiting for OBS to go live"
             }
             return
