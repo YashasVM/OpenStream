@@ -13,18 +13,10 @@ const links = {
   setup: "https://github.com/YashasVM/OpenStream/blob/main/docs/set-up.md",
 };
 
-function Mark() {
-  return <span className="mark" aria-hidden="true">Os</span>;
-}
-
-function Icon({ children }) {
-  return <span className="icon" aria-hidden="true">{children}</span>;
-}
-
 function Header() {
   return (
     <header className="site-header">
-      <a className="brand" href="#top" aria-label="OpenStream home"><Mark /><strong>OPENSTREAM</strong><span>V1.0.1</span></a>
+      <a className="brand" href="#top" aria-label="OpenStream home"><span className="mark" aria-hidden="true">Os</span><strong>OPENSTREAM</strong><span>V1.0.1</span></a>
       <nav aria-label="Main navigation">
         <a href="#features">Features</a>
         <a href="#downloads">Downloads</a>
@@ -56,7 +48,7 @@ function ObsPreview() {
       <div className="obs-menu">File &nbsp; Edit &nbsp; View &nbsp; Docks &nbsp; Profile &nbsp; Scene Collection</div>
       <div className="obs-video"><div className="signal-corners" /><strong>OPENSTREAM / PHONE</strong><span>LIVE · 30 FPS</span></div>
       <div className="obs-panels"><div>Scenes<br/><b>Camera</b><br/>Overlay</div><div>Sources<br/><b>OpenStream</b><br/>Audio</div><div className="mixer">Audio Mixer<br/><b>▮▮▮▮▮▯▯</b><br/>OpenStream AAC</div></div>
-      <div className="dock-mini"><div className="dock-title"><Mark /> OpenStream Camera Control <span>● Connected</span></div><div className="dock-actions"><span>Rear</span><span>Front</span><span>Torch</span><span>Identify</span></div><div className="dock-zoom">Zoom <i><b /></i><strong>1.8×</strong></div></div>
+      <div className="dock-mini"><div className="dock-title"><span className="mark" aria-hidden="true">Os</span> OpenStream Camera Control <span>● Connected</span></div><div className="dock-actions"><span>Rear</span><span>Front</span><span>Torch</span><span>Identify</span></div><div className="dock-zoom">Zoom <i><b /></i><strong>1.8×</strong></div></div>
     </div>
   );
 }
@@ -69,8 +61,8 @@ function Hero() {
           <h1>Your Android phone.<br/>Now an OBS camera.</h1>
           <p>Low-latency 1080p30 video, AAC audio, live camera controls, and reliable reconnects over local Wi-Fi.</p>
           <div className="actions">
-            <a className="button button-dark" href={links.apk}><Icon>◆</Icon>Download for Android</a>
-            <a className="button button-light" href={links.installer}><Icon>✚</Icon>Install OBS plugin</a>
+            <a className="button button-dark" href={links.apk}><span className="icon" aria-hidden="true">◆</span>Download for Android</a>
+            <a className="button button-light" href={links.installer}><span className="icon" aria-hidden="true">✚</span>Install OBS plugin</a>
           </div>
           <p className="requirements">Android 10+ · Windows x64 · OBS Studio · Same local network</p>
         </div>
@@ -91,7 +83,7 @@ const benefits = [
 function ControlDock() {
   return (
     <div className="control-window">
-      <div className="control-title"><Mark /><strong>OpenStream Camera Control</strong><span>•••</span></div>
+      <div className="control-title"><span className="mark" aria-hidden="true">Os</span><strong>OpenStream Camera Control</strong><span>•••</span></div>
       <div className="control-body">
         <div className="connection-panel"><small>CONNECTION</small><p><i /> Connected</p><small>SOURCE</small><div className="faux-select">Pixel 8 Pro</div><div className="connection-buttons"><span>Connect / retry</span><span>Stop</span></div></div>
         <div className="camera-panel"><small>CAMERA</small><div className="segmented"><span className="active">Rear</span><span>Front</span></div><div className="camera-actions"><span>Torch on</span><span>Torch off</span><span>Identify</span></div><label>Zoom <span>1.8×</span></label><div className="zoom-track"><i /></div></div>
@@ -104,13 +96,9 @@ function Features() {
   return (
     <section className="section control-section" id="features">
       <div className="section-lead"><h2>Control the shot<br/>without leaving OBS.</h2><p>The native dock keeps the controls you touch most beside your preview—not buried in source properties.</p><ControlDock /></div>
-      <div className="benefit-list">{benefits.map(([icon, title, copy]) => <article key={title}><Icon>{icon}</Icon><div><h3>{title}</h3><p>{copy}</p></div></article>)}</div>
+      <div className="benefit-list">{benefits.map(([icon, title, copy]) => <article key={title}><span className="icon" aria-hidden="true">{icon}</span><div><h3>{title}</h3><p>{copy}</p></div></article>)}</div>
     </section>
   );
-}
-
-function DownloadRow({ icon, title, meta, children }) {
-  return <article className="download-row"><Icon>{icon}</Icon><div><h3>{title}</h3><p>{meta}</p></div><div className="download-actions">{children}</div></article>;
 }
 
 function Downloads() {
@@ -118,9 +106,9 @@ function Downloads() {
     <section className="section downloads" id="downloads">
       <div><h2>Install both sides.<br/>Start shooting.</h2><p>Install OpenStream on your phone and the native plugin on your OBS computer from the same verified V1.0.1 release.</p><a className="text-link" href={links.release}>View V1.0.1 release notes →</a></div>
       <div className="download-stack">
-        <DownloadRow icon="◆" title="OpenStream for Android" meta="Android 10+ · Signed release APK"><a className="button button-dark" href={links.apk}>Download signed APK</a></DownloadRow>
-        <DownloadRow icon="⊞" title="OpenStream OBS Plugin" meta="Windows x64 · OBS Studio"><a className="button button-dark" href={links.installer}>Download installer</a><a className="button button-light" href={links.zip}>Manual ZIP</a></DownloadRow>
-        <div className="trust-note"><Icon>◇</Icon><p><strong>Release integrity included.</strong><br/>SHA-256 checksums are published alongside the V1.0.1 release.</p></div>
+        <article className="download-row"><span className="icon" aria-hidden="true">◆</span><div><h3>OpenStream for Android</h3><p>Android 10+ · Signed release APK</p></div><div className="download-actions"><a className="button button-dark" href={links.apk}>Download signed APK</a></div></article>
+        <article className="download-row"><span className="icon" aria-hidden="true">⊞</span><div><h3>OpenStream OBS Plugin</h3><p>Windows x64 · OBS Studio</p></div><div className="download-actions"><a className="button button-dark" href={links.installer}>Download installer</a><a className="button button-light" href={links.zip}>Manual ZIP</a></div></article>
+        <div className="trust-note"><span className="icon" aria-hidden="true">◇</span><p><strong>Release integrity included.</strong><br/>SHA-256 checksums are published alongside the V1.0.1 release.</p></div>
       </div>
     </section>
   );
@@ -165,7 +153,7 @@ function Compatibility() {
 
 function Footer() {
   return (
-    <footer><a className="brand" href="#top"><Mark /><strong>OPENSTREAM</strong></a><p>Open-source phone camera streaming for OBS.</p><nav aria-label="Footer links"><a href={links.repo}>Source</a><a href={links.release}>Releases</a><a href={links.issues}>Issues</a><a href={links.setup}>Setup</a></nav><p className="copyright">Made by YashasVM · V1.0.1</p></footer>
+    <footer><a className="brand" href="#top"><span className="mark" aria-hidden="true">Os</span><strong>OPENSTREAM</strong></a><p>Open-source phone camera streaming for OBS.</p><nav aria-label="Footer links"><a href={links.repo}>Source</a><a href={links.release}>Releases</a><a href={links.issues}>Issues</a><a href={links.setup}>Setup</a></nav><p className="copyright">Made by YashasVM · V1.0.1</p></footer>
   );
 }
 

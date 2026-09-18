@@ -168,20 +168,7 @@ Windows or native Linux PC
   OBS video frame + audio mixer output
 ```
 
-Discovery uses UDP port `51515`. Camera remote controls use the phone HTTP control server on port `9001`.
-
-### Transport Defaults
-
-| Parameter | Default | Notes |
-|---|---|---|
-| Resolution | `1920x1080` | Full HD capture target |
-| Frame rate | `30 fps` | Bounded default to reduce heat and receiver backlog |
-| Video codec | AVC/H.264 | Explicit hardware surface path |
-| Bitrate | `12 Mbps` | Valid tuning range is `8-50 Mbps`; lower to 720p30 if a phone still runs hot |
-| SRT latency | `120 ms` | 80-200 ms useful range |
-| Discovery port | `51515/udp` | LAN discovery beacon |
-| SRT port | `9000` | Media stream |
-| Control port | `9001/http` | Remote zoom, torch, lens |
+Transport defaults (SRT `:9000`, control `:9001`, discovery `:51515`, `12 Mbps`, `120 ms`) are canonical in [docs/protocol.md](docs/protocol.md).
 
 ---
 
