@@ -44,6 +44,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <vector>
 #include <algorithm>
 
@@ -63,41 +64,30 @@ extern "C" {
 OBS_DECLARE_MODULE()
 
 namespace {
-struct AvPacketDeleter {
-  void operator()(AVPacket *packet) const {
-    av_packet_free(&packet);
+// Single deleter for all FFmpeg/libswscale handles (unique_ptr needs a type;
+// the correct free function is selected by pointee type at compile time).
+struct AvDeleter {
+  template <typename T>
+  void operator()(T *ptr) const {
+    if constexpr (std::is_same_v<T, AVPacket>) {
+      av_packet_free(&ptr);
+    } else if constexpr (std::is_same_v<T, AVFrame>) {
+      av_frame_free(&ptr);
+    } else if constexpr (std::is_same_v<T, AVCodecContext>) {
+      avcodec_free_context(&ptr);
+    } else if constexpr (std::is_same_v<T, AVFormatContext>) {
+      avformat_close_input(&ptr);
+    } else if constexpr (std::is_same_v<T, SwsContext>) {
+      sws_freeContext(ptr);
+    }
   }
 };
 
-struct AvFrameDeleter {
-  void operator()(AVFrame *frame) const {
-    av_frame_free(&frame);
-  }
-};
-
-struct AvCodecContextDeleter {
-  void operator()(AVCodecContext *ctx) const {
-    avcodec_free_context(&ctx);
-  }
-};
-
-struct AvFormatContextDeleter {
-  void operator()(AVFormatContext *ctx) const {
-    avformat_close_input(&ctx);
-  }
-};
-
-struct SwsContextDeleter {
-  void operator()(SwsContext *ctx) const {
-    sws_freeContext(ctx);
-  }
-};
-
-using PacketPtr = std::unique_ptr<AVPacket, AvPacketDeleter>;
-using FramePtr = std::unique_ptr<AVFrame, AvFrameDeleter>;
-using CodecContextPtr = std::unique_ptr<AVCodecContext, AvCodecContextDeleter>;
-using FormatContextPtr = std::unique_ptr<AVFormatContext, AvFormatContextDeleter>;
-using SwsContextPtr = std::unique_ptr<SwsContext, SwsContextDeleter>;
+using PacketPtr = std::unique_ptr<AVPacket, AvDeleter>;
+using FramePtr = std::unique_ptr<AVFrame, AvDeleter>;
+using CodecContextPtr = std::unique_ptr<AVCodecContext, AvDeleter>;
+using FormatContextPtr = std::unique_ptr<AVFormatContext, AvDeleter>;
+using SwsContextPtr = std::unique_ptr<SwsContext, AvDeleter>;
 
 constexpr int kDiscoveryPort = 51515;
 constexpr int kDefaultListenerPort = 9000;
@@ -277,12 +267,10 @@ struct OpenStreamSource;
 void openstream_stop_worker(OpenStreamSource *ctx);
 void openstream_start_worker(OpenStreamSource *ctx);
 std::mutex g_slot_registry_mutex;
-// UAF mitigation: g_source_contexts stores shared ownership + generation ids.
-// The map itself is defined after OpenStreamSource (shared_ptr needs a
-// complete type). Lookups copy the shared_ptr under g_slot_registry_mutex so
-// concurrent openstream_destroy() cannot free the object mid-use in
-// openstream_post/start/stop_camera_source and dock send paths. Generation is
-// bumped on erase to invalidate stale raw pointers.
+// UAF mitigation: g_source_contexts stores shared ownership. Lookups copy
+// the shared_ptr under g_slot_registry_mutex so concurrent
+// openstream_destroy() cannot free the object mid-use in
+// openstream_post/start/stop_camera_source and dock send paths.
 
 std::string pairing_url_for_slot(const std::string &host,
                                  int listener_port,
@@ -304,8 +292,14 @@ std::string pairing_url_for_slot(const std::string &host,
   return url.str();
 }
 
-std::vector<std::string> local_ipv4_addresses() {
-  std::vector<std::string> addresses;
+// One adapter-enumeration loop for local_ipv4_addresses() and
+// discovery_broadcast_addresses(). The platform boilerplate
+// (GetAdaptersAddresses buffer retry / getifaddrs lifetime) lives here;
+// callers differ only in their per-address tail. Callback receives the IPv4
+// address, the Win32 OnLinkPrefixLength (0 on POSIX), the POSIX broadcast
+// address (nullptr on Win32), and the POSIX ifa_flags (0 on Win32).
+template <typename Fn>
+void enum_ipv4_adapters(Fn &&callback) {
 #ifdef _WIN32
   ULONG buffer_size = 15 * 1024;
   std::vector<uint8_t> buffer(buffer_size);
@@ -327,39 +321,63 @@ std::vector<std::string> local_ipv4_addresses() {
                                   adapters,
                                   &buffer_size);
   }
-  if (result == NO_ERROR) {
-    for (auto *adapter = adapters; adapter != nullptr; adapter = adapter->Next) {
-      if (adapter->OperStatus != IfOperStatusUp) {
+  if (result != NO_ERROR) {
+    return;
+  }
+  for (auto *adapter = adapters; adapter != nullptr; adapter = adapter->Next) {
+    if (adapter->OperStatus != IfOperStatusUp) {
+      continue;
+    }
+    for (auto *unicast = adapter->FirstUnicastAddress; unicast != nullptr;
+         unicast = unicast->Next) {
+      auto *addr = reinterpret_cast<sockaddr_in *>(unicast->Address.lpSockaddr);
+      if (!addr) {
         continue;
       }
-      for (auto *unicast = adapter->FirstUnicastAddress; unicast != nullptr;
-           unicast = unicast->Next) {
-        auto *addr = reinterpret_cast<sockaddr_in *>(unicast->Address.lpSockaddr);
-        char host[INET_ADDRSTRLEN] = {};
-        if (addr && inet_ntop(AF_INET, &addr->sin_addr, host, sizeof(host)) &&
-            std::strncmp(host, "127.", 4) != 0) {
-          addresses.emplace_back(host);
-        }
-      }
+      callback(*addr, static_cast<unsigned>(unicast->OnLinkPrefixLength),
+               nullptr, 0u);
     }
   }
 #else
   ifaddrs *interfaces = nullptr;
-  if (getifaddrs(&interfaces) == 0) {
-    for (ifaddrs *iface = interfaces; iface != nullptr; iface = iface->ifa_next) {
-      if (!iface->ifa_addr || iface->ifa_addr->sa_family != AF_INET ||
-          (iface->ifa_flags & IFF_LOOPBACK) != 0) {
-        continue;
-      }
-      auto *addr = reinterpret_cast<sockaddr_in *>(iface->ifa_addr);
-      char host[INET_ADDRSTRLEN] = {};
-      if (inet_ntop(AF_INET, &addr->sin_addr, host, sizeof(host))) {
-        addresses.emplace_back(host);
-      }
-    }
-    freeifaddrs(interfaces);
+  if (getifaddrs(&interfaces) != 0) {
+    return;
   }
+  for (ifaddrs *iface = interfaces; iface != nullptr; iface = iface->ifa_next) {
+    if (!iface->ifa_addr || iface->ifa_addr->sa_family != AF_INET) {
+      continue;
+    }
+    const auto *broadaddr = iface->ifa_broadaddr
+                                ? reinterpret_cast<sockaddr_in *>(iface->ifa_broadaddr)
+                                : nullptr;
+    callback(*reinterpret_cast<sockaddr_in *>(iface->ifa_addr), 0u, broadaddr,
+             static_cast<unsigned>(iface->ifa_flags));
+  }
+  freeifaddrs(interfaces);
 #endif
+}
+
+std::vector<std::string> local_ipv4_addresses() {
+  std::vector<std::string> addresses;
+  enum_ipv4_adapters([&](const sockaddr_in &addr, unsigned, const sockaddr_in *,
+                         unsigned flags) {
+#ifdef _WIN32
+    (void)flags;
+    char host[INET_ADDRSTRLEN] = {};
+    if (inet_ntop(AF_INET, &addr.sin_addr, host, sizeof(host)) &&
+        std::strncmp(host, "127.", 4) != 0) {
+      addresses.emplace_back(host);
+    }
+#else
+    if ((flags & IFF_LOOPBACK) != 0) {
+      return;
+    }
+    char host[INET_ADDRSTRLEN] = {};
+    if (inet_ntop(AF_INET, &addr.sin_addr, host, sizeof(host))) {
+      addresses.emplace_back(host);
+    }
+#endif
+  });
   if (addresses.empty()) {
     addresses.emplace_back("0.0.0.0");
   }
@@ -368,74 +386,40 @@ std::vector<std::string> local_ipv4_addresses() {
 
 std::vector<std::string> discovery_broadcast_addresses() {
   std::vector<std::string> addresses;
+  enum_ipv4_adapters([&](const sockaddr_in &addr, unsigned prefix,
+                         const sockaddr_in *broadaddr, unsigned flags) {
 #ifdef _WIN32
-  ULONG buffer_size = 15 * 1024;
-  std::vector<uint8_t> buffer(buffer_size);
-  IP_ADAPTER_ADDRESSES *adapters =
-      reinterpret_cast<IP_ADAPTER_ADDRESSES *>(buffer.data());
-  ULONG result = GetAdaptersAddresses(AF_INET,
-                                      GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
-                                          GAA_FLAG_SKIP_DNS_SERVER,
-                                      nullptr,
-                                      adapters,
-                                      &buffer_size);
-  if (result == ERROR_BUFFER_OVERFLOW) {
-    buffer.assign(buffer_size, 0);
-    adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES *>(buffer.data());
-    result = GetAdaptersAddresses(AF_INET,
-                                  GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
-                                      GAA_FLAG_SKIP_DNS_SERVER,
-                                  nullptr,
-                                  adapters,
-                                  &buffer_size);
-  }
-  if (result == NO_ERROR) {
-    for (auto *adapter = adapters; adapter != nullptr; adapter = adapter->Next) {
-      if (adapter->OperStatus != IfOperStatusUp) {
-        continue;
-      }
-      for (auto *unicast = adapter->FirstUnicastAddress; unicast != nullptr;
-           unicast = unicast->Next) {
-        auto *addr = reinterpret_cast<sockaddr_in *>(unicast->Address.lpSockaddr);
-        if (!addr || unicast->OnLinkPrefixLength > 32) {
-          continue;
-        }
-        const uint32_t ip = ntohl(addr->sin_addr.s_addr);
-        if ((ip >> 24u) == 127u) {
-          continue;
-        }
-        const uint32_t mask =
-            unicast->OnLinkPrefixLength == 0
-                ? 0u
-                : (0xffffffffu << (32u - unicast->OnLinkPrefixLength));
-        const uint32_t broadcast = (ip & mask) | ~mask;
-        in_addr broadcast_addr = {};
-        broadcast_addr.s_addr = htonl(broadcast);
-        char host[INET_ADDRSTRLEN] = {};
-        if (inet_ntop(AF_INET, &broadcast_addr, host, sizeof(host))) {
-          addresses.emplace_back(host);
-        }
-      }
+    (void)broadaddr;
+    (void)flags;
+    if (prefix > 32) {
+      return;
     }
-  }
+    const uint32_t ip = ntohl(addr.sin_addr.s_addr);
+    if ((ip >> 24u) == 127u) {
+      return;
+    }
+    const uint32_t mask =
+        prefix == 0 ? 0u : (0xffffffffu << (32u - prefix));
+    const uint32_t broadcast = (ip & mask) | ~mask;
+    in_addr broadcast_addr = {};
+    broadcast_addr.s_addr = htonl(broadcast);
+    char host[INET_ADDRSTRLEN] = {};
+    if (inet_ntop(AF_INET, &broadcast_addr, host, sizeof(host))) {
+      addresses.emplace_back(host);
+    }
 #else
-  ifaddrs *interfaces = nullptr;
-  if (getifaddrs(&interfaces) == 0) {
-    for (ifaddrs *iface = interfaces; iface != nullptr; iface = iface->ifa_next) {
-      if (!iface->ifa_addr || iface->ifa_addr->sa_family != AF_INET ||
-          (iface->ifa_flags & IFF_LOOPBACK) != 0 ||
-          (iface->ifa_flags & IFF_BROADCAST) == 0 || !iface->ifa_broadaddr) {
-        continue;
-      }
-      auto *addr = reinterpret_cast<sockaddr_in *>(iface->ifa_broadaddr);
-      char host[INET_ADDRSTRLEN] = {};
-      if (inet_ntop(AF_INET, &addr->sin_addr, host, sizeof(host))) {
-        addresses.emplace_back(host);
-      }
+    (void)addr;
+    (void)prefix;
+    if ((flags & IFF_LOOPBACK) != 0 || (flags & IFF_BROADCAST) == 0 ||
+        !broadaddr) {
+      return;
     }
-    freeifaddrs(interfaces);
-  }
+    char host[INET_ADDRSTRLEN] = {};
+    if (inet_ntop(AF_INET, &broadaddr->sin_addr, host, sizeof(host))) {
+      addresses.emplace_back(host);
+    }
 #endif
+  });
   addresses.emplace_back("255.255.255.255");
   std::sort(addresses.begin(), addresses.end());
   addresses.erase(std::unique(addresses.begin(), addresses.end()), addresses.end());
@@ -764,7 +748,6 @@ class DiscoveryAdvertiser {
             << "\"version\":1,"
             << "\"name\":\"" << json_escape(source_name_) << "\","
             << "\"instanceId\":\"" << json_escape(instance_id_) << "\","
-            << "\"sourceInstanceId\":\"" << json_escape(instance_id_) << "\","
             << "\"slotId\":\"" << json_escape(slot_id_) << "\","
             << "\"slotLabel\":\"" << json_escape(slot_label_) << "\","
             << "\"host\":\"" << json_escape(host) << "\","
@@ -896,15 +879,9 @@ struct OpenStreamSource {
 };
 
 // Context registry with UAF mitigation (see comment at forward declaration).
-// Entry holds shared ownership so a lookup can keep the source alive across
-// the lock boundary; generation is bumped on destroy so stale raw pointers
-// can be recognized and never resurrected.
-struct SourceContextEntry {
-  std::shared_ptr<OpenStreamSource> ref;
-  uint64_t generation = 0;
-};
-std::map<obs_source_t *, SourceContextEntry> g_source_contexts;
-uint64_t g_source_generation_counter = 0;
+// The map holds shared ownership so a lookup can keep the source alive across
+// the lock boundary.
+std::map<obs_source_t *, std::shared_ptr<OpenStreamSource>> g_source_contexts;
 SoloCameraLease g_camera_lease;
 
 // Locked lookup returning shared ownership. Callers hold the returned
@@ -915,8 +892,8 @@ std::shared_ptr<OpenStreamSource> lookup_source_context(obs_source_t *source) {
   if (!source) return nullptr;
   std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
   const auto found = g_source_contexts.find(source);
-  if (found == g_source_contexts.end() || !found->second.ref) return nullptr;
-  return found->second.ref;
+  if (found == g_source_contexts.end() || !found->second) return nullptr;
+  return found->second;
 }
 
 // Lookup by private data for properties-button callbacks (which receive void*
@@ -926,7 +903,7 @@ std::shared_ptr<OpenStreamSource> lookup_source_context_by_raw(OpenStreamSource 
   if (!raw) return nullptr;
   std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
   for (const auto &entry : g_source_contexts) {
-    if (entry.second.ref.get() == raw) return entry.second.ref;
+    if (entry.second.get() == raw) return entry.second;
   }
   return nullptr;
 }
@@ -1280,59 +1257,57 @@ void openstream_stop_worker(OpenStreamSource *ctx) {
   g_camera_lease.release(ctx);
 }
 
-bool open_video_decoder(AVFormatContext *format_ctx,
-                        int *video_stream_index,
-                        CodecContextPtr *decoder_ctx) {
-  const int stream_result = avformat_find_stream_info(format_ctx, nullptr);
-  if (stream_result < 0) {
-    blog(LOG_WARNING,
-         "[OpenStream] Could not read stream info: %s",
-         av_error(stream_result).c_str());
-    return false;
-  }
-
+// Shared find/alloc/open tail for the video and audio decoders. Logging stays
+// per-kind so messages are unchanged; audio failures reset *stream_index to
+// -1 (video-only mode) while video leaves the caller's index untouched.
+bool open_decoder(AVFormatContext *format_ctx, AVMediaType type,
+                  int *stream_index, CodecContextPtr *decoder_ctx) {
+  const bool is_audio = (type == AVMEDIA_TYPE_AUDIO);
   const int best_stream = av_find_best_stream(
-      format_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
+      format_ctx, type, -1, -1, nullptr, 0);
   if (best_stream < 0) {
-    blog(LOG_WARNING,
-         "[OpenStream] No video stream found in SRT input: %s",
-         av_error(best_stream).c_str());
+    if (is_audio) {
+      blog(LOG_INFO, "[OpenStream] No audio stream found (video-only mode)");
+      *stream_index = -1;
+    } else {
+      blog(LOG_WARNING,
+           "[OpenStream] No video stream found in SRT input: %s",
+           av_error(best_stream).c_str());
+    }
     return false;
   }
 
   AVStream *stream = format_ctx->streams[best_stream];
   const AVCodec *decoder = avcodec_find_decoder(stream->codecpar->codec_id);
   if (!decoder) {
-    blog(LOG_WARNING,
-         "[OpenStream] No FFmpeg decoder found for codec id %d",
-         stream->codecpar->codec_id);
+    if (is_audio) {
+      blog(LOG_WARNING,
+           "[OpenStream] No audio decoder found for codec id %d",
+           stream->codecpar->codec_id);
+      *stream_index = -1;
+    } else {
+      blog(LOG_WARNING,
+           "[OpenStream] No FFmpeg decoder found for codec id %d",
+           stream->codecpar->codec_id);
+    }
     return false;
   }
 
-  // Hardware decode probe with explicit software fallback (AGENTS.md rules
-  // 9/18: never enable a software codec silently; HW must have an explicit
-  // fallback and warning). Full zero-copy AVHWFramesContext wiring is still
-  // TODO; today we probe device availability so the fallback is explicit and
-  // logged instead of silent. This never re-encodes ISO video (rule 2).
-  {
+  if (!is_audio) {
+    // Hardware decode probe with explicit software fallback (AGENTS.md rules
+    // 9/18: never enable a software codec silently; HW must have an explicit
+    // fallback and warning). Full zero-copy AVHWFramesContext wiring is still
+    // TODO; today we probe device availability so the fallback is explicit and
+    // logged instead of silent. This never re-encodes ISO video (rule 2).
     const char *codec_name = avcodec_get_name(stream->codecpar->codec_id);
     blog(LOG_INFO, "[OpenStream] Probing hardware decode for codec %s",
          codec_name ? codec_name : "unknown");
     bool hw_device_available = false;
 #ifdef _WIN32
     for (const char *hw_name : {"d3d11va", "qsv"}) {
-      const AVHWDeviceType hw_type = av_hwdevice_find_type_by_name(hw_name);
-      if (hw_type == AV_HWDEVICE_TYPE_NONE) continue;
-      AVBufferRef *probe = nullptr;
-      if (av_hwdevice_ctx_create(&probe, hw_type, nullptr, nullptr, 0) == 0) {
-        av_buffer_unref(&probe);
-        hw_device_available = true;
-        blog(LOG_INFO, "[OpenStream] HW decode device %s available", hw_name);
-        break;
-      }
-    }
 #else
     for (const char *hw_name : {"vaapi", "qsv", "videotoolbox", "drm"}) {
+#endif
       const AVHWDeviceType hw_type = av_hwdevice_find_type_by_name(hw_name);
       if (hw_type == AV_HWDEVICE_TYPE_NONE) continue;
       AVBufferRef *probe = nullptr;
@@ -1343,7 +1318,6 @@ bool open_video_decoder(AVFormatContext *format_ctx,
         break;
       }
     }
-#endif
     if (!hw_device_available) {
       blog(LOG_WARNING,
            "[OpenStream] No hardware decode device available; using explicit "
@@ -1361,82 +1335,77 @@ bool open_video_decoder(AVFormatContext *format_ctx,
 
   CodecContextPtr codec_ctx(avcodec_alloc_context3(decoder));
   if (!codec_ctx) {
-    blog(LOG_WARNING, "[OpenStream] Could not allocate decoder context");
+    if (is_audio) {
+      *stream_index = -1;
+    } else {
+      blog(LOG_WARNING, "[OpenStream] Could not allocate decoder context");
+    }
     return false;
   }
 
   int result = avcodec_parameters_to_context(codec_ctx.get(), stream->codecpar);
   if (result < 0) {
-    blog(LOG_WARNING,
-         "[OpenStream] Could not copy decoder parameters: %s",
-         av_error(result).c_str());
+    if (is_audio) {
+      *stream_index = -1;
+    } else {
+      blog(LOG_WARNING,
+           "[OpenStream] Could not copy decoder parameters: %s",
+           av_error(result).c_str());
+    }
     return false;
   }
 
-  codec_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
+  if (!is_audio) {
+    codec_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
+  }
   result = avcodec_open2(codec_ctx.get(), decoder, nullptr);
   if (result < 0) {
-    blog(LOG_WARNING,
-         "[OpenStream] Could not open decoder: %s",
-         av_error(result).c_str());
+    if (is_audio) {
+      blog(LOG_WARNING,
+           "[OpenStream] Could not open audio decoder: %s",
+           av_error(result).c_str());
+      *stream_index = -1;
+    } else {
+      blog(LOG_WARNING,
+           "[OpenStream] Could not open decoder: %s",
+           av_error(result).c_str());
+    }
     return false;
   }
 
-  *video_stream_index = best_stream;
+  *stream_index = best_stream;
   *decoder_ctx = std::move(codec_ctx);
+  if (is_audio) {
+    blog(LOG_INFO,
+         "[OpenStream] Opened audio decoder: %s, %d Hz, %d channels",
+         avcodec_get_name(stream->codecpar->codec_id),
+         stream->codecpar->sample_rate,
+         stream->codecpar->ch_layout.nb_channels);
+  }
   return true;
+}
+
+bool open_video_decoder(AVFormatContext *format_ctx,
+                        int *video_stream_index,
+                        CodecContextPtr *decoder_ctx) {
+  const int stream_result = avformat_find_stream_info(format_ctx, nullptr);
+  if (stream_result < 0) {
+    blog(LOG_WARNING,
+         "[OpenStream] Could not read stream info: %s",
+         av_error(stream_result).c_str());
+    return false;
+  }
+
+  return open_decoder(format_ctx, AVMEDIA_TYPE_VIDEO, video_stream_index,
+                      decoder_ctx);
 }
 
 bool open_audio_decoder(AVFormatContext *format_ctx,
                         int *audio_stream_index,
                         CodecContextPtr *decoder_ctx) {
-  const int best_stream = av_find_best_stream(
-      format_ctx, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
-  if (best_stream < 0) {
-    blog(LOG_INFO, "[OpenStream] No audio stream found (video-only mode)");
-    *audio_stream_index = -1;
-    return false;
-  }
-
-  AVStream *stream = format_ctx->streams[best_stream];
-  const AVCodec *decoder = avcodec_find_decoder(stream->codecpar->codec_id);
-  if (!decoder) {
-    blog(LOG_WARNING,
-         "[OpenStream] No audio decoder found for codec id %d",
-         stream->codecpar->codec_id);
-    *audio_stream_index = -1;
-    return false;
-  }
-
-  CodecContextPtr codec_ctx(avcodec_alloc_context3(decoder));
-  if (!codec_ctx) {
-    *audio_stream_index = -1;
-    return false;
-  }
-
-  int result = avcodec_parameters_to_context(codec_ctx.get(), stream->codecpar);
-  if (result < 0) {
-    *audio_stream_index = -1;
-    return false;
-  }
-
-  result = avcodec_open2(codec_ctx.get(), decoder, nullptr);
-  if (result < 0) {
-    blog(LOG_WARNING,
-         "[OpenStream] Could not open audio decoder: %s",
-         av_error(result).c_str());
-    *audio_stream_index = -1;
-    return false;
-  }
-
-  *audio_stream_index = best_stream;
-  *decoder_ctx = std::move(codec_ctx);
-  blog(LOG_INFO,
-       "[OpenStream] Opened audio decoder: %s, %d Hz, %d channels",
-       avcodec_get_name(stream->codecpar->codec_id),
-       stream->codecpar->sample_rate,
-       stream->codecpar->ch_layout.nb_channels);
-  return true;
+  // open_decoder already resets *audio_stream_index to -1 and logs on failure.
+  return open_decoder(format_ctx, AVMEDIA_TYPE_AUDIO, audio_stream_index,
+                      decoder_ctx);
 }
 
 std::optional<int64_t> source_timestamp_ns(const AVFrame *frame,
@@ -2232,7 +2201,7 @@ void *openstream_create(obs_data_t *settings, obs_source_t *source) {
     std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
     ctx->slot_label =
         (saved_slot_label && saved_slot_label[0] != '\0') ? saved_slot_label : "Phone Camera";
-    g_source_contexts[source] = SourceContextEntry{shared, ++g_source_generation_counter};
+    g_source_contexts[source] = shared;
   }
   ctx->lifecycle_worker = std::thread(run_lifecycle_worker, ctx);
   obs_data_set_string(settings, "source_instance_id", ctx->instance_id.c_str());
@@ -2246,15 +2215,14 @@ void *openstream_create(obs_data_t *settings, obs_source_t *source) {
 void openstream_destroy(void *data) {
   auto *raw = static_cast<OpenStreamSource *>(data);
   // Hold shared ownership across teardown so concurrent dock/properties paths
-  // that already copied their shared_ptr cannot UAF. Erase first (bump
-  // generation) so late lookups miss instead of resurrecting a dying source.
+  // that already copied their shared_ptr cannot UAF. Erase first so late
+  // lookups miss instead of resurrecting a dying source.
   std::shared_ptr<OpenStreamSource> owned;
   {
     std::lock_guard<std::mutex> lock(g_slot_registry_mutex);
     for (auto it = g_source_contexts.begin(); it != g_source_contexts.end(); ++it) {
-      if (it->second.ref.get() == raw) {
-        owned = it->second.ref;
-        ++g_source_generation_counter;
+      if (it->second.get() == raw) {
+        owned = it->second;
         g_source_contexts.erase(it);
         break;
       }
@@ -2296,6 +2264,47 @@ void openstream_defaults(obs_data_t *settings) {
   obs_data_set_default_int(settings, "latency_ms", 120);
   obs_data_set_default_int(settings, "bitrate_mbps", kDefaultBitrateMbps);
   obs_data_set_default_double(settings, "cam_zoom", 1.0);
+}
+
+// Fixed camera-command buttons: one table + one callback instead of four
+// near-identical lambdas. obs_properties_add_button takes a C function
+// pointer (no captures), so the per-button path/body is recovered from the
+// property name.
+struct CameraCommandButton {
+  const char *id;
+  const char *label;
+  const char *path;
+  const char *body;
+  const char *done_log;
+};
+
+constexpr CameraCommandButton kCameraCommandButtons[] = {
+    {"cam_torch_on", "Torch On", "/torch", "{\"enabled\":true}", "Torch ON"},
+    {"cam_torch_off", "Torch Off", "/torch", "{\"enabled\":false}", "Torch OFF"},
+    {"cam_lens_back", "Rear Camera", "/lens", "{\"lens\":\"1×\"}",
+     "Switch to back camera"},
+    {"cam_lens_front", "Front Camera", "/lens", "{\"lens\":\"Front\"}",
+     "Switch to front camera"},
+};
+
+bool camera_command_button_clicked(obs_properties_t *, obs_property_t *prop,
+                                   void *data) {
+  const char *name = prop ? obs_property_name(prop) : nullptr;
+  const CameraCommandButton *button = nullptr;
+  if (name) {
+    for (const auto &candidate : kCameraCommandButtons) {
+      if (std::strcmp(candidate.id, name) == 0) {
+        button = &candidate;
+        break;
+      }
+    }
+  }
+  if (!button) return false;
+  auto *ctx = static_cast<OpenStreamSource *>(data);
+  if (!ctx) return false;
+  if (!queue_control_command(ctx, button->path, button->body)) return false;
+  blog(LOG_INFO, "[OpenStream] %s", button->done_log);
+  return true;
 }
 
 obs_properties_t *openstream_properties(void *data) {
@@ -2473,37 +2482,10 @@ obs_properties_t *openstream_properties(void *data) {
     return false;
   }, static_cast<OpenStreamSource *>(data));
 
-  obs_properties_add_button(camera_group, "cam_torch_on", "Torch On", [](obs_properties_t *, obs_property_t *, void *data) {
-    auto *ctx = static_cast<OpenStreamSource *>(data);
-    if (!ctx) return false;
-    if (!queue_control_command(ctx, "/torch", "{\"enabled\":true}")) return false;
-    blog(LOG_INFO, "[OpenStream] Torch ON");
-    return true;
-  });
-
-  obs_properties_add_button(camera_group, "cam_torch_off", "Torch Off", [](obs_properties_t *, obs_property_t *, void *data) {
-    auto *ctx = static_cast<OpenStreamSource *>(data);
-    if (!ctx) return false;
-    if (!queue_control_command(ctx, "/torch", "{\"enabled\":false}")) return false;
-    blog(LOG_INFO, "[OpenStream] Torch OFF");
-    return true;
-  });
-
-  obs_properties_add_button(camera_group, "cam_lens_back", "Rear Camera", [](obs_properties_t *, obs_property_t *, void *data) {
-    auto *ctx = static_cast<OpenStreamSource *>(data);
-    if (!ctx) return false;
-    if (!queue_control_command(ctx, "/lens", "{\"lens\":\"1×\"}")) return false;
-    blog(LOG_INFO, "[OpenStream] Switch to back camera");
-    return true;
-  });
-
-  obs_properties_add_button(camera_group, "cam_lens_front", "Front Camera", [](obs_properties_t *, obs_property_t *, void *data) {
-    auto *ctx = static_cast<OpenStreamSource *>(data);
-    if (!ctx) return false;
-    if (!queue_control_command(ctx, "/lens", "{\"lens\":\"Front\"}")) return false;
-    blog(LOG_INFO, "[OpenStream] Switch to front camera");
-    return true;
-  });
+  for (const auto &button : kCameraCommandButtons) {
+    obs_properties_add_button(camera_group, button.id, button.label,
+                              camera_command_button_clicked);
+  }
 
   obs_properties_add_button(camera_group, "identify_camera", "Identify Phone", [](obs_properties_t *, obs_property_t *, void *data) {
     auto *ctx = static_cast<OpenStreamSource *>(data);
@@ -2560,42 +2542,59 @@ bool openstream_is_camera_source(obs_source_t *source) {
                 strcmp(id, "openstream_phone_v7_source") == 0);
 }
 
+// Shared lookup+forward tail for the openstream_*_camera_source entry points:
+// rejects non-camera sources and forwards shared ownership (so a concurrent
+// openstream_destroy() cannot UAF mid-call). fn(null shared_ptr) defines the
+// failure value.
+template <typename Fn>
+auto forward_to_camera(obs_source_t *source, Fn &&fn)
+    -> decltype(fn(std::declval<const std::shared_ptr<OpenStreamSource> &>())) {
+  if (!openstream_is_camera_source(source)) {
+    static const std::shared_ptr<OpenStreamSource> empty;
+    return fn(empty);
+  }
+  return fn(lookup_source_context(source));
+}
+
 bool openstream_post_camera_command(obs_source_t *source, const char *path,
                                     const char *json_body) {
-  if (!openstream_is_camera_source(source) || !path || !json_body) return false;
-  // Shared ownership keeps ctx alive even if openstream_destroy() erases the
-  // registry concurrently. Null-check after the locked lookup.
-  const auto owned = lookup_source_context(source);
-  OpenStreamSource *ctx = owned ? owned.get() : nullptr;
-  if (!ctx) return false;
-  return queue_control_command(ctx, path, json_body);
+  if (!path || !json_body) return false;
+  return forward_to_camera(
+      source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+        if (!owned) return false;
+        return queue_control_command(owned.get(), path, json_body);
+      });
 }
 
 bool openstream_start_camera_source(obs_source_t *source) {
-  if (!openstream_is_camera_source(source)) return false;
-  const auto owned = lookup_source_context(source);
-  if (!owned) return false;
-  return queue_lifecycle_request(owned, true);
+  return forward_to_camera(
+      source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+        if (!owned) return false;
+        return queue_lifecycle_request(owned, true);
+      });
 }
 
 bool openstream_stop_camera_source(obs_source_t *source) {
-  if (!openstream_is_camera_source(source)) return false;
-  const auto owned = lookup_source_context(source);
-  if (!owned) return false;
-  return queue_lifecycle_request(owned, false);
+  return forward_to_camera(
+      source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+        if (!owned) return false;
+        return queue_lifecycle_request(owned, false);
+      });
 }
 
 const char *openstream_source_status(obs_source_t *source) {
   thread_local std::string status;
-  status = "Camera unavailable";
-  if (!openstream_is_camera_source(source)) return status.c_str();
-  const auto owned = lookup_source_context(source);
-  OpenStreamSource *ctx = owned ? owned.get() : nullptr;
-  if (!ctx) return status.c_str();
-  std::lock_guard<std::mutex> lock(ctx->settings_mutex);
-  status = ctx->slot_label + " — " + ctx->slot_status;
-  if (ctx->active_phone.has_value()) status += " — " + ctx->active_phone->name;
-  return status.c_str();
+  return forward_to_camera(
+      source, [&](const std::shared_ptr<OpenStreamSource> &owned) -> const char * {
+        status = "Camera unavailable";
+        if (!owned) return status.c_str();
+        std::lock_guard<std::mutex> lock(owned->settings_mutex);
+        status = owned->slot_label + " — " + owned->slot_status;
+        if (owned->active_phone.has_value()) {
+          status += " — " + owned->active_phone->name;
+        }
+        return status.c_str();
+      });
 }
 
 bool obs_module_load(void) {

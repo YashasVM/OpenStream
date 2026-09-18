@@ -1,10 +1,9 @@
 #include "control-json.hpp"
+#include "contract_helpers.hpp"
 #include <cstdlib>
 #include <iostream>
 
-static void require(bool ok) {
-  if (!ok) { std::cerr << "Control JSON regression\n"; std::exit(1); }
-}
+using openstream_test::require;
 int main() {
   require(json_int_value(R"({"port":9000,"name":"Phone123"})", "port") == 9000);
   require(!json_int_value(R"({"port":"bad","name":"Phone123"})", "port"));

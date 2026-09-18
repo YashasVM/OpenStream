@@ -1,16 +1,12 @@
 #include "solo-camera-lease.hpp"
+#include "contract_helpers.hpp"
 
 #include <atomic>
 #include <iostream>
 #include <thread>
 #include <vector>
 
-static void require(bool ok, const char *message) {
-  if (!ok) {
-    std::cerr << message << '\n';
-    std::exit(1);
-  }
-}
+using openstream_test::require;
 
 int main() {
   SoloCameraLease lease;
