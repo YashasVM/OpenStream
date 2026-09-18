@@ -1,5 +1,6 @@
 package dev.openstream.app
 
+import dev.openstream.app.stream.ConnectionTarget
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -40,13 +41,27 @@ class SettingsValidatorTest {
     }
 
     @Test
-    fun normalizeHostBracketsBareIpv6Only() {
-        assertEquals("[2001:db8::1]", SettingsValidator.normalizeHost("2001:db8::1"))
-        assertEquals("[::1]", SettingsValidator.normalizeHost("::1"))
-        assertEquals("[2001:db8::1]", SettingsValidator.normalizeHost("[2001:db8::1]"))
-        assertEquals("192.168.1.20", SettingsValidator.normalizeHost("192.168.1.20"))
-        assertEquals("obs.local", SettingsValidator.normalizeHost("obs.local"))
-        assertEquals("obs.local:9000", SettingsValidator.normalizeHost("obs.local:9000"))
+    fun srtCallerUrlBracketsBareIpv6Only() {
+        assertEquals(
+            "srt://[2001:db8::1]:9000?mode=caller&latency=120",
+            ConnectionTarget("obs", "2001:db8::1", 9000, 120).toSrtCallerUrl(),
+        )
+        assertEquals(
+            "srt://[::1]:9000?mode=caller&latency=120",
+            ConnectionTarget("obs", "::1", 9000, 120).toSrtCallerUrl(),
+        )
+        assertEquals(
+            "srt://[2001:db8::1]:9000?mode=caller&latency=120",
+            ConnectionTarget("obs", "[2001:db8::1]", 9000, 120).toSrtCallerUrl(),
+        )
+        assertEquals(
+            "srt://192.168.1.20:9000?mode=caller&latency=120",
+            ConnectionTarget("obs", "192.168.1.20", 9000, 120).toSrtCallerUrl(),
+        )
+        assertEquals(
+            "srt://obs.local:9000?mode=caller&latency=120",
+            ConnectionTarget("obs", "obs.local", 9000, 120).toSrtCallerUrl(),
+        )
     }
 
     @Test

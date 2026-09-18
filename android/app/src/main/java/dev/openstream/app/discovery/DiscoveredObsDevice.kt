@@ -14,9 +14,6 @@ data class DiscoveredObsDevice(
     val lastSeenMs: Long,
     val busy: Boolean,
 ) {
-    val displayEndpoint: String
-        get() = "$host:$port"
-
     /**
      * Solo-camera display label: prefer the OBS computer name. Legacy
      * production slot fields ([slotLabel]/[slotId]/[sourceInstanceId]) are
@@ -26,7 +23,4 @@ data class DiscoveredObsDevice(
      */
     val displayLabel: String
         get() = name.ifBlank { slotLabel.ifBlank { "$host:$port" } }
-
-    val availabilityLabel: String
-        get() = if (busy) "Busy" else "Available"
 }

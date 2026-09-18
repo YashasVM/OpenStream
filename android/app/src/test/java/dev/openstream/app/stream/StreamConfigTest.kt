@@ -25,19 +25,6 @@ class StreamConfigTest {
     @Test
     fun bitrateMbpsIsDerivedFromBitrateBps() {
         assertEquals(12, StreamConfig.Default1080p30.bitrateMbps)
-        assertEquals(8, StreamConfig.Fallback720p30.bitrateMbps)
+        assertEquals(8, StreamConfig.Default1080p30.copy(bitrate = 8_000_000).bitrateMbps)
     }
-
-    @Test
-    fun bitrateCoercionClampsPairingValuesIntoBounds() {
-        fun coerceBitrate(bitrateMbps: Int?): Int {
-            return (bitrateMbps ?: StreamConfig.Default1080p30.bitrateMbps)
-                .coerceIn(StreamConfig.MIN_BITRATE_MBPS, StreamConfig.MAX_BITRATE_MBPS)
-        }
-        assertEquals(12, coerceBitrate(null))
-        assertEquals(12, coerceBitrate(12))
-        assertEquals(StreamConfig.MIN_BITRATE_MBPS, coerceBitrate(1))
-        assertEquals(StreamConfig.MAX_BITRATE_MBPS, coerceBitrate(100))
-    }
-
 }

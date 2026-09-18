@@ -11,12 +11,7 @@ data class ConnectionTarget(
     val bitrateMbps: Int? = null,
 ) {
     fun toSrtCallerUrl(): String {
-        val urlHost = if (':' in host && !(host.startsWith("[") && host.endsWith("]"))) {
-            "[$host]"
-        } else {
-            host
-        }
-        return "srt://$urlHost:$port?mode=caller&latency=$latencyMs"
+        return "srt://${bracketForUrl(host)}:$port?mode=caller&latency=$latencyMs"
     }
 
     companion object {
@@ -24,6 +19,15 @@ data class ConnectionTarget(
         const val DEFAULT_HOST = "192.168.1.2"
         const val DEFAULT_PORT = 9000
         const val DEFAULT_LATENCY_MS = 120
+
+        /** Brackets a bare IPv6 literal so it is safe to embed in a URL authority. */
+        internal fun bracketForUrl(host: String): String {
+            return if (':' in host && !(host.startsWith("[") && host.endsWith("]"))) {
+                "[$host]"
+            } else {
+                host
+            }
+        }
 
         fun fromDiscoveredDevice(device: DiscoveredObsDevice): ConnectionTarget {
             return ConnectionTarget(
