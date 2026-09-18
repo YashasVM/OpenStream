@@ -1,16 +1,12 @@
 from pathlib import Path
 
+from _helpers import function_body
+
 SOURCE = Path("obs-plugin/src/openstream-source.cpp").read_text(encoding="utf-8")
 
 
-def _function_body(name: str, next_name: str) -> str:
-    start = SOURCE.index(name)
-    end = SOURCE.index(next_name, start)
-    return SOURCE[start:end]
-
-
 def test_camera_control_connect_has_explicit_deadline():
-    control = _function_body("bool send_control_command", "void set_active_phone")
+    control = function_body(SOURCE, "bool send_control_command", "void set_active_phone")
 
     assert "kControlConnectTimeout" in SOURCE
     assert "connect_socket_with_timeout" in control
@@ -20,7 +16,7 @@ def test_camera_control_connect_has_explicit_deadline():
 
 
 def test_bounded_connect_uses_nonblocking_completion_check():
-    helper = _function_body("bool connect_socket_with_timeout", "std::string json_escape")
+    helper = function_body(SOURCE, "bool connect_socket_with_timeout", "std::string json_escape")
 
     assert "ioctlsocket" in helper
     assert "O_NONBLOCK" in helper
@@ -39,7 +35,10 @@ def test_unreachable_release_teardown_has_bounded_urgent_retry_budget():
 
     # Normal operation retains the three-attempt release budget, but source
     # destruction must not wait through all retries or a backlog of stale tokens.
-    assert "if (stopping_ || stopped_) return false;" in impl
+    # stopped_ was folded into stopping_ (it was only ever set while stopping_
+    # was already true and never cleared, so the disjunct was redundant):
+    # urgent posts are still rejected once teardown starts.
+    assert "if (stopping_) return false;" in impl
     assert "while (urgent_commands_.size() > 1)" in impl
     assert "urgent_commands_.pop();" in impl
     assert "wake_.wait_for(" in impl

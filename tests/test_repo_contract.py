@@ -1,12 +1,6 @@
 import re
-from pathlib import Path
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def read(path: str) -> str:
-    return (ROOT / path).read_text(encoding="utf-8")
+from _helpers import read_text as read
 
 
 def test_architecture_documents_practical_v1_transport() -> None:
@@ -268,7 +262,7 @@ def test_protocol_documents_media_and_telemetry_contracts() -> None:
 
 
 def test_docs_keep_python_receiver_as_developer_tool_only() -> None:
-    setup = read("docs/setup.md")
+    setup = read("docs/set-up.md")
     assert "developer/debug path only" in setup
     assert "not part of the normal user workflow" in setup
 
@@ -288,7 +282,11 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert ":app:lintDebug" in android_workflow
     assert ":app:assembleRelease" in release_workflow
     assert ":app:assembleDebug" not in release_workflow
+    assert "debug-signed-beta" not in release_workflow
     assert "OPENSTREAM_RELEASE_KEYSTORE_BASE64" in release_workflow
+    assert "OPENSTREAM_RELEASE_STORE_PASSWORD" in release_workflow
+    assert "OPENSTREAM_RELEASE_KEY_ALIAS" in release_workflow
+    assert "OPENSTREAM_RELEASE_KEY_PASSWORD" in release_workflow
     assert "OPENSTREAM_VERSION_NAME" in release_workflow
     assert "OPENSTREAM_VERSION_CODE" in release_workflow
     assert "OPENSTREAM_SKIP_INSTALL=1" in obs_workflow
@@ -297,7 +295,9 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "gh release create" in release_workflow
     assert "docs/release-notes-template.md" in release_workflow
     assert "openstream-android.apk" in release_workflow
+    assert "dist/openstream-android.apk" in release_workflow
     assert "openstream-android.apk.sha256" in release_workflow
+    assert "dist/openstream-android.apk.sha256" in release_workflow
     assert "sha256sum openstream-android.apk" in release_workflow
     assert "Public releases require all Android signing secrets" in release_workflow
     assert "openstream-obs-windows-x64.zip" in release_workflow

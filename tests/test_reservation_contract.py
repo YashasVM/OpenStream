@@ -1,33 +1,87 @@
 from pathlib import Path
 
+from _helpers import ROOT, function_body, read_text as read
 
 SERVER = Path(
     "android/app/src/main/java/dev/openstream/app/control/CameraControlServer.kt"
 ).read_text()
 
+MAIN_ACTIVITY = Path("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
 
-def _function(name: str) -> str:
-    start = SERVER.index(f"private fun {name}(")
-    brace = SERVER.index("{", start)
-    depth = 0
-    for index in range(brace, len(SERVER)):
-        if SERVER[index] == "{":
-            depth += 1
-        elif SERVER[index] == "}":
-            depth -= 1
-            if depth == 0:
-                return SERVER[start : index + 1]
-    raise AssertionError(f"unterminated function: {name}")
+
+def test_reservation_expires_if_media_never_connects() -> None:
+    source = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+
+    reserve_start = source.index("private fun reserveForSource")
+    release_start = source.index("private fun releaseForSource", reserve_start)
+    reserve = source[reserve_start:release_start]
+    listener_start = source.index("private fun startPhoneServerIfAllowed")
+    listener_end = source.index("private fun isListenerActive", listener_start)
+    listener = source[listener_start:listener_end]
+    schedule_start = source.index("private fun scheduleReservationRelease")
+    cancel_start = source.index("private fun cancelReservationRelease", schedule_start)
+    schedule = source[schedule_start:cancel_start]
+
+    connected_branch = "if (phoneConnected) {\n            cancelReservationRelease()\n        } else {\n            scheduleReservationRelease()\n        }"
+    assert connected_branch in reserve
+
+    connected_index = listener.index("phoneConnected = true")
+    cancel_index = listener.index("cancelReservationRelease()", connected_index)
+    assert connected_index < cancel_index
+    assert "scheduleReservationRelease()" in listener
+
+    assert "mainHandler.postDelayed(releaseReservationRunnable!!, RECONNECT_RESERVATION_MS)" in schedule
+    assert "if (!phoneConnected &&" in schedule
+    assert "reservedBy == sourceInstanceId &&" in schedule
+    assert "reservationGeneration == generation" in schedule
+    assert "reservedBy = null" in schedule
+    assert "reservedSlotLabel = null" in schedule
+
+
+def test_reservation_renewal_invalidates_an_already_started_expiry() -> None:
+    source = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+
+    reserve_start = source.index("private fun reserveForSource")
+    release_start = source.index("private fun releaseForSource", reserve_start)
+    reserve = source[reserve_start:release_start]
+    schedule_start = source.index("private fun scheduleReservationRelease")
+    cancel_start = source.index("private fun cancelReservationRelease", schedule_start)
+    schedule = source[schedule_start:cancel_start]
+
+    generation_increment = reserve.index("reservationGeneration += 1")
+    reservation_write = reserve.index("reservedBy = sourceInstanceId")
+    assert generation_increment < reservation_write
+
+    capture = schedule.index("val generation = reservationGeneration")
+    cancel = schedule.index("cancelReservationRelease()")
+    callback = schedule.index("releaseReservationRunnable = Runnable")
+    generation_guard = schedule.index("reservationGeneration == generation", callback)
+    clear = schedule.index("reservedBy = null", callback)
+    assert capture < cancel < callback < generation_guard < clear
+
+
+def test_reservation_release_is_bound_to_generation_token() -> None:
+    source = read("obs-plugin/src/openstream-source.cpp")
+    control = read("android/app/src/main/java/dev/openstream/app/control/CameraControlServer.kt")
+
+    assert "std::string reservation_token" in source
+    assert "reservationToken" in source
+    assert "phone.reservation_token" in source
+    assert "const std::string reservation_token = phone.reservation_token" in source
+    assert 'json.optString("reservationToken")' in control
+    assert "activeReservationToken" in control
+    assert "reservationToken != activeReservationToken" in control
+    assert '"stale":true' in control
 
 
 def test_reservation_captures_controller_peer():
-    reserve = _function("handleReserve")
+    reserve = function_body(SERVER, "handleReserve")
     assert "controllerAddress: String" in reserve
     assert "activeControllerAddress = controllerAddress.ifEmpty { null }" in reserve
 
 
 def test_different_source_cannot_replace_active_reservation():
-    reserve = _function("handleReserve")
+    reserve = function_body(SERVER, "handleReserve")
     guard = "currentReservation != null && currentReservation != sourceInstanceId"
     assert guard in reserve
     assert "return busyReservationResponse(currentReservation)" in reserve
@@ -40,7 +94,7 @@ def test_different_source_cannot_replace_active_reservation():
 
 
 def test_same_owner_cannot_move_reservation_to_a_different_peer():
-    reserve = _function("handleReserve")
+    reserve = function_body(SERVER, "handleReserve")
     guard_terms = [
         "val currentReservation = reservationProvider()",
         "val currentControllerAddress = activeControllerAddress",
@@ -60,7 +114,7 @@ def test_same_owner_cannot_move_reservation_to_a_different_peer():
 
 
 def test_duplicate_reserve_retry_does_not_refresh_android_reconnect_lease():
-    reserve = _function("handleReserve")
+    reserve = function_body(SERVER, "handleReserve")
     same_config = "val sameReservationConfig = currentReservation == sourceInstanceId"
     assert same_config in reserve
     assert "activeReservationSlotLabel == slotLabel" in reserve
@@ -79,7 +133,7 @@ def test_duplicate_reserve_retry_does_not_refresh_android_reconnect_lease():
 
 
 def test_reservation_config_change_still_reaches_reservation_owner():
-    reserve = _function("handleReserve")
+    reserve = function_body(SERVER, "handleReserve")
     same_config = reserve.index("val sameReservationConfig")
     duplicate_guard = reserve.index("if (sameReservationConfig)", same_config)
     on_reserve = reserve.index(
@@ -92,8 +146,8 @@ def test_reservation_config_change_still_reaches_reservation_owner():
 
 
 def test_unbound_active_reservation_fails_closed_for_renew_and_release():
-    reserve = _function("handleReserve")
-    release = _function("handleRelease")
+    reserve = function_body(SERVER, "handleReserve")
+    release = function_body(SERVER, "handleRelease")
     assert "currentControllerAddress == null" in reserve
     assert reserve.index("currentControllerAddress == null") < reserve.index(
         "val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)"
@@ -112,21 +166,21 @@ def test_mutating_controls_require_reservation_peer_before_side_effects():
         "handleIdentify": "onIdentify(label, subtitle)",
     }
     for handler, side_effect in side_effects.items():
-        body = _function(handler)
+        body = function_body(SERVER, handler)
         guard = "if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse()"
         assert guard in body
         assert body.index(guard) < body.index(side_effect)
 
 
 def test_authorization_requires_live_reservation_and_matching_peer():
-    auth = _function("isAuthorizedController")
+    auth = function_body(SERVER, "isAuthorizedController")
     assert "reservationProvider() != null" in auth
     assert "controllerAddress.isNotEmpty()" in auth
     assert "controllerAddress == activeControllerAddress" in auth
 
 
 def test_release_requires_current_controller_peer_before_token_or_side_effects():
-    release = _function("handleRelease")
+    release = function_body(SERVER, "handleRelease")
     peer_guard = "controllerAddress != activeControllerAddress"
     assert "controllerAddress: String" in release
     assert "activeControllerAddress == null" in release
@@ -141,7 +195,7 @@ def test_release_requires_current_controller_peer_before_token_or_side_effects()
 
 
 def test_release_clears_controller_peer_and_reservation_config_cache():
-    release = _function("handleRelease")
+    release = function_body(SERVER, "handleRelease")
     clear = "activeControllerAddress = null"
     assert clear in release
     assert release.index("activeReservationToken = null") < release.index(clear)
@@ -152,8 +206,8 @@ def test_release_clears_controller_peer_and_reservation_config_cache():
 
 
 def test_control_server_is_not_exposed_as_a_cross_origin_browser_api():
-    handle_client = _function("handleClient")
-    send_response = _function("sendResponse")
+    handle_client = function_body(SERVER, "handleClient")
+    send_response = function_body(SERVER, "sendResponse")
     assert 'method == "OPTIONS"' not in handle_client
     assert "Access-Control-Allow-Origin" not in send_response
     assert "Access-Control-Allow-Methods" not in send_response
@@ -161,7 +215,7 @@ def test_control_server_is_not_exposed_as_a_cross_origin_browser_api():
 
 
 def test_mutating_routes_require_application_json_before_body_or_dispatch():
-    handle_client = _function("handleClient")
+    handle_client = function_body(SERVER, "handleClient")
     assert "var contentType: String? = null" in handle_client
     assert 'line.startsWith("Content-Type:", ignoreCase = true)' in handle_client
     assert "contentType = line.substringAfter(\":\").trim()" in handle_client
@@ -175,7 +229,7 @@ def test_mutating_routes_require_application_json_before_body_or_dispatch():
 
 
 def test_unsupported_media_type_response_is_explicit():
-    send_response = _function("sendResponse")
+    send_response = function_body(SERVER, "sendResponse")
     assert '415 -> "Unsupported Media Type"' in send_response
 
 
@@ -184,7 +238,7 @@ def test_duplicate_reserve_retry_cannot_reach_android_lease_scheduler():
         "android/app/src/main/java/dev/openstream/app/MainActivity.kt"
     ).read_text(encoding="utf-8")
 
-    reserve = _function("handleReserve")
+    reserve = function_body(SERVER, "handleReserve")
     duplicate_start = reserve.index("if (sameReservationConfig)")
     on_reserve = reserve.index(
         "val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)"
@@ -199,3 +253,14 @@ def test_duplicate_reserve_retry_cannot_reach_android_lease_scheduler():
     schedule = activity.index("scheduleReservationRelease()", reserve_for_source)
     generation = activity.index("reservationGeneration += 1", reserve_for_source)
     assert reserve_for_source < generation < schedule
+
+
+def test_obs_slot_render_cache_renders_initial_empty_state_and_tracks_bitrate():
+    source = MAIN_ACTIVITY.read_text(encoding="utf-8")
+
+    assert "private var lastObsSlotRenderKeys: List<String>? = null" in source
+    assert (
+        '"${device.sourceInstanceId}|${device.displayLabel}|${device.busy}|'
+        '${device.bitrateMbps}|${reservedBy == device.sourceInstanceId}|$phoneConnected"'
+        in source
+    )
