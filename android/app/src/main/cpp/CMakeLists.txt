@@ -3,6 +3,14 @@ project(openstream_srt)
 
 add_library(openstream_srt SHARED openstream_srt.cpp)
 
+# Android 15 can run with 16 KB memory pages. NDK r27 needs these explicit
+# linker options so the final shared library loads on both 4 KB and 16 KB
+# devices. Keep both values in sync with tools/check_android_16kb_alignment.py.
+target_link_options(openstream_srt PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384"
+)
+
 option(OPENSTREAM_ENABLE_LIBSRT "Link the Android native sender against Android ABI-compatible libsrt" ON)
 
 find_library(log-lib log)
