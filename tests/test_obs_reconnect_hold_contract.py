@@ -73,7 +73,7 @@ def test_short_or_flapping_reconnect_attempt_cannot_inherit_old_frame_count() ->
 def test_reservation_success_does_not_refresh_reconnect_deadline() -> None:
     source = SOURCE.read_text(encoding="utf-8")
     selection_start = source.index(
-        "while (!ctx->stop_requested.load()) {", source.index('srt_url == "openstream:auto"')
+        "while (!ctx->stop_requested.load()) {", source.index('srt_url == "shin:auto"')
     )
     selection_end = source.index(
         "if (!reservation_acquired || !phone.has_value())", selection_start
@@ -86,7 +86,7 @@ def test_reservation_success_does_not_refresh_reconnect_deadline() -> None:
 
 def test_unreserved_phone_never_reaches_active_or_srt_state_on_stop() -> None:
     source = SOURCE.read_text(encoding="utf-8")
-    auto_start = source.index('if (srt_url == "openstream:auto")')
+    auto_start = source.index('if (srt_url == "shin:auto")')
     success_flag = source.index("bool reservation_acquired = false;", auto_start)
     reserve_success = source.index("reservation_acquired = true;", success_flag)
     success_gate = source.index(

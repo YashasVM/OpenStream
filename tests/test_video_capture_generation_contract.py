@@ -76,8 +76,8 @@ def test_video_encoder_callback_thread_is_reaped_on_stop_and_failed_start():
     ]
 
     assert "private var callbackThread: HandlerThread? = null" in source
-    thread_setup = start[start.index('val thread = HandlerThread("OpenStreamEncoder")') :]
-    assert 'HandlerThread("OpenStreamEncoder").apply { start() }' in thread_setup
+    thread_setup = start[start.index('val thread = HandlerThread("shinEncoder")') :]
+    assert 'HandlerThread("shinEncoder").apply { start() }' in thread_setup
     assert "callbackThread = thread" in thread_setup
     assert "val handler = Handler(thread.looper)" in thread_setup
 

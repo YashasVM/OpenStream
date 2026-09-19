@@ -77,6 +77,7 @@ class MainActivity : Activity() {
     @Volatile private var phoneServerRunning = false
     @Volatile private var phoneConnected = false
     @Volatile private var reservedBy: String? = null
+    @Volatile private var selectedObsHost: String? = null
     @Volatile private var reservedSlotLabel: String? = null
     @Volatile private var listenerThread: Thread? = null
     @Volatile private var callerConnectThread: Thread? = null
@@ -134,6 +135,7 @@ class MainActivity : Activity() {
             port = currentPort,
             busyProvider = { phoneConnected || reservedBy != null },
             reservedByProvider = { reservedBy },
+            selectedObsHostProvider = { selectedObsHost },
         )
         obsDiscoveryClient = ObsDiscoveryClient(
             context = this,
@@ -181,7 +183,15 @@ class MainActivity : Activity() {
             }},
             reservationProvider = { reservedBy },
             onReserve = { sourceInstanceId, slotLabel, bitrateMbps ->
-                reserveForSource(sourceInstanceId, slotLabel, bitrateMbps)
+                reserveForSource(sourceInstanceId, slotLabel, bitrateMbps).also { accepted ->
+                    if (accepted) {
+                        runOnUiThread {
+                            statusText.text = "Paired to ${slotLabel.ifBlank { "OBS computer" }}"
+                            statusDetail.text = "OBS acknowledged; waiting to go live"
+                            renderObsSlots(currentDevices)
+                        }
+                    }
+                }
             },
             onRelease = { sourceInstanceId -> releaseForSource(sourceInstanceId) },
             onIdentify = { label, subtitle -> runOnUiThread { showIdentifyOverlay(label, subtitle) } },
@@ -464,7 +474,7 @@ class MainActivity : Activity() {
                     encoder.start()
                     camera.startStreaming(encoder.inputSurface())
                 }.onFailure { e ->
-                    Log.e("OpenStream", "Failed to restart encoder after lens switch", e)
+                    Log.e("shin", "Failed to restart encoder after lens switch", e)
                     statusText.text = "Encoder error"
                     statusDetail.text = e.message ?: "Unknown"
                 }
@@ -614,6 +624,7 @@ class MainActivity : Activity() {
 
     private fun reserveForSlot(device: DiscoveredObsDevice) {
         if (device.busy && reservedBy != device.sourceInstanceId) return
+        selectedObsHost = device.host
 
         // UI-initiated reservation is local-only: it sets reservedBy/slot state
         // here without binding CameraControlServer.activeControllerAddress. The
@@ -626,8 +637,8 @@ class MainActivity : Activity() {
         }
 
         if (reserveForSource(device.sourceInstanceId, device.displayLabel, device.bitrateMbps)) {
-            statusText.text = "Paired to ${device.displayLabel}"
-            statusDetail.text = "Waiting for OBS to go live"
+            statusText.text = "Selected ${device.displayLabel}"
+            statusDetail.text = "Waiting for OBS acknowledgement"
             renderObsSlots(currentDevices)
         }
     }
@@ -648,12 +659,13 @@ class MainActivity : Activity() {
         val uri: Uri = intent?.data ?: return
         val sourceInstanceId = uri.getQueryParameter("sourceInstanceId")?.trim().orEmpty()
         if (sourceInstanceId.isNotBlank()) {
+            selectedObsHost = uri.getQueryParameter("host")?.trim()?.ifEmpty { null }
             val slotLabel = uri.getQueryParameter("slotLabel")?.trim().orEmpty()
             val bitrateMbps = uri.getQueryParameter("bitrateMbps")?.toIntOrNull()
                 ?.coerceIn(StreamConfig.MIN_BITRATE_MBPS, StreamConfig.MAX_BITRATE_MBPS)
             if (reserveForSource(sourceInstanceId, slotLabel, bitrateMbps)) {
-                statusText.text = "Paired to ${slotLabel.ifBlank { "OBS computer" }}"
-                statusDetail.text = "Waiting for OBS to go live"
+                statusText.text = "Selected ${slotLabel.ifBlank { "OBS computer" }}"
+                statusDetail.text = "Waiting for OBS acknowledgement"
             }
             return
         }
@@ -712,7 +724,7 @@ class MainActivity : Activity() {
                     callerConnectThread = null
                 }
             }
-        }, "OpenStreamPhoneSrtCaller").apply {
+        }, "shinPhoneSrtCaller").apply {
             isDaemon = true
         }
         callerConnectThread = thread
@@ -721,11 +733,11 @@ class MainActivity : Activity() {
 
     private fun startAudioIfAllowed() {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            Log.i("OpenStream", "Microphone permission not granted; streaming video without audio")
+            Log.i("shin", "Microphone permission not granted; streaming video without audio")
             return
         }
         runCatching { audioEncoder.start() }.onFailure { e ->
-            Log.w("OpenStream", "Audio encoder start failed; continuing video-only", e)
+            Log.w("shin", "Audio encoder start failed; continuing video-only", e)
         }
     }
 
@@ -733,7 +745,7 @@ class MainActivity : Activity() {
         if (phoneServerRunning) return
         if (listenerThread?.isAlive == true) {
             pendingListenerStart = true
-            Log.w("OpenStream", "Previous SRT listener is still stopping; not starting another")
+            Log.w("shin", "Previous SRT listener is still stopping; not starting another")
             return
         }
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
@@ -823,7 +835,7 @@ class MainActivity : Activity() {
                     }
                 }
             }
-        }, "OpenStreamPhoneSrtListener").apply {
+        }, "shinPhoneSrtListener").apply {
             isDaemon = true
         }
         listenerThread = thread
@@ -855,7 +867,7 @@ class MainActivity : Activity() {
                 .onFailure { Thread.currentThread().interrupt() }
         }
         if (thread?.isAlive == true) {
-            Log.w("OpenStream", "SRT listener did not stop within ${LISTENER_STOP_TIMEOUT_MS}ms")
+            Log.w("shin", "SRT listener did not stop within ${LISTENER_STOP_TIMEOUT_MS}ms")
         } else if (listenerThread === thread) {
             listenerThread = null
         }
@@ -926,6 +938,7 @@ class MainActivity : Activity() {
         cancelReservationRelease()
         reservedBy = null
         reservedSlotLabel = null
+        selectedObsHost = null
     }
 
     @Synchronized
@@ -941,6 +954,7 @@ class MainActivity : Activity() {
                 ) {
                     reservedBy = null
                     reservedSlotLabel = null
+                    selectedObsHost = null
                 }
             }
         }
@@ -1113,6 +1127,7 @@ class MainActivity : Activity() {
             port = currentPort,
             busyProvider = { phoneConnected || reservedBy != null },
             reservedByProvider = { reservedBy },
+            selectedObsHostProvider = { selectedObsHost },
         )
         phoneAdvertiser.start()
         if (wasListenerMode) {

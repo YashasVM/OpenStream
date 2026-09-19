@@ -39,9 +39,13 @@ def test_android_project_declares_camera_media_codec_srt_discovery_boundaries() 
     assert "codecPreference = CodecPreference.ForceAvc" in stream_config
     assert "MIN_BITRATE_MBPS = 8" in stream_config
     assert "MAX_BITRATE_MBPS = 50" in stream_config
-    assert "OPENSTREAM_PHONE/1" in discovery
-    assert "DISCOVERY_PORT = 51515" in discovery
-    assert "dev.openstream.phone" in discovery
+    assert "SHIN_PHONE/1" in discovery
+    assert "DISCOVERY_PORT = 51615" in discovery
+    assert "dev.shin.phone" in discovery
+    assert "selectedObsHostProvider" in discovery
+    assert 'statusText.text = "Selected ${device.displayLabel}"' in app
+    assert "Waiting for OBS acknowledgement" in app
+    assert "OBS acknowledged; waiting to go live" in app
     assert "DatagramSocket" in discovery
     assert "advertisedMimeType()" in discovery
     assert "CHANGE_WIFI_MULTICAST_STATE" in manifest
@@ -54,28 +58,28 @@ def test_android_connection_target_builds_srt_caller_url_and_pairing_targets() -
     stream_client = read("android/app/src/main/java/dev/openstream/app/stream/SrtStreamClient.kt")
     assert "toSrtCallerUrl" in target
     assert "mode=caller" in target
-    assert "DEFAULT_PORT = 9000" in target
+    assert "DEFAULT_PORT = 9100" in target
     assert "fromDiscoveredDevice" in target
     assert "fromPairingUri" in target
-    assert "openstream" in target
+    assert 'uri.scheme != "shin"' in target
     assert "val stats: StreamStats" in stream_client
     assert "AtomicLong" in stream_client
     assert "accessUnitsSent.incrementAndGet()" in stream_client
 
 
-def test_obs_plugin_registers_openstream_source_and_discovery() -> None:
+def test_obs_plugin_registers_shin_source_and_discovery() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
-    assert "openstream_phone_v8_source" in source
-    assert "openstream_phone_v7_source" in source
-    assert "openstream_legacy_source_info" in source
+    assert "shin_phone_source" in source
+    assert "openstream_phone_v8_source" not in source
+    assert "openstream_legacy_source_info" not in source
     assert "obs_register_source" in source
-    assert "OpenStream" in source
+    assert 'kOpenStreamSourceName = "shin"' in source
     assert "listener_enabled" in source
     assert "discovery_broadcast_addresses" in source
     assert "kDiscoveryMulticastAddress" in source
     assert "DiscoveryAdvertiser" in source
-    assert "kDiscoveryPort = 51515" in source
-    assert "OPENSTREAM/1" in source
+    assert "kDiscoveryPort = 51615" in source
+    assert "SHIN/1" in source
     assert "srt_url" in source
     assert "listener_port" in source
     assert "phone_target_hint" in source
@@ -256,8 +260,8 @@ def test_protocol_documents_media_and_telemetry_contracts() -> None:
     protocol = read("docs/protocol.md")
     assert "MediaCodec" in protocol
     assert "MPEG-TS" in protocol
-    assert "OPENSTREAM/1" in protocol
-    assert "openstream://connect" in protocol
+    assert "SHIN/1" in protocol
+    assert "shin://connect" in protocol
     assert "sourceInstanceId" in protocol
     assert "slotId" in protocol
     assert "slotLabel" in protocol
@@ -346,3 +350,19 @@ def test_legacy_android_and_restored_obs_metadata_are_explicit() -> None:
     assert '"1.0.1"' in app_gradle
     assert "project(openstream_obs_plugin VERSION 1.0.1" in cmake
     assert '#define OpenStreamVersion "1.0.1"' in installer
+
+
+def test_shin_release_is_isolated_and_has_no_obs_dock_dependency() -> None:
+    app_gradle = read("android/app/build.gradle.kts")
+    cmake = read("obs-plugin/CMakeLists.txt")
+    build = read("build_plugin_linux.sh")
+    installer = read("tools/installer/install-shin-plugin-linux.sh")
+
+    assert 'applicationId = "dev.shin.app"' in app_gradle
+    assert "src/openstream-dock.cpp" not in cmake
+    assert 'OUTPUT_NAME "shin-obs"' in cmake
+    assert "OBS_FRONTEND_LIBRARY" not in cmake
+    assert "Qt6::Widgets" not in cmake
+    assert "shin-obs-linux-x86_64.tar.gz" in build
+    assert "plugins/shin-obs/bin/64bit/shin-obs.so" in installer
+    assert "plugins/openstream-obs" not in installer

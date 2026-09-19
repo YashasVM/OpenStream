@@ -65,7 +65,7 @@ class Camera2Controller(
         get() = synchronized(lifecycleLock) { minZoomRatio..maxZoomRatio }
 
     companion object {
-        private const val TAG = "OpenStreamCamera"
+        private const val TAG = "shinCamera"
         private const val BACK_DUAL_FOCAL_RATIO_THRESHOLD = 1.5f
         private const val CAMERA_THREAD_JOIN_TIMEOUT_MS = 500L
     }
@@ -326,7 +326,7 @@ class Camera2Controller(
         thread?.let { dead -> runCatching { dead.quitSafely() } }
         thread = null
         handler = null
-        val fresh = HandlerThread("OpenStreamCamera").apply { start() }
+        val fresh = HandlerThread("shinCamera").apply { start() }
         thread = fresh
         handler = Handler(fresh.looper)
     }

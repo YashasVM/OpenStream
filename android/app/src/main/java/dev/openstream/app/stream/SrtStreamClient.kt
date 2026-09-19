@@ -43,7 +43,7 @@ class SrtStreamClient {
     private val lastPresentationTimeUs = AtomicLong()
 
     fun connect(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
-        require(url.startsWith("srt://")) { "OpenStream V1 expects an SRT URL" }
+        require(url.startsWith("srt://")) { "shin V1 expects an SRT URL" }
         synchronized(operationLock) {
             establishSession("connection") { generation ->
                 connectToResolvedAddress(url, codecMime, width, height, fps, generation)
@@ -52,7 +52,7 @@ class SrtStreamClient {
     }
 
     fun listen(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
-        require(url.startsWith("srt://")) { "OpenStream expects an SRT URL" }
+        require(url.startsWith("srt://")) { "shin expects an SRT URL" }
         synchronized(operationLock) {
             // Caller and listener share one native SRT transport. establishSession()
             // performs an explicit disconnect-before-relisten via
