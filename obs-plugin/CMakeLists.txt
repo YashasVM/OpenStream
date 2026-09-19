@@ -223,7 +223,8 @@ target_compile_definitions(openstream-obs PRIVATE
 )
 
 if (WIN32)
-    set_target_properties(openstream-obs PROPERTIES PREFIX "" OUTPUT_NAME "shin-obs")
+    # Keep the existing Windows packaging contract outside this Linux release.
+    set_target_properties(openstream-obs PROPERTIES PREFIX "")
 else()
     # A distinct module name allows shin and OpenStream to coexist.
     set_target_properties(openstream-obs PROPERTIES PREFIX "" OUTPUT_NAME "shin-obs")
