@@ -128,12 +128,12 @@ class SettingsActivity : Activity() {
                 @Suppress("DEPRECATION")
                 info.versionCode.toLong()
             }
-            versionInfo.text = "OpenStream v${info.versionName} (${code})"
+            versionInfo.text = "shin v${info.versionName} (${code})"
         }
     }
 
     companion object {
-        const val PREFS_NAME = "openstream_settings"
+        const val PREFS_NAME = "shin_settings"
         const val KEY_OBS_HOST = "obs_host"
         const val KEY_OBS_PORT = "obs_port"
         const val KEY_LATENCY = "latency_ms"

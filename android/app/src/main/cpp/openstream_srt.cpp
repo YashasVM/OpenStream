@@ -30,7 +30,7 @@
 
 namespace {
 
-constexpr const char *kTag = "OpenStreamSRT";
+constexpr const char *kTag = "shinSRT";
 constexpr int kMinSrtLatencyMs = 80;
 constexpr int kMaxSrtLatencyMs = 200;
 constexpr int kMediaCodecBufferFlagKeyFrame = 1;
