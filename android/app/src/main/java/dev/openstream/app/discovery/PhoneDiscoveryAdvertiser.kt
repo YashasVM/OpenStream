@@ -3,7 +3,6 @@ package dev.openstream.app.discovery
 import android.content.Context
 import android.net.wifi.WifiManager
 import android.os.Build
-import android.text.format.Formatter
 import dev.openstream.app.control.CameraControlServer
 import dev.openstream.app.encoder.advertisedMimeType
 import dev.openstream.app.stream.StreamConfig
@@ -21,6 +20,7 @@ class PhoneDiscoveryAdvertiser(
     private val port: Int,
     private val busyProvider: () -> Boolean,
     private val reservedByProvider: () -> String? = { null },
+    private val selectedObsHostProvider: () -> String? = { null },
 ) {
     private val running = AtomicBoolean(false)
     @Volatile private var pendingRestart = false
@@ -35,7 +35,7 @@ class PhoneDiscoveryAdvertiser(
         }
         if (!running.compareAndSet(false, true)) return
         pendingRestart = false
-        worker = Thread(::run, "OpenStreamPhoneAdvertiser").apply {
+        worker = Thread(::run, "shinPhoneAdvertiser").apply {
             isDaemon = true
             start()
         }
@@ -66,12 +66,15 @@ class PhoneDiscoveryAdvertiser(
             return
         }
         try {
-            val destinations = listOf(
-                InetAddress.getByName("255.255.255.255"),
-                InetAddress.getByName(DISCOVERY_MULTICAST_ADDRESS),
-            )
             while (running.get()) {
                 val bytes = beaconPayload().toByteArray(StandardCharsets.UTF_8)
+                val destinations = linkedSetOf(
+                    InetAddress.getByName("255.255.255.255"),
+                    InetAddress.getByName(DISCOVERY_MULTICAST_ADDRESS),
+                )
+                selectedObsHostProvider()?.trim()?.takeIf { it.isNotEmpty() }?.let { host ->
+                    runCatching { destinations += InetAddress.getByName(host) }
+                }
                 destinations.forEach { destination ->
                     runCatching {
                         socket.send(DatagramPacket(bytes, bytes.size, destination, DISCOVERY_PORT))
@@ -123,10 +126,10 @@ class PhoneDiscoveryAdvertiser(
     }
 
     companion object {
-        const val DISCOVERY_PORT = 51515
-        const val DISCOVERY_MULTICAST_ADDRESS = "239.255.42.99"
-        const val PREFIX = "OPENSTREAM_PHONE/1"
-        const val TYPE = "dev.openstream.phone"
+        const val DISCOVERY_PORT = 51615
+        const val DISCOVERY_MULTICAST_ADDRESS = "239.255.43.99"
+        const val PREFIX = "SHIN_PHONE/1"
+        const val TYPE = "dev.shin.phone"
         private const val STOP_TIMEOUT_MS = 1_000L
     }
 }

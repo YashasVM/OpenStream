@@ -11,15 +11,15 @@ void openstream_register_dock() {}
 void openstream_unregister_dock() {}
 
 int main() {
-  require((openstream_legacy_source_info.output_flags & OBS_SOURCE_CAP_DISABLED) != 0,
-          "legacy V7 source is still exposed in the Add Source menu");
+  require(std::string(openstream_source_info.id) == "shin_phone_source",
+          "shin source identity changed");
   obs_data_t *settings = obs_data_create();
   openstream_defaults(settings);
   auto context = std::make_shared<OpenStreamSource>();
   context->instance_id = "test-source";
   // No registration: update cannot schedule a worker or open a network socket.
   openstream_update(context.get(), settings);
-  require(context->srt_url == "openstream:auto", "automatic pairing default changed");
+  require(context->srt_url == "shin:auto", "automatic pairing default changed");
   require(context->slot_label == "Phone Camera", "new source has a production slot label");
   obs_data_set_bool(settings, "manual_receive", true);
   obs_data_set_int(settings, "listener_port", 9876);
@@ -31,7 +31,7 @@ int main() {
   obs_data_set_string(settings, "slot_id", "saved-legacy-id");
   obs_data_set_bool(settings, "manual_receive", false);
   openstream_update(context.get(), settings);
-  require(context->srt_url == "openstream:auto", "automatic pairing cannot be restored");
+  require(context->srt_url == "shin:auto", "automatic pairing cannot be restored");
   require(context->slot_label == "Legacy CAM B" && context->slot_id == "saved-legacy-id",
           "legacy scene identity was lost");
   int existing_camera = 0;
@@ -39,7 +39,7 @@ int main() {
   openstream_start_worker(context.get());
   require(!context->worker.joinable() && !context->listener_running.load(),
           "production start bypassed the one-camera gate");
-  require(context->slot_status.find("Another OpenStream camera") != std::string::npos,
+  require(context->slot_status.find("Another shin camera") != std::string::npos,
           "blocked camera has no explanation");
   g_camera_lease.release(&existing_camera);
   auto *properties = openstream_properties(context.get());

@@ -82,6 +82,9 @@ jobs:
           cp android/app/build/outputs/apk/release/app-release.apk dist/openstream-android.apk
           (cd dist && sha256sum openstream-android.apk > openstream-android.apk.sha256)
 
+      - name: Verify 16 KB native-library alignment
+        run: python tools/check_android_16kb_alignment.py dist/openstream-android.apk
+
       - name: Verify APK signature and versionName matches tag
         run: |
           TAG_NAME="${{ inputs.tag || github.ref_name }}"

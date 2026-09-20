@@ -51,7 +51,7 @@ class ObsDiscoveryClient(
         }
         if (!running.compareAndSet(false, true)) return
         pendingRestart = false
-        worker = Thread(::receiveLoop, "OpenStreamDiscovery").apply {
+        worker = Thread(::receiveLoop, "shinDiscovery").apply {
             isDaemon = true
             start()
         }
@@ -80,7 +80,7 @@ class ObsDiscoveryClient(
 
     private fun acquireMulticastLock() {
         val wifiManager = context.applicationContext.getSystemService(WifiManager::class.java) ?: return
-        multicastLock = wifiManager.createMulticastLock("OpenStreamDiscovery").apply {
+        multicastLock = wifiManager.createMulticastLock("shinDiscovery").apply {
             setReferenceCounted(false)
             acquire()
         }
@@ -213,9 +213,9 @@ class ObsDiscoveryClient(
     }
 
     companion object {
-        private const val TAG = "OpenStreamDiscovery"
-        const val DISCOVERY_PORT = 51515
-        const val DISCOVERY_MULTICAST_ADDRESS = "239.255.42.99"
+        private const val TAG = "shinDiscovery"
+        const val DISCOVERY_PORT = 51615
+        const val DISCOVERY_MULTICAST_ADDRESS = "239.255.43.99"
         const val DEVICE_TTL_MS = 5_000L
         private const val STOP_TIMEOUT_MS = 1_000L
         private const val MAX_DEVICES = 64
@@ -224,8 +224,8 @@ class ObsDiscoveryClient(
 }
 
 object ObsDiscoveryProtocol {
-    private const val PREFIX = "OPENSTREAM/1 "
-    private const val TYPE = "dev.openstream.listener"
+    private const val PREFIX = "SHIN/1 "
+    private const val TYPE = "dev.shin.listener"
 
     fun parseBeacon(payload: String, packetHost: String, nowMs: Long): DiscoveredObsDevice? {
         if (!payload.startsWith(PREFIX)) return null
@@ -240,7 +240,7 @@ object ObsDiscoveryProtocol {
         val fallbackId = json.optString("instanceId", "$packetHost:$port")
 
         return DiscoveredObsDevice(
-            name = json.optString("name", "OpenStream Phone Link").ifBlank { "OpenStream Phone Link" },
+            name = json.optString("name", "shin Phone Link").ifBlank { "shin Phone Link" },
             host = host,
             port = port,
             latencyMs = json.optInt("latencyMs", 120).coerceIn(80, 200),

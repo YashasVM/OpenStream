@@ -36,7 +36,7 @@
 
                 <data
                     android:host="connect"
-                    android:scheme="openstream" />
+                    android:scheme="shin" />
             </intent-filter>
         </activity>
         <activity

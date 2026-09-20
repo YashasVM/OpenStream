@@ -153,7 +153,7 @@ class MediaCodecAudioEncoder(
                         )
                     }
                 }
-            }, "OpenStreamAudioCapture").apply {
+            }, "shinAudioCapture").apply {
                 isDaemon = true
                 start()
             }
@@ -333,7 +333,7 @@ class MediaCodecAudioEncoder(
     private fun maxInputSizeBytes(): Int = max(bytesForDurationMs(40), 16_384)
 
     companion object {
-        private const val TAG = "OpenStreamAudioEncoder"
+        private const val TAG = "shinAudioEncoder"
         private const val BYTES_PER_PCM16_SAMPLE = 2
         private const val MAX_CAPTURE_BUFFER_MS = 80
         private const val CAPTURE_THREAD_JOIN_TIMEOUT_MS = 500L

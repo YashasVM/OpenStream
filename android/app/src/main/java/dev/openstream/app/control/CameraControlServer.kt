@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Lightweight HTTP control server that accepts camera control commands from OBS.
- * Runs on port 9001 by default. Provides endpoints:
+ * Runs on port 9101 by default. Provides endpoints:
  *
  * - POST /zoom       {"value": 2.5}
  * - POST /torch      {"enabled": true}
@@ -65,7 +65,7 @@ class CameraControlServer(
         }
         if (!running.compareAndSet(false, true)) return
         pendingRestart.set(false)
-        worker = Thread(::run, "OpenStreamControlServer").apply {
+        worker = Thread(::run, "shinControlServer").apply {
             isDaemon = true
             start()
         }
@@ -455,8 +455,8 @@ class CameraControlServer(
     }
 
     companion object {
-        private const val TAG = "OpenStreamControl"
-        const val CONTROL_PORT = 9001
+        private const val TAG = "shinControl"
+        const val CONTROL_PORT = 9101
         private const val MAX_REQUEST_LINE_BYTES = 2_048
         private const val MAX_HEADER_LINE_BYTES = 2_048
         private const val MAX_HEADER_BYTES = 8_192

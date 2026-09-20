@@ -1,12 +1,12 @@
-# OpenStream Protocol Specification
+# shin Protocol Specification
 
 ## Overview
 
-OpenStream V1.0.1 currently uses version 1 of its LAN wire protocol. Product
-version numbers and protocol versions are independent: `OPENSTREAM/1` and
-`OPENSTREAM_PHONE/1` below identify the protocol, not the app release.
+shin V1.0.1 currently uses version 1 of its LAN wire protocol. Product
+version numbers and protocol versions are independent: `SHIN/1` and
+`SHIN_PHONE/1` below identify the protocol, not the app release.
 
-OpenStream uses three communication channels between the Android phone and OBS:
+shin uses three communication channels between the Android phone and OBS:
 
 1. **Media Stream** - SRT/MPEG-TS for video + audio (phone -> OBS)
 2. **Discovery** - UDP multicast/broadcast beacons (bidirectional)
@@ -23,13 +23,13 @@ V1 media transport uses SRT from Android caller to Windows listener.
 Android caller:
 
 ```text
-srt://<obs-pc-ip>:9000?mode=caller&latency=120
+srt://<obs-pc-ip>:9100?mode=caller&latency=120
 ```
 
 OBS listener:
 
 ```text
-srt://0.0.0.0:9000?mode=listener&latency=120
+srt://0.0.0.0:9100?mode=listener&latency=120
 ```
 
 The supported latency range is `80-200 ms`; both pairing links and the OBS
@@ -66,22 +66,22 @@ transport stream.
 ### OBS -> Phone (Listener Advertisement)
 
 When the OBS source listener starts, it broadcasts a UDP beacon every 1 second
-on port `51515`:
+on port `51615`:
 
 **Broadcast destinations:**
 - Subnet broadcast addresses (computed from local interfaces)
-- Multicast group `239.255.42.99`
+- Multicast group `239.255.43.99`
 - Fallback `255.255.255.255`
 
 **Beacon format:**
 
 ```text
-OPENSTREAM/1 {"type":"dev.openstream.listener","version":1,"name":"OpenStream","instanceId":"...","sourceInstanceId":"...","slotId":"...","slotLabel":"CAM A","pairingUrl":"openstream://connect?...","host":"<obs-ip>","listenerPort":9000,"latencyMs":120,"bitrateMbps":12,"busy":false}
+SHIN/1 {"type":"dev.shin.listener","version":1,"name":"shin","instanceId":"...","sourceInstanceId":"...","slotId":"...","slotLabel":"CAM A","pairingUrl":"shin://connect?...","host":"<obs-ip>","listenerPort":9100,"latencyMs":120,"bitrateMbps":12,"busy":false}
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `type` | string | Always `dev.openstream.listener` |
+| `type` | string | Always `dev.shin.listener` |
 | `version` | int | Protocol version (currently `1`) |
 | `name` | string | OBS source display name |
 | `instanceId` | string | Unique source instance identifier |
@@ -102,12 +102,12 @@ The Android app advertises itself on the same multicast group:
 **Beacon format:**
 
 ```text
-OPENSTREAM_PHONE/1 {"type":"dev.openstream.phone","version":1,"name":"<device-name>","instanceId":"...","host":"<phone-ip>","listenerPort":9000,"controlPort":9001,"latencyMs":120,"codec":"video/avc","width":1920,"height":1080,"fps":30,"bitrateMbps":12,"busy":false,"reservedBy":""}
+SHIN_PHONE/1 {"type":"dev.shin.phone","version":1,"name":"<device-name>","instanceId":"...","host":"<phone-ip>","listenerPort":9100,"controlPort":9101,"latencyMs":120,"codec":"video/avc","width":1920,"height":1080,"fps":30,"bitrateMbps":12,"busy":false,"reservedBy":""}
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `type` | string | Always `dev.openstream.phone` |
+| `type` | string | Always `dev.shin.phone` |
 | `version` | int | Protocol version (currently `1`) |
 | `name` | string | Device model name |
 | `instanceId` | string | Unique phone advertisement identifier |
@@ -123,7 +123,7 @@ OPENSTREAM_PHONE/1 {"type":"dev.openstream.phone","version":1,"name":"<device-na
 | `reservedBy` | string | OBS source instance that currently owns the reservation, or empty |
 
 OBS keeps a registry of discovered phones keyed by `instanceId`. Each
-OpenStream source has a `selected_phone_id` setting. `auto` selects the first
+shin source has a `selected_phone_id` setting. `auto` selects the first
 non-busy phone; any other value binds that source to one specific phone.
 
 ### Fallback Pairing
@@ -131,7 +131,7 @@ non-busy phone; any other value binds that source to one specific phone.
 If discovery is blocked, the OBS source exposes a deep-link URL:
 
 ```text
-openstream://connect?slotId=<slot-id>&slotLabel=<slot-label>&sourceInstanceId=<source-id>&host=<obs-ip>&port=<port>&latency=<ms>&name=...
+shin://connect?slotId=<slot-id>&slotLabel=<slot-label>&sourceInstanceId=<source-id>&host=<obs-ip>&port=<port>&latency=<ms>&name=...
 ```
 
 This can be encoded as a QR code or entered manually in the Android app.
@@ -140,7 +140,7 @@ This can be encoded as a QR code or entered manually in the Android app.
 
 ## Control Protocol
 
-The Android app runs a lightweight HTTP server on port `9001` for remote camera
+The Android app runs a lightweight HTTP server on port `9101` for remote camera
 control from OBS. Requests, headers, and bodies are size-limited and parsed as
 UTF-8 bytes. Protocol V1 does not authenticate this channel, so discovery and
 camera control must be used only on a trusted LAN. Authentication must be added
@@ -255,7 +255,7 @@ example:
 
 Android and the OBS plugin are two halves of one protocol. Adding a required
 field, token, endpoint, or validation rule is a compatibility change even if
-the `OPENSTREAM/1` prefix remains unchanged. Such changes must be tested as an
+the `SHIN/1` prefix remains unchanged. Such changes must be tested as an
 old/new client matrix and released atomically as one full release containing
 both artifacts.
 
