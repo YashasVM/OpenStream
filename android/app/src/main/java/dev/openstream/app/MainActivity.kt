@@ -927,7 +927,7 @@ class MainActivity : Activity() {
             mainHandler.post { hideLiveState() }
         }
         if (Looper.myLooper() == Looper.getMainLooper()) {
-            Thread(blockingWork, "shinStopServer").apply { isDaemon = true; start() }
+            Thread({ blockingWork() }, "shinStopServer").apply { isDaemon = true; start() }
         } else {
             blockingWork()
         }
@@ -957,7 +957,7 @@ class MainActivity : Activity() {
             mainHandler.post { hideLiveState() }
         }
         if (Looper.myLooper() == Looper.getMainLooper()) {
-            Thread(blockingWork, "shinStopStream").apply { isDaemon = true; start() }
+            Thread({ blockingWork() }, "shinStopStream").apply { isDaemon = true; start() }
         } else {
             blockingWork()
         }

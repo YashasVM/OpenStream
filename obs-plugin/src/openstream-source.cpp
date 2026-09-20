@@ -1282,7 +1282,7 @@ bool open_video_decoder(AVFormatContext *format_ctx,
   }
 
   const int best_stream = av_find_best_stream(
-      format_ctx, type, -1, -1, nullptr, 0);
+      format_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
   if (best_stream < 0) {
     blog(LOG_WARNING,
          "[shin] No video stream found in SRT input: %s",
@@ -1299,12 +1299,12 @@ bool open_video_decoder(AVFormatContext *format_ctx,
     return false;
   }
 
-  if (!is_audio) {
-    // Hardware decode probe with explicit software fallback (AGENTS.md rules
-    // 9/18: never enable a software codec silently; HW must have an explicit
-    // fallback and warning). Full zero-copy AVHWFramesContext wiring is still
-    // TODO; today we probe device availability so the fallback is explicit and
-    // logged instead of silent. This never re-encodes ISO video (rule 2).
+  // Hardware decode probe with explicit software fallback (AGENTS.md rules
+  // 9/18: never enable a software codec silently; HW must have an explicit
+  // fallback and warning). Full zero-copy AVHWFramesContext wiring is still
+  // TODO; today we probe device availability so the fallback is explicit and
+  // logged instead of silent. This never re-encodes ISO video (rule 2).
+  {
     const char *codec_name = avcodec_get_name(stream->codecpar->codec_id);
     blog(LOG_INFO, "[shin] Probing hardware decode for codec %s",
          codec_name ? codec_name : "unknown");
@@ -1323,7 +1323,6 @@ bool open_video_decoder(AVFormatContext *format_ctx,
     }
 #else
     for (const char *hw_name : {"vaapi", "qsv", "videotoolbox", "drm"}) {
-#endif
       const AVHWDeviceType hw_type = av_hwdevice_find_type_by_name(hw_name);
       if (hw_type == AV_HWDEVICE_TYPE_NONE) continue;
       AVBufferRef *probe = nullptr;
@@ -1334,6 +1333,7 @@ bool open_video_decoder(AVFormatContext *format_ctx,
         break;
       }
     }
+#endif
     if (!hw_device_available) {
       blog(LOG_WARNING,
            "[shin] No hardware decode device available; using explicit "
@@ -1363,9 +1363,7 @@ bool open_video_decoder(AVFormatContext *format_ctx,
     return false;
   }
 
-  if (!is_audio) {
-    codec_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
-  }
+  codec_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
   result = avcodec_open2(codec_ctx.get(), decoder, nullptr);
   if (result < 0) {
     blog(LOG_WARNING,
@@ -1374,31 +1372,9 @@ bool open_video_decoder(AVFormatContext *format_ctx,
     return false;
   }
 
-  *stream_index = best_stream;
+  *video_stream_index = best_stream;
   *decoder_ctx = std::move(codec_ctx);
-  if (is_audio) {
-    blog(LOG_INFO,
-         "[OpenStream] Opened audio decoder: %s, %d Hz, %d channels",
-         avcodec_get_name(stream->codecpar->codec_id),
-         stream->codecpar->sample_rate,
-         stream->codecpar->ch_layout.nb_channels);
-  }
   return true;
-}
-
-bool open_video_decoder(AVFormatContext *format_ctx,
-                        int *video_stream_index,
-                        CodecContextPtr *decoder_ctx) {
-  const int stream_result = avformat_find_stream_info(format_ctx, nullptr);
-  if (stream_result < 0) {
-    blog(LOG_WARNING,
-         "[OpenStream] Could not read stream info: %s",
-         av_error(stream_result).c_str());
-    return false;
-  }
-
-  return open_decoder(format_ctx, AVMEDIA_TYPE_VIDEO, video_stream_index,
-                      decoder_ctx);
 }
 
 bool open_audio_decoder(AVFormatContext *format_ctx,

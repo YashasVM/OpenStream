@@ -235,7 +235,9 @@ endif()
 # distro libdir (e.g. /usr/lib/obs-plugins or ~/.local/lib/obs-plugins).
 if (WIN32)
     install(TARGETS openstream-obs
-        RUNTIME DESTINATION "obs-plugins/64bit")
+        RUNTIME DESTINATION "obs-plugins/64bit"
+        LIBRARY DESTINATION "obs-plugins/64bit"
+        ARCHIVE DESTINATION "obs-plugins/64bit")
 else()
     include(GNUInstallDirs)
     install(TARGETS openstream-obs
