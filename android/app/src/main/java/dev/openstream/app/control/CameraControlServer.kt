@@ -36,10 +36,12 @@ class CameraControlServer(
     private val onReserve: (String, String, Int?) -> Boolean,
     private val onRelease: (String) -> Boolean,
     private val onIdentify: (String, String) -> Unit,
+    private val onError: ((String) -> Unit)? = null,
 ) {
     private val running = AtomicBoolean(false)
     private val pendingRestart = AtomicBoolean(false)
     private val lifecycleLock = Any()
+    private val clientLock = Any()
     private var desiredRunning = false
     @Volatile private var serverSocket: ServerSocket? = null
     @Volatile private var activeClient: Socket? = null
@@ -77,7 +79,7 @@ class CameraControlServer(
             pendingRestart.set(false)
             running.set(false)
             runCatching { serverSocket?.close() }
-            runCatching { activeClient?.close() }
+            synchronized(clientLock) { runCatching { activeClient?.close() } }
             worker.also { it?.interrupt() }
         }
         if (thread != null && thread !== Thread.currentThread()) {
@@ -87,14 +89,20 @@ class CameraControlServer(
         synchronized(lifecycleLock) {
             if (worker === thread && thread?.isAlive != true) worker = null
             serverSocket = null
-            activeClient = null
+            synchronized(clientLock) { activeClient = null }
         }
     }
 
     private fun run() {
         var openedSocket: ServerSocket? = null
         try {
-            val socket = ServerSocket(port)
+            val socket = try {
+                ServerSocket(port)
+            } catch (error: Exception) {
+                Log.e(TAG, "Control server failed to bind port $port", error)
+                onError?.invoke("Control port $port unavailable: ${error.message ?: "bind failed"}")
+                return
+            }
             openedSocket = socket
             serverSocket = socket
             socket.soTimeout = 1000
@@ -109,15 +117,20 @@ class CameraControlServer(
                     if (running.get()) Log.w(TAG, "Socket error", e)
                     break
                 }
-                activeClient = client
+                synchronized(clientLock) { activeClient = client }
                 try {
                     handleClient(client)
                 } finally {
-                    activeClient = null
+                    synchronized(clientLock) {
+                        if (activeClient === client) activeClient = null
+                    }
                 }
             }
         } catch (e: Exception) {
-            if (running.get()) Log.e(TAG, "Control server error", e)
+            if (running.get()) {
+                Log.e(TAG, "Control server error", e)
+                onError?.invoke("Control server error: ${e.message ?: "unknown"}")
+            }
         } finally {
             runCatching { openedSocket?.close() }
             synchronized(lifecycleLock) {

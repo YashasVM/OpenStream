@@ -101,6 +101,7 @@ class MainActivity : Activity() {
     private var activeStreamBitrate: Int = streamConfig.bitrate
     private var lastObsSlotRenderKeys: List<String>? = null
     private val callerLifecycleLock = Any()
+    private var identifyHideRunnable: Runnable? = null
 
     private val statsTicker = object : Runnable {
         override fun run() {
@@ -126,8 +127,11 @@ class MainActivity : Activity() {
             ?: ConnectionTarget.DEFAULT_PORT
 
         streamClient = SrtStreamClient()
+        if (!streamClient.isNativeAvailable) {
+            statusDetail.text = "SRT unavailable: ${streamClient.nativeLoadError?.message ?: "missing native lib"}"
+        }
         phoneAdvertiser = PhoneDiscoveryAdvertiser(
-            context = this,
+            context = applicationContext,
             config = streamConfig,
             port = currentPort,
             busyProvider = { phoneConnected || reservedBy != null },
@@ -135,15 +139,15 @@ class MainActivity : Activity() {
             selectedObsHostProvider = { selectedObsHost },
         )
         obsDiscoveryClient = ObsDiscoveryClient(
-            context = this,
+            context = applicationContext,
             onDevicesChanged = { devices ->
                 currentDevices = devices
-                renderObsSlots(devices)
+                if (activityStarted) renderObsSlots(devices)
             },
         )
         encoder = createVideoEncoder(activeStreamBitrate)
         audioEncoder = MediaCodecAudioEncoder(
-            context = this,
+            context = applicationContext,
             sampleRate = streamConfig.audioSampleRate,
             channelCount = streamConfig.audioChannelCount,
             bitrate = streamConfig.audioBitrate,
@@ -157,7 +161,7 @@ class MainActivity : Activity() {
             },
         )
         camera = Camera2Controller(
-            context = this,
+            context = applicationContext,
             previewSurfaceProvider = { cameraPreview.holder.surface },
             lensProvider = { currentLens },
             targetFps = streamConfig.fps,
@@ -186,6 +190,7 @@ class MainActivity : Activity() {
             },
             onRelease = { sourceInstanceId -> releaseForSource(sourceInstanceId) },
             onIdentify = { label, subtitle -> runOnUiThread { showIdentifyOverlay(label, subtitle) } },
+            onError = { message -> runOnUiThread { statusDetail.text = message } },
         )
 
         cameraPreview.holder.addCallback(object : SurfaceHolder.Callback {
@@ -238,17 +243,24 @@ class MainActivity : Activity() {
     override fun onStop() {
         activityStarted = false
         cancelLensRestart()
-        camera.stop()
-        stopPhoneServer(clearReservation = false, updateStatus = false)
-        obsDiscoveryClient.stop()
-        phoneAdvertiser.stop()
-        controlServer.stop()
         stopLiveDotAnimation()
+        // Never block the UI thread on network/thread joins (AGENTS.md 6).
+        // Flag flips are immediate; heavy teardown runs on a daemon thread.
+        Thread({
+            runCatching { camera.stop() }
+            // stopPhoneServer detects non-UI thread and runs blocking teardown inline.
+            runCatching { stopPhoneServer(clearReservation = false, updateStatus = false) }
+            runCatching { obsDiscoveryClient.stop() }
+            runCatching { phoneAdvertiser.stop() }
+            runCatching { controlServer.stop() }
+        }, "shinActivityStop").apply { isDaemon = true; start() }
         super.onStop()
     }
 
     override fun onDestroy() {
         clearReservation()
+        identifyHideRunnable?.let(mainHandler::removeCallbacks)
+        identifyHideRunnable = null
         mainHandler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
@@ -259,13 +271,22 @@ class MainActivity : Activity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 100 &&
-            checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-        ) {
-            initializeLenses()
-            startPreviewIfAllowed()
-            startPhoneServerIfAllowed()
+        if (requestCode != 100) return
+        val cameraGranted = checkSelfPermission(Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        val audioGranted = checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!cameraGranted) {
+            statusText.text = "Camera permission required"
+            statusDetail.text = "Grant camera access to stream; audio continues muted"
+            return
         }
+        if (!audioGranted) {
+            statusDetail.text = "Microphone denied; streaming video without audio"
+        }
+        initializeLenses()
+        startPreviewIfAllowed()
+        startPhoneServerIfAllowed()
     }
 
     @Deprecated("Uses the platform Activity result API to avoid an AndroidX dependency")
@@ -380,11 +401,13 @@ class MainActivity : Activity() {
     private fun useStreamBitrate(bitrateMbps: Int?) {
         val nextBitrate = (bitrateMbps ?: streamConfig.bitrateMbps)
             .coerceIn(StreamConfig.MIN_BITRATE_MBPS, StreamConfig.MAX_BITRATE_MBPS) * 1_000_000
-        if (activeStreamBitrate == nextBitrate) return
-        activeStreamBitrate = nextBitrate
-        if (activeTargetName == null) {
-            encoder.stop()
-            encoder = createVideoEncoder(activeStreamBitrate)
+        synchronized(callerLifecycleLock) {
+            if (activeStreamBitrate == nextBitrate) return
+            activeStreamBitrate = nextBitrate
+            if (activeTargetName == null) {
+                encoder.stop()
+                encoder = createVideoEncoder(activeStreamBitrate)
+            }
         }
     }
 
@@ -453,21 +476,33 @@ class MainActivity : Activity() {
             encoder.stop()
         }
         currentLens = lens
-        camera.switchLens(lens)
-        // If we were streaming, re-create the encoder and re-attach after the camera settles
+        runCatching { camera.switchLens(lens) }.onFailure { error ->
+            Log.e("shin", "Lens switch failed", error)
+            statusDetail.text = error.message ?: "Lens switch failed"
+        }
+        // If we were streaming, re-create the encoder and re-attach after the camera settles.
+        // MediaCodecList probing is heavy; never run encoder.start() on the UI thread.
         if (wasStreaming) {
             cancelLensRestart()
             val restart = Runnable {
                 lensRestartRunnable = null
                 if (!activityStarted || activeTargetName == null) return@Runnable
-                runCatching {
-                    encoder.start()
-                    camera.startStreaming(encoder.inputSurface())
-                }.onFailure { e ->
-                    Log.e("shin", "Failed to restart encoder after lens switch", e)
-                    statusText.text = "Encoder error"
-                    statusDetail.text = e.message ?: "Unknown"
-                }
+                Thread({
+                    val result = runCatching {
+                        // Single-flight with caller/listener paths via callerLifecycleLock.
+                        synchronized(callerLifecycleLock) {
+                            encoder.start()
+                            camera.startStreaming(encoder.inputSurface())
+                        }
+                    }
+                    result.onFailure { e ->
+                        Log.e("shin", "Failed to restart encoder after lens switch", e)
+                        mainHandler.post {
+                            statusText.text = "Encoder error"
+                            statusDetail.text = e.message ?: "Unknown"
+                        }
+                    }
+                }, "shinLensRestart").apply { isDaemon = true; start() }
             }
             lensRestartRunnable = restart
             mainHandler.postDelayed(restart, LENS_RESTART_DELAY_MS)
@@ -844,6 +879,9 @@ class MainActivity : Activity() {
         clearReservation: Boolean = true,
         updateStatus: Boolean = true,
     ) {
+        // Fast, non-blocking section: flip flags on the caller thread so new
+        // connects/listens cannot start. Heavy teardown (native disconnect,
+        // thread joins, encoder stop) runs off the UI thread per AGENTS.md 6.
         callerGeneration += 1
         callerConnectThread?.interrupt()
         pendingListenerStart = false
@@ -853,23 +891,46 @@ class MainActivity : Activity() {
         if (clearReservation) clearReservation()
         activeTargetName = null
         mainHandler.removeCallbacks(statsTicker)
-        streamClient.disconnect()
         val thread = listenerThread
         thread?.interrupt()
-        if (thread != null && thread !== Thread.currentThread()) {
-            runCatching { thread.join(LISTENER_STOP_TIMEOUT_MS) }
-                .onFailure { Thread.currentThread().interrupt() }
-        }
-        if (thread?.isAlive == true) {
-            Log.w("shin", "SRT listener did not stop within ${LISTENER_STOP_TIMEOUT_MS}ms")
-        } else if (listenerThread === thread) {
-            listenerThread = null
-        }
-        synchronized(callerLifecycleLock) {
-            stopActiveEncoding(updateStatus)
-        }
         hideLiveState()
-        btnStop.visibility = View.GONE
+        // Keep disconnect/release discoverable when Reserved but not live so the
+        // stuck-reserved state always has a one-tap escape hatch.
+        btnStop.visibility = if (reservedBy != null) View.VISIBLE else View.GONE
+
+        val blockingWork = {
+            streamClient.disconnect()
+            if (thread != null && thread !== Thread.currentThread()) {
+                runCatching { thread.join(LISTENER_STOP_TIMEOUT_MS) }
+                    .onFailure { Thread.currentThread().interrupt() }
+            }
+            if (thread?.isAlive == true) {
+                Log.w("shin", "SRT listener did not stop within ${LISTENER_STOP_TIMEOUT_MS}ms")
+            } else if (listenerThread === thread) {
+                listenerThread = null
+            }
+            synchronized(callerLifecycleLock) {
+                // stopActiveEncoding touches views when updateStatus; post that part.
+                val needsStatus = updateStatus
+                cancelLensRestart()
+                // Camera/encoder stops are safe off-UI (synchronized internally).
+                camera.stopStreaming()
+                encoder.stop()
+                audioEncoder.stop()
+                if (needsStatus) {
+                    mainHandler.post {
+                        statusText.text = getString(R.string.status_stopped)
+                        statusDetail.text = "Camera preview remains active"
+                    }
+                }
+            }
+            mainHandler.post { hideLiveState() }
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            Thread(blockingWork, "shinStopServer").apply { isDaemon = true; start() }
+        } else {
+            blockingWork()
+        }
     }
 
     private fun stopStream(updateStatus: Boolean = true) {
@@ -878,9 +939,27 @@ class MainActivity : Activity() {
         activeTargetName = null
         mainHandler.removeCallbacks(statsTicker)
         phoneConnected = false
-        streamClient.disconnect()
-        synchronized(callerLifecycleLock) {
-            stopActiveEncoding(updateStatus)
+        val blockingWork = {
+            streamClient.disconnect()
+            synchronized(callerLifecycleLock) {
+                val needsStatus = updateStatus
+                cancelLensRestart()
+                camera.stopStreaming()
+                encoder.stop()
+                audioEncoder.stop()
+                if (needsStatus) {
+                    mainHandler.post {
+                        statusText.text = getString(R.string.status_stopped)
+                        statusDetail.text = "Camera preview remains active"
+                    }
+                }
+            }
+            mainHandler.post { hideLiveState() }
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            Thread(blockingWork, "shinStopStream").apply { isDaemon = true; start() }
+        } else {
+            blockingWork()
         }
         hideLiveState()
     }
@@ -963,12 +1042,13 @@ class MainActivity : Activity() {
 
     private fun showIdentifyOverlay(label: String, subtitle: String) {
         val text = if (subtitle.isBlank()) label else "$label\n$subtitle"
+        identifyHideRunnable?.let(mainHandler::removeCallbacks)
         identifyOverlay.text = text
         identifyOverlay.visibility = View.VISIBLE
         identifyOverlay.bringToFront()
-        mainHandler.postDelayed({
-            identifyOverlay.visibility = View.GONE
-        }, IDENTIFY_OVERLAY_MS)
+        val hide = Runnable { identifyOverlay.visibility = View.GONE }
+        identifyHideRunnable = hide
+        mainHandler.postDelayed(hide, IDENTIFY_OVERLAY_MS)
     }
 
     private fun showLiveState(targetName: String) {
@@ -1038,7 +1118,11 @@ class MainActivity : Activity() {
         if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
             cameraPreview.holder.surface.isValid
         ) {
-            camera.startPreview()
+            runCatching { camera.startPreview() }.onFailure { error ->
+                Log.e("shin", "Camera preview failed", error)
+                statusText.text = "Camera unavailable"
+                statusDetail.text = error.message ?: "Unknown camera error"
+            }
         }
     }
 
