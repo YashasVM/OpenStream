@@ -19,8 +19,8 @@
 // - Re-anchoring preserves subsequent source offsets instead of freezing a
 //   stale origin forever. Stale/backlog drops remain the caller's job.
 // - This header stays OBS-free so obs-plugin/tests/test_contracts.cpp can
-//   build without libobs; logging lives with the caller. gap_count() and
-//   last_gap_ns() expose the event for tests and telemetry.
+//   build without libobs; logging lives with the caller. gap_count() exposes
+//   the event count for tests and telemetry.
 // - One shared origin preserves the A/V offset carried by MPEG-TS. Per-stream
 //   observations detect gaps without replacing that common epoch.
 class MediaClock {
@@ -85,19 +85,6 @@ class MediaClock {
     }
     if (source_rewound || mapped_ahead || source_gap) {
       ++gap_count_;
-      if (source_gap && last_source_ns_[stream_index].has_value()) {
-        last_gap_ns_ = source_ns - *last_source_ns_[stream_index];
-      } else if (mapped_ns >= obs_now_ns) {
-        const uint64_t difference = mapped_ns - obs_now_ns;
-        last_gap_ns_ = difference > static_cast<uint64_t>((std::numeric_limits<int64_t>::max)())
-                           ? (std::numeric_limits<int64_t>::max)()
-                           : static_cast<int64_t>(difference);
-      } else {
-        const uint64_t difference = obs_now_ns - mapped_ns;
-        last_gap_ns_ = difference > static_cast<uint64_t>((std::numeric_limits<int64_t>::max)())
-                           ? (std::numeric_limits<int64_t>::min)()
-                           : -static_cast<int64_t>(difference);
-      }
       if (discontinuity_out) *discontinuity_out = true;
 
       // A rewind or timestamp that would land far in the future indicates an
@@ -117,12 +104,10 @@ class MediaClock {
   }
 
   uint64_t gap_count() const { return gap_count_; }
-  int64_t last_gap_ns() const { return last_gap_ns_; }
 
  private:
   std::optional<int64_t> source_origin_ns_;
   uint64_t obs_origin_ns_ = 0;
   std::array<std::optional<int64_t>, 3> last_source_ns_{};
   uint64_t gap_count_ = 0;
-  int64_t last_gap_ns_ = 0;
 };

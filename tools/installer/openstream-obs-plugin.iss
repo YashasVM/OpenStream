@@ -48,6 +48,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "{#PluginDll}"; DestDir: "{app}\obs-plugins\64bit"; DestName: "openstream-obs.dll"; Flags: ignoreversion restartreplace
 
 [InstallDelete]
+; CANONICAL Windows stale-copy list is Get-OpenStreamPluginCopies in
+; tools/installer/Install-OpenStreamPlugin.ps1 (.dll names only); this section
+; mirrors it. Linux .so names live separately in
+; tools/installer/install-openstream-plugin-linux.sh; do not unify.
 ; V2 preview builds used this non-standard per-user location. Keeping exactly
 ; one canonical copy prevents OBS from loading stale plugin versions.
 Type: files; Name: "{userappdata}\obs-studio\plugins\openstream-obs.dll"

@@ -121,12 +121,8 @@ class PhoneDiscoveryAdvertiser(
         val wifi = context.applicationContext.getSystemService(WifiManager::class.java) ?: return null
         val ip = wifi.connectionInfo?.ipAddress ?: return null
         if (ip == 0) return null
-        return listOf(
-            ip and 0xff,
-            ip shr 8 and 0xff,
-            ip shr 16 and 0xff,
-            ip shr 24 and 0xff,
-        ).joinToString(".")
+        // WifiInfo reports little-endian; Formatter applies the same LSB-first order.
+        return Formatter.formatIpAddress(ip)
     }
 
     companion object {

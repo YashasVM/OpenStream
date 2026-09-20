@@ -1,22 +1,11 @@
 #include "../src/async-control-client.hpp"
 #include "../src/media-clock.hpp"
+#include "contract_helpers.hpp"
 
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <future>
-
-namespace {
-void check_at(bool condition, int line) {
-  if (!condition) {
-    std::fprintf(stderr, "OpenStream contract failed at line %d\n", line);
-    std::fflush(stderr);
-    std::abort();
-  }
-}
-}  // namespace
-
-#define check(condition) check_at((condition), __LINE__)
 
 int main() {
   {

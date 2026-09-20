@@ -1,15 +1,14 @@
 // Exercise the production settings adapter without starting OBS or media I/O.
 // The dock is not needed for this test; libobs data/properties APIs are.
 #include "../src/openstream-source.cpp"
+#include "contract_helpers.hpp"
 #include <cstdlib>
 #include <iostream>
 
+using openstream_test::require;
+
 void openstream_register_dock() {}
 void openstream_unregister_dock() {}
-
-static void require(bool ok, const char *message) {
-  if (!ok) { std::cerr << message << '\n'; std::exit(1); }
-}
 
 int main() {
   require(std::string(openstream_source_info.id) == "shin_phone_source",

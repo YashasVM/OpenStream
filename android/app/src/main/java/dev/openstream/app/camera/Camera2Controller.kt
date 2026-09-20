@@ -70,6 +70,12 @@ class Camera2Controller(
         private const val CAMERA_THREAD_JOIN_TIMEOUT_MS = 500L
     }
 
+    /** True when two back-camera focal lengths span a wide-to-tele gap. */
+    private fun hasWideFocalSpread(shortFocalLength: Float, longFocalLength: Float): Boolean {
+        if (shortFocalLength <= 0) return false
+        return longFocalLength / shortFocalLength > BACK_DUAL_FOCAL_RATIO_THRESHOLD
+    }
+
     /**
      * Query available lenses on this device.
      * Returns only CameraLens values that have a matching physical camera.
@@ -123,8 +129,7 @@ class Camera2Controller(
             result.add(CameraLens.Back)
             result.add(CameraLens.BackTelephoto)
         } else if (backCams.size == 2) {
-            val ratio = if (backCams[0].focalLength > 0) backCams[1].focalLength / backCams[0].focalLength else 1f
-            if (ratio > BACK_DUAL_FOCAL_RATIO_THRESHOLD) {
+            if (hasWideFocalSpread(backCams[0].focalLength, backCams[1].focalLength)) {
                 result.add(CameraLens.Back)
                 result.add(CameraLens.BackTelephoto)
             } else {
@@ -283,22 +288,6 @@ class Camera2Controller(
         }
     }
 
-    /**
-     * Quits the camera HandlerThread so a stopped controller never leaks it.
-     * The next start recreates the thread via [ensureThread]. Safe to call
-     * multiple times and from any thread.
-     */
-    fun release() {
-        synchronized(lifecycleLock) {
-            desiredRunning = false
-            lifecycleGeneration += 1
-            cancelCameraRecoveryLocked()
-            closeCamera()
-            streamingSurface = null
-            quitCameraThreadLocked()
-        }
-    }
-
     fun setZoom(ratio: Float): Float {
         return synchronized(lifecycleLock) {
             currentZoomRatio = ratio.coerceIn(minZoomRatio, maxZoomRatio)
@@ -385,12 +374,6 @@ class Camera2Controller(
                 if (recoveryCallback === callback) recoveryCallback = null
                 Log.w(TAG, "Could not watch camera $cameraId availability", error)
             }
-        }
-    }
-
-    private fun cancelCameraRecovery() {
-        synchronized(lifecycleLock) {
-            cancelCameraRecoveryLocked()
         }
     }
 
@@ -707,17 +690,10 @@ class Camera2Controller(
                 if (sorted.size >= 3) {
                     sorted[1].id
                 } else if (sorted.size == 2) {
-                    // Single source of truth mirrored with availableLenses(): a 2-camera
-                    // back array with a wide focal spread advertises Back+Tele, so Normal
-                    // must take the short end to differ from Telephoto (long end).
-                    // A narrow spread advertises Ultrawide+Back, so Normal takes the
-                    // long end to differ from Ultrawide (short end).
-                    val ratio = if (sorted[0].focalLength > 0) {
-                        sorted[1].focalLength / sorted[0].focalLength
-                    } else {
-                        1f
-                    }
-                    if (ratio > BACK_DUAL_FOCAL_RATIO_THRESHOLD) sorted[0].id else sorted[1].id
+                    // Mirrored with availableLenses(): a wide focal spread advertises
+                    // Back+Tele, so Normal takes the short end; a narrow spread
+                    // advertises Ultrawide+Back, so Normal takes the long end.
+                    if (hasWideFocalSpread(sorted[0].focalLength, sorted[1].focalLength)) sorted[0].id else sorted[1].id
                 } else {
                     sorted.first().id
                 }

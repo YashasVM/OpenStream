@@ -102,7 +102,6 @@ class SettingsActivity : Activity() {
         label: String,
     ): Int? {
         val raw = input.text.toString().trim()
-        if (raw.isBlank()) return defaultValue
         val value = SettingsValidator.parseNumber(raw, defaultValue, validRange)
         if (value == null) {
             input.error = "$label must be between ${validRange.first} and ${validRange.last}"

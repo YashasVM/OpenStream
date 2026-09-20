@@ -74,6 +74,9 @@ fi
 
 # Removes only other-named stale modules (never the install target itself,
 # which is replaced atomically by rename below).
+# CANONICAL Linux stale-copy list (.so names only; separate from the Windows
+# .dll lists in openstream-obs-plugin.iss [InstallDelete] and
+# Install-OpenStreamPlugin.ps1 Get-OpenStreamPluginCopies; do not unify).
 remove_stale_names() {
   local dir="$1"
   for name in openstream-beta-obs.so libopenstream-obs.so; do

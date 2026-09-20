@@ -61,13 +61,7 @@ transport can be tested without blocking the reliable product path.
 
 ## Transport Defaults
 
-- Android is the SRT caller.
-- Windows is the SRT listener.
-- OBS advertises active listeners with UDP multicast on port `51515`.
-- Default SRT port: `9000`.
-- Default control port: `9001`.
-- Default latency: `120 ms`.
-- Valid latency tuning range: `80-200 ms`.
+Canonical values live in [protocol.md](protocol.md): SRT `:9000`, control `:9001`, discovery UDP `:51515`, `12 Mbps`, `120 ms`.
 
 ## Encoding Defaults
 
