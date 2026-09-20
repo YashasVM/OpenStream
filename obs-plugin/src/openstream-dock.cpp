@@ -70,8 +70,10 @@ class OpenStreamDock final : public QWidget {
     layout->addWidget(status_);
 
     auto *connection = new QHBoxLayout();
-    auto *retry = new QPushButton("Connect / retry", this);
-    auto *stop = new QPushButton("Stop", this);
+    auto *retry = new QPushButton("Test connection", this);
+    retry->setToolTip("Connect / retry the phone stream (also releases a stuck Reserved state on retry)");
+    auto *stop = new QPushButton("Disconnect / release phone", this);
+    stop->setToolTip("Stop the stream and release the phone reservation");
     // These API calls only publish into the source's bounded, coalescing
     // lifecycle slot. Network work and worker joins happen off the UI thread.
     connect(retry, &QPushButton::clicked, this, [this] {
@@ -98,16 +100,12 @@ class OpenStreamDock final : public QWidget {
     connection->addWidget(stop);
     layout->addLayout(connection);
 
-    auto *lens = new QHBoxLayout();
-    addButton(lens, "Rear", "/lens", R"({"lens":"1\u00d7"})");
-    addButton(lens, "Front", "/lens", R"({"lens":"Front"})");
-    layout->addLayout(lens);
-
-    auto *torch = new QHBoxLayout();
-    addButton(torch, "Torch on", "/torch", R"({"enabled":true})");
-    addButton(torch, "Torch off", "/torch", R"({"enabled":false})");
-    addButton(torch, "Identify", "/identify", R"({"label":"OBS"})");
-    layout->addLayout(torch);
+    // Minimal dock: Zoom + naming (source label) + testing (Test connection /
+    // Identify) + disconnect (release Reserved). Lens/torch stay on the phone
+    // to avoid duplicated controls.
+    auto *testRow = new QHBoxLayout();
+    addButton(testRow, "Identify", "/identify", R"({"label":"OBS"})");
+    layout->addLayout(testRow);
 
     auto *zoomRow = new QHBoxLayout();
     zoom_ = new QDoubleSpinBox(this);

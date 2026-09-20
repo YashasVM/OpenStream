@@ -559,16 +559,18 @@ class PhoneDiscoveryReceiver {
     return found->second;
   }
 
- private:
-  static constexpr auto kDeviceTtl = std::chrono::seconds(5);
+  private:
+   static constexpr auto kDeviceTtl = std::chrono::seconds(5);
+   // Bounded registry per AGENTS.md 3/16: capacity + overflow policy declared.
+   static constexpr size_t kMaxDevices = 64;
 
-  struct Core {
-    std::atomic<bool> running{false};
-    std::thread worker;
-    std::mutex mutex;
-    int refcount = 0;
-    std::map<std::string, PhoneDevice> devices_;
-  };
+   struct Core {
+     std::atomic<bool> running{false};
+     std::thread worker;
+     std::mutex mutex;
+     int refcount = 0;
+     std::map<std::string, PhoneDevice> devices_;
+   };
 
   static Core &shared_core() {
     static Core core;
@@ -692,6 +694,18 @@ class PhoneDiscoveryReceiver {
       {
         std::lock_guard<std::mutex> lock(core->mutex);
         pruneExpiredLocked(*core);
+        // Overflow policy: evict eldest (map key order ~= oldest last_seen after
+        // prune; fall back to first entry) with a warning, never grow unbounded.
+        if (core->devices_.size() >= kMaxDevices &&
+            core->devices_.find(device.instance_id) == core->devices_.end()) {
+          auto eldest = core->devices_.begin();
+          for (auto it = core->devices_.begin(); it != core->devices_.end(); ++it) {
+            if (it->second.last_seen < eldest->second.last_seen) eldest = it;
+          }
+          blog(LOG_WARNING, "[shin] Discovery cap (%zu) reached; evicting %s",
+               kMaxDevices, eldest->first.c_str());
+          core->devices_.erase(eldest);
+        }
         core->devices_[device.instance_id] = device;
       }
       blog(LOG_INFO,
@@ -1916,12 +1930,16 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
         break;
       }
       reserved_phone = phone;
-      set_slot_status(ctx, "Reserved");
       set_active_phone(ctx, phone);
       srt_url = "srt://" + phone->host + ":" + std::to_string(phone->port) +
                 "?mode=caller&latency=" + std::to_string(phone->latency_ms);
+      // Distinguish control-OK vs media-blocked: reserve can succeed on TCP
+      // 9101 while SRT 9100 is firewalled/isolated. Surface the media target
+      // so "Reserved" is diagnosable instead of stuck.
+      set_slot_status(ctx, "Reserved — waiting for SRT media to " + phone->host + ":" +
+                               std::to_string(phone->port));
       blog(LOG_INFO,
-           "[shin] Connecting source to phone %s at %s",
+           "[shin] Connecting source to phone %s at %s (control OK; waiting for media)",
            phone->name.c_str(),
            srt_url.c_str());
     } else {
@@ -2297,47 +2315,6 @@ void openstream_defaults(obs_data_t *settings) {
   obs_data_set_default_double(settings, "cam_zoom", 1.0);
 }
 
-// Fixed camera-command buttons: one table + one callback instead of four
-// near-identical lambdas. obs_properties_add_button takes a C function
-// pointer (no captures), so the per-button path/body is recovered from the
-// property name.
-struct CameraCommandButton {
-  const char *id;
-  const char *label;
-  const char *path;
-  const char *body;
-  const char *done_log;
-};
-
-constexpr CameraCommandButton kCameraCommandButtons[] = {
-    {"cam_torch_on", "Torch On", "/torch", "{\"enabled\":true}", "Torch ON"},
-    {"cam_torch_off", "Torch Off", "/torch", "{\"enabled\":false}", "Torch OFF"},
-    {"cam_lens_back", "Rear Camera", "/lens", "{\"lens\":\"1×\"}",
-     "Switch to back camera"},
-    {"cam_lens_front", "Front Camera", "/lens", "{\"lens\":\"Front\"}",
-     "Switch to front camera"},
-};
-
-bool camera_command_button_clicked(obs_properties_t *, obs_property_t *prop,
-                                   void *data) {
-  const char *name = prop ? obs_property_name(prop) : nullptr;
-  const CameraCommandButton *button = nullptr;
-  if (name) {
-    for (const auto &candidate : kCameraCommandButtons) {
-      if (std::strcmp(candidate.id, name) == 0) {
-        button = &candidate;
-        break;
-      }
-    }
-  }
-  if (!button) return false;
-  auto *ctx = static_cast<OpenStreamSource *>(data);
-  if (!ctx) return false;
-  if (!queue_control_command(ctx, button->path, button->body)) return false;
-  blog(LOG_INFO, "[OpenStream] %s", button->done_log);
-  return true;
-}
-
 obs_properties_t *openstream_properties(void *data) {
   obs_properties_t *props = obs_properties_create();
   auto *ctx = static_cast<OpenStreamSource *>(data);
@@ -2440,7 +2417,7 @@ obs_properties_t *openstream_properties(void *data) {
       "Refreshes the discovered phone list without closing this properties window.");
 
   obs_property_t *connect_button =
-      obs_properties_add_button(slot_group, "connect", "Start / Retry Connection", [](obs_properties_t *, obs_property_t *, void *data) {
+      obs_properties_add_button(slot_group, "connect", "Test connection", [](obs_properties_t *, obs_property_t *, void *data) {
     auto *raw = static_cast<OpenStreamSource *>(data);
     const auto owned = lookup_source_context_by_raw(raw);
     if (!owned) {
@@ -2453,7 +2430,7 @@ obs_properties_t *openstream_properties(void *data) {
       "Connects your phone, or retries the current connection.");
 
   obs_property_t *disconnect_button =
-      obs_properties_add_button(slot_group, "disconnect", "Stop Camera", [](obs_properties_t *, obs_property_t *, void *data) {
+      obs_properties_add_button(slot_group, "disconnect", "Disconnect / release phone", [](obs_properties_t *, obs_property_t *, void *data) {
     auto *raw = static_cast<OpenStreamSource *>(data);
     const auto owned = lookup_source_context_by_raw(raw);
     if (!owned) {
@@ -2463,7 +2440,7 @@ obs_properties_t *openstream_properties(void *data) {
   });
   obs_property_set_long_description(
       disconnect_button,
-      "Stops this OBS source from listening without removing it from the scene.");
+      "Stops the stream and releases the phone reservation (use when stuck on Reserved).");
 
   obs_properties_add_group(props, "slot_setup", "1. Camera", OBS_GROUP_NORMAL, slot_group);
 
@@ -2513,38 +2490,7 @@ obs_properties_t *openstream_properties(void *data) {
     return false;
   }, static_cast<OpenStreamSource *>(data));
 
-  obs_properties_add_button(camera_group, "cam_torch_on", "Torch On", [](obs_properties_t *, obs_property_t *, void *data) {
-    auto *ctx = static_cast<OpenStreamSource *>(data);
-    if (!ctx) return false;
-    if (!queue_control_command(ctx, "/torch", "{\"enabled\":true}")) return false;
-    blog(LOG_INFO, "[shin] Torch ON");
-    return true;
-  });
-
-  obs_properties_add_button(camera_group, "cam_torch_off", "Torch Off", [](obs_properties_t *, obs_property_t *, void *data) {
-    auto *ctx = static_cast<OpenStreamSource *>(data);
-    if (!ctx) return false;
-    if (!queue_control_command(ctx, "/torch", "{\"enabled\":false}")) return false;
-    blog(LOG_INFO, "[shin] Torch OFF");
-    return true;
-  });
-
-  obs_properties_add_button(camera_group, "cam_lens_back", "Rear Camera", [](obs_properties_t *, obs_property_t *, void *data) {
-    auto *ctx = static_cast<OpenStreamSource *>(data);
-    if (!ctx) return false;
-    if (!queue_control_command(ctx, "/lens", "{\"lens\":\"1×\"}")) return false;
-    blog(LOG_INFO, "[shin] Switch to back camera");
-    return true;
-  });
-
-  obs_properties_add_button(camera_group, "cam_lens_front", "Front Camera", [](obs_properties_t *, obs_property_t *, void *data) {
-    auto *ctx = static_cast<OpenStreamSource *>(data);
-    if (!ctx) return false;
-    if (!queue_control_command(ctx, "/lens", "{\"lens\":\"Front\"}")) return false;
-    blog(LOG_INFO, "[shin] Switch to front camera");
-    return true;
-  });
-
+  // Minimal live controls: Zoom + Identify only. Torch/lens stay on the phone.
   obs_properties_add_button(camera_group, "identify_camera", "Identify Phone", [](obs_properties_t *, obs_property_t *, void *data) {
     auto *ctx = static_cast<OpenStreamSource *>(data);
     if (!ctx) return false;
@@ -2559,7 +2505,7 @@ obs_properties_t *openstream_properties(void *data) {
     return sent;
   });
 
-  obs_properties_add_group(props, "camera_controls", "2. Live Camera Controls", OBS_GROUP_NORMAL, camera_group);
+  obs_properties_add_group(props, "camera_controls", "2. Live Camera Controls (Zoom + Test)", OBS_GROUP_NORMAL, camera_group);
   obs_properties_add_text(props, "credit", "About", OBS_TEXT_INFO);
 
   return props;
