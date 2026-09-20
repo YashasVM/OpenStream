@@ -27,6 +27,11 @@ class SrtStreamClient {
     private val sessionGeneration = AtomicLong()
     private val operationLock = Any()
     private val stateLock = Any()
+
+    val isNativeAvailable: Boolean
+        get() = SrtNativeBridge.isAvailable
+    val nativeLoadError: Throwable?
+        get() = SrtNativeBridge.loadError
     val stats: StreamStats
         get() = StreamStats(
             accessUnitsSent = accessUnitsSent.get(),
@@ -192,6 +197,9 @@ class SrtStreamClient {
     }
 
     private inline fun establishSession(operationName: String, nativeOperation: (Long) -> Boolean) {
+        check(SrtNativeBridge.isAvailable) {
+            "Native SRT library unavailable: ${SrtNativeBridge.loadError?.message ?: "missing"}"
+        }
         val generation = synchronized(stateLock) {
             connected = false
             sessionGeneration.incrementAndGet().also { generation ->
@@ -253,12 +261,78 @@ class SrtStreamClient {
 }
 
 private object SrtNativeBridge {
+    @Volatile var loadError: Throwable? = null
+        private set
+    val isAvailable: Boolean
+        get() = loadError == null
+
     init {
-        System.loadLibrary("openstream_srt")
+        try {
+            System.loadLibrary("openstream_srt")
+        } catch (error: Throwable) {
+            // 16KB-page misalignment or missing ABI must surface as a warning,
+            // never crash the app on first connect/listen/disconnect.
+            loadError = error
+            android.util.Log.e("shinSrt", "Native SRT library failed to load", error)
+        }
     }
 
-    external fun beginSession(sessionGeneration: Long)
-    external fun connect(
+    private inline fun <T> guardOr(default: T, block: () -> T): T {
+        if (loadError != null) return default
+        return try {
+            block()
+        } catch (error: UnsatisfiedLinkError) {
+            loadError = error
+            android.util.Log.e("shinSrt", "Native SRT call failed; library unavailable", error)
+            default
+        }
+    }
+
+    fun beginSession(sessionGeneration: Long) {
+        guardOr(Unit) { nativeBeginSession(sessionGeneration) }
+    }
+    fun connect(
+        url: String,
+        codecMime: String,
+        width: Int,
+        height: Int,
+        fps: Int,
+        sessionGeneration: Long,
+    ): Boolean = guardOr(false) {
+        nativeConnect(url, codecMime, width, height, fps, sessionGeneration)
+    }
+    fun listen(
+        url: String,
+        codecMime: String,
+        width: Int,
+        height: Int,
+        fps: Int,
+        sessionGeneration: Long,
+    ): Boolean = guardOr(false) {
+        nativeListen(url, codecMime, width, height, fps, sessionGeneration)
+    }
+    fun sendVideo(
+        data: ByteArray,
+        presentationTimeUs: Long,
+        flags: Int,
+        sessionGeneration: Long,
+    ): Boolean = guardOr(false) {
+        nativeSendVideo(data, presentationTimeUs, flags, sessionGeneration)
+    }
+    fun sendAudio(
+        data: ByteArray,
+        presentationTimeUs: Long,
+        flags: Int,
+        sessionGeneration: Long,
+    ): Boolean = guardOr(false) {
+        nativeSendAudio(data, presentationTimeUs, flags, sessionGeneration)
+    }
+    fun disconnect(sessionGeneration: Long) {
+        guardOr(Unit) { nativeDisconnect(sessionGeneration) }
+    }
+
+    private external fun nativeBeginSession(sessionGeneration: Long)
+    private external fun nativeConnect(
         url: String,
         codecMime: String,
         width: Int,
@@ -266,7 +340,7 @@ private object SrtNativeBridge {
         fps: Int,
         sessionGeneration: Long,
     ): Boolean
-    external fun listen(
+    private external fun nativeListen(
         url: String,
         codecMime: String,
         width: Int,
@@ -274,17 +348,17 @@ private object SrtNativeBridge {
         fps: Int,
         sessionGeneration: Long,
     ): Boolean
-    external fun sendVideo(
+    private external fun nativeSendVideo(
         data: ByteArray,
         presentationTimeUs: Long,
         flags: Int,
         sessionGeneration: Long,
     ): Boolean
-    external fun sendAudio(
+    private external fun nativeSendAudio(
         data: ByteArray,
         presentationTimeUs: Long,
         flags: Int,
         sessionGeneration: Long,
     ): Boolean
-    external fun disconnect(sessionGeneration: Long)
+    private external fun nativeDisconnect(sessionGeneration: Long)
 }

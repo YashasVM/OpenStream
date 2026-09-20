@@ -27,12 +27,14 @@ import java.util.concurrent.atomic.AtomicLong
  * - Enumerating available physical lenses.
  */
 class Camera2Controller(
-    private val context: Context,
+    context: Context,
     private val previewSurfaceProvider: () -> Surface,
     private val lensProvider: () -> CameraLens = { CameraLens.Back },
     private val targetFps: Int = 30,
 ) {
-    private val cameraManager = context.getSystemService(CameraManager::class.java)
+    private val appContext = context.applicationContext
+    private val cameraManager: CameraManager? =
+        appContext.getSystemService(CameraManager::class.java)
     private var thread: HandlerThread? = null
     private var handler: Handler? = null
     private var camera: CameraDevice? = null
@@ -82,8 +84,12 @@ class Camera2Controller(
      */
     fun availableLenses(): List<CameraLens> {
         val result = mutableListOf<CameraLens>()
+        val manager = cameraManager ?: run {
+            Log.w(TAG, "CameraManager unavailable; falling back to single Back lens")
+            return listOf(CameraLens.Back)
+        }
         val cameraIds: Array<String> = try {
-            cameraManager.cameraIdList
+            manager.cameraIdList
         } catch (error: CameraAccessException) {
             Log.w(TAG, "Could not enumerate cameras", error)
             return listOf(CameraLens.Back)
@@ -103,7 +109,7 @@ class Camera2Controller(
         data class CamInfo(val id: String, val focalLength: Float, val facing: Int)
         val cameras = cameraIds.mapNotNull { id ->
             try {
-                val chars = cameraManager.getCameraCharacteristics(id)
+                val chars = manager.getCameraCharacteristics(id)
                 val facing = chars.get(CameraCharacteristics.LENS_FACING) ?: return@mapNotNull null
                 val focalLengths = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
                 val focal = focalLengths?.firstOrNull() ?: 0f
@@ -163,7 +169,10 @@ class Camera2Controller(
         ensureThread()
         cancelCameraRecoveryLocked()
         val desiredLens = lensProvider()
-        val desiredId = selectCameraId(desiredLens)
+        val desiredId = runCatching { selectCameraId(desiredLens) }.getOrElse { error ->
+            Log.w(TAG, "No camera available for lens $desiredLens; preview deferred", error)
+            return
+        }
 
         if (camera != null && activeCameraId == desiredId) {
             createSession()
@@ -176,8 +185,13 @@ class Camera2Controller(
         activeLens = desiredLens
         activeCameraId = desiredId
 
+        val managerForOpen = cameraManager ?: run {
+            Log.w(TAG, "CameraManager unavailable; cannot open $desiredId")
+            closeCamera()
+            return
+        }
         try {
-            cameraManager.openCamera(desiredId, object : CameraDevice.StateCallback() {
+            managerForOpen.openCamera(desiredId, object : CameraDevice.StateCallback() {
                 override fun onOpened(device: CameraDevice) {
                     synchronized(lifecycleLock) {
                         if (!desiredRunning ||
@@ -244,7 +258,10 @@ class Camera2Controller(
 
     fun switchLens(lens: CameraLens) {
         synchronized(lifecycleLock) {
-            val newId = selectCameraId(lens)
+            val newId = runCatching { selectCameraId(lens) }.getOrElse { error ->
+                Log.w(TAG, "Cannot switch to lens $lens: no camera available", error)
+                return
+            }
             if (newId == activeCameraId) return
 
             activeLens = lens
@@ -368,8 +385,14 @@ class Camera2Controller(
                 }
             }
             recoveryCallback = callback
+            val managerForWatch = cameraManager
+            if (managerForWatch == null) {
+                if (recoveryCallback === callback) recoveryCallback = null
+                Log.w(TAG, "Could not watch camera $cameraId availability: no CameraManager")
+                return
+            }
             runCatching {
-                cameraManager.registerAvailabilityCallback(callback, handler)
+                managerForWatch.registerAvailabilityCallback(callback, handler)
             }.onFailure { error ->
                 if (recoveryCallback === callback) recoveryCallback = null
                 Log.w(TAG, "Could not watch camera $cameraId availability", error)
@@ -380,12 +403,17 @@ class Camera2Controller(
     private fun cancelCameraRecoveryLocked() {
         val callback = recoveryCallback ?: return
         recoveryCallback = null
-        runCatching { cameraManager.unregisterAvailabilityCallback(callback) }
+        val managerForCancel = cameraManager ?: return
+        runCatching { managerForCancel.unregisterAvailabilityCallback(callback) }
     }
 
     private fun loadZoomCapabilities(cameraId: String) {
+        val managerForCaps = cameraManager ?: run {
+            Log.w(TAG, "Could not read characteristics for camera $cameraId: no CameraManager")
+            return
+        }
         val chars = try {
-            cameraManager.getCameraCharacteristics(cameraId)
+            managerForCaps.getCameraCharacteristics(cameraId)
         } catch (error: CameraAccessException) {
             Log.w(TAG, "Could not read characteristics for camera $cameraId", error)
             return
@@ -621,8 +649,12 @@ class Camera2Controller(
     }
 
     private fun selectCameraId(lens: CameraLens): String {
+        val manager = cameraManager ?: run {
+            return activeCameraId
+                ?: throw IllegalStateException("No cameras available on this device")
+        }
         val cameraIds: Array<String> = try {
-            cameraManager.cameraIdList
+            manager.cameraIdList
         } catch (error: CameraAccessException) {
             Log.w(TAG, "Could not enumerate cameras for lens $lens", error)
             return activeCameraId
@@ -642,7 +674,7 @@ class Camera2Controller(
         }
         val candidates = cameraIds.filter { id ->
             try {
-                cameraManager.getCameraCharacteristics(id)
+                manager.getCameraCharacteristics(id)
                     .get(CameraCharacteristics.LENS_FACING) == lens.facing
             } catch (error: CameraAccessException) {
                 Log.w(TAG, "Skipping camera $id while selecting lens $lens", error)
@@ -665,7 +697,7 @@ class Camera2Controller(
         data class CamCandidate(val id: String, val focalLength: Float)
         val sorted = candidates.mapNotNull { id ->
             try {
-                val chars = cameraManager.getCameraCharacteristics(id)
+                val chars = manager.getCameraCharacteristics(id)
                 val focal = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull() ?: 0f
                 CamCandidate(id, focal)
             } catch (error: CameraAccessException) {
