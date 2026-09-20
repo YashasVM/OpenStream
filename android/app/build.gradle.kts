@@ -110,4 +110,9 @@ kotlin {
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
+    // Unit tests run on the local JVM against android.jar stubs, where
+    // org.json.JSONObject methods throw "not mocked". Ship the real
+    // org.json implementation for tests only; on-device code keeps using
+    // the platform's built-in org.json.
+    testImplementation("org.json:json:20240303")
 }
