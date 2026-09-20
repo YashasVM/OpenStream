@@ -301,7 +301,7 @@ class MediaCodecVideoEncoder(
                     MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR,
                 )
             ) {
-                Log.d("OpenStreamEncoder", "Skipping ${candidate.name}: CBR is unsupported")
+                Log.d("shinEncoder", "Skipping ${candidate.name}: CBR is unsupported")
                 return@mapNotNull null
             }
 
@@ -312,7 +312,7 @@ class MediaCodecVideoEncoder(
             }.getOrDefault(false)
             if (!supportsTarget) {
                 Log.d(
-                    "OpenStreamEncoder",
+                    "shinEncoder",
                     "Skipping ${candidate.name}: cannot sustain ${width}x${height}@${fps} " +
                         "at ${bitrate / 1_000_000} Mbps",
                 )
@@ -324,7 +324,7 @@ class MediaCodecVideoEncoder(
 
         return candidates.firstOrNull() ?: run {
             Log.e(
-                "OpenStreamEncoder",
+                "shinEncoder",
                 "No hardware surface encoder can satisfy ${width}x${height}@${fps} " +
                     "at ${bitrate / 1_000_000} Mbps",
             )
@@ -332,21 +332,6 @@ class MediaCodecVideoEncoder(
                 "OpenStream needs a hardware AVC encoder that supports the selected stream profile",
             )
         }
-    }
-
-    private fun codecConfigFrom(format: MediaFormat): ByteArray? {
-        val output = ByteArrayOutputStream()
-        for (index in 0..2) {
-            val key = "csd-$index"
-            if (!format.containsKey(key)) continue
-            val buffer = format.getByteBuffer(key) ?: continue
-            val duplicate = buffer.duplicate()
-            duplicate.position(0)
-            val bytes = ByteArray(duplicate.remaining())
-            duplicate.get(bytes)
-            output.write(bytes)
-        }
-        return output.toByteArray().takeIf { it.isNotEmpty() }
     }
 
     companion object {

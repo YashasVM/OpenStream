@@ -2034,6 +2034,20 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
   ctx->listener_running = false;
   ctx->phone_connected = false;
   set_slot_status(ctx, "Offline");
+  // Release-before-clear: the phone must see /release while we still hold its
+  // token. queue_release_phone is bounded/non-blocking (urgent capacity 4,
+  // drop-newest), so worker exit never stalls on an unreachable phone.
+  // Destroy order guarantees the executor is still running here:
+  // openstream_destroy joins this worker via openstream_stop_worker before
+  // camera_controls->stop(), so the release is queued, not lost.
+  std::optional<PhoneDevice> final_phone_to_release;
+  {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    final_phone_to_release = ctx->active_phone;
+  }
+  if (final_phone_to_release.has_value()) {
+    queue_release_phone(ctx, *final_phone_to_release);
+  }
   set_active_phone(ctx, std::nullopt);
   blog(LOG_INFO, "[shin] Listener worker exited");
 }
