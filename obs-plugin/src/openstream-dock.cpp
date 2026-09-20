@@ -3,168 +3,200 @@
 #include <obs-frontend-api.h>
 
 #include <QByteArray>
-#include <QDesktopServices>
+#include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
-#include <QNetworkRequest>
-#include <QPair>
+#include <QLineEdit>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QTimer>
-#include <QStringList>
 #include <QVBoxLayout>
-#include <QVersionNumber>
 #include <QWidget>
-#include <QUrl>
 
-#include <cmath>
 #include <vector>
 
 namespace {
-int compareSemver(const QString &left, const QString &right) {
-  const auto split = [](const QString &version) {
-    const int dash = version.indexOf(QChar('-'));
-    return qMakePair(QVersionNumber::fromString(
-                         dash < 0 ? version : version.left(dash)),
-                     dash < 0 ? QString() : version.mid(dash + 1));
-  };
-  const auto lhs = split(left);
-  const auto rhs = split(right);
-  const int core = QVersionNumber::compare(lhs.first, rhs.first);
-  if (core != 0) return core;
-  if (lhs.second.isEmpty() != rhs.second.isEmpty())
-    return lhs.second.isEmpty() ? 1 : -1;
-  if (lhs.second == rhs.second) return 0;
-  const QStringList leftIds = lhs.second.split(QChar('.'));
-  const QStringList rightIds = rhs.second.split(QChar('.'));
-  const int count = std::min(leftIds.size(), rightIds.size());
-  for (int i = 0; i < count; ++i) {
-    bool leftNumeric = false;
-    bool rightNumeric = false;
-    const int leftNumber = leftIds[i].toInt(&leftNumeric);
-    const int rightNumber = rightIds[i].toInt(&rightNumeric);
-    if (leftNumeric && rightNumeric && leftNumber != rightNumber)
-      return leftNumber < rightNumber ? -1 : 1;
-    if (leftNumeric != rightNumeric) return leftNumeric ? -1 : 1;
-    const int text = QString::compare(leftIds[i], rightIds[i], Qt::CaseSensitive);
-    if (text != 0) return text < 0 ? -1 : 1;
-  }
-  if (leftIds.size() == rightIds.size()) return 0;
-  return leftIds.size() < rightIds.size() ? -1 : 1;
-}
+constexpr int kSourceRefreshMs = 1500;
 
 class OpenStreamDock final : public QWidget {
  public:
   OpenStreamDock() {
     setObjectName("OpenStreamCameraControl");
+
     auto *layout = new QVBoxLayout(this);
-    source_ = new QLabel(this);
-    status_ = new QLabel("No OpenStream camera source", this);
-    status_->setWordWrap(true);
-    layout->addWidget(new QLabel("Your phone camera", this));
-    layout->addWidget(source_);
+    source_selector_ = new QComboBox(this);
+    source_selector_->setObjectName("openstreamDeviceSelector");
+    source_selector_->setAccessibleName("OpenStream source");
+    layout->addWidget(new QLabel("Source", this));
+    layout->addWidget(source_selector_);
+
+    status_ = new QLabel("No OpenStream source", this);
+    status_->setObjectName("openstreamStatus");
     layout->addWidget(status_);
 
+    auto *name_row = new QHBoxLayout();
+    name_row->addWidget(new QLabel("Name", this));
+    name_ = new QLineEdit(this);
+    name_->setObjectName("openstreamSourceName");
+    name_->setAccessibleName("OpenStream source name");
+    name_->setMaxLength(128);
+    name_->setPlaceholderText("Name this source");
+    name_row->addWidget(name_);
+    layout->addLayout(name_row);
+    connect(name_, &QLineEdit::editingFinished, this,
+            [this] { renameSelectedSource(); });
+
     auto *connection = new QHBoxLayout();
-    auto *retry = new QPushButton("Connect / retry", this);
-    auto *stop = new QPushButton("Stop", this);
-    // These API calls only publish into the source's bounded, coalescing
-    // lifecycle slot. Network work and worker joins happen off the UI thread.
-    connect(retry, &QPushButton::clicked, this, [this] {
-      obs_source_t *selected = currentSource();
-      if (!selected) {
-        status_->setText("Add one OpenStream source in OBS to connect your phone.");
-        return;
-      }
-      const bool queued = openstream_start_camera_source(selected);
-      status_->setText(queued ? "Connection starting in background..."
-                              : "Camera source is shutting down");
-    });
-    connect(stop, &QPushButton::clicked, this, [this] {
-      obs_source_t *selected = currentSource();
-      if (!selected) {
-        status_->setText("Add one OpenStream source in OBS to connect your phone.");
-        return;
-      }
-      const bool queued = openstream_stop_camera_source(selected);
-      status_->setText(queued ? "Stopping camera in background..."
-                              : "Camera source is shutting down");
-    });
-    connection->addWidget(retry);
-    connection->addWidget(stop);
+    test_connect_ = new QPushButton("Test / connect", this);
+    test_connect_->setObjectName("openstreamTestConnect");
+    disconnect_ = new QPushButton("Disconnect / release", this);
+    disconnect_->setObjectName("openstreamDisconnect");
+    connection->addWidget(test_connect_);
+    connection->addWidget(disconnect_);
     layout->addLayout(connection);
 
-    auto *lens = new QHBoxLayout();
-    addButton(lens, "Rear", "/lens", R"({"lens":"1\u00d7"})");
-    addButton(lens, "Front", "/lens", R"({"lens":"Front"})");
-    layout->addLayout(lens);
+    // These calls only publish into the source's bounded, coalescing slots.
+    // Network work and worker joins stay outside the OBS UI thread.
+    connect(test_connect_, &QPushButton::clicked, this, [this] {
+      obs_source_t *source = currentSource();
+      if (!source) {
+        showNoSource();
+        return;
+      }
+      const bool queued = openstream_start_camera_source(source);
+      status_->setText(queued ? "Connection test queued in background..."
+                              : "Could not queue the connection test.");
+    });
+    connect(disconnect_, &QPushButton::clicked, this, [this] {
+      obs_source_t *source = currentSource();
+      if (!source) {
+        showNoSource();
+        return;
+      }
+      const bool queued = openstream_stop_camera_source(source);
+      status_->setText(queued ? "Disconnect queued; phone release is in progress..."
+                              : "Could not queue the disconnect.");
+    });
 
-    auto *torch = new QHBoxLayout();
-    addButton(torch, "Torch on", "/torch", R"({"enabled":true})");
-    addButton(torch, "Torch off", "/torch", R"({"enabled":false})");
-    addButton(torch, "Identify", "/identify", R"({"label":"OBS"})");
-    layout->addLayout(torch);
-
-    auto *zoomRow = new QHBoxLayout();
+    auto *zoom_row = new QHBoxLayout();
     zoom_ = new QDoubleSpinBox(this);
+    zoom_->setObjectName("openstreamZoom");
+    zoom_->setAccessibleName("Camera zoom");
     zoom_->setRange(1.0, 10.0);
     zoom_->setSingleStep(0.1);
+    zoom_->setDecimals(1);
     zoom_->setSuffix("x");
-    auto *applyZoom = new QPushButton("Set zoom", this);
-    connect(applyZoom, &QPushButton::clicked, this, [this] {
+    apply_zoom_ = new QPushButton("Apply zoom", this);
+    apply_zoom_->setObjectName("openstreamApplyZoom");
+    zoom_row->addWidget(new QLabel("Zoom", this));
+    zoom_row->addWidget(zoom_);
+    zoom_row->addWidget(apply_zoom_);
+    layout->addLayout(zoom_row);
+    connect(apply_zoom_, &QPushButton::clicked, this, [this] {
       const QByteArray body = QByteArray("{\"value\":") +
                               QByteArray::number(zoom_->value(), 'f', 1) + "}";
       send("/zoom", body.constData());
     });
-    zoomRow->addWidget(zoom_);
-    zoomRow->addWidget(applyZoom);
-    layout->addLayout(zoomRow);
 
-    update_ = new QLabel(this);
-    update_->setWordWrap(true);
-    updateButton_ = new QPushButton("View update", this);
-    updateButton_->hide();
-    connect(updateButton_, &QPushButton::clicked, this, [this] {
-      QDesktopServices::openUrl(updateUrl_);
+    // Peer-bound camera controls. Each call only publishes into the source's
+    // bounded, coalescing control slot; the network round-trip stays off the
+    // OBS UI thread and the phone rejects non-reserving peers with 401.
+    auto *lens_row = new QHBoxLayout();
+    lens_rear_ = new QPushButton("Rear", this);
+    lens_rear_->setObjectName("openstreamLensRear");
+    lens_front_ = new QPushButton("Front", this);
+    lens_front_->setObjectName("openstreamLensFront");
+    lens_row->addWidget(new QLabel("Lens", this));
+    lens_row->addWidget(lens_rear_);
+    lens_row->addWidget(lens_front_);
+    layout->addLayout(lens_row);
+    connect(lens_rear_, &QPushButton::clicked, this, [this] {
+      send("/lens", R"({"lens":"1x"})");
     });
-    layout->addWidget(update_);
-    layout->addWidget(updateButton_);
+    connect(lens_front_, &QPushButton::clicked, this, [this] {
+      send("/lens", R"({"lens":"Front"})");
+    });
+
+    auto *torch_row = new QHBoxLayout();
+    torch_on_ = new QPushButton("Torch on", this);
+    torch_on_->setObjectName("openstreamTorchOn");
+    torch_off_ = new QPushButton("Torch off", this);
+    torch_off_->setObjectName("openstreamTorchOff");
+    identify_ = new QPushButton("Identify", this);
+    identify_->setObjectName("openstreamIdentify");
+    torch_row->addWidget(torch_on_);
+    torch_row->addWidget(torch_off_);
+    torch_row->addWidget(identify_);
+    layout->addLayout(torch_row);
+    connect(torch_on_, &QPushButton::clicked, this, [this] {
+      send("/torch", R"({"enabled":true})");
+    });
+    connect(torch_off_, &QPushButton::clicked, this, [this] {
+      send("/torch", R"({"enabled":false})");
+    });
+    connect(identify_, &QPushButton::clicked, this, [this] {
+      send("/identify", R"({"label":"OBS"})");
+    });
+
     layout->addStretch();
 
+    connect(source_selector_, &QComboBox::currentIndexChanged, this,
+            [this](int) { updateSelectedSource(true); });
     refresh_ = new QTimer(this);
-    refresh_->setInterval(1500);
-    connect(refresh_, &QTimer::timeout, this, [this] { refreshSources(); });
+    refresh_->setInterval(kSourceRefreshMs);
+    connect(refresh_, &QTimer::timeout, this,
+            [this] { refreshSources(); });
     refresh_->start();
     refreshSources();
-    checkForUpdates();
   }
 
   ~OpenStreamDock() override { releaseSources(); }
 
  private:
-  void addButton(QHBoxLayout *row, const char *label, const char *path,
-                 const char *body) {
-    auto *button = new QPushButton(label, this);
-    connect(button, &QPushButton::clicked, this,
-            [this, path = QByteArray(path), body = QByteArray(body)] {
-              send(path.constData(), body.constData());
-            });
-    row->addWidget(button);
+  void showNoSource() {
+    status_->setText("Add an OpenStream source in OBS first.");
+  }
+
+  void renameSelectedSource() {
+    obs_source_t *source = currentSource();
+    if (!source) {
+      showNoSource();
+      return;
+    }
+
+    const QString name = name_->text().trimmed();
+    if (name.isEmpty()) {
+      name_->setText(QString::fromUtf8(obs_source_get_name(source)));
+      status_->setText("Source name cannot be empty.");
+      return;
+    }
+
+    const QByteArray utf8_name = name.toUtf8();
+    obs_source_set_name(source, utf8_name.constData());
+    const int index = source_selector_->currentIndex();
+    if (index >= 0) {
+      QSignalBlocker blocker(source_selector_);
+      source_selector_->setItemText(index, name);
+    }
+    status_->setText("Source name saved.");
   }
 
   void send(const char *path, const char *body) {
     obs_source_t *source = currentSource();
-    if (!source) return;
+    if (!source) {
+      showNoSource();
+      return;
+    }
     const bool queued = openstream_post_camera_command(source, path, body);
-    status_->setText(queued ? "Command queued" : "Camera is not connected");
+    status_->setText(queued ? "Command queued in background."
+                            : "Camera is not connected.");
   }
 
   obs_source_t *currentSource() const {
-    return sources_.size() == 1 ? sources_.front() : nullptr;
+    const int index = source_selector_->currentIndex();
+    if (index < 0 || index >= static_cast<int>(sources_.size())) return nullptr;
+    return sources_[static_cast<size_t>(index)];
   }
 
   void releaseSources() {
@@ -172,63 +204,89 @@ class OpenStreamDock final : public QWidget {
     sources_.clear();
   }
 
-  void refreshSources() {
-    releaseSources();
-    source_->clear();
-    obs_enum_sources(
-        [](void *opaque, obs_source_t *source) {
-          auto *self = static_cast<OpenStreamDock *>(opaque);
-          if (!openstream_is_camera_source(source)) return true;
-          self->sources_.push_back(obs_source_get_ref(source));
-          return true;
-        },
-        this);
-    if (obs_source_t *source = currentSource()) {
-      source_->setText(QString::fromUtf8(obs_source_get_name(source)));
-      status_->setText(QString::fromUtf8(openstream_source_status(source)));
-    } else if (sources_.size() > 1) {
-      source_->setText("Multiple legacy sources found");
-      status_->setText("Keep one OpenStream source. To show it in another scene, use Add Existing. Remove extra camera sources to use these controls.");
-    } else {
-      status_->setText("Add an OpenStream V1 source to control your phone here.");
+  void updateSelectedSource(bool replace_name) {
+    obs_source_t *source = currentSource();
+    const bool available = source != nullptr;
+    source_selector_->setEnabled(!sources_.empty());
+    name_->setEnabled(available);
+    test_connect_->setEnabled(available);
+    disconnect_->setEnabled(available);
+    zoom_->setEnabled(available);
+    apply_zoom_->setEnabled(available);
+    lens_rear_->setEnabled(available);
+    lens_front_->setEnabled(available);
+    torch_on_->setEnabled(available);
+    torch_off_->setEnabled(available);
+    identify_->setEnabled(available);
+
+    if (!source) {
+      if (!name_->hasFocus()) name_->clear();
+      if (sources_.size() > 1) {
+        status_->setText("Select an OpenStream source.");
+      } else {
+        showNoSource();
+      }
+      return;
     }
+
+    if (replace_name || !name_->hasFocus()) {
+      QSignalBlocker blocker(name_);
+      name_->setText(QString::fromUtf8(obs_source_get_name(source)));
+    }
+    status_->setText(QString::fromUtf8(openstream_source_status(source)));
   }
 
-  void checkForUpdates() {
-    updates_ = new QNetworkAccessManager(this);
-    QNetworkRequest request(QUrl(
-        "https://github.com/YashasVM/OpenStream/releases/latest/download/openstream-obs-update.json"));
-    request.setTransferTimeout(5000);
-    QNetworkReply *reply = updates_->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply] {
-      const QByteArray payload = reply->readAll();
-      const bool ok = reply->error() == QNetworkReply::NoError;
-      reply->deleteLater();
-      if (!ok || payload.size() > 64 * 1024) return;
-      const QJsonObject manifest = QJsonDocument::fromJson(payload).object();
-      if (manifest.value("schemaVersion").toInt() != 1) return;
-      const QString available = manifest.value("version").toString();
-      QString current = QString::fromUtf8(OPENSTREAM_VERSION);
-      if (current.startsWith(QChar('v'))) current.remove(0, 1);
-      const QUrl release(manifest.value("releaseUrl").toString());
-      if (available.isEmpty() || compareSemver(available, current) <= 0 ||
-          !release.isValid() || release.scheme() != "https" ||
-          release.host() != "github.com" ||
-          !release.path().startsWith("/YashasVM/OpenStream/releases/tag/")) return;
-      updateUrl_ = release;
-      update_->setText("OpenStream " + available + " is available. Close OBS before running the installer.");
-      updateButton_->show();
-    });
+  void refreshSources() {
+    QString selected_uuid;
+    if (source_selector_->currentIndex() >= 0) {
+      selected_uuid = source_selector_->currentData().toString();
+    }
+
+    releaseSources();
+    {
+      QSignalBlocker blocker(source_selector_);
+      source_selector_->clear();
+      obs_enum_sources(
+          [](void *opaque, obs_source_t *source) {
+            auto *self = static_cast<OpenStreamDock *>(opaque);
+            if (!openstream_is_camera_source(source)) return true;
+            self->sources_.push_back(obs_source_get_ref(source));
+            return true;
+          },
+          this);
+
+      for (obs_source_t *source : sources_) {
+        const char *raw_name = obs_source_get_name(source);
+        const char *raw_uuid = obs_source_get_uuid(source);
+        const QString name = raw_name && raw_name[0]
+                                 ? QString::fromUtf8(raw_name)
+                                 : QStringLiteral("OpenStream source");
+        const QString uuid = raw_uuid ? QString::fromUtf8(raw_uuid) : QString();
+        source_selector_->addItem(name, uuid);
+      }
+
+      int selected_index = source_selector_->findData(selected_uuid);
+      if (selected_index < 0 && source_selector_->count() > 0) {
+        selected_index = 0;
+      }
+      source_selector_->setCurrentIndex(selected_index);
+    }
+    updateSelectedSource(false);
   }
 
-  QLabel *source_ = nullptr;
+  QComboBox *source_selector_ = nullptr;
   QLabel *status_ = nullptr;
+  QLineEdit *name_ = nullptr;
+  QPushButton *test_connect_ = nullptr;
+  QPushButton *disconnect_ = nullptr;
   QDoubleSpinBox *zoom_ = nullptr;
+  QPushButton *apply_zoom_ = nullptr;
+  QPushButton *lens_rear_ = nullptr;
+  QPushButton *lens_front_ = nullptr;
+  QPushButton *torch_on_ = nullptr;
+  QPushButton *torch_off_ = nullptr;
+  QPushButton *identify_ = nullptr;
   QTimer *refresh_ = nullptr;
-  QLabel *update_ = nullptr;
-  QPushButton *updateButton_ = nullptr;
-  QNetworkAccessManager *updates_ = nullptr;
-  QUrl updateUrl_;
   std::vector<obs_source_t *> sources_;
 };
 

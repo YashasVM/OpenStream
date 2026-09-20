@@ -15,15 +15,24 @@ def test_reservation_expires_if_media_never_connects() -> None:
     reserve_start = source.index("private fun reserveForSource")
     release_start = source.index("private fun releaseForSource", reserve_start)
     reserve = source[reserve_start:release_start]
+    select_start = source.index("private fun selectForSource")
+    select_end = source.index("private fun reserveForSource", select_start)
+    select = source[select_start:select_end]
     listener_start = source.index("private fun startPhoneServerIfAllowed")
     listener_end = source.index("private fun isListenerActive", listener_start)
     listener = source[listener_start:listener_end]
     schedule_start = source.index("private fun scheduleReservationRelease")
     cancel_start = source.index("private fun cancelReservationRelease", schedule_start)
     schedule = source[schedule_start:cancel_start]
+    pending_start = source.index("private fun schedulePendingRelease")
+    pending_end = source.index("private fun scheduleReservationRelease", pending_start)
+    pending = source[pending_start:pending_end]
 
     connected_branch = "if (phoneConnected) {\n            cancelReservationRelease()\n        } else {\n            scheduleReservationRelease()\n        }"
     assert connected_branch in reserve
+    assert "schedulePendingRelease(sourceInstanceId)" in select
+    assert "reservationState.beginSelection" in select
+    assert "reservationState.confirm" in reserve
 
     connected_index = listener.index("phoneConnected = true")
     cancel_index = listener.index("cancelReservationRelease()", connected_index)
@@ -32,10 +41,11 @@ def test_reservation_expires_if_media_never_connects() -> None:
 
     assert "mainHandler.postDelayed(releaseReservationRunnable!!, RECONNECT_RESERVATION_MS)" in schedule
     assert "if (!phoneConnected &&" in schedule
-    assert "reservedBy == sourceInstanceId &&" in schedule
+    assert "reservationState.confirmedSourceInstanceId == sourceInstanceId" in schedule
     assert "reservationGeneration == generation" in schedule
-    assert "reservedBy = null" in schedule
-    assert "reservedSlotLabel = null" in schedule
+    assert "reservationState.release(sourceInstanceId)" in schedule
+    assert "mainHandler.postDelayed(releaseReservationRunnable!!, RECONNECT_RESERVATION_MS)" in pending
+    assert "reservationState.rollbackPending(sourceInstanceId)" in pending
 
 
 def test_reservation_renewal_invalidates_an_already_started_expiry() -> None:
@@ -49,14 +59,16 @@ def test_reservation_renewal_invalidates_an_already_started_expiry() -> None:
     schedule = source[schedule_start:cancel_start]
 
     generation_increment = reserve.index("reservationGeneration += 1")
-    reservation_write = reserve.index("reservedBy = sourceInstanceId")
-    assert generation_increment < reservation_write
+    reservation_write = reserve.index("reservationState.confirm(")
+    assert generation_increment > 0
+    assert reservation_write > 0
+    assert reservation_write < generation_increment
 
     capture = schedule.index("val generation = reservationGeneration")
     cancel = schedule.index("cancelReservationRelease()")
     callback = schedule.index("releaseReservationRunnable = Runnable")
     generation_guard = schedule.index("reservationGeneration == generation", callback)
-    clear = schedule.index("reservedBy = null", callback)
+    clear = schedule.index("reservationState.release(sourceInstanceId)", callback)
     assert capture < cancel < callback < generation_guard < clear
 
 
@@ -261,6 +273,6 @@ def test_obs_slot_render_cache_renders_initial_empty_state_and_tracks_bitrate():
     assert "private var lastObsSlotRenderKeys: List<String>? = null" in source
     assert (
         '"${device.sourceInstanceId}|${device.displayLabel}|${device.busy}|'
-        '${device.bitrateMbps}|${reservedBy == device.sourceInstanceId}|$phoneConnected"'
+        '${device.bitrateMbps}|${advertisedReservationId == device.sourceInstanceId}|$phoneConnected"'
         in source
     )

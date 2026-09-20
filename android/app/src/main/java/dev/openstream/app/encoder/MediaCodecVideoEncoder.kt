@@ -75,7 +75,7 @@ class MediaCodecVideoEncoder(
         mimeType = resolvedMime
         Log.i(
             "shinEncoder",
-            "Using hardware encoder ${resolvedSelection.codecName} for $mimeType " +
+            "Using hardware encoder $resolvedCodecName for $mimeType " +
                 "${width}x${height}@${fps} (${bitrate / 1_000_000} Mbps)",
         )
         val encoder = createConfiguredEncoder(resolvedCodecName)
@@ -148,7 +148,7 @@ class MediaCodecVideoEncoder(
                             "Encoder accepted latency=${format.getInteger(MediaFormat.KEY_LATENCY)} frame(s)",
                         )
                     }
-                    codecConfigBytes()?.let { config ->
+                    format.codecConfigBytes()?.let { config ->
                         deliverIfCurrent(
                             generation,
                             EncodedAccessUnit(
@@ -301,7 +301,7 @@ class MediaCodecVideoEncoder(
                     MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR,
                 )
             ) {
-                Log.d("OpenStreamEncoder", "Skipping ${candidate.name}: CBR is unsupported")
+                Log.d("shinEncoder", "Skipping ${candidate.name}: CBR is unsupported")
                 return@mapNotNull null
             }
 
@@ -312,7 +312,7 @@ class MediaCodecVideoEncoder(
             }.getOrDefault(false)
             if (!supportsTarget) {
                 Log.d(
-                    "OpenStreamEncoder",
+                    "shinEncoder",
                     "Skipping ${candidate.name}: cannot sustain ${width}x${height}@${fps} " +
                         "at ${bitrate / 1_000_000} Mbps",
                 )
@@ -324,7 +324,7 @@ class MediaCodecVideoEncoder(
 
         return candidates.firstOrNull() ?: run {
             Log.e(
-                "OpenStreamEncoder",
+                "shinEncoder",
                 "No hardware surface encoder can satisfy ${width}x${height}@${fps} " +
                     "at ${bitrate / 1_000_000} Mbps",
             )
@@ -332,87 +332,6 @@ class MediaCodecVideoEncoder(
                 "OpenStream needs a hardware AVC encoder that supports the selected stream profile",
             )
         }
-        val infos = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
-        for (mime in mimeTypes) {
-            val candidates = infos.mapNotNull { candidate ->
-                if (!candidate.isEncoder ||
-                    !candidate.isHardwareAccelerated ||
-                    candidate.isSoftwareOnly ||
-                    candidate.supportedTypes.none { it.equals(mime, true) }
-                ) {
-                    return@mapNotNull null
-                }
-
-                val capabilities = runCatching {
-                    candidate.getCapabilitiesForType(mime)
-                }.getOrNull() ?: return@mapNotNull null
-                if (!capabilities.colorFormats.contains(
-                        MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface,
-                    )
-                ) {
-                    return@mapNotNull null
-                }
-                if (!capabilities.encoderCapabilities.isBitrateModeSupported(
-                        MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR,
-                    )
-                ) {
-                    Log.d("shinEncoder", "Skipping ${candidate.name}: CBR is unsupported")
-                    return@mapNotNull null
-                }
-
-                val videoCapabilities = capabilities.videoCapabilities
-                val supportsTarget = runCatching {
-                    videoCapabilities.areSizeAndRateSupported(width, height, fps.toDouble()) &&
-                        videoCapabilities.bitrateRange.contains(bitrate)
-                }.getOrDefault(false)
-                if (!supportsTarget) {
-                    Log.d(
-                        "shinEncoder",
-                        "Skipping ${candidate.name}: cannot sustain ${width}x${height}@${fps} " +
-                            "at ${bitrate / 1_000_000} Mbps",
-                    )
-                    return@mapNotNull null
-                }
-
-                EncoderSelection(mime, candidate.name)
-            }
-
-            val selected = candidates.firstOrNull() ?: continue
-            if (preference == CodecPreference.PreferHevc &&
-                mime == MediaFormat.MIMETYPE_VIDEO_AVC
-            ) {
-                Log.w(
-                    "shinEncoder",
-                    "Hardware HEVC cannot satisfy the requested stream profile; " +
-                        "explicitly falling back to hardware AVC",
-                )
-            }
-            return selected
-        }
-
-        Log.e(
-            "shinEncoder",
-            "No hardware surface encoder can satisfy ${width}x${height}@${fps} " +
-                "at ${bitrate / 1_000_000} Mbps",
-        )
-        throw IllegalStateException(
-            "shin needs a hardware AVC/HEVC encoder that supports the selected stream profile",
-        )
-    }
-
-    private fun codecConfigFrom(format: MediaFormat): ByteArray? {
-        val output = ByteArrayOutputStream()
-        for (index in 0..2) {
-            val key = "csd-$index"
-            if (!format.containsKey(key)) continue
-            val buffer = format.getByteBuffer(key) ?: continue
-            val duplicate = buffer.duplicate()
-            duplicate.position(0)
-            val bytes = ByteArray(duplicate.remaining())
-            duplicate.get(bytes)
-            output.write(bytes)
-        }
-        return output.toByteArray().takeIf { it.isNotEmpty() }
     }
 
     companion object {

@@ -65,8 +65,8 @@ def test_video_encoder_callback_thread_is_reaped_on_stop_and_failed_start():
     ]
 
     assert "private var callbackThread: HandlerThread? = null" in source
-    thread_setup = start[start.index('val thread = HandlerThread("OpenStreamEncoder")') :]
-    assert 'HandlerThread("OpenStreamEncoder").apply { start() }' in thread_setup
+    thread_setup = start[start.index('val thread = HandlerThread("shinEncoder")') :]
+    assert 'HandlerThread("shinEncoder").apply { start() }' in thread_setup
     assert "callbackThread = thread" in thread_setup
     assert "val handler = Handler(thread.looper)" in thread_setup
 
@@ -193,6 +193,26 @@ def test_send_failures_preserve_transport_generation_for_recovery():
         assert "wasConnected = connected" in snapshot
         assert "SrtNativeBridge.send" not in snapshot
         assert "SrtSendResult(sent, generation, recoveryRequired = !sent)" in send
+
+
+def test_video_encoder_selection_is_hardware_avc_only_with_explicit_failure():
+    source = VIDEO_ENCODER.read_text(encoding="utf-8")
+    choose = source[source.index("private fun chooseEncoder") :]
+
+    # AVC-only target: no HEVC preference branch, explicit hardware AVC failure.
+    assert "MIMETYPE_VIDEO_AVC" in choose
+    assert "isHardwareAccelerated" in choose
+    assert "isSoftwareOnly" in choose
+    assert "COLOR_FormatSurface" in choose
+    assert "BITRATE_MODE_CBR" in choose
+    assert "areSizeAndRateSupported" in choose
+    assert "No hardware surface encoder can satisfy" in choose
+    assert "needs a hardware AVC encoder" in choose
+    # Never enable a software codec silently: failure throws, it does not fall back.
+    assert "throw IllegalStateException" in choose
+    # Log tag is unified so hardware-skip diagnostics are greppable in one place.
+    assert '"shinEncoder"' in choose
+    assert '"OpenStreamEncoder"' not in choose
 
 
 def test_main_activity_drops_stale_failure_before_destructive_recovery():

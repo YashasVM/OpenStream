@@ -71,12 +71,11 @@ class MainActivity : Activity() {
 
     private val streamConfig = StreamConfig.Default1080p30
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val reservationState = ReservationState()
     @Volatile private var activeTargetName: String? = null
     @Volatile private var phoneServerRunning = false
     @Volatile private var phoneConnected = false
-    @Volatile private var reservedBy: String? = null
     @Volatile private var selectedObsHost: String? = null
-    @Volatile private var reservedSlotLabel: String? = null
     @Volatile private var listenerThread: Thread? = null
     @Volatile private var callerConnectThread: Thread? = null
     @Volatile private var callerGeneration = 0L
@@ -101,6 +100,17 @@ class MainActivity : Activity() {
     private var activeStreamBitrate: Int = streamConfig.bitrate
     private var lastObsSlotRenderKeys: List<String>? = null
     private val callerLifecycleLock = Any()
+
+    private val reservedBy: String?
+        get() = reservationState.confirmedSourceInstanceId
+
+    private val reservedSlotLabel: String?
+        get() = reservationState.confirmedReservation?.slotLabel?.takeIf { it.isNotBlank() }
+
+    private val advertisedReservationId: String?
+        get() = reservationState.advertisedSourceInstanceId
+
+    private fun isPhoneBusy(): Boolean = reservationState.isBusy(phoneConnected)
 
     private val statsTicker = object : Runnable {
         override fun run() {
@@ -130,8 +140,8 @@ class MainActivity : Activity() {
             context = this,
             config = streamConfig,
             port = currentPort,
-            busyProvider = { phoneConnected || reservedBy != null },
-            reservedByProvider = { reservedBy },
+            busyProvider = { isPhoneBusy() },
+            reservedByProvider = { advertisedReservationId },
             selectedObsHostProvider = { selectedObsHost },
         )
         obsDiscoveryClient = ObsDiscoveryClient(
@@ -547,7 +557,7 @@ class MainActivity : Activity() {
         // alive; without this, each beacon paid removeAllViews() + N TextView
         // inflations on the UI thread even when nothing changed.
         val renderKeys = devices.map { device ->
-            "${device.sourceInstanceId}|${device.displayLabel}|${device.busy}|${device.bitrateMbps}|${reservedBy == device.sourceInstanceId}|$phoneConnected"
+            "${device.sourceInstanceId}|${device.displayLabel}|${device.busy}|${device.bitrateMbps}|${advertisedReservationId == device.sourceInstanceId}|$phoneConnected"
         }
         if (renderKeys == lastObsSlotRenderKeys) return
         lastObsSlotRenderKeys = renderKeys
@@ -576,7 +586,7 @@ class MainActivity : Activity() {
         obsSlotList.addView(title)
 
         devices.forEach { device ->
-            val isReservedForThisPhone = reservedBy == device.sourceInstanceId
+            val isReservedForThisPhone = advertisedReservationId == device.sourceInstanceId
             val enabled = !device.busy || isReservedForThisPhone
             val card = TextView(this).apply {
                 text = "${device.displayLabel} · ${slotAvailabilityLabel(device, isReservedForThisPhone)}"
@@ -617,11 +627,12 @@ class MainActivity : Activity() {
     }
 
     private fun reserveForSlot(device: DiscoveredObsDevice) {
-        if (device.busy && reservedBy != device.sourceInstanceId) return
+        if (device.busy && advertisedReservationId != device.sourceInstanceId) return
         selectedObsHost = device.host
 
-        // UI-initiated reservation is local-only: it sets reservedBy/slot state
-        // here without binding CameraControlServer.activeControllerAddress. The
+        // UI-initiated selection is pending-only: it is advertised so the
+        // matching OBS instance can POST /reserve, but it is not busy and
+        // cannot authorize camera controls until /reserve confirms it. The
         // OBS host binds its peer IP on its next POST /reserve with the same
         // sourceInstanceId (the server allows adoption while unbound), so no
         // separate mirror call is needed and no network work happens here.
@@ -630,7 +641,7 @@ class MainActivity : Activity() {
             stopStream(updateStatus = false)
         }
 
-        if (reserveForSource(device.sourceInstanceId, device.displayLabel, device.bitrateMbps)) {
+        if (selectForSource(device.sourceInstanceId, device.displayLabel, device.bitrateMbps)) {
             statusText.text = "Selected ${device.displayLabel}"
             statusDetail.text = "Waiting for OBS acknowledgement"
             renderObsSlots(currentDevices)
@@ -657,7 +668,7 @@ class MainActivity : Activity() {
             val slotLabel = uri.getQueryParameter("slotLabel")?.trim().orEmpty()
             val bitrateMbps = uri.getQueryParameter("bitrateMbps")?.toIntOrNull()
                 ?.coerceIn(StreamConfig.MIN_BITRATE_MBPS, StreamConfig.MAX_BITRATE_MBPS)
-            if (reserveForSource(sourceInstanceId, slotLabel, bitrateMbps)) {
+            if (selectForSource(sourceInstanceId, slotLabel, bitrateMbps)) {
                 statusText.text = "Selected ${slotLabel.ifBlank { "OBS computer" }}"
                 statusDetail.text = "Waiting for OBS acknowledgement"
             }
@@ -899,17 +910,42 @@ class MainActivity : Activity() {
     // ─────────────────────────── Live state UI ───────────────────────────
 
     @Synchronized
+    private fun selectForSource(
+        sourceInstanceId: String,
+        slotLabel: String = "",
+        bitrateMbps: Int? = null,
+    ): Boolean {
+        val selection = ReservationSelection(
+            sourceInstanceId = sourceInstanceId,
+            slotLabel = slotLabel,
+            bitrateMbps = bitrateMbps,
+            obsHost = selectedObsHost,
+        )
+        if (!reservationState.beginSelection(selection)) return false
+        useStreamBitrate(bitrateMbps)
+        reservationGeneration += 1
+        if (phoneConnected) {
+            cancelReservationRelease()
+        } else {
+            schedulePendingRelease(sourceInstanceId)
+        }
+        return true
+    }
+
+    @Synchronized
     private fun reserveForSource(
         sourceInstanceId: String,
         slotLabel: String = "",
         bitrateMbps: Int? = null,
     ): Boolean {
-        val currentReservation = reservedBy
-        if (phoneConnected && currentReservation != sourceInstanceId) return false
+        val currentReservation = reservationState.confirmedSourceInstanceId
+        if (phoneConnected && currentReservation != null && currentReservation != sourceInstanceId) return false
+        val effectiveSlot = slotLabel.ifBlank {
+            reservationState.confirmedReservation?.slotLabel.orEmpty()
+        }
+        if (!reservationState.confirm(sourceInstanceId, effectiveSlot, bitrateMbps)) return false
         useStreamBitrate(bitrateMbps)
         reservationGeneration += 1
-        reservedBy = sourceInstanceId
-        reservedSlotLabel = slotLabel.ifBlank { reservedSlotLabel }
         if (phoneConnected) {
             cancelReservationRelease()
         } else {
@@ -920,35 +956,65 @@ class MainActivity : Activity() {
 
     @Synchronized
     private fun releaseForSource(sourceInstanceId: String): Boolean {
-        if (reservedBy == sourceInstanceId) {
+        val confirmed = reservationState.confirmedSourceInstanceId
+        if (confirmed == sourceInstanceId) {
             clearReservation()
             return true
         }
-        return reservedBy == null
+        // Allow releasing a matching pending selection so it cannot stick forever.
+        if (confirmed == null && reservationState.pendingSourceInstanceId == sourceInstanceId) {
+            clearReservation()
+            return true
+        }
+        return confirmed == null && reservationState.pendingSourceInstanceId == null
     }
 
     @Synchronized
     private fun clearReservation() {
         cancelReservationRelease()
-        reservedBy = null
-        reservedSlotLabel = null
+        reservationState.clear()
         selectedObsHost = null
     }
 
     @Synchronized
-    private fun scheduleReservationRelease() {
-        val sourceInstanceId = reservedBy ?: return
+    private fun schedulePendingRelease(sourceInstanceId: String) {
         val generation = reservationGeneration
         cancelReservationRelease()
         releaseReservationRunnable = Runnable {
             synchronized(this) {
                 if (!phoneConnected &&
-                    reservedBy == sourceInstanceId &&
+                    reservationGeneration == generation &&
+                    reservationState.confirmedSourceInstanceId == null
+                ) {
+                    reservationState.rollbackPending(sourceInstanceId)
+                    if (reservationState.pendingSelection == null &&
+                        reservationState.confirmedReservation == null
+                    ) {
+                        selectedObsHost = null
+                    }
+                }
+            }
+        }
+        mainHandler.postDelayed(releaseReservationRunnable!!, RECONNECT_RESERVATION_MS)
+    }
+
+    @Synchronized
+    private fun scheduleReservationRelease() {
+        val sourceInstanceId = reservationState.confirmedSourceInstanceId ?: return
+        val generation = reservationGeneration
+        cancelReservationRelease()
+        releaseReservationRunnable = Runnable {
+            synchronized(this) {
+                if (!phoneConnected &&
+                    reservationState.confirmedSourceInstanceId == sourceInstanceId &&
                     reservationGeneration == generation
                 ) {
-                    reservedBy = null
-                    reservedSlotLabel = null
-                    selectedObsHost = null
+                    reservationState.release(sourceInstanceId)
+                    if (reservationState.confirmedReservation == null &&
+                        reservationState.pendingSelection == null
+                    ) {
+                        selectedObsHost = null
+                    }
                 }
             }
         }
@@ -1119,8 +1185,8 @@ class MainActivity : Activity() {
             context = this,
             config = streamConfig,
             port = currentPort,
-            busyProvider = { phoneConnected || reservedBy != null },
-            reservedByProvider = { reservedBy },
+            busyProvider = { isPhoneBusy() },
+            reservedByProvider = { advertisedReservationId },
             selectedObsHostProvider = { selectedObsHost },
         )
         phoneAdvertiser.start()

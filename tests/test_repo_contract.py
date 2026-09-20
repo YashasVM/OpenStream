@@ -188,7 +188,7 @@ def test_android_discovery_ui_parses_and_displays_obs_slots() -> None:
     assert "renderObsSlots" in app
     assert "reserveForSlot" in app
     assert "slotAvailabilityLabel" in app
-    assert "device.busy && reservedBy != device.sourceInstanceId" in app
+    assert "device.busy && advertisedReservationId != device.sourceInstanceId" in app
     assert "compareBy<DiscoveredObsDevice> { it.displayLabel }" in discovery
     assert "obsSlotList" in layout
     assert 'name="status_waiting">Choose your OBS computer<' in strings
@@ -216,10 +216,12 @@ def test_android_control_server_supports_source_reservations() -> None:
     assert "reservationProvider" in control
     assert "reserveForSource" in app
     assert "releaseForSource" in app
-    assert "phoneConnected || reservedBy != null" in app
+    assert "selectForSource" in app
+    assert "isPhoneBusy()" in app
+    assert "advertisedReservationId" in app
     assert "private var activeStreamBitrate" in app
     assert "useStreamBitrate(bitrateMbps)" in app
-    assert "reserveForSource(device.sourceInstanceId, device.displayLabel, device.bitrateMbps)" in app
+    assert "selectForSource(device.sourceInstanceId, device.displayLabel, device.bitrateMbps)" in app
     assert "val bitrateMbps = if (json.has(\"bitrateMbps\"))" in control
 
 
