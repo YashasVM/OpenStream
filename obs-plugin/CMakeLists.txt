@@ -21,7 +21,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_library(openstream-obs MODULE
     src/async-control-client.cpp
-    src/openstream-dock.cpp
     src/openstream-source.cpp
 )
 
@@ -44,7 +43,7 @@ if (BUILD_TESTING)
     add_test(NAME openstream-obs-sigpipe-tests COMMAND openstream-obs-sigpipe-tests)
 endif()
 
-find_package(Qt6 6.2 COMPONENTS Network Widgets REQUIRED)
+find_package(Qt6 6.2 COMPONENTS Core REQUIRED)
 
 if (BUILD_TESTING)
     add_executable(openstream-solo-camera-tests tests/test_solo_camera.cpp)
@@ -66,15 +65,6 @@ if (WIN32)
     if (NOT DEFINED OBS_ROOT)
         message(FATAL_ERROR "Set OBS_ROOT to the OBS Studio install, source checkout, build tree, or development SDK root.")
     endif()
-
-    find_path(OBS_FRONTEND_INCLUDE_DIR NAMES obs-frontend-api.h
-        HINTS ${OBS_ROOT} PATH_SUFFIXES frontend/api REQUIRED)
-    # build_plugin.bat generates this import library from the version-checked OBS
-    # binary and stages it in FFMPEG_ROOT. Source archives do not contain a built
-    # frontend import library, so retain that verified staging path.
-    find_library(OBS_FRONTEND_LIBRARY NAMES obs-frontend-api
-        HINTS ${OBS_ROOT} ${FFMPEG_ROOT}
-        PATH_SUFFIXES lib lib/x64 build/frontend/api/Release REQUIRED)
 
     find_path(OBS_INCLUDE_DIR
         NAMES obs-module.h
@@ -144,7 +134,6 @@ else()
     find_package(PkgConfig QUIET)
     if (PkgConfig_FOUND)
         pkg_check_modules(PC_LIBOBS QUIET libobs)
-        pkg_check_modules(PC_OBS_FRONTEND QUIET obs-frontend-api)
         pkg_check_modules(PC_AVFORMAT QUIET libavformat)
         pkg_check_modules(PC_AVCODEC QUIET libavcodec)
         pkg_check_modules(PC_AVUTIL QUIET libavutil)
@@ -157,23 +146,11 @@ else()
         PATHS /usr/include/obs /usr/local/include/obs
         REQUIRED
     )
-    find_path(OBS_FRONTEND_INCLUDE_DIR
-        NAMES obs-frontend-api.h
-        HINTS ${PC_OBS_FRONTEND_INCLUDE_DIRS}
-        PATHS /usr/include/obs /usr/local/include/obs
-        REQUIRED
-    )
     find_library(OBS_LIBRARY
         NAMES obs
         HINTS ${PC_LIBOBS_LIBRARY_DIRS}
         REQUIRED
     )
-    find_library(OBS_FRONTEND_LIBRARY
-        NAMES obs-frontend-api
-        HINTS ${PC_OBS_FRONTEND_LIBRARY_DIRS}
-        REQUIRED
-    )
-
     find_path(AVFORMAT_INCLUDE_DIR
         NAMES libavformat/avformat.h
         HINTS ${PC_AVFORMAT_INCLUDE_DIRS}
@@ -214,15 +191,12 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/obsconfig.h"
 target_include_directories(openstream-obs PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
     ${OBS_INCLUDE_DIR}
-    ${OBS_FRONTEND_INCLUDE_DIR}
     ${AVFORMAT_INCLUDE_DIR}
 )
 
 target_link_libraries(openstream-obs PRIVATE
     ${OBS_LIBRARY}
-    ${OBS_FRONTEND_LIBRARY}
-    Qt6::Network
-    Qt6::Widgets
+    Qt6::Core
     ${AVFORMAT_LIBRARY}
     ${AVCODEC_LIBRARY}
     ${AVUTIL_LIBRARY}
@@ -249,11 +223,11 @@ target_compile_definitions(openstream-obs PRIVATE
 )
 
 if (WIN32)
+    # Keep the existing Windows packaging contract outside this Linux release.
     set_target_properties(openstream-obs PROPERTIES PREFIX "")
 else()
-    # Deterministic artifact name (openstream-obs.so) for the Linux install
-    # script and CI, matching the Windows openstream-obs.dll convention.
-    set_target_properties(openstream-obs PROPERTIES PREFIX "")
+    # A distinct module name allows shin and OpenStream to coexist.
+    set_target_properties(openstream-obs PROPERTIES PREFIX "" OUTPUT_NAME "shin-obs")
 endif()
 
 # Install rules: `cmake --install` stages the module into OBS's plugin dir.

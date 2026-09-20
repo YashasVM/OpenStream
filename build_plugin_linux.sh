@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# OpenStream OBS Plugin Build Script for Linux.
+# shin OBS Plugin Build Script for Linux.
 # Configures, builds, tests, and optionally packages the OBS source plugin.
 #
 #   ./build_plugin_linux.sh [--package-only] [--install-user] [--install-system]
@@ -34,7 +34,7 @@ done
 
 echo ""
 echo "====================================================="
-echo "  OpenStream - OBS Plugin Builder (Linux)"
+echo "  shin - OBS Plugin Builder (Linux)"
 echo "====================================================="
 echo ""
 
@@ -51,7 +51,7 @@ for tool in cmake g++ pkg-config; do
 done
 
 missing_pc=()
-for module in libobs libavformat libavcodec libavutil libswscale Qt6Network Qt6Widgets; do
+for module in libobs libavformat libavcodec libavutil libswscale Qt6Core; do
   if ! pkg-config --exists "${module}" 2>/dev/null; then
     missing_pc+=("${module}")
   fi
@@ -60,13 +60,6 @@ if [[ "${#missing_pc[@]}" -gt 0 ]]; then
   echo "ERROR: missing pkg-config modules: ${missing_pc[*]}. See docs/linux.md." >&2
   exit 1
 fi
-# obs-frontend-api.pc is optional: some distros ship the frontend headers and
-# library without the .pc file, and obs-plugin/CMakeLists.txt falls back to
-# standard-path lookup. Warn only.
-if ! pkg-config --exists obs-frontend-api 2>/dev/null; then
-  echo "NOTE: obs-frontend-api.pc not found; CMake will use header/library fallback paths."
-fi
-
 echo "OBS system ABI (no Windows version pin; see docs/linux.md):"
 echo "  libobs $(pkg-config --modversion libobs)"
 echo "  libavformat $(pkg-config --modversion libavformat)"
@@ -80,19 +73,19 @@ if [[ "${PACKAGE_ONLY}" -eq 0 ]]; then
     -DCMAKE_BUILD_TYPE=Release \
     "-DOPENSTREAM_VERSION=${OPENSTREAM_VERSION}"
 
-  echo "[2/4] Building OpenStream plugin..."
+  echo "[2/4] Building shin plugin..."
   cmake --build "${BUILD_DIR}" --config Release
 
-  if [[ ! -f "${BUILD_DIR}/openstream-obs.so" ]]; then
-    echo "ERROR: Build output not found: ${BUILD_DIR}/openstream-obs.so" >&2
+  if [[ ! -f "${BUILD_DIR}/shin-obs.so" ]]; then
+    echo "ERROR: Build output not found: ${BUILD_DIR}/shin-obs.so" >&2
     exit 1
   fi
 
   echo "[3/4] Running C++ contract tests (ctest)..."
   ctest --test-dir "${BUILD_DIR}" --output-on-failure
 else
-  if [[ ! -f "${BUILD_DIR}/openstream-obs.so" ]]; then
-    echo "ERROR: --package-only needs an existing build at ${BUILD_DIR}/openstream-obs.so" >&2
+  if [[ ! -f "${BUILD_DIR}/shin-obs.so" ]]; then
+    echo "ERROR: --package-only needs an existing build at ${BUILD_DIR}/shin-obs.so" >&2
     exit 1
   fi
 fi
@@ -100,31 +93,31 @@ fi
 if [[ -n "${PACKAGE_DIR}" ]]; then
   echo "[4/4] Packaging plugin artifact..."
   mkdir -p "${PACKAGE_DIR}"
-  STAGE_DIR="${PACKAGE_DIR}/openstream-obs-linux-x86_64"
+  STAGE_DIR="${PACKAGE_DIR}/shin-obs-linux-x86_64"
   rm -rf "${STAGE_DIR}"
   mkdir -p "${STAGE_DIR}"
-  cp "${BUILD_DIR}/openstream-obs.so" "${STAGE_DIR}/openstream-obs.so"
-  cp "${SCRIPT_DIR}/tools/installer/install-openstream-plugin-linux.sh" "${STAGE_DIR}/"
-  tar -czf "${PACKAGE_DIR}/openstream-obs-linux-x86_64.tar.gz" -C "${PACKAGE_DIR}" "openstream-obs-linux-x86_64"
-  echo "Packaged: ${PACKAGE_DIR}/openstream-obs-linux-x86_64.tar.gz"
+  cp "${BUILD_DIR}/shin-obs.so" "${STAGE_DIR}/shin-obs.so"
+  cp "${SCRIPT_DIR}/tools/installer/install-shin-plugin-linux.sh" "${STAGE_DIR}/"
+  tar -czf "${PACKAGE_DIR}/shin-obs-linux-x86_64.tar.gz" -C "${PACKAGE_DIR}" "shin-obs-linux-x86_64"
+  echo "Packaged: ${PACKAGE_DIR}/shin-obs-linux-x86_64.tar.gz"
 else
   echo "[4/4] Packaging skipped (set OPENSTREAM_PLUGIN_PACKAGE_DIR to package)."
 fi
 
 if [[ "${INSTALL_USER}" -eq 1 ]]; then
-  "${SCRIPT_DIR}/tools/installer/install-openstream-plugin-linux.sh" --so "${BUILD_DIR}/openstream-obs.so"
+  "${SCRIPT_DIR}/tools/installer/install-shin-plugin-linux.sh" --so "${BUILD_DIR}/shin-obs.so"
 fi
 
 if [[ "${INSTALL_SYSTEM}" -eq 1 ]]; then
-  "${SCRIPT_DIR}/tools/installer/install-openstream-plugin-linux.sh" --so "${BUILD_DIR}/openstream-obs.so" --system
+  "${SCRIPT_DIR}/tools/installer/install-shin-plugin-linux.sh" --so "${BUILD_DIR}/shin-obs.so" --system
 fi
 
 echo ""
 echo "====================================================="
-echo "  SUCCESS! OpenStream plugin built."
+echo "  SUCCESS! shin plugin built."
 echo "====================================================="
 echo ""
-echo "  Plugin: ${BUILD_DIR}/openstream-obs.so"
+echo "  Plugin: ${BUILD_DIR}/shin-obs.so"
 echo ""
-echo "Restart OBS Studio, then add an OpenStream source."
+echo "Restart OBS Studio, then add a shin source."
 echo ""

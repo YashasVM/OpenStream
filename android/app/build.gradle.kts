@@ -29,7 +29,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "dev.openstream.app"
+        applicationId = "dev.shin.app"
         minSdk = 29
         targetSdk = 35
         versionCode = openStreamVersionCode.get()

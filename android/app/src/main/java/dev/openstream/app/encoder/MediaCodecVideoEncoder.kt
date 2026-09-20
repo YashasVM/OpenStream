@@ -69,14 +69,14 @@ class MediaCodecVideoEncoder(
         selection = resolvedSelection
         mimeType = resolvedSelection.mimeType
         Log.i(
-            "OpenStreamEncoder",
+            "shinEncoder",
             "Using hardware encoder ${resolvedSelection.codecName} for $mimeType " +
                 "${width}x${height}@${fps} (${bitrate / 1_000_000} Mbps)",
         )
         val encoder = createConfiguredEncoder(resolvedSelection)
         codec = encoder
 
-        val thread = HandlerThread("OpenStreamEncoder").apply { start() }
+        val thread = HandlerThread("shinEncoder").apply { start() }
         callbackThread = thread
         val handler = Handler(thread.looper)
         val generation = synchronized(deliveryLock) {
@@ -118,7 +118,7 @@ class MediaCodecVideoEncoder(
 
                 override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
                     if (streamGeneration != generation) return
-                    Log.e("OpenStreamEncoder", "MediaCodec encoder error", e)
+                    Log.e("shinEncoder", "MediaCodec encoder error", e)
                     // Route a fatal asynchronous codec failure through the same generation-bound
                     // delivery path as media. SrtStreamClient recognizes this sentinel and marks
                     // the active session failed without attempting to mux an invalid access unit.
@@ -139,7 +139,7 @@ class MediaCodecVideoEncoder(
                         format.containsKey(MediaFormat.KEY_LATENCY)
                     ) {
                         Log.i(
-                            "OpenStreamEncoder",
+                            "shinEncoder",
                             "Encoder accepted latency=${format.getInteger(MediaFormat.KEY_LATENCY)} frame(s)",
                         )
                     }
@@ -205,7 +205,7 @@ class MediaCodecVideoEncoder(
                 surface = encoder.createInputSurface()
                 if (!applyOptionalTuning && firstError != null) {
                     Log.w(
-                        "OpenStreamEncoder",
+                        "shinEncoder",
                         "Encoder rejected optional low-latency hints; using core profile",
                         firstError,
                     )
@@ -252,7 +252,7 @@ class MediaCodecVideoEncoder(
         if (Thread.currentThread() != thread) {
             runCatching { thread.join(CALLBACK_THREAD_JOIN_TIMEOUT_MS) }
             if (thread.isAlive) {
-                Log.w("OpenStreamEncoder", "Encoder callback thread did not exit within timeout")
+                Log.w("shinEncoder", "Encoder callback thread did not exit within timeout")
                 thread.quit()
             }
         }
@@ -304,7 +304,7 @@ class MediaCodecVideoEncoder(
                         MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR,
                     )
                 ) {
-                    Log.d("OpenStreamEncoder", "Skipping ${candidate.name}: CBR is unsupported")
+                    Log.d("shinEncoder", "Skipping ${candidate.name}: CBR is unsupported")
                     return@mapNotNull null
                 }
 
@@ -315,7 +315,7 @@ class MediaCodecVideoEncoder(
                 }.getOrDefault(false)
                 if (!supportsTarget) {
                     Log.d(
-                        "OpenStreamEncoder",
+                        "shinEncoder",
                         "Skipping ${candidate.name}: cannot sustain ${width}x${height}@${fps} " +
                             "at ${bitrate / 1_000_000} Mbps",
                     )
@@ -330,7 +330,7 @@ class MediaCodecVideoEncoder(
                 mime == MediaFormat.MIMETYPE_VIDEO_AVC
             ) {
                 Log.w(
-                    "OpenStreamEncoder",
+                    "shinEncoder",
                     "Hardware HEVC cannot satisfy the requested stream profile; " +
                         "explicitly falling back to hardware AVC",
                 )
@@ -339,12 +339,12 @@ class MediaCodecVideoEncoder(
         }
 
         Log.e(
-            "OpenStreamEncoder",
+            "shinEncoder",
             "No hardware surface encoder can satisfy ${width}x${height}@${fps} " +
                 "at ${bitrate / 1_000_000} Mbps",
         )
         throw IllegalStateException(
-            "OpenStream needs a hardware AVC/HEVC encoder that supports the selected stream profile",
+            "shin needs a hardware AVC/HEVC encoder that supports the selected stream profile",
         )
     }
 

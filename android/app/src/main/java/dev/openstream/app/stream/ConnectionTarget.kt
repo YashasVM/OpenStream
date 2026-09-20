@@ -20,9 +20,9 @@ data class ConnectionTarget(
     }
 
     companion object {
-        const val DEFAULT_NAME = "OpenStream Phone Link"
+        const val DEFAULT_NAME = "shin Phone Link"
         const val DEFAULT_HOST = "192.168.1.2"
-        const val DEFAULT_PORT = 9000
+        const val DEFAULT_PORT = 9100
         const val DEFAULT_LATENCY_MS = 120
 
         fun fromDiscoveredDevice(device: DiscoveredObsDevice): ConnectionTarget {
@@ -36,7 +36,7 @@ data class ConnectionTarget(
         }
 
         fun fromPairingUri(uri: Uri): ConnectionTarget? {
-            if (uri.scheme != "openstream" || uri.host != "connect") return null
+            if (uri.scheme != "shin" || uri.host != "connect") return null
             val host = uri.getQueryParameter("host")?.trim().orEmpty()
             if (host.isBlank()) return null
             val port = uri.getQueryParameter("port")?.toIntOrNull()?.coerceIn(1, 65535) ?: DEFAULT_PORT

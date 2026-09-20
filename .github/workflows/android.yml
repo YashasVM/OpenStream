@@ -64,6 +64,9 @@ jobs:
           chmod +x ./gradlew
           ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 
+      - name: Verify 16 KB native-library alignment
+        run: python tools/check_android_16kb_alignment.py android/app/build/outputs/apk/debug/app-debug.apk
+
       - name: Normalize Android build assets
         run: |
           mkdir -p dist

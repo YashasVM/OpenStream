@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">OpenStream</string>
+    <string name="app_name">shin</string>
 
     <!-- Camera controls -->
     <string name="lens_back_wide">1×</string>
@@ -36,7 +36,7 @@
 
     <!-- Hints -->
     <string name="hint_obs_host">OBS PC IP address</string>
-    <string name="hint_obs_port">Port (9000)</string>
+    <string name="hint_obs_port">Port (9100)</string>
     <string name="hint_latency">Latency (120)</string>
     <string name="hint_listening_port">Listening port</string>
 
