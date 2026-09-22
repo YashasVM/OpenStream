@@ -216,6 +216,17 @@ if (BUILD_TESTING AND UNIX AND NOT APPLE)
     target_link_libraries(openstream-source-settings-tests PRIVATE ${_plugin_libraries} Threads::Threads)
     target_compile_definitions(openstream-source-settings-tests PRIVATE OPENSTREAM_VERSION="${OPENSTREAM_VERSION}")
     add_test(NAME openstream-source-settings-tests COMMAND openstream-source-settings-tests)
+
+    # End-to-end discovery/ownership/control smoke test. The test includes the
+    # source implementation so it exercises the production lifecycle seams,
+    # while linking the same OBS/FFmpeg libraries as the module.
+    add_executable(openstream-camera-assignment-tests
+        ../tests/native/test_camera_assignment.cpp
+        src/async-control-client.cpp)
+    target_include_directories(openstream-camera-assignment-tests PRIVATE ${_plugin_includes})
+    target_link_libraries(openstream-camera-assignment-tests PRIVATE ${_plugin_libraries} Threads::Threads)
+    target_compile_definitions(openstream-camera-assignment-tests PRIVATE OPENSTREAM_VERSION="${OPENSTREAM_VERSION}")
+    add_test(NAME openstream-camera-assignment-tests COMMAND openstream-camera-assignment-tests)
 endif()
 
 target_compile_definitions(openstream-obs PRIVATE

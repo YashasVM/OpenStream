@@ -1129,17 +1129,10 @@ void set_active_phone(OpenStreamSource *ctx, std::optional<PhoneDevice> phone) {
 }
 
 std::optional<PhoneDevice> control_phone(OpenStreamSource *ctx) {
-  {
-    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
-    if (ctx->active_phone.has_value()) {
-      return ctx->active_phone;
-    }
-    if (!ctx->selected_phone_id.empty() &&
-        ctx->selected_phone_id != PhoneDiscoveryReceiver::kAutoPhoneId) {
-      return ctx->phone_discovery.select(ctx->selected_phone_id, ctx->instance_id);
-    }
-  }
-  return std::nullopt;
+  std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+  // Controls are authorized only after /reserve has succeeded and the worker
+  // owns the phone. A selected device alone is not an active session.
+  return ctx->active_phone;
 }
 
 std::string phone_label(const PhoneDevice &phone) {
