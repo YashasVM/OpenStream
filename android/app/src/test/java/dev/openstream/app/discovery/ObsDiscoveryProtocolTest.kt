@@ -40,4 +40,14 @@ class ObsDiscoveryProtocolTest {
             ObsDiscoveryProtocol.parseBeacon(beacon, "", 0L),
         )
     }
+
+    @Test
+    fun legacyOpenStreamBeaconIsAdaptedAtDiscoveryBoundary() {
+        val beacon = """OPENSTREAM/1 {"type":"dev.openstream.listener","version":1,"listenerPort":9000,"host":"10.0.0.7","name":"Legacy OBS"}"""
+        val device = ObsDiscoveryProtocol.parseBeacon(beacon, "192.168.1.24", 42L)
+
+        assertEquals("Legacy OBS", device?.name)
+        assertEquals("192.168.1.24", device?.host)
+        assertEquals(9000, device?.port)
+    }
 }

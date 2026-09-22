@@ -40,14 +40,18 @@ data class ConnectionTarget(
         }
 
         fun fromPairingUri(uri: Uri): ConnectionTarget? {
-            if (uri.scheme != "shin" || uri.host != "connect") return null
+            if (uri.host != "connect") return null
+            val legacy = uri.scheme == "openstream"
+            if (!legacy && uri.scheme != "shin") return null
             val host = uri.getQueryParameter("host")?.trim().orEmpty()
             if (host.isBlank()) return null
-            val port = uri.getQueryParameter("port")?.toIntOrNull()?.coerceIn(1, 65535) ?: DEFAULT_PORT
+            val defaultPort = if (legacy) LEGACY_DEFAULT_PORT else DEFAULT_PORT
+            val port = uri.getQueryParameter("port")?.toIntOrNull()?.coerceIn(1, 65535) ?: defaultPort
             val latencyMs = uri.getQueryParameter("latency")?.toIntOrNull()?.coerceIn(80, 200) ?: DEFAULT_LATENCY_MS
             val bitrateMbps = uri.getQueryParameter("bitrateMbps")?.toIntOrNull()
                 ?.coerceIn(StreamConfig.MIN_BITRATE_MBPS, StreamConfig.MAX_BITRATE_MBPS)
-            val name = uri.getQueryParameter("name")?.ifBlank { DEFAULT_NAME } ?: DEFAULT_NAME
+            val defaultName = if (legacy) LEGACY_DEFAULT_NAME else DEFAULT_NAME
+            val name = uri.getQueryParameter("name")?.ifBlank { defaultName } ?: defaultName
             return ConnectionTarget(
                 name = name,
                 host = host,
@@ -56,5 +60,8 @@ data class ConnectionTarget(
                 bitrateMbps = bitrateMbps,
             )
         }
+
+        private const val LEGACY_DEFAULT_NAME = "OpenStream Phone Link"
+        private const val LEGACY_DEFAULT_PORT = 9000
     }
 }

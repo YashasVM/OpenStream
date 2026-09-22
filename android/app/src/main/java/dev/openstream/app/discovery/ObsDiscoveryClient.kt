@@ -226,22 +226,31 @@ class ObsDiscoveryClient(
 object ObsDiscoveryProtocol {
     private const val PREFIX = "SHIN/1 "
     private const val TYPE = "dev.shin.listener"
+    private const val LEGACY_PREFIX = "OPENSTREAM/1 "
+    private const val LEGACY_TYPE = "dev.openstream.listener"
 
     fun parseBeacon(payload: String, packetHost: String, nowMs: Long): DiscoveredObsDevice? {
-        if (!payload.startsWith(PREFIX)) return null
-        val json = runCatching { JSONObject(payload.removePrefix(PREFIX)) }.getOrNull() ?: return null
-        if (json.optString("type") != TYPE) return null
+        val (prefix, type, legacy) = when {
+            payload.startsWith(PREFIX) -> Triple(PREFIX, TYPE, false)
+            payload.startsWith(LEGACY_PREFIX) -> Triple(LEGACY_PREFIX, LEGACY_TYPE, true)
+            else -> return null
+        }
+        val json = runCatching { JSONObject(payload.removePrefix(prefix)) }.getOrNull() ?: return null
+        if (json.optString("type") != type) return null
         if (json.optInt("version") != 1) return null
 
         val port = json.optInt("listenerPort", -1)
         if (port !in 1..65535) return null
         val advertisedHost = json.optString("host").trim()
+        // The datagram peer is authoritative for both protocol generations;
+        // advertised host remains a fallback for persisted/manual beacons.
         val host = connectionHost(packetHost, advertisedHost)
         if (host.isBlank()) return null
         val fallbackId = json.optString("instanceId", "$packetHost:$port")
+        val fallbackLabel = if (legacy) "OpenStream Phone Link" else "shin Phone Link"
 
         return DiscoveredObsDevice(
-            name = json.optString("name", "shin Phone Link").ifBlank { "shin Phone Link" },
+            name = json.optString("name", fallbackLabel).ifBlank { fallbackLabel },
             host = host,
             port = port,
             latencyMs = json.optInt("latencyMs", 120).coerceIn(80, 200),
