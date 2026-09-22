@@ -22,7 +22,7 @@
 #include "async-control-client.hpp"
 #include "media-clock.hpp"
 #include "control-json.hpp"
-#include "solo-camera-lease.hpp"
+#include "phone-ownership.hpp"
 #include "socket-send.hpp"
 #include <util/platform.h>
 
@@ -539,7 +539,9 @@ class PhoneDiscoveryReceiver {
     if (selected_id.empty() || selected_id == kAutoPhoneId) {
       std::optional<PhoneDevice> deprioritized;
       for (const auto &entry : core.devices_) {
-        if (entry.second.busy && entry.second.reserved_by != source_instance_id) {
+        if ((entry.second.busy && entry.second.reserved_by != source_instance_id) ||
+            (!entry.second.reserved_by.empty() &&
+             entry.second.reserved_by != source_instance_id)) {
           continue;
         }
         if (!deprioritized_id.empty() && entry.second.instance_id == deprioritized_id) {
@@ -553,7 +555,9 @@ class PhoneDiscoveryReceiver {
 
     const auto found = core.devices_.find(selected_id);
     if (found == core.devices_.end() ||
-        (found->second.busy && found->second.reserved_by != source_instance_id)) {
+        ((found->second.busy && found->second.reserved_by != source_instance_id) ||
+         (!found->second.reserved_by.empty() &&
+          found->second.reserved_by != source_instance_id))) {
       return std::nullopt;
     }
     return found->second;
@@ -895,7 +899,7 @@ struct OpenStreamSource {
 // The map holds shared ownership so a lookup can keep the source alive across
 // the lock boundary.
 std::map<obs_source_t *, std::shared_ptr<OpenStreamSource>> g_source_contexts;
-SoloCameraLease g_camera_lease;
+PhoneOwnershipRegistry g_phone_ownership;
 
 // Locked lookup returning shared ownership. Callers hold the returned
 // shared_ptr for the duration of start/stop/post work, then re-validate
@@ -1151,6 +1155,11 @@ std::string phone_label(const PhoneDevice &phone) {
 }
 
 bool reserve_phone(OpenStreamSource *ctx, PhoneDevice &phone) {
+  if (!g_phone_ownership.acquire(phone.instance_id, ctx->instance_id)) {
+    blog(LOG_INFO, "[shin] Phone %s is already reserved by another local source",
+         phone.name.c_str());
+    return false;
+  }
   std::ostringstream body;
   {
     std::lock_guard<std::mutex> lock(ctx->settings_mutex);
@@ -1162,11 +1171,16 @@ bool reserve_phone(OpenStreamSource *ctx, PhoneDevice &phone) {
          << "\"slotLabel\":\"" << json_escape(ctx->slot_label) << "\","
          << "\"bitrateMbps\":" << ctx->bitrate_mbps << "}";
   }
-  return send_control_command(phone.host, phone.control_port, "/reserve", body.str());
+  if (send_control_command(phone.host, phone.control_port, "/reserve", body.str())) {
+    return true;
+  }
+  g_phone_ownership.release(phone.instance_id, ctx->instance_id);
+  return false;
 }
 
 void queue_release_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
   if (phone.reservation_token.empty()) return;
+  g_phone_ownership.release(phone.instance_id, ctx->instance_id);
   const auto client = ctx->camera_controls;
   const std::string host = phone.host;
   const int port = phone.control_port;
@@ -1267,7 +1281,6 @@ void openstream_stop_worker(OpenStreamSource *ctx) {
   }
   set_active_phone(ctx, std::nullopt);
   set_slot_status(ctx, "Offline");
-  g_camera_lease.release(ctx);
 }
 
 bool open_video_decoder(AVFormatContext *format_ctx,
@@ -2103,12 +2116,6 @@ void openstream_start_worker(OpenStreamSource *ctx) {
 
   openstream_stop_worker(ctx);
 
-  if (!g_camera_lease.acquire(ctx)) {
-    set_slot_status(ctx, "Another shin camera is active. Use Add Existing to reuse it, or stop it before retrying.");
-    blog(LOG_WARNING, "[shin] Additional camera session blocked: solo-camera mode permits one active source");
-    return;
-  }
-
   ctx->active_srt_url = srt_url;
   ctx->active_listener_port = listener_port;
   ctx->active_latency_ms = latency_ms;
@@ -2228,11 +2235,16 @@ void *openstream_create(obs_data_t *settings, obs_source_t *source) {
   auto shared = std::make_shared<OpenStreamSource>();
   OpenStreamSource *ctx = shared.get();
   ctx->source = source;
-  const char *saved_source_instance_id = obs_data_get_string(settings, "source_instance_id");
-  ctx->instance_id =
-      (saved_source_instance_id && saved_source_instance_id[0] != '\0')
-          ? saved_source_instance_id
-          : make_instance_id(source);
+  // Settings are copied when an OBS source is duplicated.  Use OBS's
+  // per-source UUID as the reservation owner so a duplicate cannot inherit
+  // the original source's phone lease.  The pointer-based fallback keeps
+  // compatibility with test/stub sources that do not expose a UUID.
+  const char *source_uuid = obs_source_get_uuid(source);
+  if (source_uuid && source_uuid[0] != '\0') {
+    ctx->instance_id = std::string("shin-") + source_uuid;
+  } else {
+    ctx->instance_id = make_instance_id(source);
+  }
   const char *saved_slot_id = obs_data_get_string(settings, "slot_id");
   const char *saved_slot_label = obs_data_get_string(settings, "slot_label");
   ctx->slot_id = (saved_slot_id && saved_slot_id[0] != '\0') ? saved_slot_id : ctx->instance_id;

@@ -160,14 +160,6 @@ int main() {
   require(context->srt_url == "shin:auto", "automatic pairing cannot be restored");
   require(context->slot_label == "Legacy CAM B" && context->slot_id == "saved-legacy-id",
           "legacy scene identity was lost");
-  int existing_camera = 0;
-  require(g_camera_lease.acquire(&existing_camera), "could not simulate existing camera");
-  openstream_start_worker(context.get());
-  require(!context->worker.joinable() && !context->listener_running.load(),
-          "production start bypassed the one-camera gate");
-  require(context->slot_status.find("Another shin camera") != std::string::npos,
-          "blocked camera has no explanation");
-  g_camera_lease.release(&existing_camera);
   auto *properties = openstream_properties(context.get());
   require(obs_properties_get(properties, "manual_receive") != nullptr,
           "manual receive has no user-facing control");

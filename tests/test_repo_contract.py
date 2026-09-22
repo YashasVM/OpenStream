@@ -108,12 +108,13 @@ def test_obs_plugin_pairs_the_selected_phone() -> None:
     assert "control_phone(ctx)" in source
 
 
-def test_obs_solo_camera_preserves_legacy_identity_and_advanced_transport() -> None:
+def test_obs_phone_ownership_preserves_legacy_identity_and_advanced_transport() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
     assert "cam_label_for_index" not in source
     assert "next_available_slot_label_locked" not in source
-    assert "g_camera_lease.acquire(ctx)" in source
-    assert "g_camera_lease.release(ctx)" in source
+    assert "PhoneOwnershipRegistry g_phone_ownership" in source
+    assert "g_phone_ownership.acquire(phone.instance_id, ctx->instance_id)" in source
+    assert "g_phone_ownership.release(phone.instance_id, ctx->instance_id)" in source
     assert '"Phone Camera"' in source
     assert "source_instance_id" in source
     assert "slot_id" in source
@@ -149,7 +150,9 @@ def test_slot_reservation_allows_owned_busy_phone_and_reconnect_hold() -> None:
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
     advertiser = read("android/app/src/main/java/dev/openstream/app/discovery/PhoneDiscoveryAdvertiser.kt")
     assert "entry.second.busy && entry.second.reserved_by != source_instance_id" in source
+    assert "!entry.second.reserved_by.empty()" in source
     assert "found->second.busy && found->second.reserved_by != source_instance_id" in source
+    assert "!found->second.reserved_by.empty()" in source
     assert "set_slot_status(ctx, \"Reconnecting\")" in source
     assert "set_active_phone(ctx, reserved_phone)" in source
     assert '"reservedBy"' in advertiser
