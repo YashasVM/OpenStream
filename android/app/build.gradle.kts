@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins {
     id("com.android.application")
@@ -15,12 +16,16 @@ val hasReleaseSigning = listOf(
     releaseKeyAlias,
     releaseKeyPassword,
 ).all { !it.isNullOrBlank() }
-val openStreamVersionName = providers.gradleProperty("openstream.versionName")
-    .get()
-    .removePrefix("v")
-val openStreamVersionCode = providers.gradleProperty("openstream.versionCode")
-    .map { it.toInt() }
-    .get()
+val productVersionProperties = Properties().apply {
+    rootProject.file("../release/version.properties").inputStream().use(::load)
+}
+val openStreamVersionName = productVersionProperties.getProperty("productVersion")
+    ?.takeIf { it.matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+")) }
+    ?: throw GradleException("release/version.properties must define productVersion as MAJOR.MINOR.PATCH")
+val openStreamVersionCode = productVersionProperties.getProperty("androidVersionCode")
+    ?.toIntOrNull()
+    ?.takeIf { it in 1..2_100_000_000 }
+    ?: throw GradleException("release/version.properties must define androidVersionCode from 1 to 2100000000")
 
 android {
     namespace = "dev.openstream.app"

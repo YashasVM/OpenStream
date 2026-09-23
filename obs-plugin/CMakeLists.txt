@@ -1,12 +1,21 @@
 cmake_minimum_required(VERSION 3.24)
-project(openstream_obs_plugin VERSION 1.0.1 LANGUAGES CXX)
+set(OPENSTREAM_VERSION_PROPERTIES "${CMAKE_CURRENT_LIST_DIR}/../release/version.properties")
+file(STRINGS "${OPENSTREAM_VERSION_PROPERTIES}" OPENSTREAM_PRODUCT_VERSION_LINE REGEX "^productVersion=")
+list(LENGTH OPENSTREAM_PRODUCT_VERSION_LINE OPENSTREAM_PRODUCT_VERSION_COUNT)
+if (NOT OPENSTREAM_PRODUCT_VERSION_COUNT EQUAL 1)
+    message(FATAL_ERROR "${OPENSTREAM_VERSION_PROPERTIES} must define productVersion exactly once")
+endif()
+string(REGEX REPLACE "^productVersion=" "" OPENSTREAM_PRODUCT_VERSION "${OPENSTREAM_PRODUCT_VERSION_LINE}")
+if (NOT OPENSTREAM_PRODUCT_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "Invalid productVersion in ${OPENSTREAM_VERSION_PROPERTIES}: ${OPENSTREAM_PRODUCT_VERSION}")
+endif()
+if (DEFINED OPENSTREAM_VERSION AND NOT OPENSTREAM_VERSION STREQUAL OPENSTREAM_PRODUCT_VERSION)
+    message(FATAL_ERROR "OPENSTREAM_VERSION (${OPENSTREAM_VERSION}) does not match ${OPENSTREAM_VERSION_PROPERTIES} (${OPENSTREAM_PRODUCT_VERSION})")
+endif()
+project(openstream_obs_plugin VERSION "${OPENSTREAM_PRODUCT_VERSION}" LANGUAGES CXX)
 include(CTest)
 find_package(Threads REQUIRED)
-# Version-consistency: keep 1.0.1 in sync with android/app/build.gradle.kts
-# ("1.0.1"), tools/installer/openstream-obs-plugin.iss (#define OpenStreamVersion),
-# build_plugin.bat OPENSTREAM_VERSION, and build_plugin_linux.sh OPENSTREAM_VERSION.
-# Releases ship the APK + plugin atomically.
-set(OPENSTREAM_VERSION "${PROJECT_VERSION}" CACHE STRING "Version embedded in the OBS plugin")
+set(OPENSTREAM_VERSION "${PROJECT_VERSION}" "Version embedded in the OBS plugin")
 
 # Releases are built against OBS Studio 32.2.1 x64.  Its bundled FFmpeg ABI is
 # avformat 62, avcodec 62, avutil 60 and swscale 9.  Keeping this declaration

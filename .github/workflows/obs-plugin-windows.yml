@@ -72,15 +72,17 @@ jobs:
 
       - name: Build plugin installer
         shell: powershell
-        env:
-          OPENSTREAM_VERSION: 1.0.1
         run: |
+          $versionLine = Select-String -Path release/version.properties -Pattern '^productVersion='
+          if ($versionLine.Count -ne 1) { throw 'release/version.properties must define productVersion exactly once' }
+          $version = $versionLine.Line.Substring('productVersion='.Length)
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid productVersion: $version" }
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           & $iscc "tools\installer\openstream-obs-plugin.iss" `
             "/DPluginDll=$PWD\obs-plugin\build\openstream-obs.dll" `
             "/DOutputDir=$PWD\artifacts" `
             "/DOutputBaseFilename=openstream-obs-plugin-installer-windows-x64" `
-            "/DOpenStreamVersion=$env:OPENSTREAM_VERSION"
+            "/DOpenStreamVersion=$version"
 
       - name: Smoke-test executable installer migration
         shell: powershell

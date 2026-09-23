@@ -4,9 +4,7 @@
 #
 #   ./build_plugin_linux.sh [--package-only] [--install-user] [--install-system]
 #
-# Defaults mirror build_plugin.bat: OPENSTREAM_VERSION defaults to 1.0.1
-# (keep in sync with obs-plugin/CMakeLists.txt, android/app/build.gradle.kts,
-# and tools/installer/openstream-obs-plugin.iss).
+# Product version is read from release/version.properties and passed to CMake.
 #
 # Dependencies (do not install system packages from here; install them first,
 # see docs/linux.md):
@@ -18,7 +16,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="${SCRIPT_DIR}/obs-plugin"
 BUILD_DIR="${OPENSTREAM_PLUGIN_BUILD_DIR:-${PLUGIN_DIR}/build}"
 PACKAGE_DIR="${OPENSTREAM_PLUGIN_PACKAGE_DIR:-}"
-OPENSTREAM_VERSION="${OPENSTREAM_VERSION:-1.0.1}"
+VERSION_PROPERTIES="${SCRIPT_DIR}/release/version.properties"
+mapfile -t product_versions < <(sed -n 's/^productVersion=//p' "${VERSION_PROPERTIES}")
+if [[ "${#product_versions[@]}" -ne 1 || ! "${product_versions[0]}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "ERROR: ${VERSION_PROPERTIES} must define productVersion exactly once as MAJOR.MINOR.PATCH." >&2
+  exit 1
+fi
+PRODUCT_VERSION="${product_versions[0]}"
+if [[ -n "${OPENSTREAM_VERSION:-}" && "${OPENSTREAM_VERSION}" != "${PRODUCT_VERSION}" ]]; then
+  echo "ERROR: OPENSTREAM_VERSION=${OPENSTREAM_VERSION} does not match ${VERSION_PROPERTIES} (${PRODUCT_VERSION})." >&2
+  exit 1
+fi
+OPENSTREAM_VERSION="${PRODUCT_VERSION}"
 
 PACKAGE_ONLY=0
 INSTALL_USER=0

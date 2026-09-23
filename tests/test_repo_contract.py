@@ -1,3 +1,4 @@
+import json
 import re
 
 from _helpers import read_text as read
@@ -279,8 +280,6 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     release_workflow = read(".github/workflows/release.yml")
     release_docs = read("docs/release.md")
     plugin_builder = read("build_plugin.bat")
-    gradle_properties = read("android/gradle.properties")
-
     assert ":app:assembleDebug" in android_workflow
     assert "openstream.nonStreamingCiBuild" not in android_workflow
     assert "openstream-android-debug-apk" in android_workflow
@@ -312,7 +311,7 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "OPENSTREAM_SKIP_INSTALL" in plugin_builder
     assert "OPENSTREAM_PLUGIN_PACKAGE_DIR" in plugin_builder
     assert "Compress-Archive" in plugin_builder
-    assert "org.gradle.java.home" not in gradle_properties
+    assert "org.gradle.java.home" not in read("android/gradle.properties")
 
 
 def test_manual_obs_installer_replaces_known_plugin_copies() -> None:
@@ -330,14 +329,10 @@ def test_release_build_fails_without_signing_and_keystores_are_ignored() -> None
     gitignore = read(".gitignore")
 
     assert "Release builds require OPENSTREAM_RELEASE_KEYSTORE" in app_gradle
-    assert "openstream.versionName" in app_gradle
-    assert "openstream.versionCode" in app_gradle
-    assert 'openstream.versionName' in app_gradle
-    assert 'openstream.versionCode' in app_gradle
-    gradle_properties = read("android/gradle.properties")
-    version_code = re.search(r"^openstream\.versionCode=(\d+)$", gradle_properties, re.MULTILINE)
+    version_properties = read("release/version.properties")
+    version_code = re.search(r"^androidVersionCode=(\d+)$", version_properties, re.MULTILINE)
     assert version_code is not None
-    assert int(version_code.group(1)) > 0
+    assert 0 < int(version_code.group(1)) <= 2_100_000_000
     assert "*.keystore" in gitignore
     assert "*.jks" in gitignore
 
@@ -347,10 +342,29 @@ def test_legacy_android_and_restored_obs_metadata_are_explicit() -> None:
     cmake = read("obs-plugin/CMakeLists.txt")
     installer = read("tools/installer/openstream-obs-plugin.iss")
 
-    gradle_properties = read("android/gradle.properties")
-    assert "openstream.versionName=1.0.1" in gradle_properties
-    assert "project(openstream_obs_plugin VERSION 1.0.1" in cmake
-    assert '#define OpenStreamVersion "1.0.1"' in installer
+    version_properties = read("release/version.properties")
+    product_version = re.search(r"^productVersion=([0-9]+\.[0-9]+\.[0-9]+)$", version_properties, re.MULTILINE)
+    assert product_version is not None
+    assert "release/version.properties" in app_gradle
+    assert "release/version.properties" in cmake
+    assert "OpenStreamVersion must be passed from release/version.properties" in installer
+    assert "version.properties" in read("build_plugin.bat")
+    assert "release/version.properties" in read("build_plugin_linux.sh")
+    assert "release/version.properties" in read(".github/workflows/obs-plugin-windows.yml")
+    assert "1.0.1" not in app_gradle + cmake + installer
+
+
+def test_published_apk_code_is_below_candidate_code() -> None:
+    version_properties = read("release/version.properties")
+    version_code = re.search(r"^androidVersionCode=(\d+)$", version_properties, re.MULTILINE)
+    assert version_code is not None
+    assert int(version_code.group(1)) > 1785874048
+
+
+def test_website_package_version_is_tooling_only() -> None:
+    package = json.loads(read("website/package.json"))
+    assert package["private"] is True
+    assert package["version"] == "0.0.0"
 
 
 def test_shin_linux_release_includes_native_obs_dock_dependencies() -> None:

@@ -11,7 +11,7 @@
 #endif
 
 #ifndef OpenStreamVersion
-  #define OpenStreamVersion "1.0.1"
+  #error OpenStreamVersion must be passed from release/version.properties
 #endif
 
 [Setup]
@@ -65,4 +65,3 @@ Type: files; Name: "{commonappdata}\obs-studio\plugins\openstream-obs\bin\64bit\
 Type: files; Name: "{userappdata}\obs-studio\plugins\openstream-beta-obs\bin\64bit\openstream-obs.dll"
 Type: files; Name: "{commonappdata}\obs-studio\plugins\openstream-beta-obs\bin\64bit\openstream-obs.dll"
 Type: filesandordirs; Name: "{app}\data\obs-plugins\openstream-beta-obs"
-

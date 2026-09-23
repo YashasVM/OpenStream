@@ -29,7 +29,18 @@ set "OBS_BIN="
 set "PACKAGE_DIR="
 set "CMAKE_EXE=cmake"
 set "QT_ROOT=%OPENSTREAM_QT_ROOT%"
-if not defined OPENSTREAM_VERSION set "OPENSTREAM_VERSION=1.0.1"
+set "VERSION_PROPERTIES=%SCRIPT_DIR%release\version.properties"
+set "PRODUCT_VERSION="
+for /f "usebackq delims=" %%V in (`powershell -NoProfile -Command "$p='%VERSION_PROPERTIES%'; $m=Select-String -Path $p -Pattern '^productVersion='; if($m.Count -ne 1){exit 1}; $m[0].Line.Substring('productVersion='.Length)"`) do set "PRODUCT_VERSION=%%V"
+if not defined PRODUCT_VERSION (
+    echo ERROR: %VERSION_PROPERTIES% must define productVersion exactly once.
+    exit /b 1
+)
+if defined OPENSTREAM_VERSION if not "%OPENSTREAM_VERSION%"=="%PRODUCT_VERSION%" (
+    echo ERROR: OPENSTREAM_VERSION %OPENSTREAM_VERSION% does not match %VERSION_PROPERTIES% (%PRODUCT_VERSION%).
+    exit /b 1
+)
+set "OPENSTREAM_VERSION=%PRODUCT_VERSION%"
 
 if defined OPENSTREAM_OBS_INSTALL set "OBS_INSTALL=%OPENSTREAM_OBS_INSTALL%"
 if defined OPENSTREAM_PLUGIN_BUILD_DIR set "BUILD_DIR=%OPENSTREAM_PLUGIN_BUILD_DIR%"
