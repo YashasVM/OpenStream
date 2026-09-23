@@ -63,6 +63,9 @@ extern "C" {
 OBS_DECLARE_MODULE()
 
 namespace {
+constexpr auto kOpenStreamProductVersionMarker =
+    "OPENSTREAM_PRODUCT_VERSION=" OPENSTREAM_PRODUCT_VERSION;
+
 // Single deleter for all FFmpeg/libswscale handles (unique_ptr needs a type;
 // the correct free function is selected by pointee type at compile time).
 struct AvDeleter {
@@ -2754,8 +2757,8 @@ bool obs_module_load(void) {
 #if defined(__linux__)
   openstream_register_dock();
 #endif
-  blog(LOG_INFO, "[shin] OBS plugin loaded: OpenStream version %s, OPENSTREAM_PRODUCT_VERSION=%s, protocol 1, video + audio + remote controls",
-       OPENSTREAM_PRODUCT_VERSION, OPENSTREAM_PRODUCT_VERSION);
+  blog(LOG_INFO, "[shin] OBS plugin loaded: OpenStream version %s, %s, protocol 1, video + audio + remote controls",
+       OPENSTREAM_PRODUCT_VERSION, kOpenStreamProductVersionMarker);
   return true;
 }
 

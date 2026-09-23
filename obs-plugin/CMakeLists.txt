@@ -234,7 +234,10 @@ if (BUILD_TESTING AND UNIX AND NOT APPLE)
     get_target_property(_plugin_libraries openstream-obs LINK_LIBRARIES)
     target_include_directories(openstream-source-settings-tests PRIVATE ${_plugin_includes})
     target_link_libraries(openstream-source-settings-tests PRIVATE ${_plugin_libraries} Threads::Threads)
-    target_compile_definitions(openstream-source-settings-tests PRIVATE OPENSTREAM_VERSION="${OPENSTREAM_VERSION}")
+    target_compile_definitions(openstream-source-settings-tests PRIVATE
+        OPENSTREAM_VERSION="${OPENSTREAM_VERSION}"
+        OPENSTREAM_PRODUCT_VERSION="${OPENSTREAM_VERSION}"
+    )
     add_test(NAME openstream-source-settings-tests COMMAND openstream-source-settings-tests)
 endif()
 
