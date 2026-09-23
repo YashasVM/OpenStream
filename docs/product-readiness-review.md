@@ -2,6 +2,8 @@
 
 Reviewed on 2026-09-23 against the current `fix/openstream-prod-reliability` candidate. This is a source and build review, not a device acceptance result. The published v1.0.1 downloads predate the candidate changes.
 
+The ordered implementation plan is in the [agent roadmap](agent-roadmap.md).
+
 ## Assessment
 
 **Confidence that this candidate is ready for broad, professional use: 5/10.** This is a judgment about release evidence and user experience, not a measured failure rate. The core Android-to-OBS design is credible and the product reportedly works, but a new user still has several ways to get stuck without a clear recovery path. The most important candidate workflow has no recorded physical phone and OBS sign-off.
@@ -10,7 +12,7 @@ Reviewed on 2026-09-23 against the current `fix/openstream-prod-reliability` can
 | --- | ---: | --- |
 | Core media and protocol engineering | 7/10 | Hardware phone encode, bounded SRT send queue, source timestamp handling, reservation logic, reconnect status, Linux and Windows native builds. See `docs/architecture.md`, `docs/protocol.md`, and `docs/reliability-audit.md`. |
 | Reliability proof | 4/10 | CI runs repository, Android, and plugin checks, but `docs/reliability-audit.md` records no candidate device run. `docs/testing.md` lists the missing 30-minute, loss, sync, and old/new compatibility checks. |
-| First-use and daily operation | 4/10 | Discovery, manual connection, source controls, and setup docs exist. Android still labels itself `shin`; OBS uses legacy V7/V8 and `shin` names. Connection recovery depends on status text and setup instructions. |
+| First-use and daily operation | 4/10 | Discovery, manual connection, source controls, and setup docs exist. Android and the current OBS source still display `shin`, while setup docs instruct users to add `OpenStream V8`. The live control dock builds only on Linux. |
 | Installation and release discipline | 6/10 | Android signing and version-code gates, Windows installer tests, Linux packaging, checksums, and CI are present. The published release differs from the current candidate and Linux support is still a source-built candidate. |
 | Trust and user feedback | 3/10 | No top-level project license, contribution guide, security contact, privacy statement, issue templates, or recorded user acceptance results. The absence of open issues is not evidence of user satisfaction. |
 
@@ -20,15 +22,15 @@ The score is weighted toward the core workflow and reliability proof. It should 
 
 - The product has a coherent local path: Camera2, hardware AVC and AAC, MPEG-TS over SRT, and a native OBS source. It avoids a cloud account and a second phone encoder in the standard mode.
 - The app and plugin have explicit ownership and reconnect behavior. The phone transport has a byte-bounded send queue; the receiver preserves source timestamps and logs late media gaps.
-- CI covers Android build and lint, C++ tests, Windows packaging, Linux packaging, and release signing checks. Legacy OBS scene identifiers remain compatible.
+- CI covers Android build and lint, C++ tests, Windows packaging, Linux packaging, and release signing checks. Saved-scene compatibility still needs an actual old-scene load test.
 - The repo has a setup guide and protocol documentation, which give future maintainers a base for field support.
 
 ## Highest-impact gaps
 
 1. **Prove the complete candidate workflow on devices.** `docs/reliability-audit.md` explicitly lacks a physical Android-to-OBS run. Test install-over-release, discovery, pairing, 30-minute video and audio, screen lock/background behavior, lens and torch changes, short and long Wi-Fi loss, OBS restart, Virtual Camera, and source removal on Windows and native Linux. Record device, OS, OBS version, network, measured latency, A/V offset, dropped frames, heat, and recovery time. Test previous and candidate Android/plugin combinations before a protocol release.
-2. **Give the media session an Android owner independent of the activity.** `MainActivity.kt` creates the camera, encoders, transport, discovery, and control server, then stops them in `onStop()`. A foreground camera service or equivalent session owner should manage the live state and explicit stop action; the activity should observe it. First reproduce background and screen-lock behavior on supported Android versions, then implement the lifecycle change with behavioral tests.
+2. **Give the media session an Android owner independent of the activity.** `MainActivity.kt` creates the camera, encoders, transport, discovery, and control server, then stops them in `onStop()`. `surfaceDestroyed()` also calls camera/server teardown from a UI callback, and the Stop button schedules the listener to start again. A foreground camera service or equivalent session owner should manage live state, a real Stop/Start action, and teardown off the UI thread; the activity should observe it. First reproduce background and screen-lock behavior on supported Android versions, then implement the lifecycle change with behavioral tests.
 3. **Make pairing authorization real.** `docs/protocol.md` says protocol V1 does not authenticate the control channel. `CameraControlServer.kt` accepts an optional reservation token and authorizes camera commands by reserved peer address. Add an explicit pairing confirmation and session secret, validate every control command, and show the paired OBS identity on the phone. Roll out with a versioned Android/plugin compatibility plan so old clients fail with an understandable upgrade message.
-4. **Make one connection model visible everywhere.** The Android launcher name is `shin` (`strings.xml`); the plugin still includes `shin` prompts and OBS V7/V8 labels. Keep legacy identifiers internally for saved scenes, but present `OpenStream Camera` consistently in the phone, OBS source, dock, installer, and docs. Use the same human-readable states: Available, Pairing, Connected, Live, Reconnecting, and Action needed.
+4. **Make one connection model visible everywhere.** The Android launcher name and current OBS source picker say `shin`; the docs call the source `OpenStream V8`. The Linux dock is absent from the Windows build. Verify saved scenes from earlier releases in OBS before changing any source ID, then present `OpenStream Camera` consistently in the phone, OBS source, controls, installer, and docs. Use the same human-readable states: Available, Pairing, Connected, Live, Reconnecting, and Action needed.
 5. **Make failure recovery a product feature.** Show whether discovery, control, and SRT media are reachable separately. Give a specific next action for denied permissions, wrong network, busy phone, blocked port, failed hardware encoder, missing audio, and stale reservation. Add a redacted support bundle with app/plugin versions, device/OBS/OS details, recent state changes, and error codes. Never include pairing secrets or raw video.
 6. **Finish the public trust basics.** Choose and add a top-level license after checking ownership and bundled dependencies. Add a security reporting path, privacy and local-network data statement, supported-platform table, contribution guide, issue templates, and a changelog tied to actual artifacts. Do not call the repository open-source until the license is published.
 
@@ -68,8 +70,8 @@ For example, a future candidate could be `productVersion=1.1.0` with `androidVer
 
 ## Trim or consolidate
 
-- Keep V7/V8 and `shin` protocol IDs as compatibility adapters, but remove them from new user-facing labels. Do not delete saved-scene support.
-- Put setup options in OBS source properties and live controls/status in one dock. Remove duplicate controls once the dock covers every live action. Keep the Android screen focused on phone selection, preview, camera controls, and a clear Stop action.
+- Preserve any legacy source and `shin` protocol IDs that old artifacts actually use, but remove them from new user-facing labels. Prove saved-scene support with old scene fixtures before claiming compatibility.
+- Put setup options in OBS source properties and live controls/status in one control area on both supported hosts. Build a Windows dock or choose a cross-platform alternative before removing existing property controls. Keep the Android screen focused on phone selection, preview, camera controls, and a clear Stop action.
 - Hide raw host, port, and latency fields behind an Advanced path. Offer manual pairing only when discovery fails or the user chooses it.
 - Stop promoting unvalidated claims such as “reliable reconnects” or specific low latency in public copy until device measurements support them. Keep the existing technical target values in protocol docs.
 - Keep the Python receiver as a developer tool. It should not become another supported end-user path.
@@ -78,7 +80,7 @@ For example, a future candidate could be `productVersion=1.1.0` with `androidVer
 ## A practical release sequence
 
 1. **First evidence pass.** Run the current candidate with at least three distinct Android devices and both supported OBS hosts. Measure setup completion, 30-minute stability, reconnect time, audio/video offset, and support questions. Fix any crash, stuck reservation, or silent media failure first.
-2. **Lifecycle and pairing pass.** Move session ownership out of the activity, add observable connection states, then version and secure the pairing/control protocol. Test candidate/previous combinations and preserve legacy scene adapters.
+2. **Lifecycle and pairing pass.** Move session ownership out of the activity, add observable connection states, then version and secure the pairing/control protocol. Test candidate/previous combinations and add scene adapters only for IDs confirmed in old release artifacts.
 3. **Professional onboarding pass.** Align branding, simplify the OBS setup and live dock, add actionable diagnostics, and test the entire flow with people who have never built the repo.
 4. **Release operations pass.** Publish a license and support policies, automate compatibility gates where possible, record manual acceptance evidence for the exact release artifacts, and release the Android APK and matching OBS plugin together.
 
