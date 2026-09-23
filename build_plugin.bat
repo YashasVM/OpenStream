@@ -33,23 +33,22 @@ set "VERSION_PROPERTIES=%SCRIPT_DIR%release\version.properties"
 set "PRODUCT_VERSION="
 set "VERSION_OUTPUT=%TEMP%\openstream-version-%RANDOM%-%RANDOM%.txt"
 powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%tools\installer\Read-ProductVersion.ps1" -Path "%VERSION_PROPERTIES%" > "%VERSION_OUTPUT%"
-if errorlevel 1 (
-    del /q "%VERSION_OUTPUT%" >nul 2>nul
-    echo ERROR: Could not read a valid productVersion from %VERSION_PROPERTIES%.
-    exit /b 1
-)
+if errorlevel 1 goto openstream_version_read_error
 set /p "PRODUCT_VERSION="<"%VERSION_OUTPUT%"
 del /q "%VERSION_OUTPUT%" >nul 2>nul
-if not defined PRODUCT_VERSION (
-    echo ERROR: %VERSION_PROPERTIES% must define productVersion exactly once.
-    exit /b 1
-)
-if defined OPENSTREAM_VERSION (
-    if not "%OPENSTREAM_VERSION%"=="%PRODUCT_VERSION%" (
-        echo ERROR: OPENSTREAM_VERSION %OPENSTREAM_VERSION% does not match %VERSION_PROPERTIES% (%PRODUCT_VERSION%).
-        exit /b 1
-    )
-)
+if not defined PRODUCT_VERSION goto openstream_version_missing
+if not defined OPENSTREAM_VERSION goto openstream_version_ready
+if "%OPENSTREAM_VERSION%"=="%PRODUCT_VERSION%" goto openstream_version_ready
+echo ERROR: OPENSTREAM_VERSION %OPENSTREAM_VERSION% does not match %VERSION_PROPERTIES% (%PRODUCT_VERSION%).
+exit /b 1
+:openstream_version_read_error
+del /q "%VERSION_OUTPUT%" >nul 2>nul
+echo ERROR: Could not read a valid productVersion from %VERSION_PROPERTIES%.
+exit /b 1
+:openstream_version_missing
+echo ERROR: %VERSION_PROPERTIES% must define productVersion exactly once.
+exit /b 1
+:openstream_version_ready
 set "OPENSTREAM_VERSION=%PRODUCT_VERSION%"
 
 if defined OPENSTREAM_OBS_INSTALL set "OBS_INSTALL=%OPENSTREAM_OBS_INSTALL%"
