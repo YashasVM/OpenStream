@@ -68,6 +68,9 @@ class MainActivity : Activity() {
     private lateinit var phoneAdvertiser: PhoneDiscoveryAdvertiser
     private lateinit var obsDiscoveryClient: ObsDiscoveryClient
     private lateinit var controlServer: CameraControlServer
+    private val sessionWorker = SessionWorker { error ->
+        Log.e("shin", "Session lifecycle operation failed", error)
+    }
 
     private val streamConfig = StreamConfig.Default1080p30
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -78,11 +81,12 @@ class MainActivity : Activity() {
     @Volatile private var phoneConnected = false
     @Volatile private var selectedObsHost: String? = null
     @Volatile private var listenerThread: Thread? = null
-    @Volatile private var callerConnectThread: Thread? = null
+    @Volatile private var callerConnecting = false
     @Volatile private var callerGeneration = 0L
     @Volatile private var pendingListenerStart = false
     @Volatile private var listenerGeneration = 0L
     @Volatile private var activityStarted = false
+    @Volatile private var sessionWorkGeneration = 0L
     private var keepScreenOn = false
     private var displayOff = false
     private var originalBrightness = -1f
@@ -185,7 +189,7 @@ class MainActivity : Activity() {
             onSwitchLens = { lens -> runOnUiThread { selectLens(lens) } },
             onToggleTorch = { enabled -> runOnUiThread {
                 torchOn = enabled
-                camera.setTorch(enabled)
+                sessionWorker.submit { camera.setTorch(enabled) }
                 setTorchUi(enabled)
             }},
             reservationProvider = { reservedBy },
@@ -208,6 +212,7 @@ class MainActivity : Activity() {
 
         cameraPreview.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
+                sessionWorkGeneration += 1
                 initializeLenses()
                 startPreviewIfAllowed()
                 startPhoneServerIfAllowed()
@@ -217,10 +222,8 @@ class MainActivity : Activity() {
                 adjustPreviewAspectRatio()
             }
             override fun surfaceDestroyed(holder: SurfaceHolder) {
-                // Close the camera before encoder teardown tries to rebuild a
-                // preview-only session against this now-invalid surface.
-                camera.stop()
-                stopPhoneServer(clearReservation = false, updateStatus = false)
+                sessionWorkGeneration += 1
+                stopPhoneServer(clearReservation = false, updateStatus = false, stopCamera = true)
             }
         })
 
@@ -232,9 +235,11 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         activityStarted = true
-        phoneAdvertiser.start()
-        obsDiscoveryClient.start()
-        controlServer.start()
+        sessionWorker.submit {
+            phoneAdvertiser.start()
+            obsDiscoveryClient.start()
+            controlServer.start()
+        }
         startPreviewIfAllowed()
         startPhoneServerIfAllowed()
     }
@@ -255,6 +260,7 @@ class MainActivity : Activity() {
 
     override fun onStop() {
         activityStarted = false
+        sessionWorkGeneration += 1
         cancelLensRestart()
         stopLiveDotAnimation()
         val session = phoneSessionState.snapshot
@@ -263,16 +269,12 @@ class MainActivity : Activity() {
         ) {
             phoneSessionState.connectionLost(session.generation)
         }
-        // Never block the UI thread on network/thread joins (AGENTS.md 6).
-        // Flag flips are immediate; heavy teardown runs on a daemon thread.
-        // stopPhoneServer detects a non-UI thread and runs blocking teardown inline.
-        Thread({
-            runCatching { camera.stop() }
-            runCatching { stopPhoneServer(clearReservation = false, updateStatus = false) }
-            runCatching { obsDiscoveryClient.stop() }
-            runCatching { phoneAdvertiser.stop() }
-            runCatching { controlServer.stop() }
-        }, "shinActivityStop").apply { isDaemon = true; start() }
+        stopPhoneServer(
+            clearReservation = false,
+            updateStatus = false,
+            stopCamera = true,
+            stopComponents = true,
+        )
         super.onStop()
     }
 
@@ -281,6 +283,7 @@ class MainActivity : Activity() {
         identifyHideRunnable?.let(mainHandler::removeCallbacks)
         identifyHideRunnable = null
         mainHandler.removeCallbacksAndMessages(null)
+        sessionWorker.close()
         super.onDestroy()
     }
 
@@ -409,11 +412,13 @@ class MainActivity : Activity() {
                 }
                 return@post
             }
-            if (activeTargetName == null && callerConnectThread == null) return@post
+            if (activeTargetName == null && !callerConnecting) return@post
             phoneSessionState.connectionLost(phoneSessionState.snapshot.generation)
             stopStream(updateStatus = false)
             startPreviewIfAllowed()
-            startPhoneServerIfAllowed()
+            sessionWorker.submit {
+                mainHandler.post { startPhoneServerIfAllowed() }
+            }
             statusText.text = "Connection lost"
             statusText.setTextColor(getColor(R.color.os_warning))
             statusDetail.text = getString(R.string.status_waiting)
@@ -427,8 +432,9 @@ class MainActivity : Activity() {
             if (activeStreamBitrate == nextBitrate) return
             activeStreamBitrate = nextBitrate
             if (activeTargetName == null) {
-                encoder.stop()
+                val previousEncoder = encoder
                 encoder = createVideoEncoder(activeStreamBitrate)
+                sessionWorker.submit { previousEncoder.stop() }
             }
         }
     }
@@ -436,8 +442,11 @@ class MainActivity : Activity() {
     private fun setupGestureDetector() {
         scaleGestureDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
-                val newZoom = camera.scaleZoom(detector.scaleFactor)
-                showZoomLabel(newZoom)
+                val newZoom = camera.zoomRatio * detector.scaleFactor
+                sessionWorker.submit {
+                    val appliedZoom = camera.setZoom(newZoom)
+                    mainHandler.post { showZoomLabel(appliedZoom) }
+                }
                 return true
             }
         })
@@ -453,11 +462,20 @@ class MainActivity : Activity() {
 
     private fun initializeLenses() {
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
-        availableLenses = camera.availableLenses()
-        if (currentLens !in availableLenses) {
-            currentLens = availableLenses.firstOrNull { it.isBackFacing } ?: availableLenses.first()
+        val generation = sessionWorkGeneration
+        sessionWorker.submitIfCurrent(generation, { sessionWorkGeneration }) {
+            val lenses = camera.availableLenses()
+            mainHandler.post {
+                if (sessionWorkGeneration != generation ||
+                    checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED
+                ) return@post
+                availableLenses = lenses
+                if (currentLens !in availableLenses) {
+                    currentLens = availableLenses.firstOrNull { it.isBackFacing } ?: availableLenses.first()
+                }
+                buildLensButtons()
+            }
         }
-        buildLensButtons()
     }
 
     private fun buildLensButtons() {
@@ -493,14 +511,23 @@ class MainActivity : Activity() {
         }
         val wasStreaming = activeTargetName != null
         // Stop the encoder before switching cameras to avoid surface conflicts
-        if (wasStreaming) {
-            camera.stopStreaming()
-            encoder.stop()
-        }
         currentLens = lens
-        runCatching { camera.switchLens(lens) }.onFailure { error ->
-            Log.e("shin", "Lens switch failed", error)
-            statusDetail.text = error.message ?: "Lens switch failed"
+        val lensGeneration = ++sessionWorkGeneration
+        sessionWorker.submitIfCurrent(lensGeneration, { sessionWorkGeneration }) {
+            runCatching {
+                if (wasStreaming) {
+                    camera.stopStreaming()
+                    encoder.stop()
+                }
+                camera.switchLens(lens)
+            }.onFailure { error ->
+                Log.e("shin", "Lens switch failed", error)
+                mainHandler.post {
+                    if (sessionWorkGeneration == lensGeneration) {
+                        statusDetail.text = error.message ?: "Lens switch failed"
+                    }
+                }
+            }
         }
         // If we were streaming, re-create the encoder and re-attach after the camera settles.
         // MediaCodecList probing is heavy; never run encoder.start() on the UI thread.
@@ -509,22 +536,23 @@ class MainActivity : Activity() {
             val restart = Runnable {
                 lensRestartRunnable = null
                 if (!activityStarted || activeTargetName == null) return@Runnable
-                Thread({
-                    val result = runCatching {
-                        // Single-flight with caller/listener paths via callerLifecycleLock.
+                sessionWorker.submitIfCurrent(lensGeneration, { sessionWorkGeneration }) {
+                    if (!activityStarted || activeTargetName == null) return@submitIfCurrent
+                    runCatching {
                         synchronized(callerLifecycleLock) {
                             encoder.start()
                             camera.startStreaming(encoder.inputSurface())
                         }
-                    }
-                    result.onFailure { e ->
-                        Log.e("shin", "Failed to restart encoder after lens switch", e)
+                    }.onFailure { error ->
+                        Log.e("shin", "Failed to restart encoder after lens switch", error)
                         mainHandler.post {
-                            statusText.text = "Encoder error"
-                            statusDetail.text = e.message ?: "Unknown"
+                            if (sessionWorkGeneration == lensGeneration) {
+                                statusText.text = "Encoder error"
+                                statusDetail.text = error.message ?: "Unknown"
+                            }
                         }
                     }
-                }, "shinLensRestart").apply { isDaemon = true; start() }
+                }
             }
             lensRestartRunnable = restart
             mainHandler.postDelayed(restart, LENS_RESTART_DELAY_MS)
@@ -569,7 +597,8 @@ class MainActivity : Activity() {
         // Only works on back-facing cameras
         if (currentLens.isFrontFacing) return
         torchOn = !torchOn
-        camera.setTorch(torchOn)
+        val enabled = torchOn
+        sessionWorker.submit { camera.setTorch(enabled) }
         setTorchUi(torchOn)
     }
 
@@ -740,8 +769,11 @@ class MainActivity : Activity() {
         renderDisconnectVisibility()
         val generation = callerGeneration + 1
         callerGeneration = generation
-        val thread = Thread({
+        callerConnecting = true
+        val accepted = sessionWorker.submit {
             try {
+                // This operation runs after the queued teardown and owns the
+                // caller socket, codec, and camera transition as one serial unit.
                 streamClient.connect(
                     url = target.toSrtCallerUrl(),
                     codecMime = encoder.codecName,
@@ -749,17 +781,19 @@ class MainActivity : Activity() {
                     height = streamConfig.height,
                     fps = streamConfig.fps,
                 )
+                check(callerGeneration == generation) { "SRT caller connection was cancelled" }
+                check(phoneSessionState.snapshot.generation == sessionGeneration) {
+                    "Phone session was superseded"
+                }
                 synchronized(callerLifecycleLock) {
-                    check(callerGeneration == generation) { "SRT caller connection was cancelled" }
-                    check(phoneSessionState.snapshot.generation == sessionGeneration) {
-                        "Phone session was superseded"
-                    }
                     encoder.start()
                     startAudioIfAllowed()
                     camera.startStreaming(encoder.inputSurface())
                 }
                 mainHandler.post {
-                    if (callerGeneration != generation) return@post
+                    if (callerGeneration != generation ||
+                        phoneSessionState.snapshot.generation != sessionGeneration
+                    ) return@post
                     phoneSessionState.connected(sessionGeneration)
                     activeTargetName = target.name
                     mainHandler.removeCallbacks(statsTicker)
@@ -770,7 +804,9 @@ class MainActivity : Activity() {
                 synchronized(callerLifecycleLock) {
                     if (callerGeneration == generation) {
                         streamClient.disconnect()
-                        stopActiveEncoding(updateStatus = false)
+                        camera.stopStreaming()
+                        encoder.stop()
+                        audioEncoder.stop()
                     }
                 }
                 mainHandler.post {
@@ -782,15 +818,15 @@ class MainActivity : Activity() {
                     statusDetail.text = error.message ?: "Unknown error"
                 }
             } finally {
-                if (callerConnectThread === Thread.currentThread()) {
-                    callerConnectThread = null
-                }
+                if (callerGeneration == generation) callerConnecting = false
             }
-        }, "shinPhoneSrtCaller").apply {
-            isDaemon = true
         }
-        callerConnectThread = thread
-        thread.start()
+        if (!accepted) {
+            callerConnecting = false
+            phoneSessionState.failed(sessionGeneration)
+            statusText.text = "Session busy"
+            statusDetail.text = "Wait for the current camera transition to finish"
+        }
     }
 
     private fun startAudioIfAllowed() {
@@ -840,7 +876,6 @@ class MainActivity : Activity() {
                             fps = streamConfig.fps,
                         )
                         if (!isListenerActive(generation)) {
-                            streamClient.disconnect()
                             return@runCatching
                         }
                         phoneConnected = true
@@ -855,11 +890,30 @@ class MainActivity : Activity() {
                             mainHandler.removeCallbacks(statsTicker)
                             mainHandler.post(statsTicker)
                         }
-                        encoder.start()
-                        startAudioIfAllowed()
-                        camera.startStreaming(encoder.inputSurface())
-                        check(phoneSessionState.connected(sessionGeneration)) {
-                            "Phone session was superseded"
+                        sessionWorker.submitIfCurrent(generation, { listenerGeneration }) {
+                            runCatching {
+                                encoder.start()
+                                startAudioIfAllowed()
+                                camera.startStreaming(encoder.inputSurface())
+                                check(phoneSessionState.connected(sessionGeneration)) {
+                                    "Phone session was superseded"
+                                }
+                            }.onFailure { error ->
+                                if (isListenerActive(generation)) {
+                                    phoneConnected = false
+                                    phoneSessionState.failed(sessionGeneration)
+                                    mainHandler.post {
+                                        if (!isListenerActive(generation)) return@post
+                                        statusText.text = "Listener error"
+                                        statusDetail.text = error.message ?: "Unknown error"
+                                    }
+                                    sessionWorker.submit {
+                                        camera.stopStreaming()
+                                        encoder.stop()
+                                        audioEncoder.stop()
+                                    }
+                                }
+                            }
                         }
                         while (isListenerActive(generation) && phoneConnected) {
                             Thread.sleep(LISTENER_POLL_MS)
@@ -881,7 +935,13 @@ class MainActivity : Activity() {
                         }
                     }
 
-                    stopActiveEncoding(updateStatus = false)
+                    if (isListenerActive(generation)) {
+                        sessionWorker.submit {
+                            camera.stopStreaming()
+                            encoder.stop()
+                            audioEncoder.stop()
+                        }
+                    }
                     phoneConnected = false
                     activeTargetName = null
                     if (isListenerActive(generation)) {
@@ -921,12 +981,13 @@ class MainActivity : Activity() {
     private fun stopPhoneServer(
         clearReservation: Boolean = true,
         updateStatus: Boolean = true,
+        stopCamera: Boolean = false,
+        stopComponents: Boolean = false,
     ) {
-        // Fast, non-blocking section: flip flags on the caller thread so new
-        // connects/listens cannot start. Heavy teardown (native disconnect,
-        // thread joins, encoder stop) runs off the UI thread per AGENTS.md 6.
+        // Flip flags and update views on the caller thread. Socket, camera,
+        // codec, and thread teardown runs on the bounded session worker.
         callerGeneration += 1
-        callerConnectThread?.interrupt()
+        callerConnecting = false
         pendingListenerStart = false
         listenerGeneration += 1
         phoneServerRunning = false
@@ -961,6 +1022,12 @@ class MainActivity : Activity() {
                 camera.stopStreaming()
                 encoder.stop()
                 audioEncoder.stop()
+                if (stopCamera) camera.stop()
+                if (stopComponents) {
+                    obsDiscoveryClient.stop()
+                    phoneAdvertiser.stop()
+                    controlServer.stop()
+                }
                 if (needsStatus) {
                     mainHandler.post {
                         statusText.text = getString(R.string.status_stopped)
@@ -973,35 +1040,29 @@ class MainActivity : Activity() {
                 if (pendingListenerStart) startPhoneServerIfAllowed()
             }
         }
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            Thread({ blockingWork() }, "shinStopServer").apply { isDaemon = true; start() }
-        } else {
-            blockingWork()
-        }
+        sessionWorker.submit(blockingWork)
     }
 
     private fun stopStream(updateStatus: Boolean = true) {
         callerGeneration += 1
-        callerConnectThread?.interrupt()
+        callerConnecting = false
         activeTargetName = null
         mainHandler.removeCallbacks(statsTicker)
         phoneConnected = false
-        streamClient.disconnect()
-        synchronized(callerLifecycleLock) {
-            stopActiveEncoding(updateStatus)
+        sessionWorker.submit {
+            streamClient.disconnect()
+            synchronized(callerLifecycleLock) {
+                cancelLensRestart()
+                camera.stopStreaming()
+                encoder.stop()
+                audioEncoder.stop()
+            }
+            if (updateStatus) mainHandler.post {
+                statusText.text = getString(R.string.status_stopped)
+                statusDetail.text = "Camera preview remains active"
+            }
         }
         hideLiveState()
-    }
-
-    private fun stopActiveEncoding(updateStatus: Boolean = true) {
-        cancelLensRestart()
-        camera.stopStreaming()
-        encoder.stop()
-        audioEncoder.stop()
-        if (updateStatus) {
-            statusText.text = getString(R.string.status_stopped)
-            statusDetail.text = "Camera preview remains active"
-        }
     }
 
     // ─────────────────────────── Live state UI ───────────────────────────
@@ -1266,7 +1327,12 @@ class MainActivity : Activity() {
         if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
             cameraPreview.holder.surface.isValid
         ) {
-            camera.startPreview()
+            val generation = sessionWorkGeneration
+            sessionWorker.submitIfCurrent(generation, { sessionWorkGeneration }) {
+                if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
+                    cameraPreview.holder.surface.isValid
+                ) camera.startPreview()
+            }
         }
     }
 
@@ -1342,8 +1408,8 @@ class MainActivity : Activity() {
             stopPhoneServer(clearReservation = false)
         }
         // Re-create the advertiser with new port
-        phoneAdvertiser.stop()
-        phoneAdvertiser = PhoneDiscoveryAdvertiser(
+        val previousAdvertiser = phoneAdvertiser
+        val replacementAdvertiser = PhoneDiscoveryAdvertiser(
             context = this,
             config = streamConfig,
             port = currentPort,
@@ -1351,7 +1417,11 @@ class MainActivity : Activity() {
             reservedByProvider = { advertisedReservationId },
             selectedObsHostProvider = { selectedObsHost },
         )
-        phoneAdvertiser.start()
+        phoneAdvertiser = replacementAdvertiser
+        sessionWorker.submit {
+            previousAdvertiser.stop()
+            replacementAdvertiser.start()
+        }
         if (wasListenerMode) {
             startPhoneServerIfAllowed()
         }
