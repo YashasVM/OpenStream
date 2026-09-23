@@ -31,27 +31,35 @@ def make_artifacts(root: Path, *, windows_version: str = VERSION, linux_version:
     return artifacts, installer_metadata
 
 
-def fake_android_tools(root: Path, *, code: int = 101, candidate_cert: str = "aa" * 32, previous_cert: str = "aa" * 32) -> tuple[Path, Path]:
-    aapt = root / "aapt"
-    aapt.write_text(
-        "#!/usr/bin/env python3\n"
-        "import pathlib, sys\n"
-        f"code = {code!r} if pathlib.Path(sys.argv[-1]).name == 'openstream-android.apk' else '100'\n"
-        "print(f\"package: name='dev.openstream.app' versionCode='{code}' versionName='1.0.1'\")\n",
-        encoding="utf-8",
-    )
-    signer = root / "apksigner"
-    signer.write_text(
-        "#!/usr/bin/env python3\n"
-        "import pathlib, sys\n"
-        f"current = {candidate_cert!r}\n"
-        f"previous = {previous_cert!r}\n"
-        "cert = current if pathlib.Path(sys.argv[-1]).name == 'openstream-android.apk' else previous\n"
-        "print(f'Signer #1 certificate SHA-256 digest: {cert}')\n",
-        encoding="utf-8",
-    )
-    aapt.chmod(0o755)
-    signer.chmod(0o755)
+def fake_android_tools(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    code: int = 101,
+    candidate_cert: str = "aa" * 32,
+    previous_cert: str = "aa" * 32,
+) -> tuple[Path, Path]:
+    aapt = Path("fake-aapt")
+    signer = Path("fake-apksigner")
+
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        artifact_name = Path(command[-1]).name
+        if command[0] == str(aapt):
+            assert command[1:3] == ["dump", "badging"]
+            version_code = str(code) if artifact_name == "openstream-android.apk" else "100"
+            version_name = VERSION if artifact_name == "openstream-android.apk" else "1.0.0"
+            output = (
+                f"package: name='dev.openstream.app' versionCode='{version_code}' "
+                f"versionName='{version_name}'\n"
+            )
+        elif command[0] == str(signer):
+            assert command[1:3] == ["verify", "--print-certs"]
+            certificate = candidate_cert if artifact_name == "openstream-android.apk" else previous_cert
+            output = f"Signer #1 certificate SHA-256 digest: {certificate}\n"
+        else:
+            raise AssertionError(f"Unexpected Android tool: {command[0]}")
+        return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
+
+    monkeypatch.setattr(checker.subprocess, "run", fake_run)
     return aapt, signer
 
 
@@ -74,9 +82,9 @@ def args_for(artifacts: Path, installer_metadata: Path, tools: tuple[Path, Path]
     return argparse.Namespace(**values)
 
 
-def test_accepts_matched_candidate_and_writes_manifest(tmp_path: Path) -> None:
+def test_accepts_matched_candidate_and_writes_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     artifacts, installer = make_artifacts(tmp_path)
-    tools = fake_android_tools(tmp_path)
+    tools = fake_android_tools(monkeypatch)
     output = artifacts / "release-manifest.json"
     manifest = checker.validate(args_for(artifacts, installer, tools, write_manifest=output))
     assert manifest["tag"] == TAG
@@ -85,23 +93,23 @@ def test_accepts_matched_candidate_and_writes_manifest(tmp_path: Path) -> None:
     assert json.loads(output.read_text(encoding="utf-8")) == manifest
 
 
-def test_rejects_tag_that_does_not_match_product_version(tmp_path: Path) -> None:
+def test_rejects_tag_that_does_not_match_product_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     artifacts, installer = make_artifacts(tmp_path)
-    tools = fake_android_tools(tmp_path)
+    tools = fake_android_tools(monkeypatch)
     with pytest.raises(ValueError, match="does not match product version"):
         checker.validate(args_for(artifacts, installer, tools, tag="v1.0.2"))
 
 
-def test_rejects_wrong_apk_version_code(tmp_path: Path) -> None:
+def test_rejects_wrong_apk_version_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     artifacts, installer = make_artifacts(tmp_path)
-    tools = fake_android_tools(tmp_path, code=99)
+    tools = fake_android_tools(monkeypatch, code=99)
     with pytest.raises(ValueError, match="versionCode is 99"):
         checker.validate(args_for(artifacts, installer, tools))
 
 
-def test_rejects_wrong_apk_certificate(tmp_path: Path) -> None:
+def test_rejects_wrong_apk_certificate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     artifacts, installer = make_artifacts(tmp_path)
-    tools = fake_android_tools(tmp_path, candidate_cert="bb" * 32)
+    tools = fake_android_tools(monkeypatch, candidate_cert="bb" * 32)
     previous = tmp_path / "previous.apk"
     previous.write_bytes(b"old")
     with pytest.raises(ValueError, match="signing certificate differs"):
@@ -109,36 +117,36 @@ def test_rejects_wrong_apk_certificate(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("platform", ["windows", "linux"])
-def test_rejects_wrong_plugin_version(tmp_path: Path, platform: str) -> None:
+def test_rejects_wrong_plugin_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str) -> None:
     artifacts, installer = make_artifacts(
         tmp_path,
         windows_version="1.0.0" if platform == "windows" else VERSION,
         linux_version="1.0.0" if platform == "linux" else VERSION,
     )
-    tools = fake_android_tools(tmp_path)
+    tools = fake_android_tools(monkeypatch)
     with pytest.raises(ValueError, match=f"{platform.title()} plugin version"):
         checker.validate(args_for(artifacts, installer, tools))
 
 
-def test_rejects_wrong_installer_product_version(tmp_path: Path) -> None:
+def test_rejects_wrong_installer_product_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     artifacts, installer = make_artifacts(tmp_path)
-    tools = fake_android_tools(tmp_path)
+    tools = fake_android_tools(monkeypatch)
     installer.write_text('{"productVersion":"1.0.0"}', encoding="utf-8")
     with pytest.raises(ValueError, match="installer version 1.0.0"):
         checker.validate(args_for(artifacts, installer, tools))
 
 
-def test_rejects_missing_artifact(tmp_path: Path) -> None:
+def test_rejects_missing_artifact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     artifacts, installer = make_artifacts(tmp_path)
-    tools = fake_android_tools(tmp_path)
+    tools = fake_android_tools(monkeypatch)
     (artifacts / "shin-obs-linux-x86_64.tar.gz").unlink()
     with pytest.raises(ValueError, match="Missing release artifacts"):
         checker.validate(args_for(artifacts, installer, tools))
 
 
-def test_rejects_manifest_when_staged_bytes_change(tmp_path: Path) -> None:
+def test_rejects_manifest_when_staged_bytes_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     artifacts, installer = make_artifacts(tmp_path)
-    tools = fake_android_tools(tmp_path)
+    tools = fake_android_tools(monkeypatch)
     manifest_path = artifacts / "release-manifest.json"
     checker.validate(args_for(artifacts, installer, tools, write_manifest=manifest_path))
     with (artifacts / "openstream-android.apk").open("ab") as apk:

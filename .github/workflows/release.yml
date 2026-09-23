@@ -19,6 +19,10 @@ on:
         description: Successful candidate workflow run ID (publish mode only)
         required: false
         type: string
+      release_notes:
+        description: Release notes (required for publish mode)
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -227,7 +231,7 @@ jobs:
           if [[ -n "${{ steps.previous.outputs.apk }}" ]]; then args+=(--previous-apk "${{ steps.previous.outputs.apk }}"); fi
           python tools/check_release_artifacts.py "${args[@]}"
           for file in openstream-android.apk openstream-obs-windows-x64.zip openstream-obs-plugin-installer-windows-x64.exe shin-obs-linux-x86_64.tar.gz; do
-            sha256sum "artifacts/$file" > "artifacts/$file.sha256"
+            (cd artifacts && sha256sum "$file" > "$file.sha256")
           done
       - uses: actions/upload-artifact@v4
         with:
@@ -291,12 +295,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
         run: |
           set -euo pipefail
+          if ! python -c 'import os,sys; sys.exit(bool(os.environ.get("RELEASE_NOTES", "").strip()))'; then
+            echo "::error::release_notes must contain non-whitespace text when publishing."
+            exit 1
+          fi
           gh release create "$RELEASE_TAG" \
             artifacts/openstream-android.apk artifacts/openstream-android.apk.sha256 \
             artifacts/openstream-obs-plugin-installer-windows-x64.exe artifacts/openstream-obs-plugin-installer-windows-x64.exe.sha256 \
             artifacts/openstream-obs-windows-x64.zip artifacts/openstream-obs-windows-x64.zip.sha256 \
             artifacts/shin-obs-linux-x86_64.tar.gz artifacts/shin-obs-linux-x86_64.tar.gz.sha256 \
             artifacts/release-manifest.json \
-            --target "$(git rev-parse HEAD)" --title "OpenStream $RELEASE_TAG" --notes-file docs/release-notes-template.md
+            --target "$(git rev-parse HEAD)" --title "OpenStream $RELEASE_TAG" --notes "$RELEASE_NOTES"

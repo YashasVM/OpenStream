@@ -307,13 +307,20 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "OPENSTREAM_PLUGIN_PACKAGE_DIR" in obs_workflow
     assert "openstream-obs-windows-x64.zip" in obs_workflow
     assert "gh release create" in release_workflow
-    assert "docs/release-notes-template.md" in release_workflow
+    assert "inputs.release_notes" in release_workflow
     assert "openstream-android.apk" in release_workflow
     assert "openstream-android.apk.sha256" in release_workflow
     assert "Public candidates require all Android signing secrets" in release_workflow
     assert "release-candidate-${{ inputs.tag || github.ref_name }}" in release_workflow
     assert "publish-staged-candidate" in release_workflow
     assert "check_release_artifacts.py" in release_workflow
+    assert "release_notes:" in release_workflow
+    assert "RELEASE_NOTES: ${{ inputs.release_notes }}" in release_workflow
+    assert 'os.environ.get("RELEASE_NOTES", "").strip()' in release_workflow
+    assert '--notes "$RELEASE_NOTES"' in release_workflow
+    assert "--notes-file docs/release-notes-template.md" not in release_workflow
+    assert '(cd artifacts && sha256sum "$file" > "$file.sha256")' in release_workflow
+    assert '(cd artifacts && sha256sum --check "$file.sha256")' in release_workflow
     assert "openstream-obs-windows-x64.zip" in release_workflow
     assert "never publishes a debug-signed fallback" in release_docs
     assert "Android Signing Secrets" in release_docs
