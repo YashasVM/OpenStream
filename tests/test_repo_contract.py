@@ -65,10 +65,17 @@ def test_android_connection_target_builds_srt_caller_url_and_pairing_targets() -
 def test_obs_plugin_registers_shin_source_and_discovery() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
     assert "shin_phone_source" in source
-    assert "openstream_phone_v8_source" not in source
-    assert "openstream_legacy_source_info" not in source
+    assert '"openstream_phone_v7_source"' in source
+    assert '"openstream_phone_v8_source"' in source
+    assert "openstream_v7_compat_source_info" in source
+    assert "openstream_v8_compat_source_info" in source
+    assert "obs_register_source(&openstream_v7_compat_source_info)" in source
+    assert "obs_register_source(&openstream_v8_compat_source_info)" in source
+    assert 'kOpenStreamV7SourceName = "OpenStream Camera (V7 compatibility)"' in source
+    assert 'kOpenStreamV8SourceName = "OpenStream Camera (V8 compatibility)"' in source
+    assert 'kOpenStreamSourceName = "OpenStream Camera"' in source
+    assert "openstream_is_camera_source_id" in source
     assert "obs_register_source" in source
-    assert 'kOpenStreamSourceName = "shin"' in source
     assert "listener_enabled" in source
     assert "discovery_broadcast_addresses" in source
     assert "kDiscoveryMulticastAddress" in source
