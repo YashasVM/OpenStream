@@ -2,28 +2,27 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://img.shields.io/badge/OpenStream-Turn_Your_Phone_Into_a_Wireless_OBS_Camera-00D4AA?style=for-the-badge&labelColor=0A0A0F">
-  <img alt="OpenStream V1.0.1 Banner" src="https://img.shields.io/badge/OpenStream-Turn_Your_Phone_Into_a_Wireless_OBS_Camera-00D4AA?style=for-the-badge&labelColor=0A0A0F">
+  <img alt="OpenStream banner" src="https://img.shields.io/badge/OpenStream-Turn_Your_Phone_Into_a_Wireless_OBS_Camera-00D4AA?style=for-the-badge&labelColor=0A0A0F">
 </picture>
 
 ### Turn any Android phone into a wireless camera source for OBS Studio
 
-[![Version](https://img.shields.io/badge/version-1.0.1-00D4AA?style=flat-square&labelColor=1a1a2e)](https://github.com/YashasVM/OpenStream/releases/tag/v1.0.1)
+[Latest release](https://github.com/YashasVM/OpenStream/releases/latest)
 [![Platform](https://img.shields.io/badge/platform-Android%20%2B%20Windows%20%2B%20Linux-green?style=flat-square&labelColor=1a1a2e)](https://github.com/YashasVM/OpenStream)
 [![OBS](https://img.shields.io/badge/OBS-Studio%20Plugin-purple?style=flat-square&labelColor=1a1a2e)](https://obsproject.com)
 [![Website](https://img.shields.io/badge/website-openstream.pages.dev-00D4AA?style=flat-square&labelColor=1a1a2e)](https://openstream.pages.dev)
 
-**Open-source** | **One phone, one camera** | **Hardware phone encoding** | **Local Wi-Fi**
+**Source available** | **One phone, one camera** | **Hardware phone encoding** | **Local Wi-Fi**
 
 ---
 
 </div>
 
 > [!IMPORTANT]
-> This branch simplifies OpenStream to one Android camera per OBS process and adds a native Linux build. Published V1.0.1 downloads predate these changes. Candidate builds need the device acceptance checks in [docs/testing.md](docs/testing.md) before release.
+> The repository branch may contain changes that are not in the latest published release. Candidate builds need the device acceptance checks in [docs/testing.md](docs/testing.md) before release.
 
-The supported V1.0.1 path is the legacy Android app plus the legacy OBS camera
-source/dock over local Wi-Fi. USB transport and USB camera-source support are
-not included in this release.
+The latest published release may not include the changes on this branch. USB
+transport and USB camera-source support are not included in the published app.
 
 ## Quick Downloads
 
@@ -32,7 +31,7 @@ not included in this release.
 | 1 | [`openstream-android.apk`](https://github.com/YashasVM/OpenStream/releases/latest/download/openstream-android.apk) | Android phone |
 | 2 | [`openstream-obs-plugin-installer-windows-x64.exe`](https://github.com/YashasVM/OpenStream/releases/latest/download/openstream-obs-plugin-installer-windows-x64.exe) | Windows OBS PC |
 | Fallback | [`openstream-obs-windows-x64.zip`](https://github.com/YashasVM/OpenStream/releases/latest/download/openstream-obs-windows-x64.zip) | Manual OBS plugin install |
-| Linux candidate | [Build and install from source](docs/linux.md) | Native Linux OBS; the next tagged release will include a matched Linux package |
+| Linux candidate | [Build and install from source](docs/linux.md) | Native Linux OBS; check the release assets for a published package |
 
 Need the non-technical walkthrough with screenshots? Start with [`docs/set-up.md`](docs/set-up.md).
 
@@ -40,20 +39,19 @@ Need the non-technical walkthrough with screenshots? Start with [`docs/set-up.md
 
 ## What is OpenStream?
 
-OpenStream V1.0.1 sends your Android phone camera directly into OBS Studio over local Wi-Fi. It uses Camera2, MediaCodec video/audio encoding, MPEG-TS muxing, SRT transport, two-way LAN discovery, single-camera pairing, and a native OBS source plugin.
+OpenStream sends an Android phone camera to OBS Studio over local Wi-Fi. The app uses Camera2 and MediaCodec, then carries MPEG-TS video and audio over SRT to an OBS source plugin.
 
 ```text
 Phone camera -> hardware AVC/H.264 + AAC -> SRT over Wi-Fi -> OpenStream camera source in OBS
 ```
 
-### V1.0.1 Release
+### Published V1.0.1 release
 
 | Area | V1.0.1 release detail |
 |---|---|
-| **OBS setup** | The V1.0.1 release uses its legacy source controls. The current candidate exposes controls in source properties. |
-| **Scene compatibility** | Existing `OpenStream V7` scene sources keep loading while new sources appear as `OpenStream V8`. |
-| **Pairing clarity** | One camera per OBS process, with a simple computer picker on Android. |
-| **Release polish** | Version defaults, release notes, and setup docs are aligned around V1.0.1. |
+| **OBS setup** | The published plugin registers the source identifiers found in the historical release. Actual saved-scene settings and media compatibility still need device and OBS checks. |
+| **Source identity** | The plugin displays the source name `shin`; the historical release registers `openstream_phone_v7_source` and `openstream_phone_v8_source`. |
+| **Published assets** | The release includes the Android APK and Windows installer and plugin archive. |
 
 ## Quick Start
 
@@ -66,7 +64,7 @@ Download the APK from the release, copy it to your Android phone, open it, and a
 Connect the phone with USB debugging enabled and run `cd android && ./gradlew
 installDebug`. Repeating this command installs the updated app in place when
 the installed build has the same application ID and signing key. The version
-name and code come from `android/gradle.properties`; increase the code there
+name and code come from `release/version.properties`; increase the code there
 for a release. Android rejects an in-place update if the APK uses a different
 signing key, such as when switching between a local debug build and the
 published release. Keep using the same build type for day-to-day updates.
@@ -80,15 +78,15 @@ Download and run `openstream-obs-plugin-installer-windows-x64.exe` on the Window
 
 ### 3. Add One Camera in OBS
 
-In OBS, click `+` in Sources, choose `OpenStream V8`, and press OK. Keep one OpenStream source. To use the camera in another scene, select **Add Existing**. If upgrading a scene with multiple camera sources, remove the extras; additional capture sessions are blocked with an explanation.
+In OBS, click `+` in Sources and choose `OpenStream Camera`. Keep one OpenStream source. To use the camera in another scene, select **Add Existing**. If upgrading a scene with multiple camera sources, remove the extras; additional capture sessions are blocked with an explanation.
 
 ### 4. Pair the Phone
 
-Open the OpenStream Android app on the same Wi-Fi network as the PC. Its discovery panel lists available OBS computers; tap yours to connect. The camera feed should appear in OBS within a few seconds.
+Open the OpenStream Android app on the same Wi-Fi network as the PC. Its discovery panel lists available OBS computers; tap yours to connect. Check the source status and phone preview to confirm that the camera connected.
 
 ### 5. Stream
 
-Use OBS as usual. Open **Docks → OpenStream Camera Control** for the camera controls. Phone audio appears on the OpenStream source’s OBS mixer channel.
+Use the OpenStream source properties for camera controls. Phone audio appears on the OpenStream source’s OBS mixer channel.
 
 > [!TIP]
 > Use a 5 GHz or Wi-Fi 6 network, keep both devices on the same subnet, and disable VPNs or router client isolation during first setup.
@@ -102,7 +100,7 @@ Use OBS as usual. Open **Docks → OpenStream Camera Control** for the camera co
 | **Phone OS** | Android 10+ with Camera2 and hardware MediaCodec support. |
 | **OBS host** | Windows x64: OBS Studio 32.2.1. Native Linux: build against the installed OBS, Qt, and FFmpeg packages; see [Linux setup](docs/linux.md). Flatpak/Snap builds are not covered. |
 | **Network** | Same LAN/subnet; guest Wi-Fi, VPNs, and client isolation can block discovery. |
-| **Release maturity** | V1.0.1. Expect device-specific camera quirks and Wi-Fi-dependent latency. |
+| **Release maturity** | Camera behavior varies by device, and network latency depends on Wi-Fi conditions. |
 
 ---
 
@@ -124,7 +122,7 @@ Use OBS as usual. Open **Docks → OpenStream Camera Control** for the camera co
 | **Manual Connect** | Enable **Receive manual connection from phone** in OBS advanced settings, then enter the PC IP/port on the phone. Remote camera controls stay on the phone in this mode. |
 | **Live Stream Telemetry** | Shows frames, keyframes, transferred megabits, errors, and active lens while streaming. |
 | **Identify Overlay** | Displays a connection label on the phone when triggered from OBS. |
-| **Reconnect Hold** | Keeps a reserved OBS connection for `45` seconds after a disconnect to make brief Wi-Fi drops less disruptive. |
+| **Reconnect Hold** | Keeps a reserved OBS connection for `45` seconds after a disconnect. |
 
 ### OBS Plugin
 
@@ -133,7 +131,7 @@ For native Linux build and installation instructions, see [docs/linux.md](docs/l
 
 | Feature | Details |
 |---|---|
-| **Native OBS Source** | Adds an `OpenStream V8` source type inside OBS Studio while preserving V7 scene compatibility. |
+| **Native OBS Source** | Adds an `OpenStream Camera` source type inside OBS Studio. Saved-scene settings and media compatibility with the published release still need verification. |
 | **OBS controls** | Connection, phone selection, zoom, torch, lens, and identify controls are exposed through source properties. |
 | **One-Click Installer** | Windows installer copies the plugin into the OBS plugin folder. |
 | **Phone ownership** | Each phone can be reserved by one OBS source at a time. Reuse that source across scenes. |
@@ -267,7 +265,7 @@ This is a developer/debug tool only. Normal users should install the OBS plugin.
 
 | Link | URL |
 |---|---|
-| Website | [OpenStream V1.0.1](https://openstream.pages.dev) |
+| Website | [OpenStream](https://openstream.pages.dev) |
 | Releases | [github.com/YashasVM/OpenStream/releases](https://github.com/YashasVM/OpenStream/releases) |
 | Issues | [github.com/YashasVM/OpenStream/issues](https://github.com/YashasVM/OpenStream/issues) |
 

@@ -36,27 +36,40 @@ The APK is universal with `minSdk 29` and native libraries for `arm64-v8a`,
 `armeabi-v7a`, `x86`, and `x86_64`. Camera lens availability and device-specific
 Camera2 behavior still require checking on target phones.
 
-## Automated Release
+## Build and publish a release
 
-Set both `openstream.versionName` and `openstream.versionCode` in
-`android/gradle.properties`, then create and push a matching `vMAJOR.MINOR.PATCH`
-tag that points to that commit. The version name must equal the tag without its
-leading `v`; the version code must be a positive integer greater than every
-previous release code and no greater than Android's 2,100,000,000 limit.
+Set `productVersion` and `androidVersionCode` in `release/version.properties`.
+The version must match the `vMAJOR.MINOR.PATCH` tag without its leading `v`.
+The version code must be greater than the previous published APK and no greater
+than Android's 2,100,000,000 limit.
 
 ```powershell
-git tag v1.0.1
-git push origin v1.0.1
+git tag vMAJOR.MINOR.PATCH
+git push origin vMAJOR.MINOR.PATCH
 ```
 
-The same workflow can be run manually with an already pushed release tag. It
-builds the commit referenced by that tag and rejects malformed or mismatched
-tags. It does not create a release from the current default branch. Older
-releases used the tag commit timestamp as the Android version code; the
-workflow uses that value when checking historical tags without the canonical
-`openstream.versionCode` property.
+Pushing a tag runs the `Release candidate` workflow. It builds the Android APK,
+the Windows installer and plugin archive, and the Linux plugin archive. It
+checks the tag, APK package, version code, signing certificate, plugin versions,
+installer version, and artifact hashes. It uploads a candidate bundle as a
+GitHub Actions artifact with `release-manifest.json`; it does not publish a release.
 
-The `Release` workflow builds:
+After the candidate passes the device and OBS checks, dispatch the same workflow
+in `publish` mode. Enter the tag and successful candidate run ID. The workflow
+checks that the candidate belongs to the tagged commit, verifies its manifest
+and hashes, then publishes those downloaded files without rebuilding them.
+If an earlier published APK cannot be fetched, publication fails closed.
+
+The staged manifest records the product version, Android identity, protocol,
+supported OBS ABIs, and each artifact's filename, size, and SHA-256 hash. The
+website shows a version and version-specific download links only after the
+latest published release contains this manifest and every listed asset has the
+matching size. Until then, the website labels the links "Latest release".
+
+The website's npm package version is build-tool metadata. Keep it at `0.0.0`;
+release version changes belong in `release/version.properties`.
+
+The candidate workflow builds these files:
 
 | Job | Output |
 |---|---|
@@ -65,10 +78,16 @@ The `Release` workflow builds:
 | OBS plugin installer | `openstream-obs-plugin-installer-windows-x64.exe`, `openstream-obs-plugin-installer-windows-x64.exe.sha256` |
 | Linux OBS plugin | `shin-obs-linux-x86_64.tar.gz`, `shin-obs-linux-x86_64.tar.gz.sha256` |
 
-The publish job runs only after repository tests, Android unit tests and lint,
-the signed Android build, and both Windows and Linux plugin builds succeed. It
-downloads all artifacts, verifies each published binary's SHA-256 sidecar, and
-then runs `gh release create`.
+The workflow requires repository tests, Android unit tests and lint, the signed
+Android build, and both Windows and Linux plugin builds to pass before it stages
+a candidate. The publish job verifies the staged SHA-256 sidecars before it
+creates a GitHub release.
+
+Create a new release notes file for every release. Start with
+[`release-notes-template.md`](release-notes-template.md), replace every
+placeholder with details verified for that release, and keep earlier published
+notes unchanged. The current workflow passes this template directly as the
+release body, so do not publish while it still contains placeholders.
 
 Public releases require all Android signing secrets. Missing or incomplete
 signing inputs fail the workflow; it never publishes a debug-signed fallback.
@@ -146,14 +165,15 @@ only; do not publish that APK as a release.
 
 ## Release Checklist
 
-- Confirm the README links point to the release tag being published.
+- Confirm the README links use the latest published assets.
 - Confirm the setup guide links to the same APK, installer EXE, and plugin zip.
 - Confirm pytest, Android unit tests, lint, and Android, Windows, and Linux release builds passed.
 - Confirm `openstream-android.apk.sha256` matches the APK.
 - Confirm `openstream-obs-plugin-installer-windows-x64.exe.sha256` matches the installer.
 - Confirm `openstream-obs-windows-x64.zip.sha256` matches the manual plugin package.
 - Confirm `shin-obs-linux-x86_64.tar.gz.sha256` matches the Linux package.
-- Confirm OBS lists `OpenStream V8` and can still load saved `openstream_phone_v7_source` scenes.
+- Confirm the published `release-manifest.json` matches each artifact's name, size, and SHA-256 hash.
+- Confirm OBS lists `OpenStream Camera` and test saved scenes from each published plugin version. Record settings and media results; do not infer them from source registration alone.
 - Confirm the dependency report names `avformat-62.dll`, `avcodec-62.dll`, `avutil-60.dll`, and `swscale-9.dll`, and the clean OBS 32.2.1 log has no OpenStream module-load error.
 - Seed `openstream-obs.dll`, run both installer forms, and confirm stale Program Files, ProgramData, and AppData copies were migrated without touching OBS settings or scenes.
 - Confirm the Android APK is release-signed and installable over the previous public release.
