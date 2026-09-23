@@ -67,21 +67,35 @@ executing Kotlin or C++ production code. New parsers and protocol state
 machines should receive native unit tests rather than Python copies of their
 implementation.
 
-## Device acceptance tests
+## Device acceptance runs
 
-- One Android phone streams 1080p30 for 30 minutes without receiver crash.
-- Android discovers a `shin` OBS source without manual IP entry.
-- Tapping a discovered OBS device starts the stream directly.
-- Stopping the OBS listener removes the device from Android discovery within about 5 seconds.
-- SRT reconnect completes within 2 seconds after a short Wi-Fi interruption.
-- OBS receives video through the selected `shin` source.
-- OBS receives mono AAC audio at 48 kHz on the source's mixer channel.
-- The OBS source shows only the phone camera feed, never the Android screen.
-- Starting OBS Virtual Camera while the source is live does not create an
-  ever-growing delay; video remains within the configured low-latency window.
-- A clap or tone remains aligned between the OBS video and mono audio paths
-  after Virtual Camera starts and after a reconnect.
-- Telemetry updates at least once per second.
+Use the [device acceptance record template](../tools/device-acceptance-record.md)
+for every phone and OBS host pair. Run the same checks on at least three
+distinct Android devices and both supported OBS hosts before G1. Record exact
+APK and plugin SHA-256 values for each run. A device or host you did not run is
+unverified for that release.
+
+Track each phone and host pair in this matrix. Replace each status only after
+you complete the run and link its record. An unrun pair stays `INCONCLUSIVE`.
+
+| Android device | Android version | Windows OBS | Linux OBS | Run records |
+| --- | --- | --- | --- | --- |
+| Device 1 | | INCONCLUSIVE | INCONCLUSIVE | |
+| Device 2 | | INCONCLUSIVE | INCONCLUSIVE | |
+| Device 3 | | INCONCLUSIVE | INCONCLUSIVE | |
+
+The template starts every result as `INCONCLUSIVE`. Change a result to
+`VERIFIED` only after you run the check and save evidence. Use `NOT VERIFIED`
+when a run fails or does not meet its expected result. Do not infer physical
+behavior from CI, source inspection, or a binary string.
+
+The run checks install and update, clean OBS startup and plugin load, phone
+discovery and reservation, first video and AAC audio, camera controls, Stop,
+short and long network loss, OBS restart, source removal, Virtual Camera, a
+30-minute stream, A/V sync, thermal readings, OBS shutdown with the phone
+unreachable, and isolation of unrelated OBS sources during an OpenStream
+failure. The record captures latency, dropped media, recovery time, battery,
+temperature, and logs.
 
 ## Android/OBS compatibility matrix
 
@@ -141,8 +155,9 @@ send-path capacity, and stale-frame threshold were configuration comparisons,
 not measurements of phone temperature, latency, A/V offset, reconnect time, or
 drops. Do not use them as evidence that the candidate performs better.
 
-For each future paired device run, record the exact APK and plugin SHA-256,
-phone model and Android version, OBS version and host OS, Wi-Fi conditions,
-profile, Virtual Camera state, duration, temperature delta, measured
-end-to-end latency, maximum audio/video offset, reconnect time, and dropped
-frame count for both builds.
+For each paired device run, record the exact APK and plugin SHA-256, phone
+model and Android version, OBS version and host OS, Wi-Fi conditions, profile,
+Virtual Camera state, duration, temperature delta, measured end-to-end latency,
+maximum audio/video offset, reconnect time, and dropped frame count for both
+builds. The template separates recorded values from expected behavior so an
+unmeasured target stays `INCONCLUSIVE`.
