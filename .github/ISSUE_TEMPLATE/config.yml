@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Support and compatibility status
+    url: https://github.com/YashasVM/OpenStream/blob/main/docs/support.md
+    about: Check published package and compatibility limits before reporting a problem.
+  - name: Setup guide
+    url: https://github.com/YashasVM/OpenStream/blob/main/docs/set-up.md
+    about: Read the Android and OBS setup steps before opening a support issue.

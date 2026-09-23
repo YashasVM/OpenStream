@@ -1,0 +1,64 @@
+name: Bug report
+description: Report a reproducible problem with the Android app or OBS plugin.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a possible security vulnerability, do not use this public form. Read [SECURITY.md](https://github.com/YashasVM/OpenStream/blob/main/SECURITY.md).
+        Remove addresses, tokens, device identifiers, and personal details from logs before posting.
+  - type: input
+    id: version
+    attributes:
+      label: OpenStream version
+      description: Include the Android app and OBS plugin versions if known.
+      placeholder: v1.0.1
+    validations:
+      required: true
+  - type: input
+    id: phone
+    attributes:
+      label: Phone and Android version
+      placeholder: Phone model, Android version
+    validations:
+      required: true
+  - type: input
+    id: obs
+    attributes:
+      label: OBS version and host operating system
+      placeholder: OBS version, Windows or Linux version
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the actions that trigger the problem.
+      placeholder: |
+        1. Open...
+        2. Select...
+        3. Observe...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+      description: State what you expected and what happened.
+    validations:
+      required: true
+  - type: textarea
+    id: checks
+    attributes:
+      label: Checks already tried
+      description: Include setup or recovery steps you have tried.
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs or screenshots
+      description: Remove network addresses, tokens, device identifiers, and personal details. Do not attach camera or microphone recordings.
+    validations:
+      required: false

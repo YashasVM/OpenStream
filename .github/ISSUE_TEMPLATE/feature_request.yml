@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest a focused improvement to the Android-to-OBS workflow.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the task that is difficult or unavailable today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the change from a phone or OBS user's point of view.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: List any current workaround or other approach you considered.
+    validations:
+      required: false
+  - type: textarea
+    id: environment
+    attributes:
+      label: Relevant setup
+      description: Include phone, Android, OBS, host OS, and network details that affect the request. Remove personal or sensitive data.
+    validations:
+      required: false
