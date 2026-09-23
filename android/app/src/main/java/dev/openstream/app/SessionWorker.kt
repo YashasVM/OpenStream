@@ -42,6 +42,8 @@ internal class SessionWorker(
 
     fun submit(work: () -> Unit): Boolean = enqueue(work, critical = false)
 
+    val isShutdown: Boolean get() = executor.isShutdown
+
     /** Queues teardown in the reserved slot when all normal waiting slots are occupied. */
     fun submitCritical(work: () -> Unit): Boolean = enqueue(work, critical = true)
 

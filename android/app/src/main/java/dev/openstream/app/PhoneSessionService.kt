@@ -20,6 +20,7 @@ class PhoneSessionService : Service() {
         internal fun runtime(): PhoneSessionRuntime = sessionRuntime
         internal fun lifecycleState(): SessionOwnerState = ownerState
         internal fun stop() = stopSession()
+        internal fun start() = startSession()
         internal fun activityHidden() {
             ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.ActivityHidden)
         }
@@ -60,11 +61,11 @@ class PhoneSessionService : Service() {
         if (::sessionRuntime.isInitialized) {
             if (sessionRuntime.phoneSessionState.snapshot.status != PhoneSessionStatus.Stopped) {
                 sessionRuntime.phoneSessionState.stop()
-                sessionRuntime.stopLiveMedia()
                 sessionRuntime.clearReservation()
-                sessionRuntime.stopComponents()
+                sessionRuntime.stopSessionResources { sessionRuntime.sessionWorker.close() }
+            } else {
+                sessionRuntime.sessionWorker.close()
             }
-            sessionRuntime.sessionWorker.close()
         }
         super.onDestroy()
     }
@@ -72,17 +73,7 @@ class PhoneSessionService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> stopSession()
-            ACTION_START -> {
-                ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.Start)
-                ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.ActivityVisible)
-                preferences.edit().putBoolean(KEY_STOPPED, false).apply()
-                sessionRuntime.phoneSessionState.start()
-                if (hasCameraPermission()) {
-                    startForegroundSession()
-                    sessionRuntime.startComponents()
-                    sessionRuntime.observer?.onSessionStateChanged()
-                }
-            }
+            ACTION_START -> startSession()
             else -> if (hasCameraPermission() && !preferences.getBoolean(KEY_STOPPED, false)) {
                 ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.Start)
                 ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.ActivityVisible)
@@ -138,14 +129,14 @@ class PhoneSessionService : Service() {
         foregroundStarted = false
         sessionRuntime.phoneSessionState.stop()
         sessionRuntime.sessionWorkGeneration += 1
-        sessionRuntime.stopLiveMedia()
         sessionRuntime.clearReservation()
-        sessionRuntime.stopComponents()
         sessionRuntime.observer?.onReservationChanged()
         sessionRuntime.observer?.onSessionStateChanged()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        foregroundStarted = false
-        stopSelf()
+        sessionRuntime.stopSessionResources {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            foregroundStarted = false
+            stopSelf()
+        }
     }
 
     private fun stopSessionForPermissionLoss() {
@@ -153,14 +144,34 @@ class PhoneSessionService : Service() {
         preferences.edit().putBoolean(KEY_STOPPED, true).apply()
         sessionRuntime.phoneSessionState.stop()
         sessionRuntime.sessionWorkGeneration += 1
-        sessionRuntime.stopLiveMedia()
         sessionRuntime.clearReservation()
-        sessionRuntime.stopComponents()
         sessionRuntime.observer?.onSessionError("Camera permission was revoked; the session stopped")
         sessionRuntime.observer?.onSessionStateChanged()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        foregroundStarted = false
-        stopSelf()
+        sessionRuntime.stopSessionResources {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            foregroundStarted = false
+            stopSelf()
+        }
+    }
+
+    private fun startSession() {
+        if (!hasCameraPermission()) {
+            ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.CameraPermissionRevoked)
+            sessionRuntime.phoneSessionState.stop()
+            sessionRuntime.observer?.onSessionError("Camera permission is required to start a session")
+            sessionRuntime.observer?.onSessionStateChanged()
+            if (foregroundStarted) stopSessionForPermissionLoss() else stopSelf()
+            return
+        }
+        ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.Start)
+        ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.ActivityVisible)
+        preferences.edit().putBoolean(KEY_STOPPED, false).apply()
+        sessionRuntime.phoneSessionState.start()
+        startForegroundSession()
+        if (foregroundStarted) {
+            sessionRuntime.startComponents()
+            sessionRuntime.observer?.onSessionStateChanged()
+        }
     }
 
     private fun hasCameraPermission(): Boolean =

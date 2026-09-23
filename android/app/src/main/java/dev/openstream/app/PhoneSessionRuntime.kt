@@ -75,6 +75,7 @@ internal class PhoneSessionRuntime(
     @Volatile var releaseReservationRunnable: Runnable? = null
     @Volatile var reservationGeneration = 0L
     @Volatile private var previewSurfaceAvailable = false
+    @Volatile private var stopResourcesPending = false
 
     val streamClient = SrtStreamClient()
     val camera = Camera2Controller(
@@ -163,7 +164,7 @@ internal class PhoneSessionRuntime(
             if (!componentsStarted) return
             componentsStarted = false
         }
-        sessionWorker.submit {
+        submitCriticalTeardown {
             obsDiscoveryClient.stop()
             phoneAdvertiser.stop()
             controlServer.stop()
@@ -225,13 +226,66 @@ internal class PhoneSessionRuntime(
         pendingListenerStart = false
         listenerThread?.interrupt()
         activeTargetName = null
-        sessionWorker.submit {
+        submitCriticalTeardown {
             streamClient.disconnect()
             camera.stopStreaming()
             encoder.stop()
             audioEncoder.stop()
             camera.stop()
         }
+    }
+
+    /** Stops every owned component as one critical worker task before the service exits. */
+    fun stopSessionResources(onComplete: () -> Unit) {
+        synchronized(this) {
+            if (stopResourcesPending) return
+            stopResourcesPending = true
+        }
+        callerGeneration += 1
+        callerConnecting = false
+        listenerGeneration += 1
+        phoneServerRunning = false
+        phoneConnected = false
+        pendingListenerStart = false
+        listenerThread?.interrupt()
+        activeTargetName = null
+        synchronized(this) { componentsStarted = false }
+        val teardown = {
+            try {
+                streamClient.disconnect()
+                val thread = listenerThread
+                if (thread != null && thread !== Thread.currentThread()) {
+                    runCatching { thread.join(LISTENER_STOP_TIMEOUT_MS) }
+                }
+                synchronized(callerLifecycleLock) {
+                    camera.stopStreaming()
+                    encoder.stop()
+                    audioEncoder.stop()
+                    camera.stop()
+                }
+                obsDiscoveryClient.stop()
+                phoneAdvertiser.stop()
+                controlServer.stop()
+            } finally {
+                synchronized(this) { stopResourcesPending = false }
+                mainHandler.post(onComplete)
+            }
+        }
+        val retry = object : Runnable {
+            override fun run() {
+                if (sessionWorker.submitCritical(teardown)) return
+                if (sessionWorker.isShutdown) {
+                    synchronized(this@PhoneSessionRuntime) { stopResourcesPending = false }
+                    Log.e("shin", "Session worker closed before Stop teardown could be queued")
+                    return
+                }
+                synchronized(this@PhoneSessionRuntime) {
+                    if (!stopResourcesPending) return
+                }
+                mainHandler.postDelayed(this, TEARDOWN_RETRY_MS)
+            }
+        }
+        retry.run()
     }
 
     fun bindPreviewSurface(surface: android.view.Surface?) {
@@ -335,7 +389,7 @@ internal class PhoneSessionRuntime(
         activeTargetName = null
         phoneConnected = false
         observer?.onLiveStateChanged(null)
-        sessionWorker.submit {
+        submitCriticalTeardown {
             streamClient.disconnect()
             synchronized(callerLifecycleLock) {
                 camera.stopStreaming()
@@ -426,7 +480,7 @@ internal class PhoneSessionRuntime(
                                     phoneConnected = false
                                     phoneSessionState.failed(sessionGeneration)
                                     observer?.onStatusChanged("Listener error", error.message ?: "Unknown error")
-                                    sessionWorker.submit {
+                                    submitCriticalTeardown {
                                         camera.stopStreaming()
                                         encoder.stop()
                                         audioEncoder.stop()
@@ -449,7 +503,7 @@ internal class PhoneSessionRuntime(
                     }
 
                     if (isListenerActive(generation)) {
-                        sessionWorker.submit {
+                        submitCriticalTeardown {
                             camera.stopStreaming()
                             encoder.stop()
                             audioEncoder.stop()
@@ -492,7 +546,7 @@ internal class PhoneSessionRuntime(
         listenerThread?.interrupt()
         observer?.onLiveStateChanged(null)
         observer?.onDisconnectVisibilityChanged()
-        sessionWorker.submit {
+        submitCriticalTeardown {
             val thread = listenerThread
             streamClient.disconnect()
             if (thread != null && thread !== Thread.currentThread()) runCatching { thread.join(LISTENER_STOP_TIMEOUT_MS) }
@@ -546,6 +600,22 @@ internal class PhoneSessionRuntime(
         releaseReservationRunnable = null
     }
 
+    /** Retries one bounded critical submission until the worker frees its reserved slot. */
+    private fun submitCriticalTeardown(work: () -> Unit) {
+        val retry = object : Runnable {
+            override fun run() {
+                if (sessionWorker.submitCritical(work)) return
+                if (sessionWorker.isShutdown) {
+                    Log.e("shin", "Session worker closed before critical teardown could be queued")
+                    observer?.onSessionError("Could not stop the camera session cleanly")
+                    return
+                }
+                mainHandler.postDelayed(this, TEARDOWN_RETRY_MS)
+            }
+        }
+        retry.run()
+    }
+
     private fun schedulePendingRelease(sourceInstanceId: String) {
         val generation = reservationGeneration
         val sessionGeneration = phoneSessionState.snapshot.generation
@@ -593,7 +663,7 @@ internal class PhoneSessionRuntime(
             if (activeTargetName == null) {
                 val previous = encoder
                 encoder = createVideoEncoder(nextBitrate)
-                sessionWorker.submit { previous.stop() }
+                submitCriticalTeardown { previous.stop() }
             }
         }
     }
@@ -686,6 +756,7 @@ internal class PhoneSessionRuntime(
 
     companion object {
         const val LISTENER_POLL_MS = 250L
+        private const val TEARDOWN_RETRY_MS = 50L
         private const val LENS_RESTART_DELAY_MS = 500L
         private const val LISTENER_RETRY_MS = 750L
         private const val LISTENER_STOP_TIMEOUT_MS = 2_000L

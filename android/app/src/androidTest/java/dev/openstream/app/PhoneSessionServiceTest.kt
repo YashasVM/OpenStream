@@ -79,4 +79,33 @@ class PhoneSessionServiceTest {
             activity.close()
         }
     }
+
+    @Test
+    fun startWithoutCameraPermissionKeepsAnExplicitStopAndDoesNotStartTheOwner() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val activity = ActivityScenario.launch(MainActivity::class.java)
+        val binder = serviceRule.bindService(Intent(context, PhoneSessionService::class.java))
+            as PhoneSessionService.LocalBinder
+        binder.stop()
+        try {
+            instrumentation.uiAutomation.executeShellCommand(
+                "pm revoke ${context.packageName} ${Manifest.permission.CAMERA}",
+            ).use { descriptor -> FileInputStream(descriptor.fileDescriptor).readBytes() }
+            binder.start()
+
+            assertEquals(SessionOwnerState.PermissionRequired, binder.lifecycleState())
+            assertEquals(PhoneSessionStatus.Stopped, binder.runtime().phoneSessionState.snapshot.status)
+            assertEquals(
+                true,
+                context.getSharedPreferences(PhoneSessionService.PREFS_NAME, 0)
+                    .getBoolean(PhoneSessionService.KEY_STOPPED, false),
+            )
+        } finally {
+            instrumentation.uiAutomation.executeShellCommand(
+                "pm grant ${context.packageName} ${Manifest.permission.CAMERA}",
+            ).use { descriptor -> FileInputStream(descriptor.fileDescriptor).readBytes() }
+            activity.close()
+        }
+    }
 }

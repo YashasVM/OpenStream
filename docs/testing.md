@@ -94,6 +94,7 @@ reservation state. `MainActivity` observes that owner and attaches the preview s
 | Return to OpenStream | The Activity attaches its new preview surface to the existing owner and shows the current session state. The owner does not create another encoder. | INCONCLUSIVE until checked on a physical phone |
 | Notification Stop or in-app Stop | The owner stops media, closes the listener and control services, clears the reservation, and persists Stopped. Returning to the Activity does not restart it. The user must tap Start. | JVM and instrumentation test code added; emulator run unavailable |
 | Camera permission revoked | The owner stops media and clears the reservation. After permission is restored, the user must tap Start. | Instrumentation test code added; emulator run unavailable |
+| Start while camera permission is denied | The service does not enter the foreground or clear a persisted Stop. The owner remains stopped and requests camera permission. | Instrumentation test code added; emulator run unavailable |
 | Process recreation | The foreground service does not restart itself. The next app launch creates an available owner with no reservation. A previously explicit Stop remains stopped. | State transition tested; process-death device check INCONCLUSIVE |
 
 Screen-off camera access depends on Android version and device policy. The foreground service requests
