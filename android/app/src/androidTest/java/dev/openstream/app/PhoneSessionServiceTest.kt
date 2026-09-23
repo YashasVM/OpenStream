@@ -57,6 +57,26 @@ class PhoneSessionServiceTest {
     }
 
     @Test
+    fun stoppedActivityRecreationDoesNotRestartForegroundServiceOrSession() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val activity = ActivityScenario.launch(MainActivity::class.java)
+        val binder = serviceRule.bindService(Intent(context, PhoneSessionService::class.java))
+            as PhoneSessionService.LocalBinder
+        assertEquals(true, binder.isForegroundStarted())
+
+        binder.stop()
+        activity.recreate()
+        Thread.sleep(6_500)
+
+        assertEquals(false, binder.isForegroundStarted())
+        assertEquals(PhoneSessionStatus.Stopped, binder.runtime().phoneSessionState.snapshot.status)
+        assertEquals(false, binder.runtime().phoneServerRunning)
+        assertEquals(true, context.getSharedPreferences(PhoneSessionService.PREFS_NAME, 0)
+            .getBoolean(PhoneSessionService.KEY_STOPPED, false))
+        activity.close()
+    }
+
+    @Test
     fun revokingCameraPermissionStopsAndReleasesTheOwnedSession() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext

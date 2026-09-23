@@ -15,6 +15,8 @@ Unified design (prod-ready):
 
 from pathlib import Path
 
+from _helpers import block_after
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -88,6 +90,44 @@ def test_reservation_model_preserved():
     assert "ReservationState" in runtime
     assert "advertisedReservationId" in app
     assert "reservationState.isBusy(phoneConnected)" in runtime
+
+
+def test_stopped_relaunch_binds_without_requesting_foreground_start():
+    activity = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    service = read("android/app/src/main/java/dev/openstream/app/PhoneSessionService.kt")
+    startup = activity[
+        activity.index("private fun startAndBindSessionService()") :
+        activity.index("private fun requestSessionStop()")
+    ]
+    assert "getSharedPreferences" not in startup
+    assert "startForegroundService(intent)" not in startup
+    assert "startService(intent)" in startup
+    assert "bindService(intent, serviceConnection, BIND_AUTO_CREATE)" in startup
+    start_path = service[
+        service.index("override fun onStartCommand") :
+        service.index("override fun onTaskRemoved")
+    ]
+    assert "preferences.getBoolean(KEY_STOPPED, false) -> stopSelfResult(startId)" in start_path
+    assert "if (foregroundStarted) sessionRuntime.startComponents()" in start_path
+
+
+def test_preview_surface_reconfiguration_runs_on_owner_worker():
+    activity = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    runtime = read("android/app/src/main/java/dev/openstream/app/PhoneSessionRuntime.kt")
+    binding = block_after(runtime, "fun bindPreviewSurface(surface:")
+    enqueue_start = runtime.index("private fun enqueuePreviewBinding(")
+    retry_start = runtime.index("private fun schedulePreviewBindingRetry(", enqueue_start)
+    enqueue = runtime[enqueue_start:retry_start]
+    retry = block_after(runtime, "private fun schedulePreviewBindingRetry()")
+    assert "enqueuePreviewBinding(generation, requestedSurface)" in binding
+    assert "sessionWorker.submitIfCurrent(generation, { sessionWorkGeneration })" in enqueue
+    assert "if (generation != sessionWorkGeneration) return@submitIfCurrent" in enqueue
+    assert "camera.bindPreviewSurface(surface)" in enqueue
+    assert "sessionWorkGeneration" in retry
+    assert "requestedPreviewSurface" in retry
+    assert "schedulePreviewBindingRetry()" in retry
+    assert "camera.bindPreviewSurface(holder.surface)" not in activity
+    assert "camera.bindPreviewSurface(null)" not in activity
 
 
 def test_obs_discovery_registry_is_bounded():

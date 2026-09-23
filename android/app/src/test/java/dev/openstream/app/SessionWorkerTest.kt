@@ -75,6 +75,39 @@ class SessionWorkerTest {
     }
 
     @Test
+    fun stalePreviewDetachCannotOverrideLatestReattachedSurface() {
+        var generation = 4L
+        var activeSurface: String? = null
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val completed = CountDownLatch(1)
+        val worker = SessionWorker()
+        try {
+            assertTrue(worker.submit {
+                entered.countDown()
+                release.await(2, TimeUnit.SECONDS)
+            })
+            assertTrue(entered.await(2, TimeUnit.SECONDS))
+
+            assertTrue(worker.submitIfCurrent(4L, { generation }) { activeSurface = "old-preview" })
+            generation = 5L
+            assertTrue(worker.submitIfCurrent(5L, { generation }) { activeSurface = null })
+            generation = 6L
+            assertTrue(worker.submitIfCurrent(6L, { generation }) {
+                activeSurface = "new-preview"
+            })
+            assertTrue(worker.submit { completed.countDown() })
+            release.countDown()
+
+            assertTrue(completed.await(2, TimeUnit.SECONDS))
+            assertEquals("new-preview", activeSurface)
+        } finally {
+            release.countDown()
+            worker.close()
+        }
+    }
+
+    @Test
     fun surfaceLensSettingsAndPreviewTransitionsRunSerially() {
         val active = AtomicInteger()
         val overlap = AtomicInteger()

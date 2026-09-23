@@ -19,6 +19,7 @@ class PhoneSessionService : Service() {
     inner class LocalBinder : Binder() {
         internal fun runtime(): PhoneSessionRuntime = sessionRuntime
         internal fun lifecycleState(): SessionOwnerState = ownerState
+        internal fun isForegroundStarted(): Boolean = foregroundStarted
         internal fun stop() = stopSession()
         internal fun start() = startSession()
         internal fun activityHidden() {
@@ -74,13 +75,20 @@ class PhoneSessionService : Service() {
         when (intent?.action) {
             ACTION_STOP -> stopSession()
             ACTION_START -> startSession()
-            else -> if (hasCameraPermission() && !preferences.getBoolean(KEY_STOPPED, false)) {
-                ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.Start)
-                ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.ActivityVisible)
-                startForegroundSession()
-                sessionRuntime.startComponents()
-            } else if (!hasCameraPermission()) {
-                sessionRuntime.observer?.onSessionError("Camera permission is required to start a session")
+            else -> {
+                when {
+                    !hasCameraPermission() -> {
+                        sessionRuntime.observer?.onSessionError("Camera permission is required to start a session")
+                        stopSelfResult(startId)
+                    }
+                    preferences.getBoolean(KEY_STOPPED, false) -> stopSelfResult(startId)
+                    else -> {
+                        ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.Start)
+                        ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.ActivityVisible)
+                        startForegroundSession()
+                        if (foregroundStarted) sessionRuntime.startComponents()
+                    }
+                }
             }
         }
         // Process death discards the runtime and its SRT socket. Android must not auto-restart a

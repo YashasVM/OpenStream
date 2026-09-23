@@ -75,6 +75,8 @@ internal class PhoneSessionRuntime(
     @Volatile var releaseReservationRunnable: Runnable? = null
     @Volatile var reservationGeneration = 0L
     @Volatile private var previewSurfaceAvailable = false
+    @Volatile private var requestedPreviewSurface: android.view.Surface? = null
+    private var previewBindingRetry: Runnable? = null
     @Volatile private var stopResourcesPending = false
 
     val streamClient = SrtStreamClient()
@@ -289,16 +291,54 @@ internal class PhoneSessionRuntime(
     }
 
     fun bindPreviewSurface(surface: android.view.Surface?) {
-        sessionWorkGeneration += 1
-        previewSurfaceAvailable = surface?.isValid == true
-        camera.bindPreviewSurface(surface)
-        if (previewSurfaceAvailable) {
-            initializeLenses()
-            startPreview()
-            startPhoneServerIfAllowed()
+        val requestedSurface = surface?.takeIf(android.view.Surface::isValid)
+        val generation = ++sessionWorkGeneration
+        requestedPreviewSurface = requestedSurface
+        previewSurfaceAvailable = requestedSurface != null
+        if (enqueuePreviewBinding(generation, requestedSurface)) {
+            synchronized(this) {
+                previewBindingRetry?.let(mainHandler::removeCallbacks)
+                previewBindingRetry = null
+            }
+        } else {
+            schedulePreviewBindingRetry()
         }
-        else if (!phoneConnected && activeTargetName == null && !callerConnecting) {
-            sessionWorker.submit { camera.stop() }
+    }
+
+    private fun enqueuePreviewBinding(generation: Long, surface: android.view.Surface?): Boolean =
+        sessionWorker.submitIfCurrent(generation, { sessionWorkGeneration }) {
+            if (generation != sessionWorkGeneration) return@submitIfCurrent
+            camera.bindPreviewSurface(surface)
+            if (generation != sessionWorkGeneration) return@submitIfCurrent
+            if (surface != null) {
+                initializeLenses()
+                if (phoneSessionState.snapshot.status != PhoneSessionStatus.Stopped &&
+                    appContext.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+                ) camera.startPreview()
+                startPhoneServerIfAllowed()
+            } else if (!phoneConnected && activeTargetName == null && !callerConnecting) {
+                camera.stop()
+            }
+        }
+
+    private fun schedulePreviewBindingRetry() {
+        synchronized(this) {
+            if (previewBindingRetry != null) return
+            val retry = object : Runnable {
+                override fun run() {
+                    synchronized(this@PhoneSessionRuntime) { previewBindingRetry = null }
+                    if (sessionWorker.isShutdown) {
+                        Log.e("shin", "Session worker closed before preview surface could be rebound")
+                        observer?.onSessionError("Camera preview could not be updated")
+                        return
+                    }
+                    val generation = sessionWorkGeneration
+                    if (enqueuePreviewBinding(generation, requestedPreviewSurface)) return
+                    schedulePreviewBindingRetry()
+                }
+            }
+            previewBindingRetry = retry
+            mainHandler.postDelayed(retry, TEARDOWN_RETRY_MS)
         }
     }
 

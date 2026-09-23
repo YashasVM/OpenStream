@@ -695,8 +695,10 @@ class MainActivity : Activity(), PhoneSessionObserver {
     private fun startAndBindSessionService() {
         val intent = Intent(this, PhoneSessionService::class.java)
         if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
-            else startService(intent)
+            // The Activity is foreground here. Let the service decide whether the persisted
+            // session is active before it promotes itself, so a prior Stop cannot trigger an
+            // Android foreground-service start timeout on relaunch.
+            startService(intent)
         }
         if (!serviceBound) serviceBound = bindService(intent, serviceConnection, BIND_AUTO_CREATE)
     }
