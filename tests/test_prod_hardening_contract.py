@@ -45,9 +45,20 @@ def test_native_load_is_guarded():
 
 def test_teardown_never_blocks_ui_thread():
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
-    assert "shinActivityStop" in app or "shinStopServer" in app
-    assert "Thread(" in app
-    assert "Looper.getMainLooper" in app
+    worker = read("android/app/src/main/java/dev/openstream/app/SessionWorker.kt")
+    stop_server = app[app.index("private fun stopPhoneServer(") : app.index("private fun stopStream(")]
+
+    # MainActivity owns a bounded serial worker, and teardown is submitted as a
+    # unit so native disconnect/camera/codec stop do not run in the UI callback.
+    assert "private val sessionWorker = SessionWorker" in app
+    assert "sessionWorker.submit(blockingWork)" in stop_server
+    assert "streamClient.disconnect()" in stop_server
+    assert "camera.stopStreaming()" in stop_server
+    assert "encoder.stop()" in stop_server
+    assert "ArrayBlockingQueue(queueCapacity.coerceAtLeast(1))" in worker
+    assert "queueCapacity: Int = 32" in worker
+    assert "Session worker queue is full" in worker
+    assert "fun submitIfCurrent(" in worker
 
 
 def test_camera_manager_is_null_safe():

@@ -44,15 +44,20 @@ def test_srt_runtime_lifetime_is_process_scoped_and_disconnect_safe():
     source = SRT_NATIVE.read_text(encoding="utf-8")
 
     # NativeSender owns one libsrt runtime reference for its full lifetime.
-    # connect()/listen() must never acquire or release that global reference,
-    # so disconnect cannot tear the runtime down while setup is in progress.
+    # connect(), startListen(), and acceptPending() must never acquire or
+    # release that global reference, so disconnect cannot tear down runtime
+    # ownership while setup or an accept poll is in progress.
     constructor_start = source.index("NativeSender()")
     destructor_start = source.index("~NativeSender()", constructor_start)
     connect_start = source.index("bool connect(")
     constructor = source[constructor_start:destructor_start]
     destructor = source[destructor_start:connect_start]
-    connect = source[connect_start : source.index("bool listen(")]
-    listen = source[source.index("bool listen(") : source.index("bool sendNow(")]
+    start_listen_start = source.index("bool startListen(", connect_start)
+    accept_start = source.index("int acceptPending(", start_listen_start)
+    send_start = source.index("bool sendNow(", accept_start)
+    connect = source[connect_start:start_listen_start]
+    start_listen = source[start_listen_start:accept_start]
+    accept_pending = source[accept_start:send_start]
     disconnect = source[source.index("void disconnect()") : source.index("private:", source.index("void disconnect()"))]
 
     assert "srt_startup()" in constructor
@@ -60,24 +65,29 @@ def test_srt_runtime_lifetime_is_process_scoped_and_disconnect_safe():
     assert "srt_cleanup()" not in constructor
     assert "srt_cleanup();" in destructor
     assert "srt_startup()" not in connect
-    assert "srt_startup()" not in listen
+    assert "srt_startup()" not in start_listen
+    assert "srt_startup()" not in accept_pending
     assert "srt_cleanup()" not in connect
-    assert "srt_cleanup()" not in listen
+    assert "srt_cleanup()" not in start_listen
+    assert "srt_cleanup()" not in accept_pending
     assert "srt_cleanup()" not in disconnect
 
     # Connection attempts still fail cleanly if process-level startup failed.
     assert connect.count("if (!srtStarted_)") == 1
-    assert listen.count("if (!srtStarted_)") == 1
+    assert start_listen.count("if (!srtStarted_)") == 1
 
-    # Post-startup failures close their sockets/session state via disconnect,
-    # without changing the process-scoped libsrt runtime ownership.
+    # Setup failures close their sockets/session state via disconnect, without
+    # changing process-scoped runtime ownership. Accept polling is separate:
+    # it reports errors to the coordinator, which schedules session teardown.
     assert "Could not create SRT socket\");\n      disconnect();\n      return false;" in connect
     assert "Could not resolve SRT host\");\n      disconnect();\n      return false;" in connect
     assert "SRT connect failed: %s\", srt_getlasterror_str());\n      disconnect();\n      return false;" in connect
-    assert "Could not create SRT listener socket\");\n      disconnect();\n      return false;" in listen
-    assert "SRT bind failed: %s\", srt_getlasterror_str());\n      disconnect();\n      return false;" in listen
-    assert "SRT listen failed: %s\", srt_getlasterror_str());\n      disconnect();\n      return false;" in listen
-    assert "SRT accept failed: %s\", srt_getlasterror_str());\n      disconnect();\n      return false;" in listen
+    assert "Could not create SRT listener socket\");\n      disconnect();\n      return false;" in start_listen
+    assert "SRT bind failed: %s\", srt_getlasterror_str());\n      disconnect();\n      return false;" in start_listen
+    assert "SRT listen failed: %s\", srt_getlasterror_str());\n      disconnect();\n      return false;" in start_listen
+    assert "SRT accept failed: %s\", srt_getlasterror_str());" in accept_pending
+    assert "srt_epoll_uwait(epoll, &event, 1, 0)" in accept_pending
+    assert accept_pending.index("event.events & SRT_EPOLL_IN") < accept_pending.index("srt_accept(")
 
 
 def test_native_connect_and_listen_publish_only_current_generation():
@@ -86,7 +96,7 @@ def test_native_connect_and_listen_publish_only_current_generation():
     establish = block_after(kotlin, "private inline fun establishSession")
     assert "SrtNativeBridge.beginSession(generation)" in establish
     assert "SrtNativeBridge.connect(candidateUrl, codecMime, width, height, fps, generation)" in kotlin
-    assert "SrtNativeBridge.listen(url, codecMime, width, height, fps, generation)" in kotlin
+    assert "SrtNativeBridge.startListen(url, codecMime, width, height, fps, generation)" in kotlin
 
     publish = block_after(native, "bool setSocketForLifecycle")
     assert "std::lock_guard<std::mutex> lock(socketMutex_)" in publish
@@ -99,9 +109,20 @@ def test_native_connect_and_listen_publish_only_current_generation():
     connect = block_after(native, "bool connect(const std::string &url, uint64_t expectedLifecycleGeneration)")
     assert connect.index("setSocketForLifecycle(socket, expectedLifecycleGeneration)") < connect.index("srt_connect(")
 
-    listen = block_after(native, "bool listen(const std::string &url, uint64_t expectedLifecycleGeneration)")
-    assert "setListenerSocketForLifecycle(listenerSocket, expectedLifecycleGeneration)" in listen
-    assert "setSocketForLifecycle(acceptedSocket, expectedLifecycleGeneration)" in listen
+    start_listen = block_after(native, "bool startListen(const std::string &url, uint64_t expectedLifecycleGeneration)")
+    accept_pending = block_after(native, "int acceptPending(uint64_t expectedLifecycleGeneration)")
+    assert "setListenerSocketForLifecycle(listenerSocket, expectedLifecycleGeneration)" in start_listen
+    assert "setSocketForLifecycle(acceptedSocket, expectedLifecycleGeneration)" in accept_pending
+    assert accept_pending.index("lifecycleGeneration_ != expectedLifecycleGeneration") < accept_pending.index("srt_epoll_uwait(")
+    assert accept_pending.index("srt_epoll_uwait(") < accept_pending.index("srt_accept(")
+
+    jni_start_listen = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_startListen")
+    assert "g_state.sender.startListen(urlString, static_cast<uint64_t>(session_generation))" in jni_start_listen
+    assert jni_start_listen.index("session_generation) != g_state.mediaSessionGeneration") < jni_start_listen.index("g_state.sender.startListen(")
+    jni_accept = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_accept")
+    assert "g_state.sender.acceptPending(generation)" in jni_accept
+    assert jni_accept.index("generation != g_state.mediaSessionGeneration") < jni_accept.index("g_state.sender.acceptPending(")
+    assert jni_accept.rindex("generation != g_state.mediaSessionGeneration") > jni_accept.index("g_state.sender.acceptPending(")
 
 
 def test_disconnect_invalidates_generation_before_native_teardown():
