@@ -10,6 +10,7 @@ SRT_CLIENT = Path(
     "android/app/src/main/java/dev/openstream/app/stream/SrtStreamClient.kt"
 )
 MAIN_ACTIVITY = Path("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+SESSION_RUNTIME = Path("android/app/src/main/java/dev/openstream/app/PhoneSessionRuntime.kt")
 
 
 def test_video_callbacks_are_generation_bound_across_restart():
@@ -156,20 +157,14 @@ def test_failed_video_callback_setup_rolls_back_partial_resources():
 
 
 def test_stale_transport_failure_cannot_clear_replacement_connection_state():
-    source = MAIN_ACTIVITY.read_text(encoding="utf-8")
-    handler = block_after(source, "private fun handleMediaTransportFailure(sessionGeneration: Long)")
+    runtime = SESSION_RUNTIME.read_text(encoding="utf-8")
+    handler = block_after(runtime, "fun handleMediaTransportFailure(sessionGeneration: Long)")
+    generation_guard = "if (!streamClient.isCurrentSessionGeneration(sessionGeneration)) return"
 
-    post_block = block_after(handler, "mainHandler.post")
-    generation_guard = (
-        "if (!streamClient.isCurrentSessionGeneration(sessionGeneration)) return@post"
-    )
-
-    assert generation_guard in post_block
-    assert "phoneConnected = false" in post_block
-    assert post_block.index(generation_guard) < post_block.index("phoneConnected = false")
-
-    before_post = handler[: handler.index("mainHandler.post")]
-    assert "phoneConnected = false" not in before_post
+    assert generation_guard in handler
+    assert "phoneConnected = false" in handler
+    assert handler.index(generation_guard) < handler.index("phoneConnected = false")
+    assert handler.index(generation_guard) < handler.index("stopStream(updateStatus = false)")
 
 
 def test_send_failures_preserve_transport_generation_for_recovery():
@@ -215,24 +210,22 @@ def test_video_encoder_selection_is_hardware_avc_only_with_explicit_failure():
     assert '"OpenStreamEncoder"' not in choose
 
 
-def test_main_activity_drops_stale_failure_before_destructive_recovery():
+def test_session_owner_drops_stale_failure_before_destructive_recovery():
+    runtime = SESSION_RUNTIME.read_text(encoding="utf-8")
     activity = MAIN_ACTIVITY.read_text(encoding="utf-8")
 
-    audio_callback = block_after(activity, "onEncodedAccessUnit = { accessUnit ->")
-    video_start = activity.index("private fun createVideoEncoder")
+    audio_callback = block_after(runtime, "onEncodedAccessUnit = { accessUnit ->")
+    video_start = runtime.index("fun createVideoEncoder")
     video_callback = block_after(
-        activity[video_start:], "onEncodedAccessUnit = { accessUnit ->"
+        runtime[video_start:], "onEncodedAccessUnit = { accessUnit ->"
     )
     for callback in (audio_callback, video_callback):
         assert "result.recoveryRequired" in callback
         assert "isCurrentSessionGeneration(result.sessionGeneration)" in callback
-        assert "handleMediaTransportFailure(result.sessionGeneration)" in callback
+        assert "onMediaTransportFailure(result.sessionGeneration)" in callback
 
-    handler = block_after(activity, "private fun handleMediaTransportFailure(sessionGeneration: Long)")
-    assert "if (!streamClient.isCurrentSessionGeneration(sessionGeneration)) return" in handler
-    posted = block_after(handler, "mainHandler.post")
-    stale_guard = posted.index(
-        "if (!streamClient.isCurrentSessionGeneration(sessionGeneration)) return@post"
-    )
-    stop_stream = posted.index("stopStream(updateStatus = false)")
+    handler = block_after(runtime, "fun handleMediaTransportFailure(sessionGeneration: Long)")
+    stale_guard = handler.index("if (!streamClient.isCurrentSessionGeneration(sessionGeneration)) return")
+    stop_stream = handler.index("stopStream(updateStatus = false)")
     assert stale_guard < stop_stream
+    assert "if (::sessionRuntime.isInitialized) sessionRuntime.handleMediaTransportFailure(sessionGeneration)" in activity

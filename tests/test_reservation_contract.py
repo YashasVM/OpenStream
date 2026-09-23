@@ -1,34 +1,31 @@
 from pathlib import Path
 
-from _helpers import ROOT, function_body, read_text as read
+from _helpers import block_after, function_body, read_text as read
 
 SERVER = Path(
     "android/app/src/main/java/dev/openstream/app/control/CameraControlServer.kt"
 ).read_text()
 
 MAIN_ACTIVITY = Path("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+RUNTIME = Path("android/app/src/main/java/dev/openstream/app/PhoneSessionRuntime.kt")
 
 
 def test_reservation_expires_if_media_never_connects() -> None:
-    source = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    source = RUNTIME.read_text(encoding="utf-8")
 
-    reserve_start = source.index("private fun reserveForSource")
-    release_start = source.index("private fun releaseForSource", reserve_start)
+    reserve_start = source.index("private fun reserve(")
+    release_start = source.index("private fun release(", reserve_start)
     reserve = source[reserve_start:release_start]
-    select_start = source.index("private fun selectForSource")
-    select_end = source.index("private fun reserveForSource", select_start)
+    select_start = source.index("fun selectForSource(")
+    select_end = source.index("fun clearReservation(", select_start)
     select = source[select_start:select_end]
-    listener_start = source.index("private fun startPhoneServerIfAllowed")
-    listener_end = source.index("private fun isListenerActive", listener_start)
-    listener = source[listener_start:listener_end]
+    listener = block_after(source, "fun startPhoneServerIfAllowed()")
     schedule_start = source.index("private fun scheduleReservationRelease")
     cancel_start = source.index("private fun cancelReservationRelease", schedule_start)
     schedule = source[schedule_start:cancel_start]
-    pending_start = source.index("private fun schedulePendingRelease")
-    pending_end = source.index("private fun scheduleReservationRelease", pending_start)
-    pending = source[pending_start:pending_end]
+    pending = block_after(source, "private fun schedulePendingRelease(sourceInstanceId: String)")
 
-    connected_branch = "if (phoneConnected) {\n            cancelReservationRelease()\n        } else {\n            scheduleReservationRelease()\n        }"
+    connected_branch = "if (phoneConnected) cancelReservationRelease() else scheduleReservationRelease()"
     assert connected_branch in reserve
     assert "schedulePendingRelease(sourceInstanceId)" in select
     assert "reservationState.beginSelection" in select
@@ -49,10 +46,10 @@ def test_reservation_expires_if_media_never_connects() -> None:
 
 
 def test_reservation_renewal_invalidates_an_already_started_expiry() -> None:
-    source = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    source = RUNTIME.read_text(encoding="utf-8")
 
-    reserve_start = source.index("private fun reserveForSource")
-    release_start = source.index("private fun releaseForSource", reserve_start)
+    reserve_start = source.index("private fun reserve(")
+    release_start = source.index("private fun release(", reserve_start)
     reserve = source[reserve_start:release_start]
     schedule_start = source.index("private fun scheduleReservationRelease")
     cancel_start = source.index("private fun cancelReservationRelease", schedule_start)
@@ -87,13 +84,15 @@ def test_reservation_release_is_bound_to_generation_token() -> None:
 
 
 def test_android_actions_route_disconnect_stop_and_start_separately() -> None:
-    source = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    activity = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    service = read("android/app/src/main/java/dev/openstream/app/PhoneSessionService.kt")
+    runtime = RUNTIME.read_text(encoding="utf-8")
     state = read("android/app/src/main/java/dev/openstream/app/PhoneSessionState.kt")
-    button = function_body(source, "setupButtons")
-    disconnect = function_body(source, "disconnectPhoneSession")
-    stop = function_body(source, "stopPhoneSession")
-    start = function_body(source, "startPhoneSession")
-    listener_start = function_body(source, "startPhoneServerIfAllowed")
+    button = function_body(activity, "setupButtons")
+    disconnect = function_body(activity, "disconnectPhoneSession")
+    stop = function_body(service, "stopSession")
+    start = function_body(service, "startSession")
+    listener_start = block_after(runtime, "fun startPhoneServerIfAllowed()")
 
     assert "when (actionForSessionStatus(phoneSessionState.snapshot.status))" in button
     assert "PhoneSessionAction.Disconnect -> disconnectPhoneSession()" in button
@@ -107,24 +106,22 @@ def test_android_actions_route_disconnect_stop_and_start_separately() -> None:
     assert "PhoneSessionStatus.Reconnecting" in reconnecting_mapping
     assert "PhoneSessionAction.Stop" in reconnecting_mapping
 
-    assert "phoneSessionState.disconnect()" in disconnect
-    assert "clearReservation()" in disconnect
+    assert "sessionRuntime.disconnectReservation()" in disconnect
     assert "stopPhoneServer(" not in disconnect
     assert "startPhoneServerIfAllowed()" not in disconnect
 
     assert "phoneSessionState.stop()" in stop
-    assert "stopPhoneServer(clearReservation = true)" in stop
-    assert "pendingListenerStart = true" not in stop
+    assert "sessionRuntime.stopSessionResources" in stop
     assert "phoneSessionState.start()" in start
-    assert "startPhoneServerIfAllowed()" in start
+    assert "sessionRuntime.startComponents()" in start
     assert "PhoneSessionStatus.Stopped" in listener_start
 
 
 def test_android_reservation_timeouts_update_the_visible_state() -> None:
-    source = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
-    assert 'statusText.text = "Connection timed out"' in source
-    assert 'statusDetail.text = "Choose an OBS slot to try again"' in source
-    assert 'statusText.text = "Disconnected"' in source
+    runtime = RUNTIME.read_text(encoding="utf-8")
+    activity = MAIN_ACTIVITY.read_text(encoding="utf-8")
+    assert '"Connection timed out", "Choose an OBS slot to try again"' in runtime
+    assert '"Disconnected"' in activity
 
 
 def test_reservation_captures_controller_peer():
@@ -290,6 +287,7 @@ def test_duplicate_reserve_retry_cannot_reach_android_lease_scheduler():
     activity = Path(
         "android/app/src/main/java/dev/openstream/app/MainActivity.kt"
     ).read_text(encoding="utf-8")
+    runtime = RUNTIME.read_text(encoding="utf-8")
 
     reserve = function_body(SERVER, "handleReserve")
     duplicate_start = reserve.index("if (sameReservationConfig)")
@@ -299,13 +297,13 @@ def test_duplicate_reserve_retry_cannot_reach_android_lease_scheduler():
     duplicate_block = reserve[duplicate_start:on_reserve]
     assert "onReserve(" not in duplicate_block
 
-    assert "onReserve = { sourceInstanceId, slotLabel, bitrateMbps ->" in activity
-    assert "reserveForSource(sourceInstanceId, slotLabel, bitrateMbps)" in activity
+    assert "onReserve = { sourceInstanceId, slotLabel, bitrateMbps ->" in runtime
+    assert "reserve(sourceInstanceId, slotLabel, bitrateMbps)" in runtime
 
-    reserve_for_source = activity.index("private fun reserveForSource(")
-    schedule = activity.index("scheduleReservationRelease()", reserve_for_source)
-    generation = activity.index("reservationGeneration += 1", reserve_for_source)
-    assert reserve_for_source < generation < schedule
+    selection = block_after(runtime, "fun selectForSource(")
+    schedule = selection.index("schedulePendingRelease(sourceInstanceId)")
+    generation = selection.index("reservationGeneration += 1")
+    assert generation < schedule
 
 
 def test_obs_slot_render_cache_renders_initial_empty_state_and_tracks_bitrate():

@@ -15,16 +15,20 @@ def test_architecture_documents_practical_v1_transport() -> None:
 
 def test_android_project_declares_camera_media_codec_srt_discovery_boundaries() -> None:
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    runtime = read("android/app/src/main/java/dev/openstream/app/PhoneSessionRuntime.kt")
+    service = read("android/app/src/main/java/dev/openstream/app/PhoneSessionService.kt")
     discovery = read("android/app/src/main/java/dev/openstream/app/discovery/PhoneDiscoveryAdvertiser.kt")
     manifest = read("android/app/src/main/AndroidManifest.xml")
-    assert "Camera2" in app
-    assert "MediaCodec" in app
-    assert "SrtStreamClient" in app
+    assert "Camera2Controller" in runtime
+    assert "MediaCodecVideoEncoder" in runtime
+    assert "SrtStreamClient" in runtime
+    assert "PhoneSessionRuntime(" in service
+    assert "PhoneSessionRuntime" in app
     assert "status_ready" in app
-    assert "PhoneDiscoveryAdvertiser" in app
-    assert "startPreviewIfAllowed" in app
-    assert "startPhoneServerIfAllowed" in app
-    assert "MediaCodecAudioEncoder" in app
+    assert "PhoneDiscoveryAdvertiser" in runtime
+    assert "fun startPreview()" in runtime
+    assert "startPhoneServerIfAllowed" in runtime
+    assert "MediaCodecAudioEncoder" in runtime
     camera = read("android/app/src/main/java/dev/openstream/app/camera/Camera2Controller.kt")
     assert "CONTROL_AE_TARGET_FPS_RANGE" in camera
     assert "targetFps" in camera
@@ -44,7 +48,7 @@ def test_android_project_declares_camera_media_codec_srt_discovery_boundaries() 
     assert "advertisedMimeType()" in discovery
     assert "CHANGE_WIFI_MULTICAST_STATE" in manifest
     assert "RECORD_AUDIO" in manifest
-    assert "RECORD_AUDIO" in app
+    assert "RECORD_AUDIO" in runtime
 
 
 def test_android_connection_target_builds_srt_caller_url_and_pairing_targets() -> None:
@@ -147,16 +151,17 @@ def test_obs_discovery_beacons_advertise_slots_not_raw_listener_only() -> None:
 def test_slot_reservation_allows_owned_busy_phone_and_reconnect_hold() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    runtime = read("android/app/src/main/java/dev/openstream/app/PhoneSessionRuntime.kt")
     advertiser = read("android/app/src/main/java/dev/openstream/app/discovery/PhoneDiscoveryAdvertiser.kt")
     assert "entry.second.reserved_by != source_instance_id" in source
     assert "found->second.busy && found->second.reserved_by != source_instance_id" in source
     assert "set_slot_status(ctx, \"Reconnecting\")" in source
     assert "set_active_phone(ctx, reserved_phone)" in source
     assert '"reservedBy"' in advertiser
-    assert "RECONNECT_RESERVATION_MS = 45_000L" in app
-    assert "Holding $it for reconnect" in app
-    assert "scheduleReservationRelease" in app
-    assert "cancelReservationRelease" in app
+    assert "RECONNECT_RESERVATION_MS = 45_000L" in runtime
+    assert "Holding $it for reconnect" in runtime
+    assert "scheduleReservationRelease" in runtime
+    assert "cancelReservationRelease" in runtime
 
 
 def test_auto_selected_obs_slot_sticks_to_same_phone_during_reconnect_hold() -> None:
@@ -177,6 +182,7 @@ def test_android_discovery_ui_parses_and_displays_obs_slots() -> None:
     device = read("android/app/src/main/java/dev/openstream/app/discovery/DiscoveredObsDevice.kt")
     discovery = read("android/app/src/main/java/dev/openstream/app/discovery/ObsDiscoveryClient.kt")
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    runtime = read("android/app/src/main/java/dev/openstream/app/PhoneSessionRuntime.kt")
     layout = read("android/app/src/main/res/layout/activity_main.xml")
     strings = read("android/app/src/main/res/values/strings.xml")
     assert "val sourceInstanceId" in device
@@ -184,7 +190,7 @@ def test_android_discovery_ui_parses_and_displays_obs_slots() -> None:
     assert "val slotLabel" in device
     assert "val pairingUrl" in device
     assert 'json.optString("slotLabel"' in discovery
-    assert "ObsDiscoveryClient(" in app
+    assert "ObsDiscoveryClient(" in runtime
     assert "renderObsSlots" in app
     assert "reserveForSlot" in app
     assert "slotAvailabilityLabel" in app
@@ -211,16 +217,18 @@ def test_identify_camera_control_round_trip_exists() -> None:
 def test_android_control_server_supports_source_reservations() -> None:
     control = read("android/app/src/main/java/dev/openstream/app/control/CameraControlServer.kt")
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    runtime = read("android/app/src/main/java/dev/openstream/app/PhoneSessionRuntime.kt")
     assert 'path == "/reserve"' in control
     assert 'path == "/release"' in control
     assert "reservationProvider" in control
-    assert "reserveForSource" in app
-    assert "releaseForSource" in app
+    assert "onReserve = { sourceInstanceId, slotLabel, bitrateMbps ->" in runtime
+    assert "val accepted = reserve(sourceInstanceId, slotLabel, bitrateMbps)" in runtime
+    assert "val released = release(sourceInstanceId)" in runtime
     assert "selectForSource" in app
-    assert "isPhoneBusy()" in app
+    assert "reservationState.isBusy(phoneConnected)" in runtime
     assert "advertisedReservationId" in app
-    assert "private var activeStreamBitrate" in app
-    assert "useStreamBitrate(bitrateMbps)" in app
+    assert "activeStreamBitrate" in runtime
+    assert "replaceEncoderForBitrate(bitrateMbps)" in runtime
     assert "selectForSource(device.sourceInstanceId, device.displayLabel, device.bitrateMbps)" in app
     assert "val bitrateMbps = if (json.has(\"bitrateMbps\"))" in control
 

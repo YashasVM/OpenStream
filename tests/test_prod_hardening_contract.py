@@ -45,21 +45,25 @@ def test_native_load_is_guarded():
 
 def test_teardown_never_blocks_ui_thread():
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    runtime = read("android/app/src/main/java/dev/openstream/app/PhoneSessionRuntime.kt")
+    service = read("android/app/src/main/java/dev/openstream/app/PhoneSessionService.kt")
     worker = read("android/app/src/main/java/dev/openstream/app/SessionWorker.kt")
-    stop_server = app[app.index("private fun stopPhoneServer(") : app.index("private fun stopStream(")]
 
-    # MainActivity owns a bounded serial worker, and teardown is submitted as a
-    # unit so native disconnect/camera/codec stop do not run in the UI callback.
-    assert "private val sessionWorker = SessionWorker" in app
-    assert "sessionWorker.submitCritical(blockingWork)" in stop_server
-    assert "streamClient.disconnect()" in stop_server
-    assert "camera.stopStreaming()" in stop_server
-    assert "encoder.stop()" in stop_server
+    # The foreground service owns the worker. Activity actions delegate to it,
+    # and aggregate Stop teardown is retried through the reserved worker slot.
+    assert "sessionRuntime.stopSessionResources" in service
+    assert "SessionWorker" in runtime
+    assert "submitCritical(teardown)" in runtime
+    assert "streamClient.disconnect()" in runtime
+    assert "camera.stopStreaming()" in runtime
+    assert "encoder.stop()" in runtime
+    assert "sessionRuntime.stopStream(updateStatus)" in app
     assert "ArrayBlockingQueue(normalQueueCapacity + 1)" in worker
     assert "queueCapacity: Int = 32" in worker
     assert "Session worker queue is full" in worker
     assert "fun submitCritical(work: () -> Unit)" in worker
-    assert "sessionWorker.submitCritical {" in app
+    assert "fun submitCriticalTeardown(work: () -> Unit)" in runtime
+    assert "sessionWorker.submitCritical(work)" in runtime
     assert "fun submitIfCurrent(" in worker
 
 
@@ -79,10 +83,11 @@ def test_control_bind_errors_surfaced():
 
 
 def test_reservation_model_preserved():
+    runtime = read("android/app/src/main/java/dev/openstream/app/PhoneSessionRuntime.kt")
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
-    assert "ReservationState" in app
+    assert "ReservationState" in runtime
     assert "advertisedReservationId" in app
-    assert "isBusy" in app or "isPhoneBusy" in app
+    assert "reservationState.isBusy(phoneConnected)" in runtime
 
 
 def test_obs_discovery_registry_is_bounded():

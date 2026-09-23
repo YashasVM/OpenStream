@@ -27,7 +27,7 @@ def test_transient_camera_loss_waits_for_availability_before_reopening():
     assert "lifecycleGeneration != expectedLifecycleGeneration" in recovery_lock
     assert "cameraGeneration.get() != cameraRecoveryGeneration" in recovery_lock
     assert "activeCameraId != cameraId" in recovery_lock
-    assert "previewSurfaceProvider().isValid" in recovery_lock
+    assert "previewSurface?.isValid == true" in recovery_lock
     assert recovery_lock.index("cancelCameraRecoveryLocked()") < recovery_lock.index(
         "startPreviewLocked()"
     )
@@ -113,21 +113,18 @@ def test_capture_session_failures_recover_only_current_camera():
 
 def test_session_reconfigure_defers_invalid_output_surfaces_before_teardown():
     create_session = block_after(SOURCE, "private fun createSession()")
-    assert "runCatching { previewSurfaceProvider() }.getOrNull()" in create_session
-    assert "preview == null || !preview.isValid" in create_session
+    assert "previewSurface?.takeIf(Surface::isValid)" in create_session
+    assert "captureOutputKinds(preview != null, encoded != null)" in create_session
+    assert "outputKinds.isEmpty()" in create_session
     assert "encoded != null && !encoded.isValid" in create_session
-    assert create_session.index("preview == null || !preview.isValid") < create_session.index(
-        "sessionGeneration.incrementAndGet()"
-    )
-    assert create_session.index("encoded != null && !encoded.isValid") < create_session.index(
-        "session?.close()"
-    )
+    assert create_session.index("outputKinds.isEmpty()") < create_session.index("session?.close()")
+    assert create_session.index("encoded != null && !encoded.isValid") < create_session.index("session?.close()")
 
     rebuild = block_after(SOURCE, "private fun rebuildRepeatingRequest()")
-    assert "runCatching { previewSurfaceProvider() }.getOrNull()" in rebuild
-    assert "preview == null || !preview.isValid" in rebuild
+    assert "previewSurface?.takeIf(Surface::isValid)" in rebuild
+    assert "if (preview == null && encoded == null) return" in rebuild
     assert "encoded != null && !encoded.isValid" in rebuild
-    assert rebuild.index("preview == null || !preview.isValid") < rebuild.index(
+    assert rebuild.index("if (preview == null && encoded == null) return") < rebuild.index(
         "device.createCaptureRequest(template)"
     )
 
