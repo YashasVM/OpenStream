@@ -62,6 +62,24 @@ class PhoneSessionStateTest {
     }
 
     @Test
+    fun reconnectingShowsStopAndStopPreventsAutomaticReconnect() {
+        val state = PhoneSessionState()
+        state.select("source-a")
+        state.reserve("source-a")
+        val generation = state.beginConnection()
+        assertTrue(state.connected(generation))
+        assertTrue(state.connectionLost(generation))
+
+        assertEquals(PhoneSessionAction.Stop, actionForSessionStatus(state.snapshot.status))
+        state.stop()
+        val stopped = state.snapshot
+        assertEquals(PhoneSessionStatus.Stopped, stopped.status)
+        assertEquals(PhoneSessionAction.Start, actionForSessionStatus(stopped.status))
+        assertFalse(state.connected(generation))
+        assertEquals(stopped, state.snapshot)
+    }
+
+    @Test
     fun disconnectReleasesReservationButStopRequiresExplicitStart() {
         val state = PhoneSessionState()
         state.select("source-a")

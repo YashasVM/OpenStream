@@ -364,10 +364,10 @@ class MainActivity : Activity() {
             startActivityForResult(intent, SETTINGS_REQUEST_CODE)
         }
         btnStop.setOnClickListener {
-            when (phoneSessionState.snapshot.status) {
-                PhoneSessionStatus.Stopped -> startPhoneSession()
-                PhoneSessionStatus.Live, PhoneSessionStatus.Connecting -> stopPhoneSession()
-                else -> disconnectPhoneSession()
+            when (actionForSessionStatus(phoneSessionState.snapshot.status)) {
+                PhoneSessionAction.Start -> startPhoneSession()
+                PhoneSessionAction.Stop -> stopPhoneSession()
+                PhoneSessionAction.Disconnect -> disconnectPhoneSession()
             }
         }
 
@@ -1091,9 +1091,12 @@ class MainActivity : Activity() {
                 sessionStatus == PhoneSessionStatus.Live ||
                 reservationState.hasReservationToDisconnect || phoneConnected || activeTargetName != null
             btnStop.text = when (sessionStatus) {
-                PhoneSessionStatus.Stopped -> "Start"
-                PhoneSessionStatus.Live, PhoneSessionStatus.Connecting -> "Stop"
-                else -> "Disconnect"
+                PhoneSessionStatus.Stopped -> PhoneSessionAction.Start.name
+                PhoneSessionStatus.Live,
+                PhoneSessionStatus.Connecting,
+                PhoneSessionStatus.Reconnecting,
+                -> PhoneSessionAction.Stop.name
+                else -> PhoneSessionAction.Disconnect.name
             }
             btnStop.visibility = if (shouldShow) View.VISIBLE else View.GONE
         }

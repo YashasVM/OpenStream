@@ -12,6 +12,21 @@ internal enum class PhoneSessionStatus {
     Stopped,
 }
 
+internal enum class PhoneSessionAction {
+    Start,
+    Stop,
+    Disconnect,
+}
+
+internal fun actionForSessionStatus(status: PhoneSessionStatus): PhoneSessionAction = when (status) {
+    PhoneSessionStatus.Stopped -> PhoneSessionAction.Start
+    PhoneSessionStatus.Connecting,
+    PhoneSessionStatus.Live,
+    PhoneSessionStatus.Reconnecting,
+    -> PhoneSessionAction.Stop
+    else -> PhoneSessionAction.Disconnect
+}
+
 internal data class PhoneSessionSnapshot(
     val status: PhoneSessionStatus = PhoneSessionStatus.Available,
     val sourceInstanceId: String? = null,
