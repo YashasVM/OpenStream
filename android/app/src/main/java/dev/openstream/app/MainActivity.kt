@@ -5,6 +5,8 @@ import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.app.Activity
 import android.content.Intent
+import android.content.ComponentName
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.net.Uri
@@ -12,6 +14,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.IBinder
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
@@ -39,7 +42,7 @@ import dev.openstream.app.stream.SrtAcceptResult
 import dev.openstream.app.stream.StreamConfig
 import dev.openstream.app.stream.SrtStreamClient
 
-class MainActivity : Activity() {
+class MainActivity : Activity(), PhoneSessionObserver {
 
     // ── Views ──
     private lateinit var cameraPreview: SurfaceView
@@ -62,53 +65,121 @@ class MainActivity : Activity() {
     private lateinit var identifyOverlay: TextView
     private lateinit var bottomControls: LinearLayout
 
-    // ── Core components ──
-    private lateinit var camera: Camera2Controller
-    private lateinit var encoder: MediaCodecVideoEncoder
-    private lateinit var audioEncoder: MediaCodecAudioEncoder
-    private lateinit var streamClient: SrtStreamClient
-    private lateinit var phoneAdvertiser: PhoneDiscoveryAdvertiser
-    private lateinit var obsDiscoveryClient: ObsDiscoveryClient
-    private lateinit var controlServer: CameraControlServer
-    private val sessionWorker = SessionWorker { error ->
-        Log.e("shin", "Session lifecycle operation failed", error)
-    }
-    private val listenerAcceptCoordinator = ListenerAcceptCoordinator(sessionWorker, LISTENER_POLL_MS)
-
-    private val streamConfig = StreamConfig.Default1080p30
+    // Core state and resources belong to PhoneSessionService. This Activity only binds views,
+    // attaches its preview surface, and renders observed session events.
+    private lateinit var sessionRuntime: PhoneSessionRuntime
+    private val camera get() = sessionRuntime.camera
+    private val encoder get() = sessionRuntime.encoder
+    private val audioEncoder get() = sessionRuntime.audioEncoder
+    private val streamClient get() = sessionRuntime.streamClient
+    private val phoneAdvertiser get() = sessionRuntime.phoneAdvertiser
+    private val obsDiscoveryClient get() = sessionRuntime.obsDiscoveryClient
+    private val controlServer get() = sessionRuntime.controlServer
+    private val sessionWorker get() = sessionRuntime.sessionWorker
+    private val listenerAcceptCoordinator get() = sessionRuntime.listenerAcceptCoordinator
+    private val streamConfig get() = sessionRuntime.streamConfig
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val reservationState = ReservationState()
-    private val phoneSessionState = PhoneSessionState()
-    @Volatile private var activeTargetName: String? = null
-    @Volatile private var phoneServerRunning = false
-    @Volatile private var phoneConnected = false
-    @Volatile private var selectedObsHost: String? = null
-    @Volatile private var listenerThread: Thread? = null
-    @Volatile private var callerConnecting = false
-    @Volatile private var callerGeneration = 0L
-    @Volatile private var pendingListenerStart = false
-    @Volatile private var listenerGeneration = 0L
+    private val reservationState get() = sessionRuntime.reservationState
+    private val phoneSessionState get() = sessionRuntime.phoneSessionState
+    private var activeTargetName: String?
+        get() = sessionRuntime.activeTargetName
+        set(value) { sessionRuntime.activeTargetName = value }
+    private var phoneServerRunning: Boolean
+        get() = sessionRuntime.phoneServerRunning
+        set(value) { sessionRuntime.phoneServerRunning = value }
+    private var phoneConnected: Boolean
+        get() = sessionRuntime.phoneConnected
+        set(value) { sessionRuntime.phoneConnected = value }
+    private var selectedObsHost: String?
+        get() = sessionRuntime.selectedObsHost
+        set(value) { sessionRuntime.selectedObsHost = value }
+    private var listenerThread: Thread?
+        get() = sessionRuntime.listenerThread
+        set(value) { sessionRuntime.listenerThread = value }
+    private var callerConnecting: Boolean
+        get() = sessionRuntime.callerConnecting
+        set(value) { sessionRuntime.callerConnecting = value }
+    private var callerGeneration: Long
+        get() = sessionRuntime.callerGeneration
+        set(value) { sessionRuntime.callerGeneration = value }
+    private var pendingListenerStart: Boolean
+        get() = sessionRuntime.pendingListenerStart
+        set(value) { sessionRuntime.pendingListenerStart = value }
+    private var listenerGeneration: Long
+        get() = sessionRuntime.listenerGeneration
+        set(value) { sessionRuntime.listenerGeneration = value }
     @Volatile private var activityStarted = false
-    @Volatile private var sessionWorkGeneration = 0L
+    private var sessionWorkGeneration: Long
+        get() = sessionRuntime.sessionWorkGeneration
+        set(value) { sessionRuntime.sessionWorkGeneration = value }
     private var keepScreenOn = false
     private var displayOff = false
     private var originalBrightness = -1f
     private var torchOn = false
-    private var currentLens: CameraLens = CameraLens.Back
-    private var availableLenses: List<CameraLens> = listOf(CameraLens.Back)
+    private var currentLens: CameraLens
+        get() = sessionRuntime.currentLens
+        set(value) { sessionRuntime.currentLens = value }
+    private var availableLenses: List<CameraLens>
+        get() = sessionRuntime.availableLenses
+        set(value) { sessionRuntime.availableLenses = value }
     private lateinit var scaleGestureDetector: ScaleGestureDetector
     private var zoomHideRunnable: Runnable? = null
     private var liveDotAnimator: ObjectAnimator? = null
-    private var currentPort: Int = ConnectionTarget.DEFAULT_PORT
-    private var releaseReservationRunnable: Runnable? = null
-    private var reservationGeneration = 0L
+    private var currentPort: Int
+        get() = sessionRuntime.currentPort
+        set(value) { sessionRuntime.currentPort = value }
+    private var releaseReservationRunnable: Runnable?
+        get() = sessionRuntime.releaseReservationRunnable
+        set(value) { sessionRuntime.releaseReservationRunnable = value }
+    private var reservationGeneration: Long
+        get() = sessionRuntime.reservationGeneration
+        set(value) { sessionRuntime.reservationGeneration = value }
     private var lensRestartRunnable: Runnable? = null
     private var identifyHideRunnable: Runnable? = null
     private var pendingConnectAfterSettings = false
-    private var currentDevices: List<DiscoveredObsDevice> = emptyList()
-    private var activeStreamBitrate: Int = streamConfig.bitrate
+    private var pendingPairingIntent: Intent? = null
+    private var currentDevices: List<DiscoveredObsDevice>
+        get() = sessionRuntime.currentDevices
+        set(value) { sessionRuntime.currentDevices = value }
+    private var activeStreamBitrate: Int
+        get() = sessionRuntime.activeStreamBitrate
+        set(value) { sessionRuntime.activeStreamBitrate = value }
     private var lastObsSlotRenderKeys: List<String>? = null
-    private val callerLifecycleLock = Any()
+    private val callerLifecycleLock get() = sessionRuntime.callerLifecycleLock
+    private var serviceBound = false
+    private var serviceBinder: PhoneSessionService.LocalBinder? = null
+    private var pendingPreviewSurface: android.view.Surface? = null
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            val ownerBinder = service as? PhoneSessionService.LocalBinder ?: return
+            serviceBinder = ownerBinder
+            sessionRuntime = ownerBinder.runtime()
+            sessionRuntime.observer = this@MainActivity
+            pendingPreviewSurface?.let(sessionRuntime.camera::bindPreviewSurface)
+            if (!sessionRuntime.streamClient.isNativeAvailable) {
+                statusDetail.text = "SRT unavailable: ${sessionRuntime.streamClient.nativeLoadError?.message ?: "missing native lib"}"
+            }
+            if (activityStarted) {
+                sessionRuntime.startComponents()
+                initializeLenses()
+                startPreviewIfAllowed()
+                startPhoneServerIfAllowed()
+                onLiveStateChanged(sessionRuntime.activeTargetName)
+            }
+            pendingPairingIntent?.let(::handlePairingIntent)
+            pendingPairingIntent = null
+            renderDisconnectVisibility()
+            if (pendingConnectAfterSettings && activityStarted) {
+                pendingConnectAfterSettings = false
+                startStream(connectionTargetFromSettings())
+            }
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            serviceBinder = null
+            if (::sessionRuntime.isInitialized) sessionRuntime.observer = null
+        }
+    }
 
     private val reservedBy: String?
         get() = reservationState.confirmedSourceInstanceId
@@ -134,131 +205,32 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestRuntimePermissions()
         setContentView(R.layout.activity_main)
         bindViews()
         setupGestureDetector()
-
-        currentPort = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
-            .getInt(SettingsActivity.KEY_LISTENING_PORT, ConnectionTarget.DEFAULT_PORT)
-            .takeIf { it in 1024..65535 }
-            ?: ConnectionTarget.DEFAULT_PORT
-
-        streamClient = SrtStreamClient()
-        if (!streamClient.isNativeAvailable) {
-            statusDetail.text =
-                "SRT unavailable: ${streamClient.nativeLoadError?.message ?: "missing native lib"}"
-        }
-        phoneAdvertiser = PhoneDiscoveryAdvertiser(
-            context = applicationContext,
-            config = streamConfig,
-            port = currentPort,
-            busyProvider = { isPhoneBusy() },
-            reservedByProvider = { advertisedReservationId },
-            selectedObsHostProvider = { selectedObsHost },
-        )
-        obsDiscoveryClient = ObsDiscoveryClient(
-            context = applicationContext,
-            onDevicesChanged = { devices ->
-                currentDevices = devices
-                if (activityStarted) renderObsSlots(devices)
-            },
-        )
-        encoder = createVideoEncoder(activeStreamBitrate)
-        audioEncoder = MediaCodecAudioEncoder(
-            context = applicationContext,
-            sampleRate = streamConfig.audioSampleRate,
-            channelCount = streamConfig.audioChannelCount,
-            bitrate = streamConfig.audioBitrate,
-            onEncodedAccessUnit = { accessUnit ->
-                val result = streamClient.sendAudioAccessUnit(accessUnit)
-                if (result.recoveryRequired &&
-                    streamClient.isCurrentSessionGeneration(result.sessionGeneration)
-                ) {
-                    handleMediaTransportFailure(result.sessionGeneration)
-                }
-            },
-        )
-        camera = Camera2Controller(
-            context = applicationContext,
-            lensProvider = { currentLens },
-            targetFps = streamConfig.fps,
-        )
-        controlServer = CameraControlServer(
-            cameraProvider = { camera },
-            lensListProvider = { availableLenses },
-            currentLensProvider = { currentLens },
-            onSwitchLens = { lens -> runOnUiThread { selectLens(lens) } },
-            onToggleTorch = { enabled -> runOnUiThread {
-                torchOn = enabled
-                sessionWorker.submit { camera.setTorch(enabled) }
-                setTorchUi(enabled)
-            }},
-            reservationProvider = { reservedBy },
-            onReserve = { sourceInstanceId, slotLabel, bitrateMbps ->
-                reserveForSource(sourceInstanceId, slotLabel, bitrateMbps).also { accepted ->
-                    if (accepted) {
-                        runOnUiThread {
-                            statusText.text = "Paired to ${slotLabel.ifBlank { "OBS computer" }}"
-                            statusDetail.text = "OBS acknowledged; waiting to go live"
-                            renderDisconnectVisibility()
-                            renderObsSlots(currentDevices)
-                        }
-                    }
-                }
-            },
-            onRelease = { sourceInstanceId -> releaseForSource(sourceInstanceId) },
-            onIdentify = { label, subtitle -> runOnUiThread { showIdentifyOverlay(label, subtitle) } },
-            onError = { message -> runOnUiThread { statusDetail.text = message } },
-        )
-
-        cameraPreview.holder.addCallback(object : SurfaceHolder.Callback {
-            override fun surfaceCreated(holder: SurfaceHolder) {
-                sessionWorkGeneration += 1
-                camera.bindPreviewSurface(holder.surface)
-                initializeLenses()
-                startPreviewIfAllowed()
-                startPhoneServerIfAllowed()
-            }
-            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                // Fix stretched preview: adjust SurfaceView to maintain camera aspect ratio
-                adjustPreviewAspectRatio()
-            }
-            override fun surfaceDestroyed(holder: SurfaceHolder) {
-                sessionWorkGeneration += 1
-                camera.bindPreviewSurface(null)
-                if (!phoneConnected && activeTargetName == null && !callerConnecting) {
-                    sessionWorker.submit { camera.stop() }
-                }
-            }
-        })
-
+        requestRuntimePermissions()
+        bindPreviewSurface()
         setupButtons()
         setupNavBarInsets()
-        handlePairingIntent(intent)
+        pendingPairingIntent = intent
     }
 
     override fun onStart() {
         super.onStart()
         activityStarted = true
-        sessionWorker.submit {
-            phoneAdvertiser.start()
-            obsDiscoveryClient.start()
-            controlServer.start()
-        }
-        startPreviewIfAllowed()
-        startPhoneServerIfAllowed()
+        startAndBindSessionService()
     }
 
     override fun onResume() {
         super.onResume()
+        serviceBinder?.activityResumed()
         // Reload listening port from settings if it changed
         val settingsPrefs = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
-        val savedPort = settingsPrefs.getInt(SettingsActivity.KEY_LISTENING_PORT, currentPort)
-        if (savedPort != currentPort && savedPort in 1024..65535) {
+        val savedPort = settingsPrefs.getInt(SettingsActivity.KEY_LISTENING_PORT, ConnectionTarget.DEFAULT_PORT)
+        if (::sessionRuntime.isInitialized && savedPort != currentPort && savedPort in 1024..65535) {
             changePort(savedPort)
         }
-        if (pendingConnectAfterSettings) {
+        if (::sessionRuntime.isInitialized && pendingConnectAfterSettings) {
             pendingConnectAfterSettings = false
             startStream(connectionTargetFromSettings())
         }
@@ -266,30 +238,21 @@ class MainActivity : Activity() {
 
     override fun onStop() {
         activityStarted = false
-        sessionWorkGeneration += 1
         cancelLensRestart()
         stopLiveDotAnimation()
-        val session = phoneSessionState.snapshot
-        if (session.status == PhoneSessionStatus.Live ||
-            session.status == PhoneSessionStatus.Connecting
-        ) {
-            phoneSessionState.connectionLost(session.generation)
+        mainHandler.removeCallbacks(statsTicker)
+        if (::sessionRuntime.isInitialized) sessionRuntime.observer = null
+        if (serviceBound) {
+            unbindService(serviceConnection)
+            serviceBound = false
         }
-        stopPhoneServer(
-            clearReservation = false,
-            updateStatus = false,
-            stopCamera = true,
-            stopComponents = true,
-        )
         super.onStop()
     }
 
     override fun onDestroy() {
-        clearReservation()
         identifyHideRunnable?.let(mainHandler::removeCallbacks)
         identifyHideRunnable = null
         mainHandler.removeCallbacksAndMessages(null)
-        sessionWorker.close()
         super.onDestroy()
     }
 
@@ -312,9 +275,7 @@ class MainActivity : Activity() {
         if (!audioGranted) {
             statusDetail.text = "Microphone denied; streaming video without audio"
         }
-        initializeLenses()
-        startPreviewIfAllowed()
-        startPhoneServerIfAllowed()
+        startAndBindSessionService()
     }
 
     @Deprecated("Uses the platform Activity result API to avoid an AndroidX dependency")
@@ -330,7 +291,7 @@ class MainActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handlePairingIntent(intent)
+        if (::sessionRuntime.isInitialized) handlePairingIntent(intent) else pendingPairingIntent = intent
     }
 
     override fun onTouchEvent(event: MotionEvent?): Boolean {
@@ -384,25 +345,6 @@ class MainActivity : Activity() {
         screenOffOverlay.setOnClickListener { toggleDisplayOff() }
     }
 
-    private fun createVideoEncoder(bitrate: Int): MediaCodecVideoEncoder {
-        return MediaCodecVideoEncoder(
-            preference = streamConfig.codecPreference,
-            width = streamConfig.width,
-            height = streamConfig.height,
-            fps = streamConfig.fps,
-            bitrate = bitrate,
-            keyframeIntervalSeconds = streamConfig.keyframeIntervalSeconds,
-            onEncodedAccessUnit = { accessUnit ->
-                val result = streamClient.sendVideoAccessUnit(accessUnit)
-                if (result.recoveryRequired &&
-                    streamClient.isCurrentSessionGeneration(result.sessionGeneration)
-                ) {
-                    handleMediaTransportFailure(result.sessionGeneration)
-                }
-            },
-        )
-    }
-
     private fun handleMediaTransportFailure(sessionGeneration: Long) {
         if (!streamClient.isCurrentSessionGeneration(sessionGeneration)) return
         mainHandler.post {
@@ -432,17 +374,7 @@ class MainActivity : Activity() {
     }
 
     private fun useStreamBitrate(bitrateMbps: Int?) {
-        val nextBitrate = (bitrateMbps ?: streamConfig.bitrateMbps)
-            .coerceIn(StreamConfig.MIN_BITRATE_MBPS, StreamConfig.MAX_BITRATE_MBPS) * 1_000_000
-        synchronized(callerLifecycleLock) {
-            if (activeStreamBitrate == nextBitrate) return
-            activeStreamBitrate = nextBitrate
-            if (activeTargetName == null) {
-                val previousEncoder = encoder
-                encoder = createVideoEncoder(activeStreamBitrate)
-                sessionWorker.submit { previousEncoder.stop() }
-            }
-        }
+        sessionRuntime.replaceEncoderForBitrate(bitrateMbps)
     }
 
     private fun setupGestureDetector() {
@@ -846,150 +778,8 @@ class MainActivity : Activity() {
     }
 
     private fun startPhoneServerIfAllowed() {
-        if (phoneSessionState.snapshot.status == PhoneSessionStatus.Stopped) return
-        if (phoneServerRunning) return
-        if (listenerThread?.isAlive == true) {
-            pendingListenerStart = true
-            Log.w("shin", "Previous SRT listener is still stopping; not starting another")
-            return
-        }
-        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
-        if (!cameraPreview.holder.surface.isValid) return
-
-        pendingListenerStart = false
-        val generation = listenerGeneration + 1
-        listenerGeneration = generation
-        phoneServerRunning = true
-        phoneConnected = false
-        activeTargetName = null
-        statusText.text = getString(R.string.status_ready)
-        statusText.setTextColor(getColor(R.color.os_text_primary))
-        statusDetail.text = getString(R.string.status_waiting)
-        renderDisconnectVisibility()
-
-        val thread = Thread({
-            try {
-                while (isListenerActive(generation)) {
-                    val listenUrl = "srt://0.0.0.0:${currentPort}?mode=listener&latency=${streamConfig.latencyMs}"
-                    val attemptGeneration = phoneSessionState.snapshot.generation
-                    var connectedSessionGeneration: Long? = null
-                    val listenResult = runCatching {
-                        val acceptResult = listenerAcceptCoordinator.awaitAccepted(
-                            expectedGeneration = generation,
-                            currentGeneration = { listenerGeneration },
-                            startListening = {
-                                streamClient.startListening(
-                                    url = listenUrl,
-                                    codecMime = encoder.codecName,
-                                    width = streamConfig.width,
-                                    height = streamConfig.height,
-                                    fps = streamConfig.fps,
-                                )
-                            },
-                            acceptPending = streamClient::acceptPending,
-                        )
-                        if (!isListenerActive(generation)) return@runCatching
-                        check(acceptResult == SrtAcceptResult.Connected) {
-                            "SRT listener accept failed: $acceptResult"
-                        }
-                        phoneConnected = true
-                        val sessionGeneration = phoneSessionState.beginConnection()
-                        connectedSessionGeneration = sessionGeneration
-                        cancelReservationRelease()
-                        val liveTargetName = reservedSlotLabel ?: "OBS"
-                        activeTargetName = liveTargetName
-                        runOnUiThread {
-                            if (!isListenerActive(generation)) return@runOnUiThread
-                            showLiveState(liveTargetName)
-                            mainHandler.removeCallbacks(statsTicker)
-                            mainHandler.post(statsTicker)
-                        }
-                        sessionWorker.submitIfCurrent(generation, { listenerGeneration }) {
-                            runCatching {
-                                encoder.start()
-                                startAudioIfAllowed()
-                                camera.startStreaming(encoder.inputSurface())
-                                check(phoneSessionState.connected(sessionGeneration)) {
-                                    "Phone session was superseded"
-                                }
-                            }.onFailure { error ->
-                                if (isListenerActive(generation)) {
-                                    phoneConnected = false
-                                    phoneSessionState.failed(sessionGeneration)
-                                    mainHandler.post {
-                                        if (!isListenerActive(generation)) return@post
-                                        statusText.text = "Listener error"
-                                        statusDetail.text = error.message ?: "Unknown error"
-                                    }
-                                    sessionWorker.submitCritical {
-                                        camera.stopStreaming()
-                                        encoder.stop()
-                                        audioEncoder.stop()
-                                    }
-                                }
-                            }
-                        }
-                        while (isListenerActive(generation) && phoneConnected) {
-                            Thread.sleep(LISTENER_POLL_MS)
-                        }
-                    }
-
-                    if (listenResult.isFailure && isListenerActive(generation)) {
-                        val error = listenResult.exceptionOrNull()
-                        phoneSessionState.failed(connectedSessionGeneration ?: attemptGeneration)
-                        runOnUiThread {
-                            if (!isListenerActive(generation)) return@runOnUiThread
-                            statusText.text = "Listener error"
-                            statusDetail.text = error?.message ?: "Unknown"
-                        }
-                        try {
-                            Thread.sleep(LISTENER_RETRY_MS)
-                        } catch (_: InterruptedException) {
-                            Thread.currentThread().interrupt()
-                        }
-                    }
-
-                    if (isListenerActive(generation)) {
-                        sessionWorker.submitCritical {
-                            camera.stopStreaming()
-                            encoder.stop()
-                            audioEncoder.stop()
-                        }
-                    }
-                    phoneConnected = false
-                    activeTargetName = null
-                    if (isListenerActive(generation)) {
-                        connectedSessionGeneration?.let(phoneSessionState::connectionLost)
-                        scheduleReservationRelease()
-                        runOnUiThread {
-                            if (!isListenerActive(generation)) return@runOnUiThread
-                            hideLiveState()
-                            statusText.text = getString(R.string.status_ready)
-                            statusDetail.text = reservedSlotLabel?.let { "Holding $it for reconnect" }
-                                ?: getString(R.string.status_waiting)
-                        }
-                    }
-                }
-            } finally {
-                if (listenerThread === Thread.currentThread()) {
-                    listenerThread = null
-                    mainHandler.post {
-                        if (pendingListenerStart) {
-                            pendingListenerStart = false
-                            startPhoneServerIfAllowed()
-                        }
-                    }
-                }
-            }
-        }, "shinPhoneSrtListener").apply {
-            isDaemon = true
-        }
-        listenerThread = thread
-        thread.start()
-    }
-
-    private fun isListenerActive(generation: Long): Boolean {
-        return phoneServerRunning && listenerGeneration == generation
+        if (!::sessionRuntime.isInitialized) return
+        sessionRuntime.startPhoneServerIfAllowed()
     }
 
     private fun stopPhoneServer(
@@ -998,63 +788,13 @@ class MainActivity : Activity() {
         stopCamera: Boolean = false,
         stopComponents: Boolean = false,
     ) {
-        // Flip flags and update views on the caller thread. Socket, camera,
-        // codec, and thread teardown runs on the bounded session worker.
-        callerGeneration += 1
-        callerConnecting = false
-        pendingListenerStart = false
-        listenerGeneration += 1
-        phoneServerRunning = false
-        phoneConnected = false
-        if (clearReservation) clearReservation()
-        activeTargetName = null
-        mainHandler.removeCallbacks(statsTicker)
-        val thread = listenerThread
-        thread?.interrupt()
-        hideLiveState()
-        // Keep disconnect/release discoverable when Reserved but not live so the
-        // stuck-reserved state always has a one-tap escape hatch. ReservationState
-        // covers both pending (advertised) and confirmed selections.
-        renderDisconnectVisibility()
-
-        val blockingWork: () -> Unit = {
-            streamClient.disconnect()
-            if (thread != null && thread !== Thread.currentThread()) {
-                runCatching { thread.join(LISTENER_STOP_TIMEOUT_MS) }
-                    .onFailure { Thread.currentThread().interrupt() }
-            }
-            if (thread?.isAlive == true) {
-                Log.w("shin", "SRT listener did not stop within ${LISTENER_STOP_TIMEOUT_MS}ms")
-            } else if (listenerThread === thread) {
-                listenerThread = null
-            }
-            synchronized(callerLifecycleLock) {
-                // stopActiveEncoding touches views when updateStatus; post that part.
-                val needsStatus = updateStatus
-                cancelLensRestart()
-                // Camera/encoder stops are safe off-UI (synchronized internally).
-                camera.stopStreaming()
-                encoder.stop()
-                audioEncoder.stop()
-                if (stopCamera) camera.stop()
-                if (stopComponents) {
-                    obsDiscoveryClient.stop()
-                    phoneAdvertiser.stop()
-                    controlServer.stop()
-                }
-                if (needsStatus) {
-                    mainHandler.post {
-                        statusText.text = getString(R.string.status_stopped)
-                        statusDetail.text = "Camera preview remains active"
-                    }
-                }
-            }
-            mainHandler.post {
-                hideLiveState()
-                if (pendingListenerStart) startPhoneServerIfAllowed()
-            }
+        if (!::sessionRuntime.isInitialized) return
+        sessionRuntime.stopPhoneServer(clearReservation, stopCamera)
+        if (stopComponents) sessionRuntime.stopComponents()
+        if (updateStatus) {
+            statusText.text = getString(R.string.status_stopped)
+            statusDetail.text = "Camera preview remains active"
         }
-        sessionWorker.submitCritical(blockingWork)
     }
 
     private fun stopStream(updateStatus: Boolean = true) {
@@ -1178,15 +918,14 @@ class MainActivity : Activity() {
     }
 
     private fun stopPhoneSession() {
-        phoneSessionState.stop()
-        stopPhoneServer(clearReservation = true)
+        requestSessionStop()
         statusText.text = getString(R.string.status_stopped)
         statusDetail.text = "Camera is stopped. Tap Start to make it available again."
         renderDisconnectVisibility()
     }
 
     private fun startPhoneSession() {
-        phoneSessionState.start()
+        requestSessionStart()
         statusText.text = getString(R.string.status_ready)
         statusDetail.text = getString(R.string.status_waiting)
         startPreviewIfAllowed()
@@ -1338,16 +1077,155 @@ class MainActivity : Activity() {
     // ─────────────────────────── Utilities ───────────────────────────
 
     private fun startPreviewIfAllowed() {
-        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
+        if (::sessionRuntime.isInitialized &&
+            phoneSessionState.snapshot.status != PhoneSessionStatus.Stopped &&
+            checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
             cameraPreview.holder.surface.isValid
         ) {
             val generation = sessionWorkGeneration
             sessionWorker.submitIfCurrent(generation, { sessionWorkGeneration }) {
-                if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
+                if (phoneSessionState.snapshot.status != PhoneSessionStatus.Stopped &&
+                    checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
                     cameraPreview.holder.surface.isValid
                 ) camera.startPreview()
             }
         }
+    }
+
+    private fun bindPreviewSurface() {
+        cameraPreview.holder.addCallback(object : SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: SurfaceHolder) {
+                pendingPreviewSurface = holder.surface
+                if (!::sessionRuntime.isInitialized) return
+                sessionWorkGeneration += 1
+                camera.bindPreviewSurface(holder.surface)
+                initializeLenses()
+                startPreviewIfAllowed()
+                startPhoneServerIfAllowed()
+            }
+
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                adjustPreviewAspectRatio()
+            }
+
+            override fun surfaceDestroyed(holder: SurfaceHolder) {
+                pendingPreviewSurface = null
+                if (!::sessionRuntime.isInitialized) return
+                sessionWorkGeneration += 1
+                camera.bindPreviewSurface(null)
+                if (!phoneConnected && activeTargetName == null && !callerConnecting) {
+                    sessionWorker.submit { camera.stop() }
+                }
+            }
+        })
+        cameraPreview.holder.surface.takeIf { it.isValid }?.let { surface ->
+            pendingPreviewSurface = surface
+        }
+    }
+
+    private fun startAndBindSessionService() {
+        val intent = Intent(this, PhoneSessionService::class.java)
+        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
+            else startService(intent)
+        }
+        if (!serviceBound) serviceBound = bindService(intent, serviceConnection, BIND_AUTO_CREATE)
+    }
+
+    private fun requestSessionStop() {
+        startService(Intent(this, PhoneSessionService::class.java).setAction(PhoneSessionService.ACTION_STOP))
+    }
+
+    private fun requestSessionStart() {
+        val intent = Intent(this, PhoneSessionService::class.java).setAction(PhoneSessionService.ACTION_START)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
+        else startService(intent)
+    }
+
+    override fun onDevicesChanged(devices: List<DiscoveredObsDevice>) {
+        runOnUiThread {
+            currentDevices = devices
+            if (activityStarted) renderObsSlots(devices)
+        }
+    }
+
+    override fun onLensRequested(lens: CameraLens) {
+        runOnUiThread { selectLens(lens) }
+    }
+
+    override fun onTorchChanged(enabled: Boolean) {
+        runOnUiThread {
+            torchOn = enabled
+            setTorchUi(enabled)
+        }
+    }
+
+    override fun onReservationChanged() {
+        runOnUiThread {
+            if (!activityStarted) return@runOnUiThread
+            statusText.text = "Paired to ${reservedSlotLabel ?: "OBS computer"}"
+            statusDetail.text = "OBS acknowledged; waiting to go live"
+            renderDisconnectVisibility()
+            renderObsSlots(currentDevices)
+        }
+    }
+
+    override fun onSessionStateChanged() {
+        runOnUiThread {
+            if (!activityStarted) return@runOnUiThread
+            when (phoneSessionState.snapshot.status) {
+                PhoneSessionStatus.Available -> {
+                    statusText.text = getString(R.string.status_ready)
+                    statusDetail.text = getString(R.string.status_waiting)
+                    startPreviewIfAllowed()
+                    startPhoneServerIfAllowed()
+                }
+                PhoneSessionStatus.Stopped -> {
+                    statusText.text = getString(R.string.status_stopped)
+                    statusDetail.text = "Camera is stopped. Tap Start to make it available again."
+                }
+                else -> Unit
+            }
+            renderDisconnectVisibility()
+        }
+    }
+
+    override fun onIdentify(label: String, subtitle: String) {
+        runOnUiThread { showIdentifyOverlay(label, subtitle) }
+    }
+
+    override fun onSessionError(message: String) {
+        runOnUiThread { if (activityStarted) statusDetail.text = message }
+    }
+
+    override fun onMediaTransportFailure(sessionGeneration: Long) {
+        handleMediaTransportFailure(sessionGeneration)
+    }
+
+    override fun onLiveStateChanged(targetName: String?) {
+        runOnUiThread {
+            if (!activityStarted) return@runOnUiThread
+            if (targetName == null) {
+                hideLiveState()
+                mainHandler.removeCallbacks(statsTicker)
+            } else {
+                showLiveState(targetName)
+                mainHandler.removeCallbacks(statsTicker)
+                mainHandler.post(statsTicker)
+            }
+        }
+    }
+
+    override fun onStatusChanged(title: String, detail: String) {
+        runOnUiThread {
+            if (!activityStarted) return@runOnUiThread
+            statusText.text = title
+            statusDetail.text = detail
+        }
+    }
+
+    override fun onDisconnectVisibilityChanged() {
+        runOnUiThread { if (activityStarted) renderDisconnectVisibility() }
     }
 
     private fun requestRuntimePermissions() {
@@ -1421,21 +1299,7 @@ class MainActivity : Activity() {
             // Restart the phone server on the new port
             stopPhoneServer(clearReservation = false)
         }
-        // Re-create the advertiser with new port
-        val previousAdvertiser = phoneAdvertiser
-        val replacementAdvertiser = PhoneDiscoveryAdvertiser(
-            context = this,
-            config = streamConfig,
-            port = currentPort,
-            busyProvider = { isPhoneBusy() },
-            reservedByProvider = { advertisedReservationId },
-            selectedObsHostProvider = { selectedObsHost },
-        )
-        phoneAdvertiser = replacementAdvertiser
-        sessionWorker.submit {
-            previousAdvertiser.stop()
-            replacementAdvertiser.start()
-        }
+        sessionRuntime.changePort(currentPort)
         if (wasListenerMode) {
             startPhoneServerIfAllowed()
         }
