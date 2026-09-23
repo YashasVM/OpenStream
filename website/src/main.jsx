@@ -68,6 +68,7 @@ async function loadPublishedRelease() {
     if (!isRecord(expected) || !Number.isSafeInteger(expected.size) || expected.size <= 0 ||
         typeof expected.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(expected.sha256) ||
         !isRecord(actual) || actual.size !== expected.size ||
+        actual.digest !== `sha256:${expected.sha256}` ||
         typeof actual.browser_download_url !== "string" || !isRecord(checksum) ||
         typeof checksum.browser_download_url !== "string") {
       throw new Error(`Published release asset does not match the manifest: ${name}`);

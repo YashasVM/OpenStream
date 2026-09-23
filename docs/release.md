@@ -63,8 +63,10 @@ If an earlier published APK cannot be fetched, publication fails closed.
 The staged manifest records the product version, Android identity, protocol,
 supported OBS ABIs, and each artifact's filename, size, and SHA-256 hash. The
 website shows a version and version-specific download links only after the
-latest published release contains this manifest and every listed asset has the
-matching size. Until then, the website labels the links "Latest release".
+latest published release contains this manifest and the GitHub release API
+reports the matching size and SHA-256 digest for every listed asset. The
+website also checks that each published checksum sidecar matches the manifest.
+Until those checks pass, the website labels the links "Latest release".
 
 The website's npm package version is build-tool metadata. Keep it at `0.0.0`;
 release version changes belong in `release/version.properties`.
@@ -83,11 +85,11 @@ Android build, and both Windows and Linux plugin builds to pass before it stages
 a candidate. The publish job verifies the staged SHA-256 sidecars before it
 creates a GitHub release.
 
-Create a new release notes file for every release. Start with
-[`release-notes-template.md`](release-notes-template.md), replace every
-placeholder with details verified for that release, and keep earlier published
-notes unchanged. The current workflow passes this template directly as the
-release body, so do not publish while it still contains placeholders.
+Prepare new release notes for every release. Copy
+[`release-notes-template.md`](release-notes-template.md) into the workflow's
+`release_notes` input and replace every placeholder with details verified for
+that release. Keep earlier published notes unchanged. The publish workflow
+requires non-empty notes and uses the submitted text as the release body.
 
 Public releases require all Android signing secrets. Missing or incomplete
 signing inputs fail the workflow; it never publishes a debug-signed fallback.

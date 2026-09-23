@@ -393,10 +393,15 @@ def test_website_uses_only_published_manifest_version_for_release_copy() -> None
     assert '"Latest release"' in website
     assert "release-manifest.json" in website
     assert "expected.sha256" in website
+    assert 'actual.digest !== `sha256:${expected.sha256}`' in website
     assert "publishedRelease.version" in website
     assert "V1.0.1" not in website + index
     assert "releases/latest/download" in readme
     assert "releases/tag/v1.0.1" not in readme
+    release_docs = read("docs/release.md")
+    assert "release_notes` input" in release_docs
+    assert "GitHub release API" in release_docs
+    assert "passes this template directly" not in release_docs
 
 
 def test_shin_linux_release_includes_native_obs_dock_dependencies() -> None:
