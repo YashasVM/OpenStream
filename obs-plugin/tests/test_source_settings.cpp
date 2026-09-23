@@ -138,7 +138,25 @@ int main() {
   test_worker_releases_reservation_on_exit();
 
   require(std::string(openstream_source_info.id) == "shin_phone_source",
-          "shin source identity changed");
+          "new source identity changed");
+  require(std::string(openstream_source_info.get_name(nullptr)) == "OpenStream Camera",
+          "new source picker label changed");
+  require(std::string(openstream_v7_compat_source_info.id) == "openstream_phone_v7_source",
+          "published V7 source ID is not registered");
+  require(std::string(openstream_v7_compat_source_info.get_name(nullptr)) ==
+              "OpenStream Camera (V7 compatibility)",
+          "V7 compatibility entry is not labeled");
+  require(std::string(openstream_v8_compat_source_info.id) == "openstream_phone_v8_source",
+          "published V8 source ID is not registered");
+  require(std::string(openstream_v8_compat_source_info.get_name(nullptr)) ==
+              "OpenStream Camera (V8 compatibility)",
+          "V8 compatibility entry is not labeled");
+  require(openstream_is_camera_source_id("shin_phone_source") &&
+              openstream_is_camera_source_id("openstream_phone_v7_source") &&
+              openstream_is_camera_source_id("openstream_phone_v8_source"),
+          "camera adapter does not recognize every registered source ID");
+  require(!openstream_is_camera_source_id("unrelated_source"),
+          "camera adapter claimed an unrelated source ID");
   obs_data_t *settings = obs_data_create();
   openstream_defaults(settings);
   auto context = std::make_shared<OpenStreamSource>();

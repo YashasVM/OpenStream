@@ -99,9 +99,12 @@ constexpr int64_t kSrtConnectTimeoutMs = 2'000;
 constexpr auto kControlConnectTimeout = std::chrono::milliseconds(1000);
 constexpr auto kReconnectReservationWindow = std::chrono::seconds(45);
 constexpr uint64_t kReconnectRecoveryVideoFrames = 30;
-// Keep the historical source IDs below for scene compatibility, but expose the
-// installed release as V1 in the OBS UI and logs.
-constexpr const char *kOpenStreamSourceName = "shin";
+// Each published source ID remains registered so OBS can resolve saved scene
+// records. Only the current ID gets the plain picker label; compatibility
+// IDs stay visible as such until real OBS scene fixtures prove more.
+constexpr const char *kOpenStreamSourceName = "OpenStream Camera";
+constexpr const char *kOpenStreamV7SourceName = "OpenStream Camera (V7 compatibility)";
+constexpr const char *kOpenStreamV8SourceName = "OpenStream Camera (V8 compatibility)";
 constexpr const char *kDiscoveryMulticastAddress = "239.255.43.99";
 constexpr const char *kPhoneDiscoveryPrefix = "SHIN_PHONE/1 ";
 // Legacy 1.x phones used the OpenStream namespace. Keep this adapter at the
@@ -1280,9 +1283,9 @@ int ffmpeg_interrupt_callback(void *opaque) {
   return ctx->stop_requested.load() ? 1 : 0;
 }
 
-const char *openstream_get_name(void *) {
-  return kOpenStreamSourceName;
-}
+const char *openstream_get_name(void *) { return kOpenStreamSourceName; }
+const char *openstream_v7_get_name(void *) { return kOpenStreamV7SourceName; }
+const char *openstream_v8_get_name(void *) { return kOpenStreamV8SourceName; }
 
 void openstream_stop_worker(OpenStreamSource *ctx) {
   if (!ctx) return;
@@ -2565,12 +2568,41 @@ obs_source_info openstream_source_info = {
     .update = openstream_update,
 };
 
+obs_source_info openstream_v7_compat_source_info = {
+    .id = "openstream_phone_v7_source",
+    .type = OBS_SOURCE_TYPE_INPUT,
+    .output_flags = OBS_SOURCE_ASYNC_VIDEO | OBS_SOURCE_AUDIO,
+    .get_name = openstream_v7_get_name,
+    .create = openstream_create,
+    .destroy = openstream_destroy,
+    .get_defaults = openstream_defaults,
+    .get_properties = openstream_properties,
+    .update = openstream_update,
+};
+
+obs_source_info openstream_v8_compat_source_info = {
+    .id = "openstream_phone_v8_source",
+    .type = OBS_SOURCE_TYPE_INPUT,
+    .output_flags = OBS_SOURCE_ASYNC_VIDEO | OBS_SOURCE_AUDIO,
+    .get_name = openstream_v8_get_name,
+    .create = openstream_create,
+    .destroy = openstream_destroy,
+    .get_defaults = openstream_defaults,
+    .get_properties = openstream_properties,
+    .update = openstream_update,
+};
+
 }  // namespace
+
+bool openstream_is_camera_source_id(const char *id) {
+  return id && (strcmp(id, "shin_phone_source") == 0 ||
+                strcmp(id, "openstream_phone_v7_source") == 0 ||
+                strcmp(id, "openstream_phone_v8_source") == 0);
+}
 
 bool openstream_is_camera_source(obs_source_t *source) {
   if (!source) return false;
-  const char *id = obs_source_get_id(source);
-  return id && strcmp(id, "shin_phone_source") == 0;
+  return openstream_is_camera_source_id(obs_source_get_id(source));
 }
 
 // Shared lookup+forward tail for the openstream_*_camera_source entry points:
@@ -2717,6 +2749,8 @@ bool obs_module_load(void) {
   }
 #endif
   obs_register_source(&openstream_source_info);
+  obs_register_source(&openstream_v7_compat_source_info);
+  obs_register_source(&openstream_v8_compat_source_info);
 #if defined(__linux__)
   openstream_register_dock();
 #endif
