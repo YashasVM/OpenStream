@@ -50,9 +50,8 @@ data class ConnectionTarget(
             if (uri.encodedAuthority != "connect" || uri.path.orEmpty().isNotEmpty() || uri.fragment != null) return null
             if ((uri.encodedQuery?.length ?: 0) > MAX_PAIRING_QUERY_LENGTH) return null
 
-            val rawHost = uri.getQueryParameter("host") ?: return null
-            val host = rawHost.trim()
-            if (host.isEmpty() || host.length > MAX_HOST_LENGTH) return null
+            val host = uri.getQueryParameter("host") ?: return null
+            if (!isValidPairingHost(host)) return null
 
             val rawPort = uri.getQueryParameter("port")
             val port = rawPort?.let { raw ->
@@ -78,5 +77,38 @@ data class ConnectionTarget(
                 bitrateMbps = bitrateMbps,
             )
         }
+
+        private fun isValidPairingHost(host: String): Boolean {
+            if (host.isEmpty() || host.length > MAX_HOST_LENGTH) return false
+            if (host.any { it.isWhitespace() || it.isISOControl() || it in "/?#" }) return false
+
+            val ipv6 = when {
+                host.startsWith('[') && host.endsWith(']') -> host.substring(1, host.length - 1)
+                '[' in host || ']' in host -> return false
+                ':' in host -> host
+                else -> null
+            }
+            if (ipv6 != null) {
+                if (':' !in ipv6) return false
+                return try {
+                    java.net.URI("http://[$ipv6]/").host != null
+                } catch (_: java.net.URISyntaxException) {
+                    false
+                }
+            }
+
+            val labels = host.split('.')
+            if (labels.size == 4 && labels.all { label -> label.isNotEmpty() && label.all { it in '0'..'9' } }) {
+                return labels.all { label -> label.toIntOrNull()?.let { it in 0..255 } == true }
+            }
+            return labels.all { label ->
+                label.isNotEmpty() && label.length <= 63 &&
+                    label.first().isAsciiAlphanumeric() && label.last().isAsciiAlphanumeric() &&
+                    label.all { it.isAsciiAlphanumeric() || it == '-' }
+            }
+        }
+
+        private fun Char.isAsciiAlphanumeric(): Boolean =
+            this in 'a'..'z' || this in 'A'..'Z' || this in '0'..'9'
     }
 }

@@ -33,6 +33,16 @@ class ConnectionTargetTest {
     }
 
     @Test
+    fun pairingUriAcceptsIpv4HostnameAndIpv6Hosts() {
+        listOf("192.168.1.20", "obs.local", "2001:db8::1", "[2001:db8::1]").forEach { host ->
+            val target = ConnectionTarget.fromPairingUri(
+                TestUri("openstream://connect?host=${encodeQueryValue(host)}"),
+            )
+            assertEquals(host, target?.host)
+        }
+    }
+
+    @Test
     fun pairingUriRejectsMalformedOrOversizedAuthorityAndInputs() {
         val invalidUris = listOf(
             "openstream://user@connect?host=192.168.1.20",
@@ -40,6 +50,14 @@ class ConnectionTargetTest {
             "openstream://connect/path?host=192.168.1.20",
             "openstream://connect?host=",
             "openstream://connect?host=${"h".repeat(254)}",
+            "openstream://connect?host=bad%20host",
+            "openstream://connect?host=bad%2Fhost",
+            "openstream://connect?host=bad%3Fhost",
+            "openstream://connect?host=bad%23host",
+            "openstream://connect?host=bad%00host",
+            "openstream://connect?host=%5Bgg%3A%3A1%5D",
+            "openstream://connect?host=%5B2001%3Adb8%3A%3A1",
+            "openstream://connect?host=999.168.1.20",
             "openstream://connect?host=192.168.1.20&name=",
             "openstream://connect?host=192.168.1.20&name=${"n".repeat(129)}",
             "openstream://connect?host=192.168.1.20&x=${"x".repeat(1025)}",
@@ -88,6 +106,9 @@ class ConnectionTargetTest {
         )
     }
 }
+
+private fun encodeQueryValue(value: String): String =
+    java.net.URLEncoder.encode(value, StandardCharsets.UTF_8)
 
 private class TestUri(private val raw: String) : Uri() {
     private val parsed = java.net.URI(raw)

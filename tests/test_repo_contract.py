@@ -55,7 +55,14 @@ def test_android_connection_target_builds_srt_caller_url_and_pairing_targets() -
     assert "DEFAULT_PORT = 9100" in target
     assert "fromDiscoveredDevice" in target
     assert "fromPairingUri" in target
-    assert 'uri.scheme != "shin"' in target
+    assert 'scheme != "shin" && scheme != "openstream"' in target
+    assert 'uri.encodedAuthority != "connect"' in target
+    assert "MAX_PAIRING_QUERY_LENGTH" in target
+    assert "isValidPairingHost(host)" in target
+    assert "in 1..65535" in target
+    assert "MIN_LATENCY_MS..MAX_LATENCY_MS" in target
+    assert "InetAddress" not in target
+    assert "getByName" not in target
     assert "val stats: StreamStats" in stream_client
     assert "AtomicLong" in stream_client
     assert "accessUnitsSent.incrementAndGet()" in stream_client
