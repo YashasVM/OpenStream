@@ -181,7 +181,6 @@ class MainActivity : Activity() {
         )
         camera = Camera2Controller(
             context = applicationContext,
-            previewSurfaceProvider = { cameraPreview.holder.surface },
             lensProvider = { currentLens },
             targetFps = streamConfig.fps,
         )
@@ -216,6 +215,7 @@ class MainActivity : Activity() {
         cameraPreview.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
                 sessionWorkGeneration += 1
+                camera.bindPreviewSurface(holder.surface)
                 initializeLenses()
                 startPreviewIfAllowed()
                 startPhoneServerIfAllowed()
@@ -226,7 +226,10 @@ class MainActivity : Activity() {
             }
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 sessionWorkGeneration += 1
-                stopPhoneServer(clearReservation = false, updateStatus = false, stopCamera = true)
+                camera.bindPreviewSurface(null)
+                if (!phoneConnected && activeTargetName == null && !callerConnecting) {
+                    sessionWorker.submit { camera.stop() }
+                }
             }
         })
 

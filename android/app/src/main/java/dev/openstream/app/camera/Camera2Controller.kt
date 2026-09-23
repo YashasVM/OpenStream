@@ -28,7 +28,6 @@ import java.util.concurrent.atomic.AtomicLong
  */
 class Camera2Controller(
     context: Context,
-    private val previewSurfaceProvider: () -> Surface,
     private val lensProvider: () -> CameraLens = { CameraLens.Back },
     private val targetFps: Int = 30,
 ) {
@@ -40,6 +39,7 @@ class Camera2Controller(
     private var camera: CameraDevice? = null
     private var session: CameraCaptureSession? = null
     private var streamingSurface: Surface? = null
+    private var previewSurface: Surface? = null
     private var activeCameraId: String? = null
     private var activeLens: CameraLens? = null
     private val cameraGeneration = AtomicLong()
@@ -294,6 +294,14 @@ class Camera2Controller(
         }
     }
 
+    /** The UI supplies and withdraws preview surfaces without owning the camera session. */
+    fun bindPreviewSurface(surface: Surface?) {
+        synchronized(lifecycleLock) {
+            previewSurface = surface?.takeIf(Surface::isValid)
+            if (camera != null) createSession()
+        }
+    }
+
     fun stop() {
         synchronized(lifecycleLock) {
             desiredRunning = false
@@ -301,6 +309,7 @@ class Camera2Controller(
             cancelCameraRecoveryLocked()
             closeCamera()
             streamingSurface = null
+            previewSurface = null
             quitCameraThreadLocked()
         }
     }
@@ -377,8 +386,11 @@ class Camera2Controller(
                         ) {
                             return
                         }
-                        val previewReady = runCatching { previewSurfaceProvider().isValid }.getOrDefault(false)
-                        if (!previewReady) return
+                        if (captureOutputKinds(
+                                hasPreview = previewSurface?.isValid == true,
+                                hasEncoder = streamingSurface?.isValid == true,
+                            ).isEmpty()
+                        ) return
                         cancelCameraRecoveryLocked()
                         startPreviewLocked()
                     }
@@ -463,18 +475,25 @@ class Camera2Controller(
 
     private fun createSession() {
         val device = camera ?: return
-        val preview = runCatching { previewSurfaceProvider() }.getOrNull()
-        if (preview == null || !preview.isValid) {
-            Log.w(TAG, "Deferring camera session until preview surface is valid")
-            return
-        }
+        val preview = previewSurface?.takeIf(Surface::isValid)
         val encoded = streamingSurface
         if (encoded != null && !encoded.isValid) {
             Log.w(TAG, "Deferring camera session until encoder surface is valid")
             return
         }
+        val outputKinds = captureOutputKinds(preview != null, encoded != null)
+        if (outputKinds.isEmpty()) {
+            sessionGeneration.incrementAndGet()
+            session?.close()
+            session = null
+            Log.i(TAG, "Camera remains open while Activity preview is detached")
+            return
+        }
         val generation = sessionGeneration.incrementAndGet()
-        val surfaces = if (encoded != null) listOf(preview, encoded) else listOf(preview)
+        val surfaces = buildList {
+            if (CameraCaptureOutput.Preview in outputKinds) add(checkNotNull(preview))
+            if (CameraCaptureOutput.Encoder in outputKinds) add(checkNotNull(encoded))
+        }
         session?.close()
         session = null
         try {
@@ -496,10 +515,8 @@ class Camera2Controller(
                             }
                             runCatching {
                                 val request = device.createCaptureRequest(template).apply {
-                                    addTarget(preview)
-                                    if (encoded != null) {
-                                        addTarget(encoded)
-                                    }
+                                    preview?.let(::addTarget)
+                                    encoded?.let(::addTarget)
                                     set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
                                     set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
                                     set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
@@ -602,22 +619,19 @@ class Camera2Controller(
         val device = camera ?: return
         val currentSession = session ?: return
         val generation = sessionGeneration.get()
-        val preview = runCatching { previewSurfaceProvider() }.getOrNull()
-        if (preview == null || !preview.isValid) {
-            Log.w(TAG, "Deferring camera request rebuild until preview surface is valid")
-            return
-        }
+        val preview = previewSurface?.takeIf(Surface::isValid)
         val encoded = streamingSurface
         if (encoded != null && !encoded.isValid) {
             Log.w(TAG, "Deferring camera request rebuild until encoder surface is valid")
             return
         }
+        if (preview == null && encoded == null) return
         val template = if (encoded != null) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
 
         runCatching {
             val request = device.createCaptureRequest(template).apply {
-                addTarget(preview)
-                if (encoded != null) addTarget(encoded)
+                preview?.let(::addTarget)
+                encoded?.let(::addTarget)
                 set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
                 set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
                 set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
