@@ -1,14 +1,23 @@
-name: Release
+name: Release candidate
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    tags: ["v*.*.*"]
   workflow_dispatch:
     inputs:
-      tag:
-        description: Release tag, for example v1.0.1
+      mode:
+        description: Build an unpublished candidate or publish a previously staged candidate
         required: true
+        default: candidate
+        type: choice
+        options: [candidate, publish]
+      tag:
+        description: Release tag (required for manual runs)
+        required: true
+        type: string
+      candidate_run_id:
+        description: Successful candidate workflow run ID (publish mode only)
+        required: false
         type: string
 
 permissions:
@@ -16,21 +25,17 @@ permissions:
 
 jobs:
   android:
-    name: Build Android APK
+    if: github.event_name == 'push' || inputs.mode == 'candidate'
+    name: Build Android candidate
     runs-on: ubuntu-latest
     timeout-minutes: 45
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Set up Android build environment
-        uses: ./.github/actions/android-setup
-
+      - uses: ./.github/actions/android-setup
       - name: Run repository tests and Android lint
         run: |
           python -m pip install --disable-pip-version-check pytest
@@ -38,7 +43,25 @@ jobs:
           cd android
           chmod +x ./gradlew
           ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug
-
+      - name: Check tag and read the single version source
+        id: version
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/^productVersion=//p' release/version.properties)
+          VERSION_CODE=$(sed -n 's/^androidVersionCode=//p' release/version.properties)
+          [[ "$(grep -c '^productVersion=' release/version.properties)" == 1 ]]
+          [[ "$(grep -c '^androidVersionCode=' release/version.properties)" == 1 ]]
+          [[ "$RELEASE_TAG" == "v$VERSION" ]] || { echo "::error::Tag $RELEASE_TAG does not match release/version.properties ($VERSION)."; exit 1; }
+          [[ "$VERSION_CODE" =~ ^[1-9][0-9]{0,9}$ ]] && (( VERSION_CODE <= 2100000000 )) || { echo "::error::Invalid androidVersionCode: $VERSION_CODE"; exit 1; }
+          TAG_COMMIT=$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")
+          [[ "$TAG_COMMIT" == "$(git rev-parse HEAD)" ]] || { echo "::error::Tag commit does not match checked out source."; exit 1; }
+          if [[ "$GITHUB_REF_TYPE" == tag && "$TAG_COMMIT" != "$GITHUB_SHA" ]]; then
+            echo "::error::Tag moved after this run started."; exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
       - name: Require Android signing inputs
         env:
           OPENSTREAM_RELEASE_KEYSTORE_BASE64: ${{ secrets.OPENSTREAM_RELEASE_KEYSTORE_BASE64 }}
@@ -46,248 +69,104 @@ jobs:
           OPENSTREAM_RELEASE_KEY_ALIAS: ${{ secrets.OPENSTREAM_RELEASE_KEY_ALIAS }}
           OPENSTREAM_RELEASE_KEY_PASSWORD: ${{ secrets.OPENSTREAM_RELEASE_KEY_PASSWORD }}
         run: |
-          test -n "$OPENSTREAM_RELEASE_KEYSTORE_BASE64" &&
-          test -n "$OPENSTREAM_RELEASE_STORE_PASSWORD" &&
-          test -n "$OPENSTREAM_RELEASE_KEY_ALIAS" &&
-          test -n "$OPENSTREAM_RELEASE_KEY_PASSWORD" || {
-            echo "::error::Public releases require all Android signing secrets."
-            exit 1
-          }
-
+          test -n "$OPENSTREAM_RELEASE_KEYSTORE_BASE64" && test -n "$OPENSTREAM_RELEASE_STORE_PASSWORD" && test -n "$OPENSTREAM_RELEASE_KEY_ALIAS" && test -n "$OPENSTREAM_RELEASE_KEY_PASSWORD" || { echo "::error::Public candidates require all Android signing secrets."; exit 1; }
       - name: Decode Android signing key
         env:
           OPENSTREAM_RELEASE_KEYSTORE_BASE64: ${{ secrets.OPENSTREAM_RELEASE_KEYSTORE_BASE64 }}
-        run: |
-          printf '%s' "$OPENSTREAM_RELEASE_KEYSTORE_BASE64" | base64 --decode > android/app/openstream-release.keystore
-
-      - name: Build signed release APK with native SRT enabled
-        id: release-version
+        run: printf '%s' "$OPENSTREAM_RELEASE_KEYSTORE_BASE64" | base64 --decode > android/app/openstream-release.keystore
+      - name: Build signed release APK with native SRT
         working-directory: android
         env:
           OPENSTREAM_RELEASE_KEYSTORE: ${{ github.workspace }}/android/app/openstream-release.keystore
           OPENSTREAM_RELEASE_STORE_PASSWORD: ${{ secrets.OPENSTREAM_RELEASE_STORE_PASSWORD }}
           OPENSTREAM_RELEASE_KEY_ALIAS: ${{ secrets.OPENSTREAM_RELEASE_KEY_ALIAS }}
           OPENSTREAM_RELEASE_KEY_PASSWORD: ${{ secrets.OPENSTREAM_RELEASE_KEY_PASSWORD }}
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          set -euo pipefail
           chmod +x ./gradlew
-          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "::error::Release tag must be vMAJOR.MINOR.PATCH (for example v1.0.1)."
-            exit 1
-          fi
-          TAG_VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
-          TAG_COMMIT=$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")
-          CHECKED_OUT_COMMIT=$(git rev-parse HEAD)
-          test "$TAG_COMMIT" = "$CHECKED_OUT_COMMIT" || {
-            echo "::error::Release tag $RELEASE_TAG does not point at checked-out commit $CHECKED_OUT_COMMIT."
-            exit 1
-          }
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]] && [[ "$TAG_COMMIT" != "$GITHUB_SHA" ]]; then
-            echo "::error::Release tag $RELEASE_TAG moved after this workflow was triggered."
-            exit 1
-          fi
-
-          CONFIGURED_VERSION=$(sed -n 's/^openstream.versionName=//p' gradle.properties)
-          test "$CONFIGURED_VERSION" = "$TAG_VERSION" || {
-            echo "::error::Set openstream.versionName in android/gradle.properties to $TAG_VERSION before releasing."
-            exit 1
-          }
-          VERSION_CODE=$(sed -n 's/^openstream.versionCode=//p' gradle.properties)
-          if [[ ! "$VERSION_CODE" =~ ^[1-9][0-9]{0,9}$ ]] || (( VERSION_CODE > 2100000000 )); then
-            echo "::error::openstream.versionCode must be an integer from 1 to 2100000000."
-            exit 1
-          fi
-
-          # Older releases used the tag commit timestamp as versionCode. Use
-          # that value for historical tags that predate the canonical property.
-          MAX_PREVIOUS_CODE=0
-          while IFS= read -r existing_tag; do
-            [[ "$existing_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
-            [[ "$existing_tag" == "$RELEASE_TAG" ]] && continue
-            old_properties=$(git show "${existing_tag}:android/gradle.properties" 2>/dev/null || true)
-            old_code=$(sed -n 's/^openstream.versionCode=//p' <<< "$old_properties")
-            if [[ ! "$old_code" =~ ^[1-9][0-9]*$ ]]; then
-              old_code=$(git log -1 --format=%ct "$existing_tag")
-            fi
-            if [[ "$old_code" =~ ^[1-9][0-9]*$ ]] && (( old_code > MAX_PREVIOUS_CODE )); then
-              MAX_PREVIOUS_CODE=$old_code
-            fi
-          done < <(git tag --list 'v*')
-          if (( VERSION_CODE <= MAX_PREVIOUS_CODE )); then
-            echo "::error::openstream.versionCode ($VERSION_CODE) must exceed every previous release code ($MAX_PREVIOUS_CODE)."
-            exit 1
-          fi
-          echo "version_name=$TAG_VERSION" >> "$GITHUB_OUTPUT"
-          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
           ./gradlew --no-daemon :app:assembleRelease
-
-      - name: Normalize Android APK artifact
+      - name: Normalize candidate APK
         run: |
-          mkdir -p dist
-          cp android/app/build/outputs/apk/release/app-release.apk dist/openstream-android.apk
-          (cd dist && sha256sum openstream-android.apk > openstream-android.apk.sha256)
-
-      - name: Verify 16 KB native-library alignment
-        run: python tools/check_android_16kb_alignment.py dist/openstream-android.apk
-
-      - name: Verify APK signature and release metadata
-        env:
-          EXPECTED_VERSION: ${{ steps.release-version.outputs.version_name }}
-          EXPECTED_VERSION_CODE: ${{ steps.release-version.outputs.version_code }}
-        run: |
-          APKSIGNER=$(ls "$ANDROID_SDK_ROOT/build-tools/"*/apksigner 2>/dev/null | sort -V | tail -n 1)
-          test -n "$APKSIGNER"
-          "$APKSIGNER" verify --print-certs dist/openstream-android.apk
-          AAPT=$(ls "$ANDROID_SDK_ROOT/build-tools/"*/aapt 2>/dev/null | sort -V | tail -n 1)
-          test -n "$AAPT"
-          APK_METADATA=$("$AAPT" dump badging dist/openstream-android.apk)
-          ACTUAL_APPLICATION_ID=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<< "$APK_METADATA")
-          ACTUAL_VERSION_CODE=$(sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p" <<< "$APK_METADATA")
-          ACTUAL_VERSION=$(sed -n "s/^package:.*versionName='\([^']*\)'.*/\1/p" <<< "$APK_METADATA")
-          test "$ACTUAL_APPLICATION_ID" = "dev.openstream.app"
-          test "$ACTUAL_VERSION" = "$EXPECTED_VERSION"
-          test "$ACTUAL_VERSION_CODE" = "$EXPECTED_VERSION_CODE"
-
-      - name: Verify APK uses the previous public release signing identity
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          if ! LATEST_TAG=$(gh release view --json tagName --jq .tagName 2>/dev/null); then
-            echo "No published release exists yet; signing continuity check is not applicable."
-            exit 0
-          fi
-          mkdir -p "$RUNNER_TEMP/previous-release"
-          gh release download "$LATEST_TAG" --pattern openstream-android.apk --dir "$RUNNER_TEMP/previous-release"
-          APKSIGNER=$(ls "$ANDROID_SDK_ROOT/build-tools/"*/apksigner 2>/dev/null | sort -V | tail -n 1)
-          CURRENT_CERT=$("$APKSIGNER" verify --print-certs dist/openstream-android.apk | sed -n 's/.*certificate SHA-256 digest: //p' | tr '[:upper:]' '[:lower:]' | sort)
-          PREVIOUS_CERT=$("$APKSIGNER" verify --print-certs "$RUNNER_TEMP/previous-release/openstream-android.apk" | sed -n 's/.*certificate SHA-256 digest: //p' | tr '[:upper:]' '[:lower:]' | sort)
-          test -n "$CURRENT_CERT" && test -n "$PREVIOUS_CERT"
-          if [[ "$CURRENT_CERT" != "$PREVIOUS_CERT" ]]; then
-            echo "::error::Android signing certificate differs from published release $LATEST_TAG; existing app installations cannot update in place."
-            exit 1
-          fi
-
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+          mkdir -p artifacts
+          cp android/app/build/outputs/apk/release/app-release.apk artifacts/openstream-android.apk
+          python tools/check_android_16kb_alignment.py artifacts/openstream-android.apk
+      - uses: actions/upload-artifact@v4
         with:
-          name: openstream-android-apk
-          path: |
-            dist/openstream-android.apk
-            dist/openstream-android.apk.sha256
+          name: release-android-${{ github.run_id }}
+          path: artifacts/openstream-android.apk
           if-no-files-found: error
 
-  obs-plugin:
-    name: Build OBS plugin
+  obs-plugin-windows:
+    if: github.event_name == 'push' || inputs.mode == 'candidate'
+    name: Build Windows OBS candidate
     runs-on: windows-latest
     timeout-minutes: 60
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Set up OBS and Qt build environment
-        uses: ./.github/actions/obs-windows-setup
-
+      - uses: ./.github/actions/obs-windows-setup
       - name: Build plugin package
         shell: cmd
         run: |
           set OPENSTREAM_SKIP_INSTALL=1
           set OPENSTREAM_PLUGIN_PACKAGE_DIR=%CD%\artifacts
           call build_plugin.bat
-
-      - name: Run C++ contract tests (ctest)
+      - name: Run native and repository tests
         shell: powershell
         run: |
           ctest --test-dir obs-plugin/build --output-on-failure
-
-      - name: Run repository behavioural tests (pytest)
-        shell: powershell
-        run: |
           python -m pip install --disable-pip-version-check pytest
           python -m pytest -q
-
-      - name: Publish SHA256 for OBS zip
-        shell: powershell
-        run: |
-          (Get-FileHash artifacts\openstream-obs-windows-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant() + "  openstream-obs-windows-x64.zip" | Out-File -FilePath artifacts\openstream-obs-windows-x64.zip.sha256 -Encoding ascii -NoNewline
-
-      - name: Verify OBS 32 FFmpeg ABI dependencies and package layout
+      - name: Verify Windows package and dependencies
         shell: powershell
         run: |
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Sort-Object FullName -Descending | Select-Object -First 1
-          if (!$dumpbin) { throw "dumpbin.exe was not found" }
+          if (!$dumpbin) { throw 'dumpbin.exe was not found' }
           $deps = (& $dumpbin.FullName /dependents "$PWD\obs-plugin\build\openstream-obs.dll") -join "`n"
           'avformat-62.dll','avcodec-62.dll','avutil-60.dll','swscale-9.dll' | ForEach-Object { if ($deps -notmatch [regex]::Escape($_)) { throw "Missing expected dependency $_" } }
-          Expand-Archive artifacts\openstream-obs-windows-x64.zip "$env:RUNNER_TEMP\openstream-zip"
-          if (!(Test-Path "$env:RUNNER_TEMP\openstream-zip\openstream-obs.dll")) { throw 'ZIP plugin DLL missing' }
           & tools\installer\Test-OpenStreamPackage.ps1 -ZipPath "$PWD\artifacts\openstream-obs-windows-x64.zip"
-
       - name: Install Inno Setup
         shell: powershell
         run: choco install innosetup -y --no-progress
-
-      - name: Build plugin installer
+      - name: Build and inspect Windows installer
         shell: powershell
         env:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          $env:OPENSTREAM_VERSION = $env:RELEASE_TAG -replace '^v', ''
+          $version = (Get-Content release/version.properties | Where-Object { $_ -match '^productVersion=' }) -replace '^productVersion=', ''
+          if ($env:RELEASE_TAG -ne "v$version") { throw "Tag does not match product version $version" }
+          $env:OPENSTREAM_VERSION = $version
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          & $iscc "tools\installer\openstream-obs-plugin.iss" `
-            "/DPluginDll=$PWD\obs-plugin\build\openstream-obs.dll" `
-            "/DOutputDir=$PWD\artifacts" `
-            "/DOutputBaseFilename=openstream-obs-plugin-installer-windows-x64" `
-            "/DOpenStreamVersion=$env:OPENSTREAM_VERSION"
-
-      - name: Smoke-test executable installer migration
-        shell: powershell
-        run: |
-          & tools\installer\Test-OpenStreamInnoInstaller.ps1 `
-            -InstallerPath "$PWD\artifacts\openstream-obs-plugin-installer-windows-x64.exe"
-
-      - name: Publish SHA256 for OBS installer
-        shell: powershell
-        run: |
-          (Get-FileHash artifacts\openstream-obs-plugin-installer-windows-x64.exe -Algorithm SHA256).Hash.ToLowerInvariant() + "  openstream-obs-plugin-installer-windows-x64.exe" | Out-File -FilePath artifacts\openstream-obs-plugin-installer-windows-x64.exe.sha256 -Encoding ascii -NoNewline
-
-      - name: Upload plugin artifact
-        uses: actions/upload-artifact@v4
+          & $iscc "tools\installer\openstream-obs-plugin.iss" "/DPluginDll=$PWD\obs-plugin\build\openstream-obs.dll" "/DOutputDir=$PWD\artifacts" "/DOutputBaseFilename=openstream-obs-plugin-installer-windows-x64" "/DOpenStreamVersion=$version"
+          & tools\installer\Test-OpenStreamInnoInstaller.ps1 -InstallerPath "$PWD\artifacts\openstream-obs-plugin-installer-windows-x64.exe"
+          $info = (Get-Item "$PWD\artifacts\openstream-obs-plugin-installer-windows-x64.exe").VersionInfo
+          if ($info.ProductVersion -ne $version) { throw "Installer ProductVersion '$($info.ProductVersion)' does not match $version" }
+          @{ productVersion = $info.ProductVersion; fileVersion = $info.FileVersion } | ConvertTo-Json | Set-Content artifacts\windows-installer-metadata.json
+      - uses: actions/upload-artifact@v4
         with:
-          name: openstream-obs-windows-x64
+          name: release-windows-${{ github.run_id }}
           path: |
             artifacts/openstream-obs-windows-x64.zip
-            artifacts/openstream-obs-windows-x64.zip.sha256
             artifacts/openstream-obs-plugin-installer-windows-x64.exe
-            artifacts/openstream-obs-plugin-installer-windows-x64.exe.sha256
+            artifacts/windows-installer-metadata.json
           if-no-files-found: error
 
   obs-plugin-linux:
-    name: Build native Linux OBS plugin
+    if: github.event_name == 'push' || inputs.mode == 'candidate'
+    name: Build Linux OBS candidate
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
           persist-credentials: false
-
       - name: Install Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            cmake g++ pkg-config libobs-dev libavformat-dev libavcodec-dev \
-            libavutil-dev libswscale-dev qt6-base-dev
-
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake g++ pkg-config libobs-dev libavformat-dev libavcodec-dev libavutil-dev libswscale-dev qt6-base-dev
       - name: Build, test, and package Linux plugin
         env:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
@@ -295,75 +174,129 @@ jobs:
         run: |
           export OPENSTREAM_VERSION="${RELEASE_TAG#v}"
           ./build_plugin_linux.sh
-
-      - name: Publish SHA256 for Linux package
-        run: |
-          cd artifacts
-          sha256sum shin-obs-linux-x86_64.tar.gz > shin-obs-linux-x86_64.tar.gz.sha256
-
-      - name: Upload Linux plugin artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: shin-obs-linux-x86_64
-          path: |
-            artifacts/shin-obs-linux-x86_64.tar.gz
-            artifacts/shin-obs-linux-x86_64.tar.gz.sha256
+          name: release-linux-${{ github.run_id }}
+          path: artifacts/shin-obs-linux-x86_64.tar.gz
           if-no-files-found: error
 
-  publish:
-    name: Publish GitHub release
+  stage-candidate:
+    if: github.event_name == 'push' || inputs.mode == 'candidate'
+    name: Verify and stage release candidate (unpublished)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: [android, obs-plugin, obs-plugin-linux]
+    needs: [android, obs-plugin-windows, obs-plugin-linux]
     permissions:
-      contents: write
-
+      contents: read
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
+      - uses: ./.github/actions/android-setup
+      - uses: actions/download-artifact@v4
         with:
-          path: dist
+          pattern: release-*-${{ github.run_id }}
+          path: artifacts
           merge-multiple: true
-
-      - name: Verify release assets
-        run: |
-          test -f dist/openstream-android.apk
-          test -f dist/openstream-android.apk.sha256
-          test -f dist/openstream-obs-plugin-installer-windows-x64.exe
-          test -f dist/openstream-obs-plugin-installer-windows-x64.exe.sha256
-          test -f dist/openstream-obs-windows-x64.zip
-          test -f dist/openstream-obs-windows-x64.zip.sha256
-          test -f dist/shin-obs-linux-x86_64.tar.gz
-          test -f dist/shin-obs-linux-x86_64.tar.gz.sha256
-          (cd dist && sha256sum --check openstream-android.apk.sha256)
-          (cd dist && sha256sum --check openstream-obs-windows-x64.zip.sha256)
-          (cd dist && sha256sum --check openstream-obs-plugin-installer-windows-x64.exe.sha256)
-          (cd dist && sha256sum --check shin-obs-linux-x86_64.tar.gz.sha256)
-
-      - name: Create release
+      - name: Fetch previous published APK when one exists
+        id: previous
         env:
           GH_TOKEN: ${{ github.token }}
-          INPUT_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          TAG_NAME="${INPUT_TAG:-${GITHUB_REF_NAME}}"
-          RELEASE_COMMIT=$(git rev-parse HEAD)
-          gh release create "$TAG_NAME" \
-            dist/openstream-android.apk \
-            dist/openstream-android.apk.sha256 \
-            dist/openstream-obs-plugin-installer-windows-x64.exe \
-            dist/openstream-obs-plugin-installer-windows-x64.exe.sha256 \
-            dist/openstream-obs-windows-x64.zip \
-            dist/openstream-obs-windows-x64.zip.sha256 \
-            dist/shin-obs-linux-x86_64.tar.gz \
-            dist/shin-obs-linux-x86_64.tar.gz.sha256 \
-            --target "$RELEASE_COMMIT" \
-            --title "OpenStream ${TAG_NAME}" \
-            --notes-file docs/release-notes-template.md
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
+          previous=$(python -c 'import json,sys; rs=json.load(open(sys.argv[1])); xs=[r for r in rs if not r["draft"] and not r["prerelease"]]; print(xs[0]["tag_name"] if xs else "")' "$RUNNER_TEMP/releases.json")
+          if [[ -n "$previous" ]]; then
+            gh release download "$previous" --pattern openstream-android.apk --dir "$RUNNER_TEMP/previous"
+            test -s "$RUNNER_TEMP/previous/openstream-android.apk"
+            echo "apk=$RUNNER_TEMP/previous/openstream-android.apk" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Verify actual artifacts and write release manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/^productVersion=//p' release/version.properties)
+          VERSION_CODE=$(sed -n 's/^androidVersionCode=//p' release/version.properties)
+          APKSIGNER=$(find "$ANDROID_SDK_ROOT/build-tools" -name apksigner -type f | sort -V | tail -n 1)
+          AAPT=$(find "$ANDROID_SDK_ROOT/build-tools" -name aapt -type f | sort -V | tail -n 1)
+          [[ -n "$APKSIGNER" && -n "$AAPT" ]]
+          args=(--artifacts artifacts --tag "$RELEASE_TAG" --expected-version "$VERSION" --expected-version-code "$VERSION_CODE" --installer-metadata artifacts/windows-installer-metadata.json --aapt "$AAPT" --apksigner "$APKSIGNER" --commit "$(git rev-parse HEAD)" --write-manifest artifacts/release-manifest.json)
+          if [[ -n "${{ steps.previous.outputs.apk }}" ]]; then args+=(--previous-apk "${{ steps.previous.outputs.apk }}"); fi
+          python tools/check_release_artifacts.py "${args[@]}"
+          for file in openstream-android.apk openstream-obs-windows-x64.zip openstream-obs-plugin-installer-windows-x64.exe shin-obs-linux-x86_64.tar.gz; do
+            sha256sum "artifacts/$file" > "artifacts/$file.sha256"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate-${{ inputs.tag || github.ref_name }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 90
+
+  publish-staged-candidate:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'publish'
+    name: Publish verified staged candidate bytes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/android-setup
+      - name: Require candidate run ID and download its bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "::error::candidate_run_id must identify a successful staging run."; exit 1; }
+          candidate=$(gh run view "$CANDIDATE_RUN_ID" --json conclusion,headSha,event)
+          [[ "$(jq -r .conclusion <<< "$candidate")" == success ]] || { echo "::error::Candidate run did not succeed."; exit 1; }
+          [[ "$(jq -r .headSha <<< "$candidate")" == "$(git rev-parse HEAD)" ]] || { echo "::error::Candidate run commit differs from the release tag commit."; exit 1; }
+          mkdir -p artifacts
+          gh run download "$CANDIDATE_RUN_ID" --name "release-candidate-$RELEASE_TAG" --dir artifacts
+      - name: Verify staged hashes and metadata against the manifest
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/^productVersion=//p' release/version.properties)
+          VERSION_CODE=$(sed -n 's/^androidVersionCode=//p' release/version.properties)
+          APKSIGNER=$(find "$ANDROID_SDK_ROOT/build-tools" -name apksigner -type f | sort -V | tail -n 1)
+          AAPT=$(find "$ANDROID_SDK_ROOT/build-tools" -name aapt -type f | sort -V | tail -n 1)
+          [[ -n "$APKSIGNER" && -n "$AAPT" ]]
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
+          previous=$(python -c 'import json,sys; rs=json.load(open(sys.argv[1])); xs=[r for r in rs if not r["draft"] and not r["prerelease"]]; print(xs[0]["tag_name"] if xs else "")' "$RUNNER_TEMP/releases.json")
+          args=(--artifacts artifacts --tag "$RELEASE_TAG" --expected-version "$VERSION" --expected-version-code "$VERSION_CODE" --installer-metadata artifacts/windows-installer-metadata.json --aapt "$AAPT" --apksigner "$APKSIGNER" --commit "$(git rev-parse HEAD)" --manifest artifacts/release-manifest.json)
+          if [[ -n "$previous" ]]; then
+            gh release download "$previous" --pattern openstream-android.apk --dir "$RUNNER_TEMP/previous"
+            args+=(--previous-apk "$RUNNER_TEMP/previous/openstream-android.apk")
+          fi
+          python tools/check_release_artifacts.py "${args[@]}"
+          for file in openstream-android.apk openstream-obs-windows-x64.zip openstream-obs-plugin-installer-windows-x64.exe shin-obs-linux-x86_64.tar.gz; do
+            (cd artifacts && sha256sum --check "$file.sha256")
+          done
+          test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)"
+      - name: Publish without rebuilding
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" \
+            artifacts/openstream-android.apk artifacts/openstream-android.apk.sha256 \
+            artifacts/openstream-obs-plugin-installer-windows-x64.exe artifacts/openstream-obs-plugin-installer-windows-x64.exe.sha256 \
+            artifacts/openstream-obs-windows-x64.zip artifacts/openstream-obs-windows-x64.zip.sha256 \
+            artifacts/shin-obs-linux-x86_64.tar.gz artifacts/shin-obs-linux-x86_64.tar.gz.sha256 \
+            artifacts/release-manifest.json \
+            --target "$(git rev-parse HEAD)" --title "OpenStream $RELEASE_TAG" --notes-file docs/release-notes-template.md

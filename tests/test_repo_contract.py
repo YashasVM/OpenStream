@@ -299,7 +299,9 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "OPENSTREAM_RELEASE_STORE_PASSWORD" in release_workflow
     assert "OPENSTREAM_RELEASE_KEY_ALIAS" in release_workflow
     assert "OPENSTREAM_RELEASE_KEY_PASSWORD" in release_workflow
-    assert "openstream.versionName" in release_workflow
+    assert "release/version.properties" in release_workflow
+    assert "productVersion=" in release_workflow
+    assert "androidVersionCode=" in release_workflow
     assert "android/gradle.properties" in release_docs
     assert "OPENSTREAM_SKIP_INSTALL=1" in obs_workflow
     assert "OPENSTREAM_PLUGIN_PACKAGE_DIR" in obs_workflow
@@ -307,11 +309,11 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "gh release create" in release_workflow
     assert "docs/release-notes-template.md" in release_workflow
     assert "openstream-android.apk" in release_workflow
-    assert "dist/openstream-android.apk" in release_workflow
     assert "openstream-android.apk.sha256" in release_workflow
-    assert "dist/openstream-android.apk.sha256" in release_workflow
-    assert "sha256sum openstream-android.apk" in release_workflow
-    assert "Public releases require all Android signing secrets" in release_workflow
+    assert "Public candidates require all Android signing secrets" in release_workflow
+    assert "release-candidate-${{ inputs.tag || github.ref_name }}" in release_workflow
+    assert "publish-staged-candidate" in release_workflow
+    assert "check_release_artifacts.py" in release_workflow
     assert "openstream-obs-windows-x64.zip" in release_workflow
     assert "never publishes a debug-signed fallback" in release_docs
     assert "Android Signing Secrets" in release_docs
