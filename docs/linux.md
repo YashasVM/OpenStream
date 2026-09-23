@@ -30,10 +30,10 @@ Notes:
   a reservation, and send zoom, lens, torch, and identify commands. These UI
   dependencies stay in the OBS plugin target; the media engine does not link
   OBS frontend or Qt Widgets.
-- `libobs-dev` supplies the frontend API headers, link library, and
-  `obs-frontend-api.pc` on Ubuntu 24.04; there is no separate frontend
-  development package to install. The build script checks this API and Qt
-  Widgets before configuring.
+- `libobs-dev` supplies the frontend API headers and link library on Ubuntu
+  24.04, but does not ship an `obs-frontend-api.pc` pkg-config file. CMake
+  resolves the library through the system linker paths; the build script
+  checks the OBS core and Qt dependencies before configuring.
 - Linux links the **system OBS/FFmpeg ABI** (whatever the distro OBS was
   built against). There is intentionally no FFmpeg version pin on this path,
   unlike the Windows release build, which stays pinned to OBS 32.2.1 /

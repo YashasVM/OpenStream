@@ -51,7 +51,7 @@ for tool in cmake g++ pkg-config; do
 done
 
 missing_pc=()
-for module in libobs obs-frontend-api libavformat libavcodec libavutil libswscale Qt6Core Qt6Widgets; do
+for module in libobs libavformat libavcodec libavutil libswscale Qt6Core Qt6Widgets; do
   if ! pkg-config --exists "${module}" 2>/dev/null; then
     missing_pc+=("${module}")
   fi
@@ -62,7 +62,7 @@ if [[ "${#missing_pc[@]}" -gt 0 ]]; then
 fi
 echo "OBS system ABI (no Windows version pin; see docs/linux.md):"
 echo "  libobs $(pkg-config --modversion libobs)"
-echo "  obs-frontend-api $(pkg-config --modversion obs-frontend-api)"
+echo "  OBS frontend API: resolved by CMake from the installed OBS development package"
 echo "  libavformat $(pkg-config --modversion libavformat)"
 echo "  Qt $(qmake6 -query QT_VERSION 2>/dev/null || pkg-config --modversion Qt6Core)"
 echo ""
