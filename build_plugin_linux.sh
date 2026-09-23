@@ -98,6 +98,10 @@ else
     echo "ERROR: --package-only needs an existing build at ${BUILD_DIR}/shin-obs.so" >&2
     exit 1
   fi
+  if ! python3 "${SCRIPT_DIR}/tools/check_plugin_binary.py" "${BUILD_DIR}/shin-obs.so" "${PRODUCT_VERSION}"; then
+    echo "ERROR: --package-only refuses a stale or unversioned plugin binary." >&2
+    exit 1
+  fi
 fi
 
 if [[ -n "${PACKAGE_DIR}" ]]; then

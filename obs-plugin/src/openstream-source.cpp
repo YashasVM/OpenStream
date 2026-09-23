@@ -2754,7 +2754,8 @@ bool obs_module_load(void) {
 #if defined(__linux__)
   openstream_register_dock();
 #endif
-  blog(LOG_INFO, "[shin] OBS plugin loaded: protocol 1, video + audio + remote controls");
+  blog(LOG_INFO, "[shin] OBS plugin loaded: OpenStream version %s, OPENSTREAM_PRODUCT_VERSION=%s, protocol 1, video + audio + remote controls",
+       OPENSTREAM_PRODUCT_VERSION, OPENSTREAM_PRODUCT_VERSION);
   return true;
 }
 

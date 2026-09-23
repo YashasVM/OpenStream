@@ -32,6 +32,7 @@ add_library(openstream-obs MODULE
     src/async-control-client.cpp
     src/openstream-source.cpp
 )
+target_compile_definitions(openstream-obs PRIVATE OPENSTREAM_PRODUCT_VERSION=\"${OPENSTREAM_VERSION}\")
 
 if (BUILD_TESTING)
     add_executable(openstream-obs-contract-tests
