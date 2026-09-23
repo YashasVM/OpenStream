@@ -86,14 +86,38 @@ def test_reservation_release_is_bound_to_generation_token() -> None:
     assert '"stale":true' in control
 
 
-def test_android_disconnect_clears_selection_without_restarting_listener() -> None:
+def test_android_actions_route_disconnect_stop_and_start_separately() -> None:
     source = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
-    button = source[source.index("btnStop.setOnClickListener") :]
-    button = button[: button.index("// Tap the screen-off overlay")]
-    assert "stopPhoneServer(clearReservation = true)" in button
-    assert "startPreviewIfAllowed()" in button
-    assert "startPhoneServerIfAllowed()" not in button
-    assert 'android:text="Disconnect"' in read("android/app/src/main/res/layout/activity_main.xml")
+    state = read("android/app/src/main/java/dev/openstream/app/PhoneSessionState.kt")
+    button = function_body(source, "setupButtons")
+    disconnect = function_body(source, "disconnectPhoneSession")
+    stop = function_body(source, "stopPhoneSession")
+    start = function_body(source, "startPhoneSession")
+    listener_start = function_body(source, "startPhoneServerIfAllowed")
+
+    assert "when (actionForSessionStatus(phoneSessionState.snapshot.status))" in button
+    assert "PhoneSessionAction.Disconnect -> disconnectPhoneSession()" in button
+    assert "PhoneSessionAction.Stop -> stopPhoneSession()" in button
+    assert "PhoneSessionAction.Start -> startPhoneSession()" in button
+    action_mapping = state[state.index("internal fun actionForSessionStatus") :]
+    reconnecting_mapping = action_mapping[
+        action_mapping.index("PhoneSessionStatus.Connecting,") :
+        action_mapping.index("else -> PhoneSessionAction.Disconnect")
+    ]
+    assert "PhoneSessionStatus.Reconnecting" in reconnecting_mapping
+    assert "PhoneSessionAction.Stop" in reconnecting_mapping
+
+    assert "phoneSessionState.disconnect()" in disconnect
+    assert "clearReservation()" in disconnect
+    assert "stopPhoneServer(" not in disconnect
+    assert "startPhoneServerIfAllowed()" not in disconnect
+
+    assert "phoneSessionState.stop()" in stop
+    assert "stopPhoneServer(clearReservation = true)" in stop
+    assert "pendingListenerStart = true" not in stop
+    assert "phoneSessionState.start()" in start
+    assert "startPhoneServerIfAllowed()" in start
+    assert "PhoneSessionStatus.Stopped" in listener_start
 
 
 def test_android_reservation_timeouts_update_the_visible_state() -> None:
