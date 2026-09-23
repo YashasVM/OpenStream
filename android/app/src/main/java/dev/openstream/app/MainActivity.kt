@@ -918,7 +918,7 @@ class MainActivity : Activity() {
                                         statusText.text = "Listener error"
                                         statusDetail.text = error.message ?: "Unknown error"
                                     }
-                                    sessionWorker.submit {
+                                    sessionWorker.submitCritical {
                                         camera.stopStreaming()
                                         encoder.stop()
                                         audioEncoder.stop()
@@ -947,7 +947,7 @@ class MainActivity : Activity() {
                     }
 
                     if (isListenerActive(generation)) {
-                        sessionWorker.submit {
+                        sessionWorker.submitCritical {
                             camera.stopStreaming()
                             encoder.stop()
                             audioEncoder.stop()
@@ -1051,7 +1051,7 @@ class MainActivity : Activity() {
                 if (pendingListenerStart) startPhoneServerIfAllowed()
             }
         }
-        sessionWorker.submit(blockingWork)
+        sessionWorker.submitCritical(blockingWork)
     }
 
     private fun stopStream(updateStatus: Boolean = true) {
@@ -1060,7 +1060,7 @@ class MainActivity : Activity() {
         activeTargetName = null
         mainHandler.removeCallbacks(statsTicker)
         phoneConnected = false
-        sessionWorker.submit {
+        sessionWorker.submitCritical {
             streamClient.disconnect()
             synchronized(callerLifecycleLock) {
                 cancelLensRestart()

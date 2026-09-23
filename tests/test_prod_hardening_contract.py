@@ -51,13 +51,15 @@ def test_teardown_never_blocks_ui_thread():
     # MainActivity owns a bounded serial worker, and teardown is submitted as a
     # unit so native disconnect/camera/codec stop do not run in the UI callback.
     assert "private val sessionWorker = SessionWorker" in app
-    assert "sessionWorker.submit(blockingWork)" in stop_server
+    assert "sessionWorker.submitCritical(blockingWork)" in stop_server
     assert "streamClient.disconnect()" in stop_server
     assert "camera.stopStreaming()" in stop_server
     assert "encoder.stop()" in stop_server
-    assert "ArrayBlockingQueue(queueCapacity.coerceAtLeast(1))" in worker
+    assert "ArrayBlockingQueue(normalQueueCapacity + 1)" in worker
     assert "queueCapacity: Int = 32" in worker
     assert "Session worker queue is full" in worker
+    assert "fun submitCritical(work: () -> Unit)" in worker
+    assert "sessionWorker.submitCritical {" in app
     assert "fun submitIfCurrent(" in worker
 
 

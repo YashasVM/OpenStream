@@ -124,6 +124,43 @@ class SessionWorkerTest {
     }
 
     @Test
+    fun criticalTeardownUsesReservedSlotWhenNormalQueueIsFull() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val completed = CountDownLatch(2)
+        val observed = mutableListOf<String>()
+        val rejected = AtomicInteger()
+        val worker = SessionWorker(queueCapacity = 1, onFailure = { rejected.incrementAndGet() })
+        try {
+            assertTrue(worker.submit {
+                entered.countDown()
+                release.await(2, TimeUnit.SECONDS)
+            })
+            assertTrue(entered.await(2, TimeUnit.SECONDS))
+            assertTrue(worker.submit {
+                synchronized(observed) { observed += "normal" }
+                completed.countDown()
+            })
+
+            // The normal waiting slot is occupied. A critical Stop still has
+            // its reserved slot and remains serialized behind accepted work.
+            assertTrue(worker.submitCritical {
+                synchronized(observed) { observed += "teardown" }
+                completed.countDown()
+            })
+            assertEquals(false, worker.submit { error("normal overflow must reject newest") })
+            release.countDown()
+
+            assertTrue(completed.await(2, TimeUnit.SECONDS))
+            assertEquals(listOf("normal", "teardown"), observed)
+            assertEquals(1, rejected.get())
+        } finally {
+            release.countDown()
+            worker.close()
+        }
+    }
+
+    @Test
     fun nonBlockingAcceptPollYieldsTheWorkerForDisconnectBetweenPolls() {
         var listenerActive = true
         val worker = SessionWorker()
