@@ -32,6 +32,7 @@ android {
         applicationId = "dev.openstream.app"
         minSdk = 29
         targetSdk = 35
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = openStreamVersionCode
         versionName = openStreamVersionName
 
@@ -110,9 +111,13 @@ kotlin {
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:rules:1.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
     // Unit tests run on the local JVM against android.jar stubs, where
     // org.json.JSONObject methods throw "not mocked". Ship the real
     // org.json implementation for tests only; on-device code keeps using
     // the platform's built-in org.json.
     testImplementation("org.json:json:20240303")
+    androidTestImplementation("androidx.test:core:1.6.1")
 }

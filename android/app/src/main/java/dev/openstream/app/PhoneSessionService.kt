@@ -18,13 +18,26 @@ import android.util.Log
 class PhoneSessionService : Service() {
     inner class LocalBinder : Binder() {
         internal fun runtime(): PhoneSessionRuntime = sessionRuntime
+        internal fun lifecycleState(): SessionOwnerState = ownerState
         internal fun stop() = stopSession()
+        internal fun activityHidden() {
+            ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.ActivityHidden)
+        }
         internal fun activityResumed() {
-            if (!hasCameraPermission()) stopSessionForPermissionLoss()
+            ownerState = if (hasCameraPermission()) {
+                transitionSessionOwner(ownerState, SessionOwnerEvent.ActivityVisible)
+            } else {
+                if (foregroundStarted) stopSessionForPermissionLoss()
+                else transitionSessionOwner(ownerState, SessionOwnerEvent.CameraPermissionRevoked)
+                ownerState
+            }
         }
     }
 
     private lateinit var sessionRuntime: PhoneSessionRuntime
+    @Volatile private var foregroundStarted = false
+    @Volatile private var ownerState: SessionOwnerState =
+        transitionSessionOwner(SessionOwnerState.Available, SessionOwnerEvent.ProcessRecreated)
     private val binder = LocalBinder()
     private val preferences by lazy { getSharedPreferences(PREFS_NAME, MODE_PRIVATE) }
 
@@ -34,16 +47,34 @@ class PhoneSessionService : Service() {
             .getInt(SettingsActivity.KEY_LISTENING_PORT, DEFAULT_PORT)
             .takeIf { it in 1024..65535 } ?: DEFAULT_PORT
         sessionRuntime = PhoneSessionRuntime(applicationContext, savedPort)
-        if (preferences.getBoolean(KEY_STOPPED, false)) sessionRuntime.phoneSessionState.stop()
+        if (preferences.getBoolean(KEY_STOPPED, false)) {
+            sessionRuntime.phoneSessionState.stop()
+            ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.Stop)
+        }
         createNotificationChannel()
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
 
+    override fun onDestroy() {
+        if (::sessionRuntime.isInitialized) {
+            if (sessionRuntime.phoneSessionState.snapshot.status != PhoneSessionStatus.Stopped) {
+                sessionRuntime.phoneSessionState.stop()
+                sessionRuntime.stopLiveMedia()
+                sessionRuntime.clearReservation()
+                sessionRuntime.stopComponents()
+            }
+            sessionRuntime.sessionWorker.close()
+        }
+        super.onDestroy()
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> stopSession()
             ACTION_START -> {
+                ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.Start)
+                ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.ActivityVisible)
                 preferences.edit().putBoolean(KEY_STOPPED, false).apply()
                 sessionRuntime.phoneSessionState.start()
                 if (hasCameraPermission()) {
@@ -53,6 +84,8 @@ class PhoneSessionService : Service() {
                 }
             }
             else -> if (hasCameraPermission() && !preferences.getBoolean(KEY_STOPPED, false)) {
+                ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.Start)
+                ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.ActivityVisible)
                 startForegroundSession()
                 sessionRuntime.startComponents()
             } else if (!hasCameraPermission()) {
@@ -65,6 +98,7 @@ class PhoneSessionService : Service() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
+        ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.TaskRemoved)
         if (!preferences.getBoolean(KEY_STOPPED, false) && hasCameraPermission()) {
             startForegroundSession()
         }
@@ -80,7 +114,9 @@ class PhoneSessionService : Service() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val serviceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or
-                    if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                        checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                    ) {
                         ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
                     } else {
                         0
@@ -89,6 +125,7 @@ class PhoneSessionService : Service() {
             } else {
                 startForeground(NOTIFICATION_ID, notification)
             }
+            foregroundStarted = true
         } catch (error: SecurityException) {
             Log.e(TAG, "Could not keep the camera session in the foreground", error)
             stopSessionForPermissionLoss()
@@ -96,7 +133,9 @@ class PhoneSessionService : Service() {
     }
 
     private fun stopSession() {
+        ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.Stop)
         preferences.edit().putBoolean(KEY_STOPPED, true).apply()
+        foregroundStarted = false
         sessionRuntime.phoneSessionState.stop()
         sessionRuntime.sessionWorkGeneration += 1
         sessionRuntime.stopLiveMedia()
@@ -105,10 +144,13 @@ class PhoneSessionService : Service() {
         sessionRuntime.observer?.onReservationChanged()
         sessionRuntime.observer?.onSessionStateChanged()
         stopForeground(STOP_FOREGROUND_REMOVE)
+        foregroundStarted = false
         stopSelf()
     }
 
     private fun stopSessionForPermissionLoss() {
+        ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.CameraPermissionRevoked)
+        preferences.edit().putBoolean(KEY_STOPPED, true).apply()
         sessionRuntime.phoneSessionState.stop()
         sessionRuntime.sessionWorkGeneration += 1
         sessionRuntime.stopLiveMedia()
@@ -117,6 +159,7 @@ class PhoneSessionService : Service() {
         sessionRuntime.observer?.onSessionError("Camera permission was revoked; the session stopped")
         sessionRuntime.observer?.onSessionStateChanged()
         stopForeground(STOP_FOREGROUND_REMOVE)
+        foregroundStarted = false
         stopSelf()
     }
 
@@ -144,7 +187,7 @@ class PhoneSessionService : Service() {
         return builder
             .setSmallIcon(android.R.drawable.presence_video_online)
             .setContentTitle("OpenStream camera is available")
-            .setContentText("Streaming continues while OpenStream is in the background")
+            .setContentText("OpenStream keeps its camera session available in the background")
             .setContentIntent(openApp)
             .setOngoing(true)
             .addAction(android.R.drawable.ic_media_pause, "Stop", stopAction)

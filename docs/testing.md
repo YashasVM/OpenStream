@@ -83,6 +83,24 @@ implementation.
   after Virtual Camera starts and after a reconnect.
 - Telemetry updates at least once per second.
 
+## Android session lifecycle contract
+
+`PhoneSessionService` owns the camera, encoders, SRT connection, discovery, control server, and
+reservation state. `MainActivity` observes that owner and attaches the preview surface.
+
+| Event | Expected behavior | Result |
+|---|---|---|
+| Home, screen lock, Settings, or task removal | The foreground service keeps the session owner and reservation. The Activity detaches its preview. During a live stream, the camera capture session targets the encoder without the preview surface. | INCONCLUSIVE until checked on a physical phone |
+| Return to OpenStream | The Activity attaches its new preview surface to the existing owner and shows the current session state. The owner does not create another encoder. | INCONCLUSIVE until checked on a physical phone |
+| Notification Stop or in-app Stop | The owner stops media, closes the listener and control services, clears the reservation, and persists Stopped. Returning to the Activity does not restart it. The user must tap Start. | JVM and instrumentation test code added; emulator run unavailable |
+| Camera permission revoked | The owner stops media and clears the reservation. After permission is restored, the user must tap Start. | Instrumentation test code added; emulator run unavailable |
+| Process recreation | The foreground service does not restart itself. The next app launch creates an available owner with no reservation. A previously explicit Stop remains stopped. | State transition tested; process-death device check INCONCLUSIVE |
+
+Screen-off camera access depends on Android version and device policy. The foreground service requests
+the camera service type before the Activity leaves the foreground, but this code does not prove that a
+phone keeps delivering camera frames while locked. Record the phone model, Android version, APK hash,
+OBS version, and stream result for each physical run.
+
 ## Android/OBS compatibility matrix
 
 Before changing discovery fields, pairing URLs, authentication, reservations,
