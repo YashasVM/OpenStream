@@ -140,7 +140,10 @@ def test_android_and_obs_release_artifacts_stay_atomic() -> None:
     assert "python -m pytest -q" in android_workflow
     assert ":app:lintDebug" in android_workflow
     assert "openstream-android.apk.sha256" in android_workflow
-    assert "android/gradle.properties" in release_docs
+    assert "release/version.properties" in release_docs
+    assert "android/gradle.properties" not in release_docs
+    assert "release-manifest.json" in release_docs
+    assert "inputs.release_notes" in release_workflow
     assert "release/version.properties" in release_workflow
     assert "productVersion=" in release_workflow
     assert "androidVersionCode=" in release_workflow

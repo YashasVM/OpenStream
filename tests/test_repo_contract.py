@@ -302,7 +302,9 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "release/version.properties" in release_workflow
     assert "productVersion=" in release_workflow
     assert "androidVersionCode=" in release_workflow
-    assert "android/gradle.properties" in release_docs
+    assert "release/version.properties" in release_docs
+    assert "android/gradle.properties" not in release_docs
+    assert "release-manifest.json" in release_docs
     assert "OPENSTREAM_SKIP_INSTALL=1" in obs_workflow
     assert "OPENSTREAM_PLUGIN_PACKAGE_DIR" in obs_workflow
     assert "openstream-obs-windows-x64.zip" in obs_workflow
@@ -381,6 +383,20 @@ def test_website_package_version_is_tooling_only() -> None:
     package = json.loads(read("website/package.json"))
     assert package["private"] is True
     assert package["version"] == "0.0.0"
+
+
+def test_website_uses_only_published_manifest_version_for_release_copy() -> None:
+    website = read("website/src/main.jsx")
+    index = read("website/index.html")
+    readme = read("README.md")
+
+    assert '"Latest release"' in website
+    assert "release-manifest.json" in website
+    assert "expected.sha256" in website
+    assert "publishedRelease.version" in website
+    assert "V1.0.1" not in website + index
+    assert "releases/latest/download" in readme
+    assert "releases/tag/v1.0.1" not in readme
 
 
 def test_shin_linux_release_includes_native_obs_dock_dependencies() -> None:
