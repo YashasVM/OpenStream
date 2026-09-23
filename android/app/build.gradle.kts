@@ -16,24 +16,24 @@ val hasReleaseSigning = listOf(
     releaseKeyPassword,
 ).all { !it.isNullOrBlank() }
 val openStreamVersionName = providers.gradleProperty("openstream.versionName")
-    .orElse(providers.environmentVariable("OPENSTREAM_VERSION_NAME"))
-    .orElse("1.0.1")
-    .map { it.removePrefix("v") }
+    .get()
+    .removePrefix("v")
 val openStreamVersionCode = providers.gradleProperty("openstream.versionCode")
-    .orElse(providers.environmentVariable("OPENSTREAM_VERSION_CODE"))
-    .orElse("2")
     .map { it.toInt() }
+    .get()
 
 android {
     namespace = "dev.openstream.app"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "dev.shin.app"
+        // Keep the published OpenStream identity so existing installs update
+        // in place when they use the same release signing key.
+        applicationId = "dev.openstream.app"
         minSdk = 29
         targetSdk = 35
-        versionCode = openStreamVersionCode.get()
-        versionName = openStreamVersionName.get()
+        versionCode = openStreamVersionCode
+        versionName = openStreamVersionName
 
         externalNativeBuild {
             cmake {

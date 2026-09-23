@@ -21,6 +21,7 @@ class ReservationStateTest {
         assertTrue(state.beginSelection(selection("source-a")))
         assertEquals("source-a", state.advertisedSourceInstanceId)
         assertEquals("source-a", state.pendingSourceInstanceId)
+        assertTrue(state.hasReservationToDisconnect)
         assertNull(state.confirmedSourceInstanceId)
         assertFalse(state.isBusy(phoneConnected = false))
     }
@@ -34,6 +35,7 @@ class ReservationStateTest {
         assertNull(state.advertisedSourceInstanceId)
         assertNull(state.pendingSourceInstanceId)
         assertNull(state.confirmedSourceInstanceId)
+        assertFalse(state.hasReservationToDisconnect)
         assertFalse(state.isBusy(phoneConnected = false))
     }
 
@@ -49,6 +51,7 @@ class ReservationStateTest {
         assertTrue(state.confirm("source-a", "Phone Camera", 12))
         assertEquals("source-a", state.confirmedSourceInstanceId)
         assertNull(state.pendingSourceInstanceId)
+        assertTrue(state.hasReservationToDisconnect)
         assertTrue(state.isBusy(phoneConnected = false))
     }
 
@@ -61,6 +64,23 @@ class ReservationStateTest {
         assertEquals("source-a", state.confirmedSourceInstanceId)
         assertTrue(state.release("source-a"))
         assertNull(state.confirmedSourceInstanceId)
+        assertFalse(state.hasReservationToDisconnect)
         assertTrue(state.release("source-a"))
+    }
+
+    @Test
+    fun clearReleasesBothPendingAndConfirmedSelections() {
+        val state = ReservationState()
+        state.beginSelection(selection("source-a"))
+        state.clear()
+        assertNull(state.advertisedSourceInstanceId)
+        assertFalse(state.hasReservationToDisconnect)
+        assertFalse(state.isBusy(phoneConnected = false))
+
+        state.confirm("source-b", "Phone Camera", 12)
+        state.clear()
+        assertNull(state.confirmedSourceInstanceId)
+        assertFalse(state.hasReservationToDisconnect)
+        assertFalse(state.isBusy(phoneConnected = false))
     }
 }

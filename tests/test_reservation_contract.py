@@ -86,6 +86,23 @@ def test_reservation_release_is_bound_to_generation_token() -> None:
     assert '"stale":true' in control
 
 
+def test_android_disconnect_clears_selection_without_restarting_listener() -> None:
+    source = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    button = source[source.index("btnStop.setOnClickListener") :]
+    button = button[: button.index("// Tap the screen-off overlay")]
+    assert "stopPhoneServer(clearReservation = true)" in button
+    assert "startPreviewIfAllowed()" in button
+    assert "startPhoneServerIfAllowed()" not in button
+    assert 'android:text="Disconnect"' in read("android/app/src/main/res/layout/activity_main.xml")
+
+
+def test_android_reservation_timeouts_update_the_visible_state() -> None:
+    source = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    assert 'statusText.text = "Connection timed out"' in source
+    assert 'statusDetail.text = "Choose an OBS slot to try again"' in source
+    assert 'statusText.text = "Disconnected"' in source
+
+
 def test_reservation_captures_controller_peer():
     reserve = function_body(SERVER, "handleReserve")
     assert "controllerAddress: String" in reserve

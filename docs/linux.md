@@ -6,8 +6,8 @@ and validation notes for this branch.
 ## Scope
 
 - Native (distro or PPA) OBS Studio on Linux x86_64 with Qt6.
-- **One active camera per OBS process**. Reuse the same source across scenes
-  with Add Existing. Physical phone acceptance testing is still required.
+- One OBS source reserves one phone. Reuse that source across scenes with Add
+  Existing; a phone cannot be reserved by two sources at once.
 - **No Flatpak/Snap guarantee.** Sandboxed OBS builds isolate the plugin
   directory and network namespace, so the install paths and discovery
   behaviour below are not validated for them.
@@ -18,16 +18,22 @@ Install the development packages first (example for Debian/Ubuntu; the
 build script never installs system packages itself):
 
 - `cmake` (>= 3.24), `g++` (C++20), `pkg-config`, `ninja` (optional)
-- `libobs-dev` (>= 30; provides `libobs`, `obs-frontend-api` headers/library)
+- `libobs-dev` (>= 30; provides the OBS core and frontend API development
+  files)
 - `libavformat-dev`, `libavcodec-dev`, `libavutil-dev`, `libswscale-dev`
-- `qt6-base-dev` (>= 6.2, for Qt6 Network + Widgets)
+- `qt6-base-dev` (>= 6.2, for Qt6 Core and Widgets)
 
 Notes:
 
-- `obs-frontend-api.pc` may be absent on distro packages. That is legitimate:
-  `obs-plugin/CMakeLists.txt` probes it with pkg-config and falls back to
-  standard header/library lookup, which still requires the frontend headers
-  and `libobs-frontend-api` from `libobs-dev`.
+- The native Linux module registers the **OpenStream Camera Control** dock in
+  OBS. It lists discovered phones, lets you name the source, connect or release
+  a reservation, and send zoom, lens, torch, and identify commands. These UI
+  dependencies stay in the OBS plugin target; the media engine does not link
+  OBS frontend or Qt Widgets.
+- `libobs-dev` supplies the frontend API headers, link library, and
+  `obs-frontend-api.pc` on Ubuntu 24.04; there is no separate frontend
+  development package to install. The build script checks this API and Qt
+  Widgets before configuring.
 - Linux links the **system OBS/FFmpeg ABI** (whatever the distro OBS was
   built against). There is intentionally no FFmpeg version pin on this path,
   unlike the Windows release build, which stays pinned to OBS 32.2.1 /
@@ -44,13 +50,13 @@ Notes:
 ```
 
 This configures incrementally (`obs-plugin/build` by default, override with
-`OPENSTREAM_PLUGIN_BUILD_DIR`), builds `openstream-obs.so`, and runs the
+`OPENSTREAM_PLUGIN_BUILD_DIR`), builds `shin-obs.so`, and runs the
 C++ contract tests via `ctest`. Useful variants:
 
 - `OPENSTREAM_PLUGIN_BUILD_DIR=/tmp/openstream-linux-build ./build_plugin_linux.sh`
   — validation build outside the repo.
 - `OPENSTREAM_PLUGIN_PACKAGE_DIR="$PWD/artifacts" ./build_plugin_linux.sh`
-  — also stages `openstream-obs-linux-x86_64.tar.gz` (module + installer).
+  — also stages `shin-obs-linux-x86_64.tar.gz` (module + installer).
 - `./build_plugin_linux.sh --package-only` — repackage an existing build.
 - `./build_plugin_linux.sh --install-user` / `--install-system` — build,
   test, then install (see below).
@@ -60,29 +66,29 @@ C++ contract tests via `ctest`. Useful variants:
 Per-user install (default, no root). Respects `XDG_CONFIG_HOME`:
 
 ```sh
-./tools/installer/install-openstream-plugin-linux.sh
-# installs to ${XDG_CONFIG_HOME:-$HOME/.config}/obs-studio/plugins/openstream-obs/bin/64bit/openstream-obs.so
+./tools/installer/install-shin-plugin-linux.sh
+# installs to ${XDG_CONFIG_HOME:-$HOME/.config}/obs-studio/plugins/shin-obs/bin/64bit/shin-obs.so
 ```
 
 System-wide install (requires root; the OBS system plugin dir is
 auto-detected, e.g. `/usr/lib/obs-plugins`):
 
 ```sh
-sudo ./tools/installer/install-openstream-plugin-linux.sh --system
+sudo ./tools/installer/install-shin-plugin-linux.sh --system
 ```
 
 Testing hook (touches nothing outside the given directory):
 
 ```sh
-./tools/installer/install-openstream-plugin-linux.sh --dest-dir /tmp/os-install-test
+./tools/installer/install-shin-plugin-linux.sh --dest-dir /tmp/os-install-test
 ```
 
 The install is atomic (stage to a temp file in the destination, then
 rename), replaces the canonical module, and removes only other-named stale
-copies (`openstream-beta-obs.so`, `libopenstream-obs.so`, the legacy flat
+copies (`shin-beta-obs.so`, `libshin-obs.so`, the legacy flat
 per-user copy) after the new copy succeeds.
 
-Uninstall: delete `openstream-obs.so` from the user or system plugin
+Uninstall: delete `shin-obs.so` from the user or system plugin
 directory above and restart OBS. There is no uninstaller script.
 
 ## Behavioural notes
@@ -107,18 +113,22 @@ directory above and restart OBS. There is no uninstaller script.
 
 What was actually checked for this branch (local machine):
 
-- `cmake` configure of `obs-plugin` against system libobs/FFmpeg/Qt6 with
-  no `OBS_ROOT`: passes.
-- Full plugin build (`openstream-obs.so`) and native tests cover control
-  shutdown, SIGPIPE, single-camera ownership, JSON parsing and source settings.
-- `ldd` confirms linkage to system `libobs`, `libobs-frontend-api`,
-  `libavformat`/`libavcodec`/`libavutil`/`libswscale`, Qt6 Network/Widgets.
+- Direct `g++` C++20 syntax checks passed for the source, control client, and
+  dock against the installed OBS 32.2.2, FFmpeg, and Qt6 development headers.
+- A manual shared-library link produced `shin-obs.so`. `ldd` confirmed links
+  to `libobs`, `libobs-frontend-api`, FFmpeg, Qt6 Core, and Qt6 Widgets, with no
+  missing libraries. The dock registration symbols are present in the module.
+- The Linux installer smoke test copied the linked module into an isolated
+  `--dest-dir`; the installed file matched the built module byte for byte.
+- Focused Python contracts passed (4 tests), and `bash -n` passed for the
+  Linux build and installer scripts.
+- CMake and CTest were not run because CMake is unavailable in this environment.
 - See [reliability audit](reliability-audit.md) for the final check results.
-  No installation into the running user’s OBS configuration is part of validation.
 
 What was NOT validated and remains a blocker for release claims:
 
-- Loading `openstream-obs.so` inside a running OBS GUI on Linux.
+- Loading `shin-obs.so` inside a running native OBS GUI on Linux, including
+  dock behavior.
 - A physical phone streaming over Wi-Fi (discovery, reservation, SRT
   media, reconnect, controls).
 - Any Flatpak/Snap OBS build, any distro other than the validation

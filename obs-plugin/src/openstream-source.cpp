@@ -20,9 +20,9 @@
 #include <obs-module.h>
 
 #include "async-control-client.hpp"
+#include "openstream-control-api.hpp"
 #include "media-clock.hpp"
 #include "control-json.hpp"
-#include "solo-camera-lease.hpp"
 #include "socket-send.hpp"
 #include <util/platform.h>
 
@@ -104,6 +104,9 @@ constexpr uint64_t kReconnectRecoveryVideoFrames = 30;
 constexpr const char *kOpenStreamSourceName = "shin";
 constexpr const char *kDiscoveryMulticastAddress = "239.255.43.99";
 constexpr const char *kPhoneDiscoveryPrefix = "SHIN_PHONE/1 ";
+// Legacy 1.x phones used the OpenStream namespace. Keep this adapter at the
+// discovery boundary; the engine continues to use one PhoneDevice model.
+constexpr const char *kLegacyPhoneDiscoveryPrefix = "OPENSTREAM_PHONE/1 ";
 
 #ifdef _WIN32
 using SocketHandle = SOCKET;
@@ -539,7 +542,11 @@ class PhoneDiscoveryReceiver {
     if (selected_id.empty() || selected_id == kAutoPhoneId) {
       std::optional<PhoneDevice> deprioritized;
       for (const auto &entry : core.devices_) {
-        if (entry.second.busy && entry.second.reserved_by != source_instance_id) {
+        // Automatic mode is phone initiated: an OBS source may only adopt a
+        // phone that explicitly advertised this source as its reservation.
+        // This prevents a default source from randomly grabbing a nearby
+        // available phone.
+        if (entry.second.reserved_by != source_instance_id) {
           continue;
         }
         if (!deprioritized_id.empty() && entry.second.instance_id == deprioritized_id) {
@@ -652,11 +659,15 @@ class PhoneDiscoveryReceiver {
         continue;
       }
       std::string payload(buffer, buffer + received);
-      if (payload.rfind(kPhoneDiscoveryPrefix, 0) != 0) {
+      const bool current_protocol = payload.rfind(kPhoneDiscoveryPrefix, 0) == 0;
+      const bool legacy_protocol = payload.rfind(kLegacyPhoneDiscoveryPrefix, 0) == 0;
+      if (!current_protocol && !legacy_protocol) {
         continue;
       }
-      const std::string json = payload.substr(std::strlen(kPhoneDiscoveryPrefix));
-      if (json_string_value(json, "type").value_or("") != "dev.shin.phone") {
+      const char *prefix = current_protocol ? kPhoneDiscoveryPrefix : kLegacyPhoneDiscoveryPrefix;
+      const std::string json = payload.substr(std::strlen(prefix));
+      const std::string type = json_string_value(json, "type").value_or("");
+      if (type != "dev.shin.phone" && type != "dev.openstream.phone") {
         continue;
       }
       char packet_host[INET_ADDRSTRLEN] = {};
@@ -752,8 +763,14 @@ class DiscoveryAdvertiser {
     }
   }
 
+  void set_source_name(std::string name) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    source_name_ = std::move(name);
+  }
+
  private:
   std::string beacon_payload() const {
+    std::lock_guard<std::mutex> lock(mutex_);
     const std::string host = first_pairing_host();
     std::ostringstream payload;
     payload << "SHIN/1 {"
@@ -824,6 +841,7 @@ class DiscoveryAdvertiser {
   }
 
   std::atomic<bool> stop_requested_ = false;
+  mutable std::mutex mutex_;
   std::thread worker_;
   int listener_port_ = 9100;
   int latency_ms_ = 120;
@@ -852,6 +870,7 @@ struct OpenStreamSource {
   int latency_ms = 120;
   int bitrate_mbps = kDefaultBitrateMbps;
   bool listener_enabled = true;
+  bool enabled = false;
   std::atomic<bool> listener_running = false;
   std::atomic<bool> phone_connected = false;
   std::atomic<bool> slot_busy = false;
@@ -883,6 +902,7 @@ struct OpenStreamSource {
   std::string active_slot_label;
   std::string active_selected_phone_id = PhoneDiscoveryReceiver::kAutoPhoneId;
   std::optional<PhoneDevice> active_phone;
+  std::string reservation_token;
   uint64_t frames_output = 0;
   uint64_t stale_video_frames = 0;
   uint64_t stale_audio_frames = 0;
@@ -895,7 +915,6 @@ struct OpenStreamSource {
 // The map holds shared ownership so a lookup can keep the source alive across
 // the lock boundary.
 std::map<obs_source_t *, std::shared_ptr<OpenStreamSource>> g_source_contexts;
-SoloCameraLease g_camera_lease;
 
 // Locked lookup returning shared ownership. Callers hold the returned
 // shared_ptr for the duration of start/stop/post work, then re-validate
@@ -931,6 +950,23 @@ bool queue_lifecycle_request(const std::shared_ptr<OpenStreamSource> &ctx,
   }
   ctx->lifecycle_wake.notify_one();
   return true;
+}
+
+void persist_connection_enabled(const std::shared_ptr<OpenStreamSource> &ctx,
+                                bool enabled) {
+  if (!ctx) return;
+  {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    ctx->enabled = enabled;
+    ctx->listener_enabled = enabled;
+  }
+  if (!ctx->source) return;
+  obs_data_t *settings = obs_source_get_settings(ctx->source);
+  if (!settings) return;
+  obs_data_set_bool(settings, "enabled", enabled);
+  obs_data_set_bool(settings, "listener_enabled", enabled);
+  obs_source_update(ctx->source, settings);
+  obs_data_release(settings);
 }
 
 void run_lifecycle_worker(OpenStreamSource *ctx) {
@@ -1154,8 +1190,11 @@ bool reserve_phone(OpenStreamSource *ctx, PhoneDevice &phone) {
   std::ostringstream body;
   {
     std::lock_guard<std::mutex> lock(ctx->settings_mutex);
-    phone.reservation_token =
-        ctx->instance_id + "-" + std::to_string(os_gettime_ns());
+    if (ctx->reservation_token.empty()) {
+      ctx->reservation_token =
+          ctx->instance_id + "-" + std::to_string(os_gettime_ns());
+    }
+    phone.reservation_token = ctx->reservation_token;
     body << "{\"sourceInstanceId\":\"" << json_escape(ctx->instance_id) << "\","
          << "\"reservationToken\":\"" << json_escape(phone.reservation_token) << "\","
          << "\"slotId\":\"" << json_escape(ctx->slot_id) << "\","
@@ -1265,9 +1304,12 @@ void openstream_stop_worker(OpenStreamSource *ctx) {
   if (reserved_phone.has_value()) {
     queue_release_phone(ctx, *reserved_phone);
   }
+  {
+    std::lock_guard<std::mutex> settings_lock(ctx->settings_mutex);
+    ctx->reservation_token.clear();
+  }
   set_active_phone(ctx, std::nullopt);
   set_slot_status(ctx, "Offline");
-  g_camera_lease.release(ctx);
 }
 
 bool open_video_decoder(AVFormatContext *format_ctx,
@@ -1688,6 +1730,9 @@ uint64_t decode_packets(OpenStreamSource *ctx,
                                &sws_ctx,
                                &bgra_buffer)) {
         ++video_frames_output;
+        if (video_frames_output == 1) {
+          set_slot_status(ctx, "Live");
+        }
       }
       av_frame_unref(frame.get());
     }
@@ -1976,7 +2021,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     FormatContextPtr format_ctx(raw_format_ctx);
     raw_format_ctx = nullptr;
     ctx->phone_connected = true;
-    set_slot_status(ctx, "Live");
+    set_slot_status(ctx, "Receiving video");
     ctx->stale_video_frames = 0;
     ctx->stale_audio_frames = 0;
 
@@ -2103,12 +2148,6 @@ void openstream_start_worker(OpenStreamSource *ctx) {
 
   openstream_stop_worker(ctx);
 
-  if (!g_camera_lease.acquire(ctx)) {
-    set_slot_status(ctx, "Another shin camera is active. Use Add Existing to reuse it, or stop it before retrying.");
-    blog(LOG_WARNING, "[shin] Additional camera session blocked: solo-camera mode permits one active source");
-    return;
-  }
-
   ctx->active_srt_url = srt_url;
   ctx->active_listener_port = listener_port;
   ctx->active_latency_ms = latency_ms;
@@ -2140,7 +2179,14 @@ void openstream_update(void *data, obs_data_t *settings) {
   bool should_start = false;
   {
     std::lock_guard<std::mutex> lock(ctx->settings_mutex);
-    ctx->listener_enabled = obs_data_get_bool(settings, "listener_enabled");
+    // Older saved scenes only have listener_enabled. An explicit enabled
+    // value takes precedence, including enabled=false.
+    ctx->enabled = obs_data_has_user_value(settings, "enabled")
+                       ? obs_data_get_bool(settings, "enabled")
+                       : obs_data_get_bool(settings, "listener_enabled");
+    ctx->listener_enabled = ctx->enabled;
+    obs_data_set_bool(settings, "enabled", ctx->enabled);
+    obs_data_set_bool(settings, "listener_enabled", ctx->enabled);
     ctx->device_name = obs_data_get_string(settings, "device_name");
     int requested_port = static_cast<int>(obs_data_get_int(settings, "listener_port"));
     if (requested_port <= 0) {
@@ -2215,7 +2261,7 @@ void openstream_update(void *data, obs_data_t *settings) {
     obs_data_set_string(settings, "phone_target_hint", ctx->phone_target_hint.c_str());
     obs_data_set_string(settings, "pairing_hint", ctx->pairing_hint.c_str());
     obs_data_set_string(settings, "pairing_url", ctx->pairing_url.c_str());
-    should_start = ctx->listener_enabled;
+    should_start = ctx->enabled;
   }
   if (should_start) {
     queue_lifecycle_request(lookup_source_context_by_raw(ctx), true);
@@ -2286,7 +2332,10 @@ void openstream_destroy(void *data) {
 }
 
 void openstream_defaults(obs_data_t *settings) {
-  obs_data_set_default_bool(settings, "listener_enabled", true);
+  obs_data_set_default_bool(settings, "enabled", false);
+  // Retain the old key for saved scenes and third party callers. Connection
+  // actions update the canonical enabled key below.
+  obs_data_set_default_bool(settings, "listener_enabled", false);
   obs_data_set_default_string(settings, "device_name", "Phone Camera");
   obs_data_set_default_string(settings, "slot_id", "");
   obs_data_set_default_string(settings, "source_instance_id", "");
@@ -2413,6 +2462,7 @@ obs_properties_t *openstream_properties(void *data) {
     if (!owned) {
       return false;
     }
+    persist_connection_enabled(owned, true);
     return queue_lifecycle_request(owned, true);
   });
   obs_property_set_long_description(
@@ -2426,6 +2476,7 @@ obs_properties_t *openstream_properties(void *data) {
     if (!owned) {
       return false;
     }
+    persist_connection_enabled(owned, false);
     return queue_lifecycle_request(owned, false);
   });
   obs_property_set_long_description(
@@ -2550,6 +2601,7 @@ bool openstream_start_camera_source(obs_source_t *source) {
   return forward_to_camera(
       source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
         if (!owned) return false;
+        persist_connection_enabled(owned, true);
         return queue_lifecycle_request(owned, true);
       });
 }
@@ -2558,8 +2610,86 @@ bool openstream_stop_camera_source(obs_source_t *source) {
   return forward_to_camera(
       source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
         if (!owned) return false;
+        persist_connection_enabled(owned, false);
         return queue_lifecycle_request(owned, false);
       });
+}
+
+size_t openstream_camera_phone_count(obs_source_t *source) {
+  return forward_to_camera(source, [](const std::shared_ptr<OpenStreamSource> &owned) {
+    return owned ? owned->phone_discovery.devices().size() : 0u;
+  });
+}
+
+const char *openstream_camera_phone_id(obs_source_t *source, size_t index) {
+  thread_local std::string value;
+  value.clear();
+  forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    if (!owned) return 0;
+    const auto phones = owned->phone_discovery.devices();
+    if (index < phones.size()) value = phones[index].instance_id;
+    return 0;
+  });
+  return value.c_str();
+}
+
+const char *openstream_camera_phone_name(obs_source_t *source, size_t index) {
+  thread_local std::string value;
+  value.clear();
+  forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    if (!owned) return 0;
+    const auto phones = owned->phone_discovery.devices();
+    if (index < phones.size()) value = phone_label(phones[index]);
+    return 0;
+  });
+  return value.c_str();
+}
+
+bool openstream_select_camera_phone(obs_source_t *source, const char *phone_id) {
+  if (!phone_id || !phone_id[0]) return false;
+  return forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    if (!owned) return false;
+    const auto phones = owned->phone_discovery.devices();
+    const auto found = std::find_if(phones.begin(), phones.end(), [&](const PhoneDevice &phone) {
+      return phone.instance_id == phone_id;
+    });
+    if (found == phones.end()) return false;
+    {
+      std::lock_guard<std::mutex> lock(owned->settings_mutex);
+      owned->selected_phone_id = phone_id;
+    }
+    if (!owned->source) return true;
+    obs_data_t *settings = obs_source_get_settings(owned->source);
+    if (!settings) return true;
+    obs_data_set_string(settings, "selected_phone_id", phone_id);
+    obs_source_update(owned->source, settings);
+    obs_data_release(settings);
+    return true;
+  });
+}
+
+bool openstream_set_camera_label(obs_source_t *source, const char *label) {
+  if (!label || !label[0] || std::strlen(label) > 128) return false;
+  return forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    if (!owned) return false;
+    {
+      std::lock_guard<std::mutex> lock(owned->settings_mutex);
+      owned->device_name = label;
+      owned->slot_label = label;
+      owned->pairing_hint = "Open shin on your phone, choose " + owned->slot_label +
+                            ", and keep both devices on the same Wi-Fi.";
+    }
+    owned->discovery.set_source_name(label);
+    if (owned->source) {
+      obs_data_t *settings = obs_source_get_settings(owned->source);
+      if (settings) {
+        obs_data_set_string(settings, "device_name", label);
+        obs_data_set_string(settings, "slot_label", label);
+        obs_data_release(settings);
+      }
+    }
+    return true;
+  });
 }
 
 const char *openstream_source_status(obs_source_t *source) {
@@ -2587,11 +2717,17 @@ bool obs_module_load(void) {
   }
 #endif
   obs_register_source(&openstream_source_info);
+#if defined(__linux__)
+  openstream_register_dock();
+#endif
   blog(LOG_INFO, "[shin] OBS plugin loaded: protocol 1, video + audio + remote controls");
   return true;
 }
 
 void obs_module_unload(void) {
+#if defined(__linux__)
+  openstream_unregister_dock();
+#endif
 #ifdef _WIN32
   if (g_winsock_started) {
     WSACleanup();

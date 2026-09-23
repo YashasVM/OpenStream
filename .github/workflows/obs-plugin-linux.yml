@@ -41,13 +41,16 @@ jobs:
             qt6-base-dev
           echo "System ABI under test:"
           pkg-config --modversion libobs
+          pkg-config --modversion obs-frontend-api
           pkg-config --modversion libavformat
           pkg-config --modversion Qt6Core
           # Fail visibly below these floors: the plugin needs libobs 30+ and
           # a Qt6 compatible with find_package(Qt6 6.2). Noble (24.04)
           # provides libobs-dev 30.0.2 and qt6-base-dev 6.4.2.
           pkg-config --atleast-version=30 libobs
+          pkg-config --exists obs-frontend-api
           pkg-config --atleast-version=6.2 Qt6Core
+          pkg-config --atleast-version=6.2 Qt6Widgets
 
       - name: Build plugin package
         run: |
@@ -59,9 +62,11 @@ jobs:
           test -f obs-plugin/build/shin-obs.so
           ldd obs-plugin/build/shin-obs.so
           ldd obs-plugin/build/shin-obs.so | grep -E "libobs\.so"
+          ldd obs-plugin/build/shin-obs.so | grep -E "libobs-frontend-api\.so"
           ldd obs-plugin/build/shin-obs.so | grep -E "libavformat\.so"
           ldd obs-plugin/build/shin-obs.so | grep -E "libQt6Core"
-          ! ldd obs-plugin/build/shin-obs.so | grep -E "libQt6(Widgets|Network)|obs-frontend"
+          ldd obs-plugin/build/shin-obs.so | grep -E "libQt6Widgets"
+          nm -C obs-plugin/build/shin-obs.so | grep -E "openstream_(register|unregister)_dock\(\)"
 
       - name: Run repository behavioural tests (pytest)
         run: |

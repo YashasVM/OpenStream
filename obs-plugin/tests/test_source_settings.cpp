@@ -147,6 +147,21 @@ int main() {
   openstream_update(context.get(), settings);
   require(context->srt_url == "shin:auto", "automatic pairing default changed");
   require(context->slot_label == "Phone Camera", "new source has a production slot label");
+  require(!context->enabled, "new source unexpectedly starts enabled");
+
+  obs_data_t *legacy_settings = obs_data_create();
+  obs_data_set_bool(legacy_settings, "listener_enabled", true);
+  openstream_update(context.get(), legacy_settings);
+  require(context->enabled, "legacy listener_enabled setting was not migrated");
+  require(obs_data_get_bool(legacy_settings, "enabled"),
+          "migrated enabled setting was not persisted");
+
+  obs_data_set_bool(legacy_settings, "enabled", false);
+  openstream_update(context.get(), legacy_settings);
+  require(!context->enabled,
+          "explicit disabled value was overridden by the legacy setting");
+  obs_data_release(legacy_settings);
+
   obs_data_set_bool(settings, "manual_receive", true);
   obs_data_set_int(settings, "listener_port", 9876);
   obs_data_set_int(settings, "latency_ms", 160);
@@ -160,14 +175,6 @@ int main() {
   require(context->srt_url == "shin:auto", "automatic pairing cannot be restored");
   require(context->slot_label == "Legacy CAM B" && context->slot_id == "saved-legacy-id",
           "legacy scene identity was lost");
-  int existing_camera = 0;
-  require(g_camera_lease.acquire(&existing_camera), "could not simulate existing camera");
-  openstream_start_worker(context.get());
-  require(!context->worker.joinable() && !context->listener_running.load(),
-          "production start bypassed the one-camera gate");
-  require(context->slot_status.find("Another shin camera") != std::string::npos,
-          "blocked camera has no explanation");
-  g_camera_lease.release(&existing_camera);
   auto *properties = openstream_properties(context.get());
   require(obs_properties_get(properties, "manual_receive") != nullptr,
           "manual receive has no user-facing control");

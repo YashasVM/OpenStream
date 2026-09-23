@@ -32,6 +32,10 @@ internal class ReservationState {
     val confirmedSourceInstanceId: String?
         get() = confirmed?.sourceInstanceId
 
+    /** A pending selection can be cancelled before OBS confirms ownership. */
+    val hasReservationToDisconnect: Boolean
+        get() = pending != null || confirmed != null
+
     /** The id carried in discovery so OBS can initiate the control handshake. */
     val advertisedSourceInstanceId: String?
         get() = confirmed?.sourceInstanceId ?: pending?.sourceInstanceId

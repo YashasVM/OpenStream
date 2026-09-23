@@ -140,8 +140,8 @@ def test_android_and_obs_release_artifacts_stay_atomic() -> None:
     assert "python -m pytest -q" in android_workflow
     assert ":app:lintDebug" in android_workflow
     assert "openstream-android.apk.sha256" in android_workflow
-    assert "git log -1 --format=%ct" in android_workflow
-    assert "git log -1 --format=%ct" in release_workflow
+    assert "android/gradle.properties" in release_docs
+    assert "openstream.versionName" in release_workflow
     assert "openstream-android-update.json" not in android_workflow
     assert "openstream-android-update.json" not in release_workflow
     assert not (ROOT / "android/app/src/main/java/dev/openstream/app/update/AppUpdater.kt").exists()

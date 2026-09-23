@@ -194,6 +194,7 @@ class MainActivity : Activity() {
                         runOnUiThread {
                             statusText.text = "Paired to ${slotLabel.ifBlank { "OBS computer" }}"
                             statusDetail.text = "OBS acknowledged; waiting to go live"
+                            renderDisconnectVisibility()
                             renderObsSlots(currentDevices)
                         }
                     }
@@ -356,9 +357,9 @@ class MainActivity : Activity() {
             startActivityForResult(intent, SETTINGS_REQUEST_CODE)
         }
         btnStop.setOnClickListener {
-            stopPhoneServer(clearReservation = false)
+            stopPhoneServer(clearReservation = true)
             startPreviewIfAllowed()
-            startPhoneServerIfAllowed()
+            pendingListenerStart = true
         }
 
         // Tap the screen-off overlay to re-enable display
@@ -680,6 +681,7 @@ class MainActivity : Activity() {
         if (selectForSource(device.sourceInstanceId, device.displayLabel, device.bitrateMbps)) {
             statusText.text = "Selected ${device.displayLabel}"
             statusDetail.text = "Waiting for OBS acknowledgement"
+            renderDisconnectVisibility()
             renderObsSlots(currentDevices)
         }
     }
@@ -707,6 +709,7 @@ class MainActivity : Activity() {
             if (selectForSource(sourceInstanceId, slotLabel, bitrateMbps)) {
                 statusText.text = "Selected ${slotLabel.ifBlank { "OBS computer" }}"
                 statusDetail.text = "Waiting for OBS acknowledgement"
+                renderDisconnectVisibility()
             }
             return
         }
@@ -801,7 +804,7 @@ class MainActivity : Activity() {
         statusText.text = getString(R.string.status_ready)
         statusText.setTextColor(getColor(R.color.os_text_primary))
         statusDetail.text = getString(R.string.status_waiting)
-        btnStop.visibility = View.GONE
+        renderDisconnectVisibility()
 
         val thread = Thread({
             try {
@@ -909,8 +912,7 @@ class MainActivity : Activity() {
         // Keep disconnect/release discoverable when Reserved but not live so the
         // stuck-reserved state always has a one-tap escape hatch. ReservationState
         // covers both pending (advertised) and confirmed selections.
-        btnStop.visibility =
-            if (advertisedReservationId != null || reservedBy != null) View.VISIBLE else View.GONE
+        renderDisconnectVisibility()
 
         val blockingWork = {
             streamClient.disconnect()
@@ -938,7 +940,10 @@ class MainActivity : Activity() {
                     }
                 }
             }
-            mainHandler.post { hideLiveState() }
+            mainHandler.post {
+                hideLiveState()
+                if (pendingListenerStart) startPhoneServerIfAllowed()
+            }
         }
         if (Looper.myLooper() == Looper.getMainLooper()) {
             Thread({ blockingWork() }, "shinStopServer").apply { isDaemon = true; start() }
@@ -988,6 +993,7 @@ class MainActivity : Activity() {
         if (!reservationState.beginSelection(selection)) return false
         useStreamBitrate(bitrateMbps)
         reservationGeneration += 1
+        renderDisconnectVisibility()
         if (phoneConnected) {
             cancelReservationRelease()
         } else {
@@ -1010,6 +1016,7 @@ class MainActivity : Activity() {
         if (!reservationState.confirm(sourceInstanceId, effectiveSlot, bitrateMbps)) return false
         useStreamBitrate(bitrateMbps)
         reservationGeneration += 1
+        renderDisconnectVisibility()
         if (phoneConnected) {
             cancelReservationRelease()
         } else {
@@ -1038,6 +1045,16 @@ class MainActivity : Activity() {
         cancelReservationRelease()
         reservationState.clear()
         selectedObsHost = null
+        renderDisconnectVisibility()
+    }
+
+    private fun renderDisconnectVisibility() {
+        mainHandler.post {
+            if (!::btnStop.isInitialized) return@post
+            val shouldShow = reservationState.hasReservationToDisconnect ||
+                phoneConnected || activeTargetName != null
+            btnStop.visibility = if (shouldShow) View.VISIBLE else View.GONE
+        }
     }
 
     @Synchronized
@@ -1051,10 +1068,13 @@ class MainActivity : Activity() {
                     reservationState.confirmedSourceInstanceId == null
                 ) {
                     reservationState.rollbackPending(sourceInstanceId)
+                    renderDisconnectVisibility()
                     if (reservationState.pendingSelection == null &&
                         reservationState.confirmedReservation == null
                     ) {
                         selectedObsHost = null
+                        statusText.text = "Connection timed out"
+                        statusDetail.text = "Choose an OBS slot to try again"
                     }
                 }
             }
@@ -1074,10 +1094,13 @@ class MainActivity : Activity() {
                     reservationGeneration == generation
                 ) {
                     reservationState.release(sourceInstanceId)
+                    renderDisconnectVisibility()
                     if (reservationState.confirmedReservation == null &&
                         reservationState.pendingSelection == null
                     ) {
                         selectedObsHost = null
+                        statusText.text = "Disconnected"
+                        statusDetail.text = "Choose an OBS slot to reconnect"
                     }
                 }
             }
