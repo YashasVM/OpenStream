@@ -19,7 +19,6 @@ class PhoneSessionService : Service() {
     inner class LocalBinder : Binder() {
         internal fun runtime(): PhoneSessionRuntime = sessionRuntime
         internal fun lifecycleState(): SessionOwnerState = ownerState
-        internal fun isForegroundStarted(): Boolean = foregroundStarted
         internal fun stop() = stopSession()
         internal fun start() = startSession()
         internal fun activityHidden() {

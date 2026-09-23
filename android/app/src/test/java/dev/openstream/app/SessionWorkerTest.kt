@@ -76,7 +76,8 @@ class SessionWorkerTest {
 
     @Test
     fun stalePreviewDetachCannotOverrideLatestReattachedSurface() {
-        var generation = 4L
+        var previewGeneration = 4L
+        var sessionWorkGeneration = 4L
         var activeSurface: String? = null
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
@@ -89,17 +90,19 @@ class SessionWorkerTest {
             })
             assertTrue(entered.await(2, TimeUnit.SECONDS))
 
-            assertTrue(worker.submitIfCurrent(4L, { generation }) { activeSurface = "old-preview" })
-            generation = 5L
-            assertTrue(worker.submitIfCurrent(5L, { generation }) { activeSurface = null })
-            generation = 6L
-            assertTrue(worker.submitIfCurrent(6L, { generation }) {
+            assertTrue(worker.submitIfCurrent(4L, { previewGeneration }) { activeSurface = "old-preview" })
+            previewGeneration = 5L
+            assertTrue(worker.submitIfCurrent(5L, { previewGeneration }) { activeSurface = null })
+            sessionWorkGeneration += 1 // A lens switch invalidates session work, not this surface.
+            assertTrue(worker.submitIfCurrent(5L, { previewGeneration }) {
                 activeSurface = "new-preview"
             })
             assertTrue(worker.submit { completed.countDown() })
             release.countDown()
 
             assertTrue(completed.await(2, TimeUnit.SECONDS))
+            assertEquals(5L, previewGeneration)
+            assertEquals(5L, sessionWorkGeneration)
             assertEquals("new-preview", activeSurface)
         } finally {
             release.countDown()

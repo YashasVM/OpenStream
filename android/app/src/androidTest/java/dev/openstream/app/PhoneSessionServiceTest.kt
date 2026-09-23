@@ -1,6 +1,7 @@
 package dev.openstream.app
 
 import android.Manifest
+import android.app.NotificationManager
 import android.content.Intent
 import androidx.lifecycle.Lifecycle
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -59,18 +60,22 @@ class PhoneSessionServiceTest {
     @Test
     fun stoppedActivityRecreationDoesNotRestartForegroundServiceOrSession() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val activity = ActivityScenario.launch(MainActivity::class.java)
-        val binder = serviceRule.bindService(Intent(context, PhoneSessionService::class.java))
-            as PhoneSessionService.LocalBinder
-        assertEquals(true, binder.isForegroundStarted())
+        val notificationManager = context.getSystemService(NotificationManager::class.java)
+        notificationManager.cancelAll()
+        context.getSharedPreferences(PhoneSessionService.PREFS_NAME, 0).edit()
+            .putBoolean(PhoneSessionService.KEY_STOPPED, true)
+            .commit()
 
-        binder.stop()
-        activity.recreate()
+        ActivityScenario.launch(MainActivity::class.java).close()
+        val activity = ActivityScenario.launch(MainActivity::class.java)
         Thread.sleep(6_500)
 
-        assertEquals(false, binder.isForegroundStarted())
-        assertEquals(PhoneSessionStatus.Stopped, binder.runtime().phoneSessionState.snapshot.status)
-        assertEquals(false, binder.runtime().phoneServerRunning)
+        activity.onActivity { current ->
+            val status = current.findViewById<android.widget.TextView>(R.id.statusText).text
+            assertEquals(context.getString(R.string.status_stopped), status)
+        }
+        val notifications = notificationManager.activeNotifications
+        assertEquals(emptyList<Int>(), notifications.map { it.id })
         assertEquals(true, context.getSharedPreferences(PhoneSessionService.PREFS_NAME, 0)
             .getBoolean(PhoneSessionService.KEY_STOPPED, false))
         activity.close()

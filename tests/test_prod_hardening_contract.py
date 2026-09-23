@@ -120,10 +120,11 @@ def test_preview_surface_reconfiguration_runs_on_owner_worker():
     enqueue = runtime[enqueue_start:retry_start]
     retry = block_after(runtime, "private fun schedulePreviewBindingRetry()")
     assert "enqueuePreviewBinding(generation, requestedSurface)" in binding
-    assert "sessionWorker.submitIfCurrent(generation, { sessionWorkGeneration })" in enqueue
-    assert "if (generation != sessionWorkGeneration) return@submitIfCurrent" in enqueue
+    assert "sessionWorker.submitIfCurrent(generation, { previewBindingGeneration })" in enqueue
+    assert "if (generation != previewBindingGeneration) return@submitIfCurrent" in enqueue
     assert "camera.bindPreviewSurface(surface)" in enqueue
-    assert "sessionWorkGeneration" in retry
+    assert "previewBindingGeneration" in retry
+    assert "previewBindingGeneration" in enqueue
     assert "requestedPreviewSurface" in retry
     assert "schedulePreviewBindingRetry()" in retry
     assert "camera.bindPreviewSurface(holder.surface)" not in activity

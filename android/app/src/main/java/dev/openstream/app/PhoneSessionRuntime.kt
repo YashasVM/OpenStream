@@ -66,6 +66,7 @@ internal class PhoneSessionRuntime(
     @Volatile var pendingListenerStart = false
     @Volatile var listenerGeneration = 0L
     @Volatile var sessionWorkGeneration = 0L
+    @Volatile private var previewBindingGeneration = 0L
     @Volatile var currentPort = initialPort
     @Volatile var activeStreamBitrate = streamConfig.bitrate
     @Volatile var observer: PhoneSessionObserver? = null
@@ -292,7 +293,7 @@ internal class PhoneSessionRuntime(
 
     fun bindPreviewSurface(surface: android.view.Surface?) {
         val requestedSurface = surface?.takeIf(android.view.Surface::isValid)
-        val generation = ++sessionWorkGeneration
+        val generation = ++previewBindingGeneration
         requestedPreviewSurface = requestedSurface
         previewSurfaceAvailable = requestedSurface != null
         if (enqueuePreviewBinding(generation, requestedSurface)) {
@@ -306,10 +307,10 @@ internal class PhoneSessionRuntime(
     }
 
     private fun enqueuePreviewBinding(generation: Long, surface: android.view.Surface?): Boolean =
-        sessionWorker.submitIfCurrent(generation, { sessionWorkGeneration }) {
-            if (generation != sessionWorkGeneration) return@submitIfCurrent
+        sessionWorker.submitIfCurrent(generation, { previewBindingGeneration }) {
+            if (generation != previewBindingGeneration) return@submitIfCurrent
             camera.bindPreviewSurface(surface)
-            if (generation != sessionWorkGeneration) return@submitIfCurrent
+            if (generation != previewBindingGeneration) return@submitIfCurrent
             if (surface != null) {
                 initializeLenses()
                 if (phoneSessionState.snapshot.status != PhoneSessionStatus.Stopped &&
@@ -332,7 +333,7 @@ internal class PhoneSessionRuntime(
                         observer?.onSessionError("Camera preview could not be updated")
                         return
                     }
-                    val generation = sessionWorkGeneration
+                    val generation = previewBindingGeneration
                     if (enqueuePreviewBinding(generation, requestedPreviewSurface)) return
                     schedulePreviewBindingRetry()
                 }
