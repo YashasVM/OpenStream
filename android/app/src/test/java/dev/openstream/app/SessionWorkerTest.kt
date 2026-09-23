@@ -1,5 +1,6 @@
 package dev.openstream.app
 
+import dev.openstream.app.stream.SrtAcceptResult
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -118,6 +119,31 @@ class SessionWorkerTest {
             assertEquals(1, rejected.get())
         } finally {
             release.countDown()
+            worker.close()
+        }
+    }
+
+    @Test
+    fun nonBlockingAcceptPollYieldsTheWorkerForDisconnectBetweenPolls() {
+        var listenerActive = true
+        val worker = SessionWorker()
+        try {
+            val firstPoll = worker.submitAndWait {
+                if (listenerActive) SrtAcceptResult.Pending else SrtAcceptResult.Cancelled
+            }
+            assertEquals(SrtAcceptResult.Pending, firstPoll)
+
+            val teardown = worker.submitAndWait {
+                listenerActive = false
+                "disconnected"
+            }
+            val nextPoll = worker.submitAndWait {
+                if (!listenerActive) SrtAcceptResult.Cancelled else SrtAcceptResult.Pending
+            }
+
+            assertEquals("disconnected", teardown)
+            assertEquals(SrtAcceptResult.Cancelled, nextPoll)
+        } finally {
             worker.close()
         }
     }

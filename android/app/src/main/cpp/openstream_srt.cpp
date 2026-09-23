@@ -484,6 +484,11 @@ std::optional<SrtUrl> parseSrtUrl(const std::string &url) {
 
 class NativeSender {
  public:
+  static constexpr int kAcceptFailed = -1;
+  static constexpr int kAcceptPending = 0;
+  static constexpr int kAcceptConnected = 1;
+  static constexpr int kAcceptCancelled = 2;
+
   NativeSender() {
 #if OPENSTREAM_HAVE_LIBSRT
     srtStarted_ = srt_startup() == 0;
@@ -589,7 +594,7 @@ class NativeSender {
 #endif
   }
 
-  bool listen(const std::string &url, uint64_t expectedLifecycleGeneration) {
+  bool startListen(const std::string &url, uint64_t expectedLifecycleGeneration) {
 #if OPENSTREAM_HAVE_LIBSRT
     disconnect();
     const auto parsed = parseSrtUrl(url);
@@ -646,29 +651,82 @@ class NativeSender {
       return false;
     }
 
+    const int epoll = srt_epoll_create();
+    if (epoll < 0) {
+      logError("Could not create SRT listener readiness poller");
+      disconnect();
+      return false;
+    }
+    const int events = SRT_EPOLL_IN | SRT_EPOLL_ERR;
+    if (srt_epoll_add_usock(epoll, listenerSocket, &events) == SRT_ERROR) {
+      __android_log_print(ANDROID_LOG_ERROR, kTag, "Could not monitor SRT listener: %s", srt_getlasterror_str());
+      srt_epoll_release(epoll);
+      disconnect();
+      return false;
+    }
+    {
+      std::lock_guard<std::mutex> lock(socketMutex_);
+      if (lifecycleGeneration_ != expectedLifecycleGeneration || listener_socket_ != listenerSocket) {
+        srt_epoll_release(epoll);
+        return false;
+      }
+      listener_epoll_ = epoll;
+    }
+    __android_log_print(ANDROID_LOG_INFO, kTag, "Listening for OBS caller on SRT port %s", parsed->port.c_str());
+    return true;
+#else
+    (void)url;
+    (void)expectedLifecycleGeneration;
+    logError("openstream_srt was built without libsrt. Rebuild with OPENSTREAM_ENABLE_LIBSRT=ON.");
+    return false;
+#endif
+  }
+
+  // Performs one zero-timeout readiness check and accepts only after SRT reports
+  // SRT_EPOLL_IN. This keeps the session worker available for disconnect/reconnect.
+  int acceptPending(uint64_t expectedLifecycleGeneration) {
+#if OPENSTREAM_HAVE_LIBSRT
+    std::lock_guard<std::mutex> ioLock(ioMutex_);
+    SRTSOCKET listenerSocket = SRT_INVALID_SOCK;
+    int epoll = -1;
+    {
+      std::lock_guard<std::mutex> lock(socketMutex_);
+      if (lifecycleGeneration_ != expectedLifecycleGeneration) return kAcceptCancelled;
+      listenerSocket = listener_socket_;
+      epoll = listener_epoll_;
+    }
+    if (listenerSocket == SRT_INVALID_SOCK || epoll < 0) return kAcceptCancelled;
+
+    SRT_EPOLL_EVENT event{};
+    const int ready = srt_epoll_uwait(epoll, &event, 1, 0);
+    if (ready == SRT_ERROR) {
+      __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT listener readiness poll failed: %s", srt_getlasterror_str());
+      return kAcceptFailed;
+    }
+    if (ready == 0) return kAcceptPending;
+    if (event.fd != listenerSocket || (event.events & SRT_EPOLL_IN) == 0) {
+      logError("SRT readiness poll returned an unexpected socket");
+      return kAcceptFailed;
+    }
+
     sockaddr_storage peer{};
     int peer_len = sizeof(peer);
-    __android_log_print(ANDROID_LOG_INFO, kTag, "Waiting for OBS caller on SRT port %s", parsed->port.c_str());
     const SRTSOCKET acceptedSocket = srt_accept(listenerSocket, reinterpret_cast<sockaddr *>(&peer), &peer_len);
     closeListenerSocket(listenerSocket);
     if (acceptedSocket == SRT_INVALID_SOCK) {
       __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT accept failed: %s", srt_getlasterror_str());
-      disconnect();
-      return false;
+      return kAcceptFailed;
     }
-    srt_setsockopt(acceptedSocket, 0, SRTO_SNDTIMEO, &sendTimeoutMs, sizeof sendTimeoutMs);
-    srt_setsockopt(acceptedSocket, 0, SRTO_TLPKTDROP, &tooLatePacketDrop, sizeof tooLatePacketDrop);
-    srt_setsockopt(acceptedSocket, 0, SRTO_PEERIDLETIMEO, &peerIdleTimeoutMs, sizeof peerIdleTimeoutMs);
     if (!setSocketForLifecycle(acceptedSocket, expectedLifecycleGeneration)) {
       srt_close(acceptedSocket);
-      return false;
+      return kAcceptCancelled;
     }
     logInfo("OBS connected to Android SRT listener");
-    return true;
+    return kAcceptConnected;
 #else
-    (void)url;
+    (void)expectedLifecycleGeneration;
     logError("openstream_srt was built without libsrt. Rebuild with OPENSTREAM_ENABLE_LIBSRT=ON.");
-    return false;
+    return kAcceptFailed;
 #endif
   }
 
@@ -764,8 +822,20 @@ class NativeSender {
       sendQueueBytes_ = 0;
     }
     std::lock_guard<std::mutex> ioLock(ioMutex_);
-    const SRTSOCKET listenerSocket = takeListenerSocket();
+    SRTSOCKET listenerSocket = SRT_INVALID_SOCK;
+    int listenerEpoll = -1;
+    {
+      std::lock_guard<std::mutex> lock(socketMutex_);
+      listenerSocket = listener_socket_;
+      listener_socket_ = SRT_INVALID_SOCK;
+      listenerEpoll = listener_epoll_;
+      listener_epoll_ = -1;
+    }
     const SRTSOCKET socket = takeSocket();
+    if (listenerEpoll >= 0) {
+      if (listenerSocket != SRT_INVALID_SOCK) srt_epoll_remove_usock(listenerEpoll, listenerSocket);
+      srt_epoll_release(listenerEpoll);
+    }
     if (listenerSocket != SRT_INVALID_SOCK) {
       srt_close(listenerSocket);
     }
@@ -878,23 +948,23 @@ class NativeSender {
     return true;
   }
 
-  SRTSOCKET takeListenerSocket() {
-    std::lock_guard<std::mutex> lock(socketMutex_);
-    const SRTSOCKET socket = listener_socket_;
-    listener_socket_ = SRT_INVALID_SOCK;
-    return socket;
-  }
-
   void closeListenerSocket(SRTSOCKET socket) {
     bool ownsSocket = false;
+    int epoll = -1;
     {
       std::lock_guard<std::mutex> lock(socketMutex_);
       if (listener_socket_ == socket) {
         listener_socket_ = SRT_INVALID_SOCK;
+        epoll = listener_epoll_;
+        listener_epoll_ = -1;
         ownsSocket = true;
       }
     }
     if (ownsSocket) {
+      if (epoll >= 0) {
+        srt_epoll_remove_usock(epoll, socket);
+        srt_epoll_release(epoll);
+      }
       srt_close(socket);
     }
   }
@@ -903,6 +973,7 @@ class NativeSender {
   std::mutex ioMutex_;
   SRTSOCKET socket_ = SRT_INVALID_SOCK;
   SRTSOCKET listener_socket_ = SRT_INVALID_SOCK;
+  int listener_epoll_ = -1;
   uint64_t lifecycleGeneration_ = 0;
   bool srtStarted_ = false;
 #endif
@@ -1003,7 +1074,7 @@ Java_dev_openstream_app_stream_SrtNativeBridge_connect(
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_dev_openstream_app_stream_SrtNativeBridge_listen(
+Java_dev_openstream_app_stream_SrtNativeBridge_startListen(
     JNIEnv *env,
     jobject,
     jstring url,
@@ -1038,19 +1109,45 @@ Java_dev_openstream_app_stream_SrtNativeBridge_listen(
   }
   g_state.sender.disconnect();
   const bool connected =
-      g_state.sender.listen(urlString, static_cast<uint64_t>(session_generation));
+      g_state.sender.startListen(urlString, static_cast<uint64_t>(session_generation));
   bool published = false;
   {
     std::lock_guard<std::mutex> lock(g_state.mediaMutex);
     if (static_cast<uint64_t>(session_generation) == g_state.mediaSessionGeneration) {
-      g_state.connected = connected;
+      g_state.connected = false;
       published = connected;
     }
   }
   if (published) {
-    __android_log_print(ANDROID_LOG_INFO, kTag, "Accepted OBS SRT caller at %s", urlString.c_str());
+    __android_log_print(ANDROID_LOG_INFO, kTag, "Listening for OBS SRT caller at %s", urlString.c_str());
   }
   return published ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_openstream_app_stream_SrtNativeBridge_accept(
+    JNIEnv *, jobject, jlong session_generation) {
+  const uint64_t generation = static_cast<uint64_t>(session_generation);
+  {
+    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
+    if (generation != g_state.mediaSessionGeneration) {
+      return NativeSender::kAcceptCancelled;
+    }
+  }
+
+  const int result = g_state.sender.acceptPending(generation);
+  {
+    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
+    if (generation != g_state.mediaSessionGeneration) {
+      return NativeSender::kAcceptCancelled;
+    }
+    if (result == NativeSender::kAcceptConnected) {
+      g_state.connected = true;
+    } else if (result == NativeSender::kAcceptFailed) {
+      g_state.connected = false;
+    }
+  }
+  return result;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL

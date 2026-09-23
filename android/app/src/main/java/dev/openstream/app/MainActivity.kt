@@ -34,6 +34,8 @@ import dev.openstream.app.discovery.PhoneDiscoveryAdvertiser
 import dev.openstream.app.encoder.MediaCodecAudioEncoder
 import dev.openstream.app.encoder.MediaCodecVideoEncoder
 import dev.openstream.app.stream.ConnectionTarget
+import dev.openstream.app.stream.ListenerAcceptCoordinator
+import dev.openstream.app.stream.SrtAcceptResult
 import dev.openstream.app.stream.StreamConfig
 import dev.openstream.app.stream.SrtStreamClient
 
@@ -71,6 +73,7 @@ class MainActivity : Activity() {
     private val sessionWorker = SessionWorker { error ->
         Log.e("shin", "Session lifecycle operation failed", error)
     }
+    private val listenerAcceptCoordinator = ListenerAcceptCoordinator(sessionWorker, LISTENER_POLL_MS)
 
     private val streamConfig = StreamConfig.Default1080p30
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -868,15 +871,23 @@ class MainActivity : Activity() {
                     val attemptGeneration = phoneSessionState.snapshot.generation
                     var connectedSessionGeneration: Long? = null
                     val listenResult = runCatching {
-                        streamClient.listen(
-                            url = listenUrl,
-                            codecMime = encoder.codecName,
-                            width = streamConfig.width,
-                            height = streamConfig.height,
-                            fps = streamConfig.fps,
+                        val acceptResult = listenerAcceptCoordinator.awaitAccepted(
+                            expectedGeneration = generation,
+                            currentGeneration = { listenerGeneration },
+                            startListening = {
+                                streamClient.startListening(
+                                    url = listenUrl,
+                                    codecMime = encoder.codecName,
+                                    width = streamConfig.width,
+                                    height = streamConfig.height,
+                                    fps = streamConfig.fps,
+                                )
+                            },
+                            acceptPending = streamClient::acceptPending,
                         )
-                        if (!isListenerActive(generation)) {
-                            return@runCatching
+                        if (!isListenerActive(generation)) return@runCatching
+                        check(acceptResult == SrtAcceptResult.Connected) {
+                            "SRT listener accept failed: $acceptResult"
                         }
                         phoneConnected = true
                         val sessionGeneration = phoneSessionState.beginConnection()
@@ -1003,7 +1014,7 @@ class MainActivity : Activity() {
         // covers both pending (advertised) and confirmed selections.
         renderDisconnectVisibility()
 
-        val blockingWork = {
+        val blockingWork: () -> Unit = {
             streamClient.disconnect()
             if (thread != null && thread !== Thread.currentThread()) {
                 runCatching { thread.join(LISTENER_STOP_TIMEOUT_MS) }

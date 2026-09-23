@@ -2,6 +2,9 @@ package dev.openstream.app
 
 import android.util.Log
 import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.Callable
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.FutureTask
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
@@ -54,6 +57,26 @@ internal class SessionWorker(
         work: () -> Unit,
     ): Boolean = submit {
         if (currentGeneration() == generation) work()
+    }
+
+    /** Waits for a short worker operation; callers must be non-UI threads. */
+    fun <T> submitAndWait(work: () -> T): T {
+        val task = FutureTask(Callable { work() })
+        try {
+            executor.execute(task)
+        } catch (error: RejectedExecutionException) {
+            onFailure(error)
+            throw error
+        }
+        return try {
+            task.get()
+        } catch (error: InterruptedException) {
+            task.cancel(false)
+            Thread.currentThread().interrupt()
+            throw error
+        } catch (error: ExecutionException) {
+            throw error.cause ?: error
+        }
     }
 
     override fun close() {

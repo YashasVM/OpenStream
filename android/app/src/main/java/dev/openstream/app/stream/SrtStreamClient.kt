@@ -22,6 +22,8 @@ data class SrtSendResult(
     val recoveryRequired: Boolean = false,
 )
 
+enum class SrtAcceptResult { Pending, Connected, Failed, Cancelled }
+
 class SrtStreamClient {
     @Volatile private var connected = false
     private val sessionGeneration = AtomicLong()
@@ -56,16 +58,34 @@ class SrtStreamClient {
         }
     }
 
-    fun listen(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
+    fun startListening(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
         require(url.startsWith("srt://")) { "shin expects an SRT URL" }
         synchronized(operationLock) {
-            // Caller and listener share one native SRT transport. establishSession()
-            // performs an explicit disconnect-before-relisten via
-            // beginSession(generation), so a stale listener socket can never
-            // survive into the new session. Callers must not start a second
-            // listen without going through establishSession/disconnect.
-            establishSession("listener") { generation ->
-                SrtNativeBridge.listen(url, codecMime, width, height, fps, generation)
+            establishSession("listener", connectedOnSuccess = false) { generation ->
+                SrtNativeBridge.startListen(url, codecMime, width, height, fps, generation)
+            }
+        }
+    }
+
+    /** Polls the native listener once. The JNI operation returns immediately when no peer is ready. */
+    fun acceptPending(): SrtAcceptResult {
+        val generation = synchronized(stateLock) { sessionGeneration.get() }
+        val result = SrtNativeBridge.accept(generation)
+        return when (result) {
+            ACCEPT_PENDING -> SrtAcceptResult.Pending
+            ACCEPT_CONNECTED -> {
+                synchronized(stateLock) {
+                    if (sessionGeneration.get() != generation) return SrtAcceptResult.Cancelled
+                    connected = true
+                }
+                SrtAcceptResult.Connected
+            }
+            ACCEPT_CANCELLED -> SrtAcceptResult.Cancelled
+            else -> {
+                synchronized(stateLock) {
+                    if (sessionGeneration.get() == generation) connected = false
+                }
+                SrtAcceptResult.Failed
             }
         }
     }
@@ -196,7 +216,11 @@ class SrtStreamClient {
         }.getOrElse { listOf(url) }
     }
 
-    private inline fun establishSession(operationName: String, nativeOperation: (Long) -> Boolean) {
+    private inline fun establishSession(
+        operationName: String,
+        connectedOnSuccess: Boolean = true,
+        nativeOperation: (Long) -> Boolean,
+    ) {
         check(SrtNativeBridge.isAvailable) {
             "Native SRT library unavailable: ${SrtNativeBridge.loadError?.message ?: "missing"}"
         }
@@ -213,7 +237,7 @@ class SrtStreamClient {
             } else {
                 check(didConnect) { "Native SRT bridge failed to $operationName" }
                 resetStats()
-                connected = true
+                connected = connectedOnSuccess
                 false
             }
         }
@@ -255,6 +279,9 @@ class SrtStreamClient {
     }
 
     companion object {
+        private const val ACCEPT_PENDING = 0
+        private const val ACCEPT_CONNECTED = 1
+        private const val ACCEPT_CANCELLED = 2
         private const val BUFFER_FLAG_KEY_FRAME = 1
         private const val BUFFER_FLAG_CODEC_CONFIG = 2
     }
@@ -301,7 +328,7 @@ private object SrtNativeBridge {
     ): Boolean = guardOr(false) {
         nativeConnect(url, codecMime, width, height, fps, sessionGeneration)
     }
-    fun listen(
+    fun startListen(
         url: String,
         codecMime: String,
         width: Int,
@@ -309,8 +336,9 @@ private object SrtNativeBridge {
         fps: Int,
         sessionGeneration: Long,
     ): Boolean = guardOr(false) {
-        nativeListen(url, codecMime, width, height, fps, sessionGeneration)
+        nativeStartListen(url, codecMime, width, height, fps, sessionGeneration)
     }
+    fun accept(sessionGeneration: Long): Int = guardOr(-1) { nativeAccept(sessionGeneration) }
     fun sendVideo(
         data: ByteArray,
         presentationTimeUs: Long,
@@ -340,7 +368,7 @@ private object SrtNativeBridge {
         fps: Int,
         sessionGeneration: Long,
     ): Boolean
-    private external fun nativeListen(
+    private external fun nativeStartListen(
         url: String,
         codecMime: String,
         width: Int,
@@ -348,6 +376,7 @@ private object SrtNativeBridge {
         fps: Int,
         sessionGeneration: Long,
     ): Boolean
+    private external fun nativeAccept(sessionGeneration: Long): Int
     private external fun nativeSendVideo(
         data: ByteArray,
         presentationTimeUs: Long,
