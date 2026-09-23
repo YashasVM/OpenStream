@@ -1,6 +1,55 @@
 # OpenStream Test Plan
 
+## Release baseline: published v1.0.1
+
+The v1.0.1 release assets were downloaded from GitHub Releases and inspected on
+2026-09-23. The complete asset sizes and SHA-256 hashes are saved in
+[`evidence/v1.0.1-artifact-metadata.json`](evidence/v1.0.1-artifact-metadata.json).
+Reproduce the release download and hash check from the repository root with:
+
+```sh
+python tools/record_release_baseline.py \
+  --tag v1.0.1 \
+  --output-dir /tmp/openstream-v1.0.1 \
+  --manifest /tmp/openstream-v1.0.1.json
+```
+
+Binary inspection commands used for the Android APK were:
+
+```sh
+aapt dump badging /tmp/openstream-v1.0.1/openstream-android.apk
+apksigner verify --verbose --print-certs /tmp/openstream-v1.0.1/openstream-android.apk
+```
+
+Observed APK metadata: package `dev.openstream.app`, version name `1.0.1`,
+version code `1785874048`, and signer certificate SHA-256
+`92eb303b80d1fe4ffdbf7bd430f0914463cdafb642088c719cab804dbfecd9b9`. These
+values describe the downloaded APK only. They do not prove that it installs or
+updates on a particular phone.
+
+The published Windows manual ZIP contains `openstream-obs.dll`. The DLL's
+strings include `openstream_phone_v7_source` and `openstream_phone_v8_source`;
+this confirms those identifiers occur in the binary, not that either saved
+scene loads in OBS. The release installer was hash-checked but not executed.
+No candidate APK or plugin package was present in this worktree's build output,
+so candidate artifact hashes are not recorded.
+
+| Baseline check | Result | Evidence / limit |
+|---|---|---|
+| Published APK package, version, code, signer | VERIFIED | APK metadata and certificate inspection above |
+| Published release asset hashes | VERIFIED | GitHub API sizes/digests match downloaded bytes in the saved manifest |
+| V7/V8 source identifier strings in published Windows DLL | VERIFIED | Extracted DLL contains both strings; runtime compatibility is not established |
+| Candidate install over published APK | INCONCLUSIVE | No physical Android device was available |
+| Published old scene opens and retains settings in OBS | INCONCLUSIVE | No OBS host or real prior scene collection was available |
+| Published plugin receives live media in OBS | INCONCLUSIVE | No OBS host or phone was available |
+
+Treat these as baseline observations, not release acceptance. A string in a
+binary is not proof of a working OBS source or scene migration.
+
 ## Automated merge and publish gates
+
+The commands below describe repository CI/release gates. Their listing is not
+evidence that they passed for a particular commit or artifact.
 
 Every pull request and push to `main` must pass:
 
@@ -86,19 +135,14 @@ If temperature exceeds the warning threshold, the app should recommend lowering 
 
 ## Performance measurement record
 
-The pre-fix defaults and the candidate defaults are measured from the checked-in
-profiles and bounded buffers below. Runtime temperature and end-to-end latency
-still require a physical phone/OBS run before release sign-off.
+No before-and-after runtime performance measurements are established by this
+test plan. The previously listed changes in frame rate, bitrate, buffer size,
+send-path capacity, and stale-frame threshold were configuration comparisons,
+not measurements of phone temperature, latency, A/V offset, reconnect time, or
+drops. Do not use them as evidence that the candidate performs better.
 
-| Item | Before | Candidate | Change |
-|---|---:|---:|---:|
-| Default video rate | 60 fps | 30 fps | 50% fewer encoded frames |
-| Default video bitrate | 50 Mbps | 12 Mbps | 76% lower target bitrate |
-| Audio capture buffer | 250 ms | 80 ms | 68% less capture backlog |
-| App send path | Inline blocking callback | 768 KiB hard cap | Drops the session instead of growing latency |
-| OBS stale-frame threshold | Arrival-time timestamps | 250 ms source-clock backlog | Old frames are dropped and logged |
-
-For the device run, record the 30-minute temperature delta, average measured
+For each future paired device run, record the exact APK and plugin SHA-256,
+phone model and Android version, OBS version and host OS, Wi-Fi conditions,
+profile, Virtual Camera state, duration, temperature delta, measured
 end-to-end latency, maximum audio/video offset, reconnect time, and dropped
-frame count for the old and candidate builds under the same Wi-Fi and OBS
-Virtual Camera workload.
+frame count for both builds.

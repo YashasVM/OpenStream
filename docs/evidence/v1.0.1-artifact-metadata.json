@@ -1,0 +1,68 @@
+{
+  "assets": [
+    {
+      "download_url": "https://github.com/YashasVM/OpenStream/releases/download/v1.0.1/openstream-android.apk",
+      "github_digest": "sha256:0a442b4123f97adab6c93953b869bf55d2813a2354d84cad21a498fa7107cc5b",
+      "github_size_bytes": 7843678,
+      "name": "openstream-android.apk",
+      "sha256": "0a442b4123f97adab6c93953b869bf55d2813a2354d84cad21a498fa7107cc5b",
+      "size_bytes": 7843678
+    },
+    {
+      "download_url": "https://github.com/YashasVM/OpenStream/releases/download/v1.0.1/openstream-android.apk.sha256",
+      "github_digest": "sha256:e51fc942e2fb743184e17e7e83ec8793c4744baed59e858ad1e6d6399d3525e0",
+      "github_size_bytes": 89,
+      "name": "openstream-android.apk.sha256",
+      "sha256": "e51fc942e2fb743184e17e7e83ec8793c4744baed59e858ad1e6d6399d3525e0",
+      "size_bytes": 89
+    },
+    {
+      "download_url": "https://github.com/YashasVM/OpenStream/releases/download/v1.0.1/openstream-obs-plugin-installer-windows-x64.exe",
+      "github_digest": "sha256:27b6f7380fb10190fbb0c422eb5d9fb641228384649fedd6bfaaae2818665a1d",
+      "github_size_bytes": 2162000,
+      "name": "openstream-obs-plugin-installer-windows-x64.exe",
+      "sha256": "27b6f7380fb10190fbb0c422eb5d9fb641228384649fedd6bfaaae2818665a1d",
+      "size_bytes": 2162000
+    },
+    {
+      "download_url": "https://github.com/YashasVM/OpenStream/releases/download/v1.0.1/openstream-obs-windows-x64.zip",
+      "github_digest": "sha256:31e6ad1ea64d0829aa689dc7abed361ba99ebeab1b87d1373786b40d6f8ff619",
+      "github_size_bytes": 86937,
+      "name": "openstream-obs-windows-x64.zip",
+      "sha256": "31e6ad1ea64d0829aa689dc7abed361ba99ebeab1b87d1373786b40d6f8ff619",
+      "size_bytes": 86937
+    }
+  ],
+  "inspection": {
+    "android_apk": {
+      "commands": [
+        "aapt dump badging openstream-android.apk",
+        "apksigner verify --verbose --print-certs openstream-android.apk"
+      ],
+      "package_id": "dev.openstream.app",
+      "signing_certificate_sha256": "92eb303b80d1fe4ffdbf7bd430f0914463cdafb642088c719cab804dbfecd9b9",
+      "version_code": 1785874048,
+      "version_name": "1.0.1"
+    },
+    "inspected_on": "2026-09-23",
+    "unavailable_checks": [
+      "No candidate APK or plugin artifact was available in the worktree build outputs; candidate hashes are absent.",
+      "No physical Android device was available to test install or in-place update.",
+      "No OBS host or actual old scene collection was available to test source loading, settings retention, or media."
+    ],
+    "windows_plugin_zip": {
+      "interpretation": "The identifiers are present in this binary; saved-scene loading and runtime behavior were not tested.",
+      "method": "Extracted the DLL from the release ZIP and inspected printable ASCII strings.",
+      "plugin_dll": "openstream-obs.dll",
+      "strings_observed": [
+        "openstream_phone_v7_source",
+        "openstream_phone_v8_source"
+      ]
+    }
+  },
+  "published_at": "2026-08-04T20:12:22Z",
+  "release_id": 365125473,
+  "release_url": "https://github.com/YashasVM/OpenStream/releases/tag/v1.0.1",
+  "repository": "YashasVM/OpenStream",
+  "tag": "v1.0.1"
+}
