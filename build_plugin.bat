@@ -31,14 +31,24 @@ set "CMAKE_EXE=cmake"
 set "QT_ROOT=%OPENSTREAM_QT_ROOT%"
 set "VERSION_PROPERTIES=%SCRIPT_DIR%release\version.properties"
 set "PRODUCT_VERSION="
-for /f "usebackq delims=" %%V in (`powershell -NoProfile -Command "$p='%VERSION_PROPERTIES%'; $m=Select-String -Path $p -Pattern '^productVersion='; if($m.Count -ne 1){exit 1}; $m[0].Line.Substring('productVersion='.Length)"`) do set "PRODUCT_VERSION=%%V"
+set "VERSION_OUTPUT=%TEMP%\openstream-version-%RANDOM%-%RANDOM%.txt"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%tools\Read-ProductVersion.ps1" -Path "%VERSION_PROPERTIES%" > "%VERSION_OUTPUT%"
+if errorlevel 1 (
+    del /q "%VERSION_OUTPUT%" >nul 2>nul
+    echo ERROR: Could not read a valid productVersion from %VERSION_PROPERTIES%.
+    exit /b 1
+)
+set /p "PRODUCT_VERSION="<"%VERSION_OUTPUT%"
+del /q "%VERSION_OUTPUT%" >nul 2>nul
 if not defined PRODUCT_VERSION (
     echo ERROR: %VERSION_PROPERTIES% must define productVersion exactly once.
     exit /b 1
 )
-if defined OPENSTREAM_VERSION if not "%OPENSTREAM_VERSION%"=="%PRODUCT_VERSION%" (
-    echo ERROR: OPENSTREAM_VERSION %OPENSTREAM_VERSION% does not match %VERSION_PROPERTIES% (%PRODUCT_VERSION%).
-    exit /b 1
+if defined OPENSTREAM_VERSION (
+    if not "%OPENSTREAM_VERSION%"=="%PRODUCT_VERSION%" (
+        echo ERROR: OPENSTREAM_VERSION %OPENSTREAM_VERSION% does not match %VERSION_PROPERTIES% (%PRODUCT_VERSION%).
+        exit /b 1
+    )
 )
 set "OPENSTREAM_VERSION=%PRODUCT_VERSION%"
 
