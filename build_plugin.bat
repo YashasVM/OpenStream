@@ -32,7 +32,7 @@ set "QT_ROOT=%OPENSTREAM_QT_ROOT%"
 set "VERSION_PROPERTIES=%SCRIPT_DIR%release\version.properties"
 set "PRODUCT_VERSION="
 set "VERSION_OUTPUT=%TEMP%\openstream-version-%RANDOM%-%RANDOM%.txt"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%tools\Read-ProductVersion.ps1" -Path "%VERSION_PROPERTIES%" > "%VERSION_OUTPUT%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%tools\installer\Read-ProductVersion.ps1" -Path "%VERSION_PROPERTIES%" > "%VERSION_OUTPUT%"
 if errorlevel 1 (
     del /q "%VERSION_OUTPUT%" >nul 2>nul
     echo ERROR: Could not read a valid productVersion from %VERSION_PROPERTIES%.
