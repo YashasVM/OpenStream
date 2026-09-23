@@ -15,7 +15,7 @@ endif()
 project(openstream_obs_plugin VERSION "${OPENSTREAM_PRODUCT_VERSION}" LANGUAGES CXX)
 include(CTest)
 find_package(Threads REQUIRED)
-set(OPENSTREAM_VERSION "${PROJECT_VERSION}" "Version embedded in the OBS plugin")
+set(OPENSTREAM_VERSION "${PROJECT_VERSION}")
 
 # Releases are built against OBS Studio 32.2.1 x64.  Its bundled FFmpeg ABI is
 # avformat 62, avcodec 62, avutil 60 and swscale 9.  Keeping this declaration
