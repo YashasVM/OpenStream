@@ -72,6 +72,7 @@ class MainActivity : Activity() {
     private val streamConfig = StreamConfig.Default1080p30
     private val mainHandler = Handler(Looper.getMainLooper())
     private val reservationState = ReservationState()
+    private val phoneSessionState = PhoneSessionState()
     @Volatile private var activeTargetName: String? = null
     @Volatile private var phoneServerRunning = false
     @Volatile private var phoneConnected = false
@@ -256,6 +257,12 @@ class MainActivity : Activity() {
         activityStarted = false
         cancelLensRestart()
         stopLiveDotAnimation()
+        val session = phoneSessionState.snapshot
+        if (session.status == PhoneSessionStatus.Live ||
+            session.status == PhoneSessionStatus.Connecting
+        ) {
+            phoneSessionState.connectionLost(session.generation)
+        }
         // Never block the UI thread on network/thread joins (AGENTS.md 6).
         // Flag flips are immediate; heavy teardown runs on a daemon thread.
         // stopPhoneServer detects a non-UI thread and runs blocking teardown inline.
@@ -357,9 +364,11 @@ class MainActivity : Activity() {
             startActivityForResult(intent, SETTINGS_REQUEST_CODE)
         }
         btnStop.setOnClickListener {
-            stopPhoneServer(clearReservation = true)
-            startPreviewIfAllowed()
-            pendingListenerStart = true
+            when (phoneSessionState.snapshot.status) {
+                PhoneSessionStatus.Stopped -> startPhoneSession()
+                PhoneSessionStatus.Live, PhoneSessionStatus.Connecting -> stopPhoneSession()
+                else -> disconnectPhoneSession()
+            }
         }
 
         // Tap the screen-off overlay to re-enable display
@@ -401,6 +410,7 @@ class MainActivity : Activity() {
                 return@post
             }
             if (activeTargetName == null && callerConnectThread == null) return@post
+            phoneSessionState.connectionLost(phoneSessionState.snapshot.generation)
             stopStream(updateStatus = false)
             startPreviewIfAllowed()
             startPhoneServerIfAllowed()
@@ -718,6 +728,7 @@ class MainActivity : Activity() {
     }
 
     private fun startStream(target: ConnectionTarget) {
+        if (phoneSessionState.snapshot.status == PhoneSessionStatus.Stopped) return
         stopStream(updateStatus = false)
         // Caller mode and listener mode share one native SRT transport. Fully
         // stop the listener before opening a manual caller connection.
@@ -725,6 +736,8 @@ class MainActivity : Activity() {
         useStreamBitrate(target.bitrateMbps)
         statusText.text = "Connecting…"
         statusDetail.text = "${currentLens.displayName} → ${target.name}"
+        val sessionGeneration = phoneSessionState.beginConnection()
+        renderDisconnectVisibility()
         val generation = callerGeneration + 1
         callerGeneration = generation
         val thread = Thread({
@@ -738,12 +751,16 @@ class MainActivity : Activity() {
                 )
                 synchronized(callerLifecycleLock) {
                     check(callerGeneration == generation) { "SRT caller connection was cancelled" }
+                    check(phoneSessionState.snapshot.generation == sessionGeneration) {
+                        "Phone session was superseded"
+                    }
                     encoder.start()
                     startAudioIfAllowed()
                     camera.startStreaming(encoder.inputSurface())
                 }
                 mainHandler.post {
                     if (callerGeneration != generation) return@post
+                    phoneSessionState.connected(sessionGeneration)
                     activeTargetName = target.name
                     mainHandler.removeCallbacks(statsTicker)
                     mainHandler.post(statsTicker)
@@ -758,6 +775,7 @@ class MainActivity : Activity() {
                 }
                 mainHandler.post {
                     if (callerGeneration != generation) return@post
+                    phoneSessionState.failed(sessionGeneration)
                     startPreviewIfAllowed()
                     startPhoneServerIfAllowed()
                     statusText.text = "Connection failed"
@@ -786,6 +804,7 @@ class MainActivity : Activity() {
     }
 
     private fun startPhoneServerIfAllowed() {
+        if (phoneSessionState.snapshot.status == PhoneSessionStatus.Stopped) return
         if (phoneServerRunning) return
         if (listenerThread?.isAlive == true) {
             pendingListenerStart = true
@@ -810,6 +829,8 @@ class MainActivity : Activity() {
             try {
                 while (isListenerActive(generation)) {
                     val listenUrl = "srt://0.0.0.0:${currentPort}?mode=listener&latency=${streamConfig.latencyMs}"
+                    val attemptGeneration = phoneSessionState.snapshot.generation
+                    var connectedSessionGeneration: Long? = null
                     val listenResult = runCatching {
                         streamClient.listen(
                             url = listenUrl,
@@ -823,6 +844,8 @@ class MainActivity : Activity() {
                             return@runCatching
                         }
                         phoneConnected = true
+                        val sessionGeneration = phoneSessionState.beginConnection()
+                        connectedSessionGeneration = sessionGeneration
                         cancelReservationRelease()
                         val liveTargetName = reservedSlotLabel ?: "OBS"
                         activeTargetName = liveTargetName
@@ -835,6 +858,9 @@ class MainActivity : Activity() {
                         encoder.start()
                         startAudioIfAllowed()
                         camera.startStreaming(encoder.inputSurface())
+                        check(phoneSessionState.connected(sessionGeneration)) {
+                            "Phone session was superseded"
+                        }
                         while (isListenerActive(generation) && phoneConnected) {
                             Thread.sleep(LISTENER_POLL_MS)
                         }
@@ -842,6 +868,7 @@ class MainActivity : Activity() {
 
                     if (listenResult.isFailure && isListenerActive(generation)) {
                         val error = listenResult.exceptionOrNull()
+                        phoneSessionState.failed(connectedSessionGeneration ?: attemptGeneration)
                         runOnUiThread {
                             if (!isListenerActive(generation)) return@runOnUiThread
                             statusText.text = "Listener error"
@@ -858,6 +885,7 @@ class MainActivity : Activity() {
                     phoneConnected = false
                     activeTargetName = null
                     if (isListenerActive(generation)) {
+                        connectedSessionGeneration?.let(phoneSessionState::connectionLost)
                         scheduleReservationRelease()
                         runOnUiThread {
                             if (!isListenerActive(generation)) return@runOnUiThread
@@ -984,6 +1012,7 @@ class MainActivity : Activity() {
         slotLabel: String = "",
         bitrateMbps: Int? = null,
     ): Boolean {
+        if (phoneSessionState.snapshot.status == PhoneSessionStatus.Stopped) return false
         val selection = ReservationSelection(
             sourceInstanceId = sourceInstanceId,
             slotLabel = slotLabel,
@@ -991,6 +1020,7 @@ class MainActivity : Activity() {
             obsHost = selectedObsHost,
         )
         if (!reservationState.beginSelection(selection)) return false
+        phoneSessionState.select(sourceInstanceId)
         useStreamBitrate(bitrateMbps)
         reservationGeneration += 1
         renderDisconnectVisibility()
@@ -1008,12 +1038,14 @@ class MainActivity : Activity() {
         slotLabel: String = "",
         bitrateMbps: Int? = null,
     ): Boolean {
+        if (phoneSessionState.snapshot.status == PhoneSessionStatus.Stopped) return false
         val currentReservation = reservationState.confirmedSourceInstanceId
         if (phoneConnected && currentReservation != null && currentReservation != sourceInstanceId) return false
         val effectiveSlot = slotLabel.ifBlank {
             reservationState.confirmedReservation?.slotLabel.orEmpty()
         }
         if (!reservationState.confirm(sourceInstanceId, effectiveSlot, bitrateMbps)) return false
+        if (!phoneSessionState.reserve(sourceInstanceId)) return false
         useStreamBitrate(bitrateMbps)
         reservationGeneration += 1
         renderDisconnectVisibility()
@@ -1029,11 +1061,13 @@ class MainActivity : Activity() {
     private fun releaseForSource(sourceInstanceId: String): Boolean {
         val confirmed = reservationState.confirmedSourceInstanceId
         if (confirmed == sourceInstanceId) {
+            phoneSessionState.disconnect()
             clearReservation()
             return true
         }
         // Allow releasing a matching pending selection so it cannot stick forever.
         if (confirmed == null && reservationState.pendingSourceInstanceId == sourceInstanceId) {
+            phoneSessionState.disconnect()
             clearReservation()
             return true
         }
@@ -1051,15 +1085,49 @@ class MainActivity : Activity() {
     private fun renderDisconnectVisibility() {
         mainHandler.post {
             if (!::btnStop.isInitialized) return@post
-            val shouldShow = reservationState.hasReservationToDisconnect ||
-                phoneConnected || activeTargetName != null
+            val sessionStatus = phoneSessionState.snapshot.status
+            val shouldShow = sessionStatus == PhoneSessionStatus.Stopped ||
+                sessionStatus == PhoneSessionStatus.Connecting ||
+                sessionStatus == PhoneSessionStatus.Live ||
+                reservationState.hasReservationToDisconnect || phoneConnected || activeTargetName != null
+            btnStop.text = when (sessionStatus) {
+                PhoneSessionStatus.Stopped -> "Start"
+                PhoneSessionStatus.Live, PhoneSessionStatus.Connecting -> "Stop"
+                else -> "Disconnect"
+            }
             btnStop.visibility = if (shouldShow) View.VISIBLE else View.GONE
         }
+    }
+
+    private fun stopPhoneSession() {
+        phoneSessionState.stop()
+        stopPhoneServer(clearReservation = true)
+        statusText.text = getString(R.string.status_stopped)
+        statusDetail.text = "Camera is stopped. Tap Start to make it available again."
+        renderDisconnectVisibility()
+    }
+
+    private fun startPhoneSession() {
+        phoneSessionState.start()
+        statusText.text = getString(R.string.status_ready)
+        statusDetail.text = getString(R.string.status_waiting)
+        startPreviewIfAllowed()
+        startPhoneServerIfAllowed()
+        renderDisconnectVisibility()
+    }
+
+    private fun disconnectPhoneSession() {
+        phoneSessionState.disconnect()
+        clearReservation()
+        statusText.text = "Disconnected"
+        statusDetail.text = "Available for an OBS connection"
+        renderDisconnectVisibility()
     }
 
     @Synchronized
     private fun schedulePendingRelease(sourceInstanceId: String) {
         val generation = reservationGeneration
+        val sessionGeneration = phoneSessionState.snapshot.generation
         cancelReservationRelease()
         releaseReservationRunnable = Runnable {
             synchronized(this) {
@@ -1068,6 +1136,7 @@ class MainActivity : Activity() {
                     reservationState.confirmedSourceInstanceId == null
                 ) {
                     reservationState.rollbackPending(sourceInstanceId)
+                    phoneSessionState.timeout(sessionGeneration)
                     renderDisconnectVisibility()
                     if (reservationState.pendingSelection == null &&
                         reservationState.confirmedReservation == null
@@ -1086,6 +1155,7 @@ class MainActivity : Activity() {
     private fun scheduleReservationRelease() {
         val sourceInstanceId = reservationState.confirmedSourceInstanceId ?: return
         val generation = reservationGeneration
+        val sessionGeneration = phoneSessionState.snapshot.generation
         cancelReservationRelease()
         releaseReservationRunnable = Runnable {
             synchronized(this) {
@@ -1094,6 +1164,7 @@ class MainActivity : Activity() {
                     reservationGeneration == generation
                 ) {
                     reservationState.release(sourceInstanceId)
+                    phoneSessionState.timeout(sessionGeneration)
                     renderDisconnectVisibility()
                     if (reservationState.confirmedReservation == null &&
                         reservationState.pendingSelection == null
@@ -1127,7 +1198,7 @@ class MainActivity : Activity() {
 
     private fun showLiveState(targetName: String) {
         liveBadge.visibility = View.VISIBLE
-        btnStop.visibility = View.VISIBLE
+        renderDisconnectVisibility()
         startLiveDotAnimation()
         statusText.text = getString(R.string.status_streaming, targetName)
         statusText.setTextColor(getColor(R.color.os_text_primary))
