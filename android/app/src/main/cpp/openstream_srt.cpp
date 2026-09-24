@@ -999,7 +999,12 @@ struct StreamState {
   bool connected = false;
 };
 
-StreamState g_state;
+StreamState &streamState() {
+  // NativeSender calls srt_startup(), which depends on libsrt's own translation-unit
+  // globals. Construct it on first JNI use, after all shared-library initializers run.
+  static StreamState state;
+  return state;
+}
 
 }  // namespace
 
@@ -1009,17 +1014,18 @@ Java_dev_openstream_app_stream_SrtNativeBridge_beginSession(
     jobject,
     jlong session_generation) {
   const uint64_t generation = static_cast<uint64_t>(session_generation);
-  std::lock_guard<std::mutex> lock(g_state.mediaMutex);
-  if (generation < g_state.mediaSessionGeneration) {
+  StreamState &state = streamState();
+  std::lock_guard<std::mutex> lock(state.mediaMutex);
+  if (generation < state.mediaSessionGeneration) {
     return;
   }
-  g_state.mediaSessionGeneration = generation;
-  g_state.connected = false;
-  g_state.muxer.reset();
-  g_state.codecConfig.clear();
-  g_state.audioCodecConfig.clear();
-  g_state.sender.advanceLifecycleGeneration(generation);
-  g_state.sender.disconnect();
+  state.mediaSessionGeneration = generation;
+  state.connected = false;
+  state.muxer.reset();
+  state.codecConfig.clear();
+  state.audioCodecConfig.clear();
+  state.sender.advanceLifecycleGeneration(generation);
+  state.sender.disconnect();
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
@@ -1046,24 +1052,24 @@ Java_dev_openstream_app_stream_SrtNativeBridge_connect(
   }
 
   {
-    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
-    if (static_cast<uint64_t>(session_generation) != g_state.mediaSessionGeneration) {
+    std::lock_guard<std::mutex> lock(streamState().mediaMutex);
+    if (static_cast<uint64_t>(session_generation) != streamState().mediaSessionGeneration) {
       return JNI_FALSE;
     }
-    g_state.muxer.emplace(*codec);
-    g_state.muxer->reset();
-    g_state.codecConfig.clear();
-    g_state.audioCodecConfig.clear();
-    g_state.connected = false;
+    streamState().muxer.emplace(*codec);
+    streamState().muxer->reset();
+    streamState().codecConfig.clear();
+    streamState().audioCodecConfig.clear();
+    streamState().connected = false;
   }
-  g_state.sender.disconnect();
+  streamState().sender.disconnect();
   const bool connected =
-      g_state.sender.connect(urlString, static_cast<uint64_t>(session_generation));
+      streamState().sender.connect(urlString, static_cast<uint64_t>(session_generation));
   bool published = false;
   {
-    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
-    if (static_cast<uint64_t>(session_generation) == g_state.mediaSessionGeneration) {
-      g_state.connected = connected;
+    std::lock_guard<std::mutex> lock(streamState().mediaMutex);
+    if (static_cast<uint64_t>(session_generation) == streamState().mediaSessionGeneration) {
+      streamState().connected = connected;
       published = connected;
     }
   }
@@ -1097,24 +1103,24 @@ Java_dev_openstream_app_stream_SrtNativeBridge_startListen(
   }
 
   {
-    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
-    if (static_cast<uint64_t>(session_generation) != g_state.mediaSessionGeneration) {
+    std::lock_guard<std::mutex> lock(streamState().mediaMutex);
+    if (static_cast<uint64_t>(session_generation) != streamState().mediaSessionGeneration) {
       return JNI_FALSE;
     }
-    g_state.muxer.emplace(*codec);
-    g_state.muxer->reset();
-    g_state.codecConfig.clear();
-    g_state.audioCodecConfig.clear();
-    g_state.connected = false;
+    streamState().muxer.emplace(*codec);
+    streamState().muxer->reset();
+    streamState().codecConfig.clear();
+    streamState().audioCodecConfig.clear();
+    streamState().connected = false;
   }
-  g_state.sender.disconnect();
+  streamState().sender.disconnect();
   const bool connected =
-      g_state.sender.startListen(urlString, static_cast<uint64_t>(session_generation));
+      streamState().sender.startListen(urlString, static_cast<uint64_t>(session_generation));
   bool published = false;
   {
-    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
-    if (static_cast<uint64_t>(session_generation) == g_state.mediaSessionGeneration) {
-      g_state.connected = false;
+    std::lock_guard<std::mutex> lock(streamState().mediaMutex);
+    if (static_cast<uint64_t>(session_generation) == streamState().mediaSessionGeneration) {
+      streamState().connected = false;
       published = connected;
     }
   }
@@ -1129,22 +1135,22 @@ Java_dev_openstream_app_stream_SrtNativeBridge_accept(
     JNIEnv *, jobject, jlong session_generation) {
   const uint64_t generation = static_cast<uint64_t>(session_generation);
   {
-    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
-    if (generation != g_state.mediaSessionGeneration) {
+    std::lock_guard<std::mutex> lock(streamState().mediaMutex);
+    if (generation != streamState().mediaSessionGeneration) {
       return NativeSender::kAcceptCancelled;
     }
   }
 
-  const int result = g_state.sender.acceptPending(generation);
+  const int result = streamState().sender.acceptPending(generation);
   {
-    std::lock_guard<std::mutex> lock(g_state.mediaMutex);
-    if (generation != g_state.mediaSessionGeneration) {
+    std::lock_guard<std::mutex> lock(streamState().mediaMutex);
+    if (generation != streamState().mediaSessionGeneration) {
       return NativeSender::kAcceptCancelled;
     }
     if (result == NativeSender::kAcceptConnected) {
-      g_state.connected = true;
+      streamState().connected = true;
     } else if (result == NativeSender::kAcceptFailed) {
-      g_state.connected = false;
+      streamState().connected = false;
     }
   }
   return result;
@@ -1162,31 +1168,31 @@ Java_dev_openstream_app_stream_SrtNativeBridge_sendVideo(
   std::vector<uint8_t> bytes(static_cast<size_t>(size));
   env->GetByteArrayRegion(data, 0, size, reinterpret_cast<jbyte *>(bytes.data()));
 
-  std::lock_guard<std::mutex> lock(g_state.mediaMutex);
-  if (static_cast<uint64_t>(session_generation) != g_state.mediaSessionGeneration ||
-      !g_state.connected || !g_state.muxer) {
+  std::lock_guard<std::mutex> lock(streamState().mediaMutex);
+  if (static_cast<uint64_t>(session_generation) != streamState().mediaSessionGeneration ||
+      !streamState().connected || !streamState().muxer) {
     return JNI_FALSE;
   }
 
   std::vector<uint8_t> annexB = normalizeAnnexB(bytes.data(), bytes.size());
   if ((flags & kMediaCodecBufferFlagCodecConfig) != 0) {
-    g_state.codecConfig = std::move(annexB);
+    streamState().codecConfig = std::move(annexB);
     logInfo("Stored codec config for keyframe pre-roll");
     return JNI_TRUE;
   }
 
   const bool keyFrame = (flags & kMediaCodecBufferFlagKeyFrame) != 0;
-  if (keyFrame && !g_state.codecConfig.empty()) {
-    std::vector<uint8_t> withConfig = g_state.codecConfig;
+  if (keyFrame && !streamState().codecConfig.empty()) {
+    std::vector<uint8_t> withConfig = streamState().codecConfig;
     withConfig.insert(withConfig.end(), annexB.begin(), annexB.end());
     annexB = std::move(withConfig);
   }
 
   std::vector<uint8_t> ts =
-      g_state.muxer->muxAccessUnit(annexB, static_cast<int64_t>(presentation_time_us), keyFrame);
-  const bool sent = g_state.sender.send(std::move(ts));
+      streamState().muxer->muxAccessUnit(annexB, static_cast<int64_t>(presentation_time_us), keyFrame);
+  const bool sent = streamState().sender.send(std::move(ts));
   if (!sent) {
-    g_state.connected = false;
+    streamState().connected = false;
   }
   return sent ? JNI_TRUE : JNI_FALSE;
 }
@@ -1195,17 +1201,17 @@ extern "C" JNIEXPORT void JNICALL
 Java_dev_openstream_app_stream_SrtNativeBridge_disconnect(
     JNIEnv *, jobject, jlong session_generation) {
   const uint64_t generation = static_cast<uint64_t>(session_generation);
-  std::lock_guard<std::mutex> lock(g_state.mediaMutex);
-  if (generation < g_state.mediaSessionGeneration) {
+  std::lock_guard<std::mutex> lock(streamState().mediaMutex);
+  if (generation < streamState().mediaSessionGeneration) {
     return;
   }
-  g_state.mediaSessionGeneration = generation;
-  g_state.sender.advanceLifecycleGeneration(generation);
-  g_state.muxer.reset();
-  g_state.codecConfig.clear();
-  g_state.audioCodecConfig.clear();
-  g_state.connected = false;
-  g_state.sender.disconnect();
+  streamState().mediaSessionGeneration = generation;
+  streamState().sender.advanceLifecycleGeneration(generation);
+  streamState().muxer.reset();
+  streamState().codecConfig.clear();
+  streamState().audioCodecConfig.clear();
+  streamState().connected = false;
+  streamState().sender.disconnect();
   logInfo("SRT bridge disconnected");
 }
 
@@ -1221,23 +1227,23 @@ Java_dev_openstream_app_stream_SrtNativeBridge_sendAudio(
   std::vector<uint8_t> bytes(static_cast<size_t>(size));
   env->GetByteArrayRegion(data, 0, size, reinterpret_cast<jbyte *>(bytes.data()));
 
-  std::lock_guard<std::mutex> lock(g_state.mediaMutex);
-  if (static_cast<uint64_t>(session_generation) != g_state.mediaSessionGeneration ||
-      !g_state.connected || !g_state.muxer) {
+  std::lock_guard<std::mutex> lock(streamState().mediaMutex);
+  if (static_cast<uint64_t>(session_generation) != streamState().mediaSessionGeneration ||
+      !streamState().connected || !streamState().muxer) {
     return JNI_FALSE;
   }
 
   if ((flags & kMediaCodecBufferFlagCodecConfig) != 0) {
-    g_state.audioCodecConfig = std::move(bytes);
+    streamState().audioCodecConfig = std::move(bytes);
     logInfo("Stored audio codec config (ASC)");
     return JNI_TRUE;
   }
 
-  std::vector<uint8_t> ts = g_state.muxer->muxAudioAccessUnit(
-      bytes, g_state.audioCodecConfig, static_cast<int64_t>(presentation_time_us));
-  const bool sent = g_state.sender.send(std::move(ts));
+  std::vector<uint8_t> ts = streamState().muxer->muxAudioAccessUnit(
+      bytes, streamState().audioCodecConfig, static_cast<int64_t>(presentation_time_us));
+  const bool sent = streamState().sender.send(std::move(ts));
   if (!sent) {
-    g_state.connected = false;
+    streamState().connected = false;
   }
   return sent ? JNI_TRUE : JNI_FALSE;
 }
