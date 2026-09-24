@@ -90,7 +90,7 @@ def test_audio_path_uses_adts_aac_and_obs_planar_formats() -> None:
     assert "makeAdtsFrame" in native
     assert "hasAdtsHeader" in native
     assert "muxAudioAccessUnit(" in native
-    assert "g_state.audioCodecConfig" in native
+    assert "streamState().audioCodecConfig" in native
     assert "output.reserve" in native
     assert "pes.reserve" in native
     assert "AUDIO_FORMAT_FLOAT_PLANAR" in source

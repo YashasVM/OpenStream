@@ -117,19 +117,19 @@ def test_native_connect_and_listen_publish_only_current_generation():
     assert accept_pending.index("srt_epoll_uwait(") < accept_pending.index("srt_accept(")
 
     jni_start_listen = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_startListen")
-    assert "g_state.sender.startListen(urlString, static_cast<uint64_t>(session_generation))" in jni_start_listen
-    assert jni_start_listen.index("session_generation) != g_state.mediaSessionGeneration") < jni_start_listen.index("g_state.sender.startListen(")
+    assert "streamState().sender.startListen(urlString, static_cast<uint64_t>(session_generation))" in jni_start_listen
+    assert jni_start_listen.index("session_generation) != streamState().mediaSessionGeneration") < jni_start_listen.index("streamState().sender.startListen(")
     jni_accept = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_accept")
-    assert "g_state.sender.acceptPending(generation)" in jni_accept
-    assert jni_accept.index("generation != g_state.mediaSessionGeneration") < jni_accept.index("g_state.sender.acceptPending(")
-    assert jni_accept.rindex("generation != g_state.mediaSessionGeneration") > jni_accept.index("g_state.sender.acceptPending(")
+    assert "streamState().sender.acceptPending(generation)" in jni_accept
+    assert jni_accept.index("generation != streamState().mediaSessionGeneration") < jni_accept.index("streamState().sender.acceptPending(")
+    assert jni_accept.rindex("generation != streamState().mediaSessionGeneration") > jni_accept.index("streamState().sender.acceptPending(")
 
 
 def test_disconnect_invalidates_generation_before_native_teardown():
     native = NATIVE.read_text()
     body = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_disconnect")
-    invalidate = "g_state.sender.advanceLifecycleGeneration(generation)"
-    teardown = "g_state.sender.disconnect()"
+    invalidate = "streamState().sender.advanceLifecycleGeneration(generation)"
+    teardown = "streamState().sender.disconnect()"
     assert body.index(invalidate) < body.index(teardown)
 
 
@@ -141,18 +141,18 @@ def test_native_media_and_stale_teardown_are_generation_guarded():
 
     generation_guard = (
         "static_cast<uint64_t>(session_generation) != "
-        "g_state.mediaSessionGeneration"
+        "streamState().mediaSessionGeneration"
     )
     assert generation_guard in video
-    assert video.index(generation_guard) < video.index("g_state.muxer->muxAccessUnit")
+    assert video.index(generation_guard) < video.index("streamState().muxer->muxAccessUnit")
     assert generation_guard in audio
-    assert audio.index(generation_guard) < audio.index("g_state.muxer->muxAudioAccessUnit")
+    assert audio.index(generation_guard) < audio.index("streamState().muxer->muxAudioAccessUnit")
 
     # A cancelled older connection must not roll back the native lifecycle or
     # tear down a newer generation installed by concurrent disconnect().
-    assert "generation < g_state.mediaSessionGeneration" in disconnect
-    assert disconnect.index("generation < g_state.mediaSessionGeneration") < disconnect.index(
-        "g_state.sender.advanceLifecycleGeneration(generation)"
+    assert "generation < streamState().mediaSessionGeneration" in disconnect
+    assert disconnect.index("generation < streamState().mediaSessionGeneration") < disconnect.index(
+        "streamState().sender.advanceLifecycleGeneration(generation)"
     )
 
 
