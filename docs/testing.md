@@ -84,6 +84,11 @@ you complete the run and link its record. An unrun pair stays `INCONCLUSIVE`.
 | Device 2 | | INCONCLUSIVE | INCONCLUSIVE | |
 | Device 3 | | INCONCLUSIVE | INCONCLUSIVE | |
 
+The partial local development checks on an API 35 emulator and Linux OBS are
+recorded in [the 2026-09-24 evidence note](evidence/2026-09-24-local-emulator-and-obs.md).
+They do not count as physical-device or old-scene acceptance, so the matrix
+above remains `INCONCLUSIVE`.
+
 The template starts every result as `INCONCLUSIVE`. Change a result to
 `VERIFIED` only after you run the check and save evidence. Use `NOT VERIFIED`
 when a run fails or does not meet its expected result. Do not infer physical
