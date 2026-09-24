@@ -1,6 +1,7 @@
 package dev.openstream.app
 
 import android.Manifest
+import android.os.Build
 import android.app.NotificationManager
 import android.content.Intent
 import androidx.lifecycle.Lifecycle
@@ -9,7 +10,7 @@ import androidx.test.rule.GrantPermissionRule
 import androidx.test.rule.ServiceTestRule
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
-import java.io.FileInputStream
+import android.os.SystemClock
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Before
@@ -21,8 +22,13 @@ import org.junit.runner.RunWith
 class PhoneSessionServiceTest {
     @get:Rule
     val cameraPermission: GrantPermissionRule = GrantPermissionRule.grant(
-        Manifest.permission.CAMERA,
-        Manifest.permission.RECORD_AUDIO,
+        *buildList {
+            add(Manifest.permission.CAMERA)
+            add(Manifest.permission.RECORD_AUDIO)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }.toTypedArray(),
     )
 
     @get:Rule
@@ -43,6 +49,7 @@ class PhoneSessionServiceTest {
         val binder = serviceRule.bindService(Intent(context, PhoneSessionService::class.java))
             as PhoneSessionService.LocalBinder
         val originalRuntime = binder.runtime()
+        waitForOwnerState(binder, SessionOwnerState.Foreground(null))
         activity.moveToState(Lifecycle.State.CREATED)
         assertEquals(SessionOwnerState.Background(null), binder.lifecycleState())
         activity.moveToState(Lifecycle.State.RESUMED)
@@ -83,54 +90,42 @@ class PhoneSessionServiceTest {
 
     @Test
     fun revokingCameraPermissionStopsAndReleasesTheOwnedSession() {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val context = instrumentation.targetContext
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
         val activity = ActivityScenario.launch(MainActivity::class.java)
         val binder = serviceRule.bindService(Intent(context, PhoneSessionService::class.java))
             as PhoneSessionService.LocalBinder
-        try {
-            instrumentation.uiAutomation.executeShellCommand(
-                "pm revoke ${context.packageName} ${Manifest.permission.CAMERA}",
-            ).use { descriptor -> FileInputStream(descriptor.fileDescriptor).readBytes() }
-            binder.activityResumed()
+        binder.activityResumed(cameraPermissionGranted = false)
 
-            assertEquals(SessionOwnerState.PermissionRequired, binder.lifecycleState())
-            assertEquals(PhoneSessionStatus.Stopped, binder.runtime().phoneSessionState.snapshot.status)
-            assertEquals(null, binder.runtime().reservationState.confirmedSourceInstanceId)
-        } finally {
-            instrumentation.uiAutomation.executeShellCommand(
-                "pm grant ${context.packageName} ${Manifest.permission.CAMERA}",
-            ).use { descriptor -> FileInputStream(descriptor.fileDescriptor).readBytes() }
-            activity.close()
-        }
+        assertEquals(SessionOwnerState.PermissionRequired, binder.lifecycleState())
+        assertEquals(PhoneSessionStatus.Stopped, binder.runtime().phoneSessionState.snapshot.status)
+        assertEquals(null, binder.runtime().reservationState.confirmedSourceInstanceId)
+        activity.close()
     }
 
     @Test
     fun startWithoutCameraPermissionKeepsAnExplicitStopAndDoesNotStartTheOwner() {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val context = instrumentation.targetContext
-        val activity = ActivityScenario.launch(MainActivity::class.java)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
         val binder = serviceRule.bindService(Intent(context, PhoneSessionService::class.java))
             as PhoneSessionService.LocalBinder
-        binder.stop()
-        try {
-            instrumentation.uiAutomation.executeShellCommand(
-                "pm revoke ${context.packageName} ${Manifest.permission.CAMERA}",
-            ).use { descriptor -> FileInputStream(descriptor.fileDescriptor).readBytes() }
-            binder.start()
+        binder.start(cameraPermissionGranted = false)
 
-            assertEquals(SessionOwnerState.PermissionRequired, binder.lifecycleState())
-            assertEquals(PhoneSessionStatus.Stopped, binder.runtime().phoneSessionState.snapshot.status)
-            assertEquals(
-                true,
-                context.getSharedPreferences(PhoneSessionService.PREFS_NAME, 0)
-                    .getBoolean(PhoneSessionService.KEY_STOPPED, false),
-            )
-        } finally {
-            instrumentation.uiAutomation.executeShellCommand(
-                "pm grant ${context.packageName} ${Manifest.permission.CAMERA}",
-            ).use { descriptor -> FileInputStream(descriptor.fileDescriptor).readBytes() }
-            activity.close()
+        assertEquals(SessionOwnerState.PermissionRequired, binder.lifecycleState())
+        assertEquals(PhoneSessionStatus.Stopped, binder.runtime().phoneSessionState.snapshot.status)
+        assertEquals(
+            true,
+            context.getSharedPreferences(PhoneSessionService.PREFS_NAME, 0)
+                .getBoolean(PhoneSessionService.KEY_STOPPED, false),
+        )
+    }
+
+    private fun waitForOwnerState(
+        binder: PhoneSessionService.LocalBinder,
+        expected: SessionOwnerState,
+    ) {
+        val deadline = SystemClock.elapsedRealtime() + 5_000
+        while (binder.lifecycleState() != expected && SystemClock.elapsedRealtime() < deadline) {
+            SystemClock.sleep(50)
         }
+        assertEquals(expected, binder.lifecycleState())
     }
 }

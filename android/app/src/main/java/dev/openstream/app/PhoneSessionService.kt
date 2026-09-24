@@ -20,12 +20,13 @@ class PhoneSessionService : Service() {
         internal fun runtime(): PhoneSessionRuntime = sessionRuntime
         internal fun lifecycleState(): SessionOwnerState = ownerState
         internal fun stop() = stopSession()
-        internal fun start() = startSession()
+        internal fun start(cameraPermissionGranted: Boolean = hasCameraPermission()) =
+            startSession(cameraPermissionGranted)
         internal fun activityHidden() {
             ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.ActivityHidden)
         }
-        internal fun activityResumed() {
-            ownerState = if (hasCameraPermission()) {
+        internal fun activityResumed(cameraPermissionGranted: Boolean = hasCameraPermission()) {
+            ownerState = if (cameraPermissionGranted) {
                 transitionSessionOwner(ownerState, SessionOwnerEvent.ActivityVisible)
             } else {
                 if (foregroundStarted) stopSessionForPermissionLoss()
@@ -161,9 +162,10 @@ class PhoneSessionService : Service() {
         }
     }
 
-    private fun startSession() {
-        if (!hasCameraPermission()) {
+    private fun startSession(cameraPermissionGranted: Boolean = hasCameraPermission()) {
+        if (!cameraPermissionGranted) {
             ownerState = transitionSessionOwner(ownerState, SessionOwnerEvent.CameraPermissionRevoked)
+            preferences.edit().putBoolean(KEY_STOPPED, true).apply()
             sessionRuntime.phoneSessionState.stop()
             sessionRuntime.observer?.onSessionError("Camera permission is required to start a session")
             sessionRuntime.observer?.onSessionStateChanged()

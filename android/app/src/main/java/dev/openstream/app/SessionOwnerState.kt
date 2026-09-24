@@ -29,6 +29,7 @@ internal fun transitionSessionOwner(
 ): SessionOwnerState = when (event) {
     SessionOwnerEvent.ActivityVisible -> when (state) {
         is SessionOwnerState.Background -> SessionOwnerState.Foreground(state.reservationId)
+        SessionOwnerState.Available -> SessionOwnerState.Foreground(null)
         else -> state
     }
     SessionOwnerEvent.ActivityHidden,

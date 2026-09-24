@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from _helpers import block_after
@@ -116,18 +117,30 @@ def test_native_connect_and_listen_publish_only_current_generation():
     assert accept_pending.index("lifecycleGeneration_ != expectedLifecycleGeneration") < accept_pending.index("srt_epoll_uwait(")
     assert accept_pending.index("srt_epoll_uwait(") < accept_pending.index("srt_accept(")
 
-    jni_start_listen = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_startListen")
+    jni_start_listen = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_nativeStartListen")
     assert "streamState().sender.startListen(urlString, static_cast<uint64_t>(session_generation))" in jni_start_listen
     assert jni_start_listen.index("session_generation) != streamState().mediaSessionGeneration") < jni_start_listen.index("streamState().sender.startListen(")
-    jni_accept = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_accept")
+    jni_accept = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_nativeAccept")
     assert "streamState().sender.acceptPending(generation)" in jni_accept
     assert jni_accept.index("generation != streamState().mediaSessionGeneration") < jni_accept.index("streamState().sender.acceptPending(")
     assert jni_accept.rindex("generation != streamState().mediaSessionGeneration") > jni_accept.index("streamState().sender.acceptPending(")
 
 
+def test_native_jni_exports_match_kotlin_external_methods():
+    kotlin = KOTLIN.read_text(encoding="utf-8")
+    native = NATIVE.read_text(encoding="utf-8")
+    kotlin_methods = set(re.findall(r"private external fun (native\w+)\(", kotlin))
+    native_methods = set(
+        re.findall(r"Java_dev_openstream_app_stream_SrtNativeBridge_(native\w+)\(", native)
+    )
+
+    assert kotlin_methods
+    assert native_methods == kotlin_methods
+
+
 def test_disconnect_invalidates_generation_before_native_teardown():
     native = NATIVE.read_text()
-    body = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_disconnect")
+    body = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_nativeDisconnect")
     invalidate = "streamState().sender.advanceLifecycleGeneration(generation)"
     teardown = "streamState().sender.disconnect()"
     assert body.index(invalidate) < body.index(teardown)
@@ -135,9 +148,9 @@ def test_disconnect_invalidates_generation_before_native_teardown():
 
 def test_native_media_and_stale_teardown_are_generation_guarded():
     native = NATIVE.read_text()
-    video = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_sendVideo")
-    audio = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_sendAudio")
-    disconnect = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_disconnect")
+    video = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_nativeSendVideo")
+    audio = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_nativeSendAudio")
+    disconnect = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_nativeDisconnect")
 
     generation_guard = (
         "static_cast<uint64_t>(session_generation) != "

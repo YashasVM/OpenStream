@@ -5,6 +5,14 @@ import org.junit.Test
 
 class SessionOwnerStateTest {
     @Test
+    fun visibleActivityPromotesAvailableOwnerToForeground() {
+        assertEquals(
+            SessionOwnerState.Foreground(null),
+            transitionSessionOwner(SessionOwnerState.Available, SessionOwnerEvent.ActivityVisible),
+        )
+    }
+
+    @Test
     fun homeLockSettingsAndTaskRemovalKeepReservationInBackgroundOwner() {
         val live = SessionOwnerState.Foreground("obs-source-7")
 

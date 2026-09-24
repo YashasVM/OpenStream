@@ -1009,7 +1009,7 @@ StreamState &streamState() {
 }  // namespace
 
 extern "C" JNIEXPORT void JNICALL
-Java_dev_openstream_app_stream_SrtNativeBridge_beginSession(
+Java_dev_openstream_app_stream_SrtNativeBridge_nativeBeginSession(
     JNIEnv *,
     jobject,
     jlong session_generation) {
@@ -1029,7 +1029,7 @@ Java_dev_openstream_app_stream_SrtNativeBridge_beginSession(
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_dev_openstream_app_stream_SrtNativeBridge_connect(
+Java_dev_openstream_app_stream_SrtNativeBridge_nativeConnect(
     JNIEnv *env,
     jobject,
     jstring url,
@@ -1080,7 +1080,7 @@ Java_dev_openstream_app_stream_SrtNativeBridge_connect(
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_dev_openstream_app_stream_SrtNativeBridge_startListen(
+Java_dev_openstream_app_stream_SrtNativeBridge_nativeStartListen(
     JNIEnv *env,
     jobject,
     jstring url,
@@ -1131,7 +1131,7 @@ Java_dev_openstream_app_stream_SrtNativeBridge_startListen(
 }
 
 extern "C" JNIEXPORT jint JNICALL
-Java_dev_openstream_app_stream_SrtNativeBridge_accept(
+Java_dev_openstream_app_stream_SrtNativeBridge_nativeAccept(
     JNIEnv *, jobject, jlong session_generation) {
   const uint64_t generation = static_cast<uint64_t>(session_generation);
   {
@@ -1157,7 +1157,7 @@ Java_dev_openstream_app_stream_SrtNativeBridge_accept(
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_dev_openstream_app_stream_SrtNativeBridge_sendVideo(
+Java_dev_openstream_app_stream_SrtNativeBridge_nativeSendVideo(
     JNIEnv *env,
     jobject,
     jbyteArray data,
@@ -1198,7 +1198,7 @@ Java_dev_openstream_app_stream_SrtNativeBridge_sendVideo(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_dev_openstream_app_stream_SrtNativeBridge_disconnect(
+Java_dev_openstream_app_stream_SrtNativeBridge_nativeDisconnect(
     JNIEnv *, jobject, jlong session_generation) {
   const uint64_t generation = static_cast<uint64_t>(session_generation);
   std::lock_guard<std::mutex> lock(streamState().mediaMutex);
@@ -1216,7 +1216,7 @@ Java_dev_openstream_app_stream_SrtNativeBridge_disconnect(
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_dev_openstream_app_stream_SrtNativeBridge_sendAudio(
+Java_dev_openstream_app_stream_SrtNativeBridge_nativeSendAudio(
     JNIEnv *env,
     jobject,
     jbyteArray data,
