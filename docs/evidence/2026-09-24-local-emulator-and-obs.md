@@ -55,6 +55,26 @@ provenance was available, and no Windows OBS host was available. Old-scene
 settings retention, source media, and Windows UI behavior remain
 `INCONCLUSIVE`.
 
+### Supplemental local V8 scene check
+
+I also opened the local historical `openstream_phone_v8_source` scene snapshot
+from an isolated OBS profile with the same module. OBS 32.2.2 logged the source
+creation and loaded-scene entry without a missing-source error. The persistent
+identity fields `slot_id`, `slot_label`, `source_instance_id`, and
+`phone_target_hint` were unchanged after OBS shut down. The settings hash did
+change: OBS added `enabled` and `listener_enabled`, and the plugin refreshed
+runtime fields (`pairing_hint`, `pairing_url`, `slot_status`, and `srt_url`).
+The local scene file has no provenance connecting it to the published v1.0.1
+release, so this does not satisfy the published-scene check. No phone was
+connected, so media receipt was not tested. OBS shutdown emitted source/dock
+cleanup warnings, which also need review before treating this as a clean
+compatibility pass.
+
+The saved scene itself is not included because it contains local user settings.
+The isolated OBS log records the module load and V8 source creation; the
+original and post-run settings hashes were `cea1e2969e56075de428fe5ccc4057280f7009f0401965c8b1ff643fd76e63fe`
+and `d13ff519b3127d6133b83ed308accf6618d4ecac22f6b8549624e5a86c513a9e`.
+
 ## Still required
 
 - Physical Android checks for camera behavior under Home, screen lock, task
