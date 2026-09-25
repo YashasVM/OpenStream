@@ -12,6 +12,7 @@ class ReservationStateTest {
         slotLabel = "Phone Camera",
         bitrateMbps = 12,
         obsHost = "192.168.1.24",
+        reservationToken = "token-$sourceInstanceId",
     )
 
     @Test
@@ -62,5 +63,72 @@ class ReservationStateTest {
         assertTrue(state.release("source-a"))
         assertNull(state.confirmedSourceInstanceId)
         assertTrue(state.release("source-a"))
+    }
+
+    @Test
+    fun disconnectFromAnotherSourceCannotClearTheConnectedAssignment() {
+        val state = ReservationState()
+        state.confirm("source-a", "CAM A", 12)
+
+        assertFalse(state.release("source-b"))
+        assertEquals("source-a", state.confirmedSourceInstanceId)
+        assertTrue(state.release("source-a"))
+        assertNull(state.confirmedSourceInstanceId)
+    }
+
+    @Test
+    fun explicitDisconnectRejectsRetriedOldConnectButAcceptsFreshConnect() {
+        val state = ReservationState()
+        assertTrue(state.confirm("source-a", "CAM A", 12, "token-old"))
+
+        state.disconnect()
+
+        assertFalse(state.confirm("source-a", "CAM A", 12, "token-old"))
+        assertNull(state.confirmedSourceInstanceId)
+        assertTrue(state.confirm("source-a", "CAM A", 12, "token-new"))
+        assertEquals("source-a", state.confirmedSourceInstanceId)
+    }
+
+    @Test
+    fun sameOwnerCanRenewWithFreshTokenAtReservationBoundary() {
+        val state = ReservationState()
+        assertTrue(state.confirm("source-a", "CAM A", 12, "token-old"))
+
+        assertTrue(state.confirm("source-a", "CAM B", 8, "token-new"))
+        assertEquals("CAM B", state.confirmedReservation?.slotLabel)
+        assertEquals(8, state.confirmedReservation?.bitrateMbps)
+        assertEquals("token-new", state.confirmedReservation?.reservationToken)
+    }
+
+    @Test
+    fun explicitReselectOfSameSourceClearsItsRevokedToken() {
+        val state = ReservationState()
+        state.confirm("source-a", "CAM A", 12, "token-old")
+        state.disconnect()
+
+        assertTrue(state.beginSelection(selection("source-a")))
+        assertTrue(state.confirm("source-a", "CAM A", 12, "token-old"))
+    }
+
+    @Test
+    fun repeatedDisconnectDoesNotEraseReplayProtection() {
+        val state = ReservationState()
+        state.confirm("source-a", "CAM A", 12, "token-old")
+        state.disconnect()
+        state.disconnect()
+
+        assertFalse(state.confirm("source-a", "CAM A", 12, "token-old"))
+    }
+
+    @Test
+    fun revokedTokenForEarlierSourceSurvivesLaterOwnerDisconnect() {
+        val state = ReservationState()
+        state.confirm("source-a", "CAM A", 12, "token-a")
+        state.disconnect()
+        state.confirm("source-b", "CAM B", 12, "token-b")
+        state.disconnect()
+
+        assertFalse(state.confirm("source-a", "CAM A", 12, "token-a"))
+        assertTrue(state.confirm("source-a", "CAM A", 12, "token-a-new"))
     }
 }

@@ -30,6 +30,11 @@ class OpenStreamDock final : public QWidget {
     source_selector_->setAccessibleName("OpenStream source");
     layout->addWidget(new QLabel("Source", this));
     layout->addWidget(source_selector_);
+    phone_selector_ = new QComboBox(this);
+    phone_selector_->setObjectName("openstreamPhoneSelector");
+    phone_selector_->setAccessibleName("OpenStream phone");
+    layout->addWidget(new QLabel("Phone", this));
+    layout->addWidget(phone_selector_);
 
     status_ = new QLabel("No OpenStream source", this);
     status_->setObjectName("openstreamStatus");
@@ -64,7 +69,8 @@ class OpenStreamDock final : public QWidget {
         showNoSource();
         return;
       }
-      const bool queued = openstream_start_camera_source(source);
+      const QByteArray id = phone_selector_->currentData().toString().toUtf8();
+      const bool queued = openstream_connect_camera_source(source, id.isEmpty() ? nullptr : id.constData());
       status_->setText(queued ? "Connection test queued in background..."
                               : "Could not queue the connection test.");
     });
@@ -74,7 +80,7 @@ class OpenStreamDock final : public QWidget {
         showNoSource();
         return;
       }
-      const bool queued = openstream_stop_camera_source(source);
+      const bool queued = openstream_disconnect_camera_source(source);
       status_->setText(queued ? "Disconnect queued; phone release is in progress..."
                               : "Could not queue the disconnect.");
     });
@@ -112,7 +118,7 @@ class OpenStreamDock final : public QWidget {
     lens_row->addWidget(lens_front_);
     layout->addLayout(lens_row);
     connect(lens_rear_, &QPushButton::clicked, this, [this] {
-      send("/lens", R"({"lens":"1x"})");
+      send("/lens", R"({"lens":"1×"})");
     });
     connect(lens_front_, &QPushButton::clicked, this, [this] {
       send("/lens", R"({"lens":"Front"})");
@@ -143,6 +149,14 @@ class OpenStreamDock final : public QWidget {
 
     connect(source_selector_, &QComboBox::currentIndexChanged, this,
             [this](int) { updateSelectedSource(true); });
+    connect(phone_selector_, &QComboBox::currentIndexChanged, this,
+            [this](int index) {
+              if (index < 0) return;
+              obs_source_t *source = currentSource();
+              if (!source) return;
+              const QByteArray id = phone_selector_->itemData(index).toString().toUtf8();
+              if (!id.isEmpty()) status_->setText("Phone selected; press Connect to bind it.");
+            });
     refresh_ = new QTimer(this);
     refresh_->setInterval(kSourceRefreshMs);
     connect(refresh_, &QTimer::timeout, this,
@@ -161,9 +175,12 @@ class OpenStreamDock final : public QWidget {
   void renameSelectedSource() {
     obs_source_t *source = currentSource();
     if (!source) {
+      phone_selector_->clear();
       showNoSource();
       return;
     }
+
+    refreshPhones(source);
 
     const QString name = name_->text().trimmed();
     if (name.isEmpty()) {
@@ -274,7 +291,21 @@ class OpenStreamDock final : public QWidget {
     updateSelectedSource(false);
   }
 
+  void refreshPhones(obs_source_t *source) {
+    QSignalBlocker blocker(phone_selector_);
+    phone_selector_->clear();
+    phone_selector_->addItem("Choose a discovered phone", QString());
+    const QString listing = QString::fromUtf8(openstream_camera_phones(source));
+    for (const QString &line : listing.split('\n', Qt::SkipEmptyParts)) {
+      const QStringList fields = line.split('\t');
+      if (fields.size() >= 2) phone_selector_->addItem(fields[1], fields[0]);
+    }
+    phone_selector_->setCurrentIndex(0);
+    phone_selector_->setEnabled(phone_selector_->count() > 1);
+  }
+
   QComboBox *source_selector_ = nullptr;
+  QComboBox *phone_selector_ = nullptr;
   QLabel *status_ = nullptr;
   QLineEdit *name_ = nullptr;
   QPushButton *test_connect_ = nullptr;

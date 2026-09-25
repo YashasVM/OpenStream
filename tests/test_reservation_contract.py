@@ -98,7 +98,7 @@ def test_different_source_cannot_replace_active_reservation():
     assert guard in reserve
     assert "return busyReservationResponse(currentReservation)" in reserve
     assert reserve.index(guard) < reserve.index(
-        "val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)"
+        "val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps, reservationToken)"
     )
     assert reserve.index("return busyReservationResponse(currentReservation)") < reserve.index(
         "activeControllerAddress = controllerAddress.ifEmpty { null }"
@@ -118,7 +118,7 @@ def test_same_owner_cannot_move_reservation_to_a_different_peer():
     for term in guard_terms:
         assert term in reserve
     assert reserve.index("currentReservation == sourceInstanceId") < reserve.index(
-        "val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)"
+        "val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps, reservationToken)"
     )
     assert reserve.index("return unauthorizedControlResponse()") < reserve.index(
         "activeControllerAddress = controllerAddress.ifEmpty { null }"
@@ -132,14 +132,14 @@ def test_duplicate_reserve_retry_does_not_refresh_android_reconnect_lease():
     assert "activeReservationSlotLabel == slotLabel" in reserve
     assert "activeReservationBitrateMbps == bitrateMbps" in reserve
     duplicate_guard = "if (sameReservationConfig)"
-    on_reserve = "val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)"
+    on_reserve = "val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps, reservationToken)"
     assert duplicate_guard in reserve
     assert reserve.index(duplicate_guard) < reserve.index(on_reserve)
 
     duplicate_block = reserve[
         reserve.index(duplicate_guard) : reserve.index(on_reserve)
     ]
-    assert "activeReservationToken = reservationToken" in duplicate_block
+    assert "activeReservationToken" in duplicate_block
     assert 'put("ok", true)' in duplicate_block
     assert "onReserve(" not in duplicate_block
 
@@ -149,7 +149,7 @@ def test_reservation_config_change_still_reaches_reservation_owner():
     same_config = reserve.index("val sameReservationConfig")
     duplicate_guard = reserve.index("if (sameReservationConfig)", same_config)
     on_reserve = reserve.index(
-        "val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)",
+        "val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps, reservationToken)",
         duplicate_guard,
     )
     cache_slot = reserve.index("activeReservationSlotLabel = slotLabel", on_reserve)
@@ -162,7 +162,7 @@ def test_unbound_active_reservation_fails_closed_for_renew_and_release():
     release = function_body(SERVER, "handleRelease")
     assert "currentControllerAddress == null" in reserve
     assert reserve.index("currentControllerAddress == null") < reserve.index(
-        "val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)"
+        "val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps, reservationToken)"
     )
     assert "activeControllerAddress == null" in release
     assert release.index("activeControllerAddress == null") < release.index(
@@ -179,14 +179,14 @@ def test_mutating_controls_require_reservation_peer_before_side_effects():
     }
     for handler, side_effect in side_effects.items():
         body = function_body(SERVER, handler)
-        guard = "if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse()"
+        guard = "if (!isAuthorizedController(controllerAddress, body)) return unauthorizedControlResponse()"
         assert guard in body
         assert body.index(guard) < body.index(side_effect)
 
 
 def test_authorization_requires_live_reservation_and_matching_peer():
     auth = function_body(SERVER, "isAuthorizedController")
-    assert "reservationProvider() != null" in auth
+    assert "currentReservation == null" in auth
     assert "controllerAddress.isNotEmpty()" in auth
     assert "controllerAddress == activeControllerAddress" in auth
 
@@ -253,13 +253,13 @@ def test_duplicate_reserve_retry_cannot_reach_android_lease_scheduler():
     reserve = function_body(SERVER, "handleReserve")
     duplicate_start = reserve.index("if (sameReservationConfig)")
     on_reserve = reserve.index(
-        "val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)"
+        "val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps, reservationToken)"
     )
     duplicate_block = reserve[duplicate_start:on_reserve]
     assert "onReserve(" not in duplicate_block
 
-    assert "onReserve = { sourceInstanceId, slotLabel, bitrateMbps ->" in activity
-    assert "reserveForSource(sourceInstanceId, slotLabel, bitrateMbps)" in activity
+    assert "onReserve = { sourceInstanceId, slotLabel, bitrateMbps, reservationToken ->" in activity
+    assert "reserveForSource(sourceInstanceId, slotLabel, bitrateMbps, reservationToken)" in activity
 
     reserve_for_source = activity.index("private fun reserveForSource(")
     schedule = activity.index("scheduleReservationRelease()", reserve_for_source)

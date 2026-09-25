@@ -104,6 +104,7 @@ constexpr uint64_t kReconnectRecoveryVideoFrames = 30;
 constexpr const char *kOpenStreamSourceName = "shin";
 constexpr const char *kDiscoveryMulticastAddress = "239.255.43.99";
 constexpr const char *kPhoneDiscoveryPrefix = "SHIN_PHONE/1 ";
+constexpr const char *kLegacyPhoneDiscoveryPrefix = "OPENSTREAM_PHONE/1 ";
 
 #ifdef _WIN32
 using SocketHandle = SOCKET;
@@ -539,6 +540,11 @@ class PhoneDiscoveryReceiver {
     if (selected_id.empty() || selected_id == kAutoPhoneId) {
       std::optional<PhoneDevice> deprioritized;
       for (const auto &entry : core.devices_) {
+        // Auto mode is driven by the phone app's explicit OBS slot choice.
+        // Never claim an arbitrary nearby phone just because it advertises.
+        if (entry.second.reserved_by != source_instance_id) {
+          continue;
+        }
         if ((entry.second.busy && entry.second.reserved_by != source_instance_id) ||
             (!entry.second.reserved_by.empty() &&
              entry.second.reserved_by != source_instance_id)) {
@@ -656,11 +662,15 @@ class PhoneDiscoveryReceiver {
         continue;
       }
       std::string payload(buffer, buffer + received);
-      if (payload.rfind(kPhoneDiscoveryPrefix, 0) != 0) {
+      const bool current_protocol = payload.rfind(kPhoneDiscoveryPrefix, 0) == 0;
+      const bool legacy_protocol = payload.rfind(kLegacyPhoneDiscoveryPrefix, 0) == 0;
+      if (!current_protocol && !legacy_protocol) {
         continue;
       }
-      const std::string json = payload.substr(std::strlen(kPhoneDiscoveryPrefix));
-      if (json_string_value(json, "type").value_or("") != "dev.shin.phone") {
+      const char *prefix = current_protocol ? kPhoneDiscoveryPrefix : kLegacyPhoneDiscoveryPrefix;
+      const std::string json = payload.substr(std::strlen(prefix));
+      const std::string type = json_string_value(json, "type").value_or("");
+      if (type != "dev.shin.phone" && type != "dev.openstream.phone") {
         continue;
       }
       char packet_host[INET_ADDRSTRLEN] = {};
@@ -856,6 +866,7 @@ struct OpenStreamSource {
   int latency_ms = 120;
   int bitrate_mbps = kDefaultBitrateMbps;
   bool listener_enabled = true;
+  bool enabled = false;
   std::atomic<bool> listener_running = false;
   std::atomic<bool> phone_connected = false;
   std::atomic<bool> slot_busy = false;
@@ -887,6 +898,10 @@ struct OpenStreamSource {
   std::string active_slot_label;
   std::string active_selected_phone_id = PhoneDiscoveryReceiver::kAutoPhoneId;
   std::optional<PhoneDevice> active_phone;
+  // Reuse this token while the same explicit connection retries. It is
+  // cleared only by a local disconnect/release or a completed phone change.
+  std::string reservation_phone_id;
+  std::string reservation_token;
   uint64_t frames_output = 0;
   uint64_t stale_video_frames = 0;
   uint64_t stale_audio_frames = 0;
@@ -937,6 +952,22 @@ bool queue_lifecycle_request(const std::shared_ptr<OpenStreamSource> &ctx,
   return true;
 }
 
+void persist_enabled(const std::shared_ptr<OpenStreamSource> &ctx, bool enabled) {
+  if (!ctx) return;
+  {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    ctx->enabled = enabled;
+    ctx->listener_enabled = enabled;
+  }
+  if (!ctx->source) return;
+  obs_data_t *settings = obs_source_get_settings(ctx->source);
+  if (!settings) return;
+  obs_data_set_bool(settings, "enabled", enabled);
+  obs_data_set_bool(settings, "listener_enabled", enabled);
+  obs_source_update(ctx->source, settings);
+  obs_data_release(settings);
+}
+
 void run_lifecycle_worker(OpenStreamSource *ctx) {
   for (;;) {
     std::optional<bool> request;
@@ -970,8 +1001,16 @@ bool queue_control_command(OpenStreamSource *ctx, const std::string &path,
   const auto client = ctx->camera_controls;
   const std::string host = phone->host;
   const int port = phone->control_port;
-  const bool queued = client->post([host, port, path, body] {
-    if (!send_control_command(host, port, path, body)) {
+  std::string bound_body = body;
+  if (!bound_body.empty() && bound_body.back() == '}') {
+    bound_body.pop_back();
+    if (bound_body.size() > 1) bound_body += ',';
+    bound_body += "\"sourceInstanceId\":\"" + json_escape(ctx->instance_id) +
+                  "\",\"reservationToken\":\"" +
+                  json_escape(phone->reservation_token) + "\"}";
+  }
+  const bool queued = client->post([host, port, path, bound_body] {
+    if (!send_control_command(host, port, path, bound_body)) {
       blog(LOG_WARNING, "[shin] Camera command %s failed", path.c_str());
     }
   });
@@ -1156,8 +1195,14 @@ bool reserve_phone(OpenStreamSource *ctx, PhoneDevice &phone) {
   std::ostringstream body;
   {
     std::lock_guard<std::mutex> lock(ctx->settings_mutex);
-    phone.reservation_token =
-        ctx->instance_id + "-" + std::to_string(os_gettime_ns());
+    if (ctx->reservation_phone_id == phone.instance_id && !ctx->reservation_token.empty()) {
+      phone.reservation_token = ctx->reservation_token;
+    } else {
+      ctx->reservation_phone_id = phone.instance_id;
+      phone.reservation_token =
+          ctx->instance_id + "-" + std::to_string(os_gettime_ns());
+      ctx->reservation_token = phone.reservation_token;
+    }
     body << "{\"sourceInstanceId\":\"" << json_escape(ctx->instance_id) << "\","
          << "\"reservationToken\":\"" << json_escape(phone.reservation_token) << "\","
          << "\"slotId\":\"" << json_escape(ctx->slot_id) << "\","
@@ -1271,6 +1316,11 @@ void openstream_stop_worker(OpenStreamSource *ctx) {
   }
   if (reserved_phone.has_value()) {
     queue_release_phone(ctx, *reserved_phone);
+  }
+  {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    ctx->reservation_phone_id.clear();
+    ctx->reservation_token.clear();
   }
   set_active_phone(ctx, std::nullopt);
   set_slot_status(ctx, "Offline");
@@ -1694,6 +1744,10 @@ uint64_t decode_packets(OpenStreamSource *ctx,
                                &sws_ctx,
                                &bgra_buffer)) {
         ++video_frames_output;
+        if (video_frames_output == 1) {
+          ctx->phone_connected = true;
+          set_slot_status(ctx, "Live");
+        }
       }
       av_frame_unref(frame.get());
     }
@@ -1981,8 +2035,10 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
 
     FormatContextPtr format_ctx(raw_format_ctx);
     raw_format_ctx = nullptr;
-    ctx->phone_connected = true;
-    set_slot_status(ctx, "Live");
+    // Opening a container only proves that SRT delivered bytes. Mark the
+    // source live after the decoder outputs its first usable video frame.
+    ctx->phone_connected = false;
+    set_slot_status(ctx, "Reserved — decoding video");
     ctx->stale_video_frames = 0;
     ctx->stale_audio_frames = 0;
 
@@ -2055,6 +2111,11 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     queue_release_phone(ctx, *final_phone_to_release);
   }
   set_active_phone(ctx, std::nullopt);
+  {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    ctx->reservation_phone_id.clear();
+    ctx->reservation_token.clear();
+  }
   blog(LOG_INFO, "[shin] Listener worker exited");
 }
 
@@ -2140,7 +2201,8 @@ void openstream_update(void *data, obs_data_t *settings) {
   bool should_start = false;
   {
     std::lock_guard<std::mutex> lock(ctx->settings_mutex);
-    ctx->listener_enabled = obs_data_get_bool(settings, "listener_enabled");
+    ctx->enabled = obs_data_get_bool(settings, "enabled");
+    ctx->listener_enabled = ctx->enabled;
     ctx->device_name = obs_data_get_string(settings, "device_name");
     int requested_port = static_cast<int>(obs_data_get_int(settings, "listener_port"));
     if (requested_port <= 0) {
@@ -2215,7 +2277,7 @@ void openstream_update(void *data, obs_data_t *settings) {
     obs_data_set_string(settings, "phone_target_hint", ctx->phone_target_hint.c_str());
     obs_data_set_string(settings, "pairing_hint", ctx->pairing_hint.c_str());
     obs_data_set_string(settings, "pairing_url", ctx->pairing_url.c_str());
-    should_start = ctx->listener_enabled;
+    should_start = ctx->enabled;
   }
   if (should_start) {
     queue_lifecycle_request(lookup_source_context_by_raw(ctx), true);
@@ -2291,7 +2353,8 @@ void openstream_destroy(void *data) {
 }
 
 void openstream_defaults(obs_data_t *settings) {
-  obs_data_set_default_bool(settings, "listener_enabled", true);
+  obs_data_set_default_bool(settings, "enabled", false);
+  obs_data_set_default_bool(settings, "listener_enabled", false);
   obs_data_set_default_string(settings, "device_name", "Phone Camera");
   obs_data_set_default_string(settings, "slot_id", "");
   obs_data_set_default_string(settings, "source_instance_id", "");
@@ -2418,6 +2481,7 @@ obs_properties_t *openstream_properties(void *data) {
     if (!owned) {
       return false;
     }
+    persist_enabled(owned, true);
     return queue_lifecycle_request(owned, true);
   });
   obs_property_set_long_description(
@@ -2431,6 +2495,7 @@ obs_properties_t *openstream_properties(void *data) {
     if (!owned) {
       return false;
     }
+    persist_enabled(owned, false);
     return queue_lifecycle_request(owned, false);
   });
   obs_property_set_long_description(
@@ -2551,11 +2616,14 @@ bool openstream_post_camera_command(obs_source_t *source, const char *path,
       });
 }
 
+bool openstream_connect_camera_source(obs_source_t *source, const char *phone_id);
+bool openstream_disconnect_camera_source(obs_source_t *source);
+
 bool openstream_start_camera_source(obs_source_t *source) {
   return forward_to_camera(
       source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
         if (!owned) return false;
-        return queue_lifecycle_request(owned, true);
+        return openstream_connect_camera_source(source, nullptr);
       });
 }
 
@@ -2563,8 +2631,63 @@ bool openstream_stop_camera_source(obs_source_t *source) {
   return forward_to_camera(
       source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
         if (!owned) return false;
-        return queue_lifecycle_request(owned, false);
+        return openstream_disconnect_camera_source(source);
       });
+}
+
+bool openstream_connect_camera_source(obs_source_t *source, const char *phone_id) {
+  return forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    if (!owned) return false;
+    if (phone_id && phone_id[0]) {
+      const auto selected = owned->phone_discovery.select(phone_id, owned->instance_id);
+      if (!selected.has_value()) return false;
+      {
+        std::lock_guard<std::mutex> lock(owned->settings_mutex);
+        if (owned->selected_phone_id != phone_id) {
+          owned->reservation_phone_id.clear();
+          owned->reservation_token.clear();
+        }
+        owned->selected_phone_id = phone_id;
+      }
+      if (owned->source) {
+        obs_data_t *settings = obs_source_get_settings(owned->source);
+        if (settings) {
+          obs_data_set_string(settings, "selected_phone_id", phone_id);
+          obs_data_set_bool(settings, "enabled", true);
+          obs_data_set_bool(settings, "listener_enabled", true);
+          obs_source_update(owned->source, settings);
+          obs_data_release(settings);
+        }
+      }
+    } else {
+      persist_enabled(owned, true);
+    }
+    return queue_lifecycle_request(owned, true);
+  });
+}
+
+bool openstream_disconnect_camera_source(obs_source_t *source) {
+  return forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    if (!owned) return false;
+    persist_enabled(owned, false);
+    return queue_lifecycle_request(owned, false);
+  });
+}
+
+const char *openstream_camera_phones(obs_source_t *source) {
+  thread_local std::string listing;
+  listing.clear();
+  forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    if (!owned) return 0;
+    for (const PhoneDevice &phone : owned->phone_discovery.devices()) {
+      listing += phone.instance_id;
+      listing.push_back('\t');
+      listing += phone_label(phone);
+      listing.push_back('\n');
+    }
+    return 0;
+  });
+  return listing.c_str();
 }
 
 const char *openstream_source_status(obs_source_t *source) {

@@ -80,6 +80,7 @@ class MainActivity : Activity() {
     @Volatile private var callerConnectThread: Thread? = null
     @Volatile private var callerGeneration = 0L
     @Volatile private var pendingListenerStart = false
+    @Volatile private var listenerTeardownThread: Thread? = null
     @Volatile private var listenerGeneration = 0L
     @Volatile private var activityStarted = false
     private var keepScreenOn = false
@@ -188,8 +189,8 @@ class MainActivity : Activity() {
                 setTorchUi(enabled)
             }},
             reservationProvider = { reservedBy },
-            onReserve = { sourceInstanceId, slotLabel, bitrateMbps ->
-                reserveForSource(sourceInstanceId, slotLabel, bitrateMbps).also { accepted ->
+            onReserve = { sourceInstanceId, slotLabel, bitrateMbps, reservationToken ->
+                reserveForSource(sourceInstanceId, slotLabel, bitrateMbps, reservationToken).also { accepted ->
                     if (accepted) {
                         runOnUiThread {
                             statusText.text = "Paired to ${slotLabel.ifBlank { "OBS computer" }}"
@@ -356,9 +357,12 @@ class MainActivity : Activity() {
             startActivityForResult(intent, SETTINGS_REQUEST_CODE)
         }
         btnStop.setOnClickListener {
+            // Stop is an explicit disconnect. Release the source reservation as
+            // part of the same user action so discovery cannot remain "Reserved"
+            // after the media listener has been torn down.
+            disconnectReservation()
             stopPhoneServer(clearReservation = false)
             startPreviewIfAllowed()
-            startPhoneServerIfAllowed()
         }
 
         // Tap the screen-off overlay to re-enable display
@@ -625,7 +629,12 @@ class MainActivity : Activity() {
             val isReservedForThisPhone = advertisedReservationId == device.sourceInstanceId
             val enabled = !device.busy || isReservedForThisPhone
             val card = TextView(this).apply {
-                text = "${device.displayLabel} · ${slotAvailabilityLabel(device, isReservedForThisPhone)}"
+                text = "${if (isReservedForThisPhone) "Disconnect" else "Connect"} · ${device.displayLabel} · ${slotAvailabilityLabel(device, isReservedForThisPhone)}"
+                contentDescription = if (isReservedForThisPhone) {
+                    "Disconnect from ${device.displayLabel}"
+                } else {
+                    "Connect to ${device.displayLabel}"
+                }
                 textSize = 12f
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 gravity = Gravity.CENTER
@@ -655,7 +664,13 @@ class MainActivity : Activity() {
                     marginEnd = resources.getDimensionPixelSize(R.dimen.os_spacing_sm)
                 }
                 if (enabled) {
-                    setOnClickListener { reserveForSlot(device) }
+                    setOnClickListener {
+                        if (isReservedForThisPhone) {
+                            disconnectFromSlot(device)
+                        } else {
+                            reserveForSlot(device)
+                        }
+                    }
                 }
             }
             obsSlotList.addView(card)
@@ -681,7 +696,17 @@ class MainActivity : Activity() {
             statusText.text = "Selected ${device.displayLabel}"
             statusDetail.text = "Waiting for OBS acknowledgement"
             renderObsSlots(currentDevices)
+            startPhoneServerIfAllowed()
         }
+    }
+
+    /** Disconnect only this phone's source assignment; other OBS sources are unaffected. */
+    private fun disconnectFromSlot(device: DiscoveredObsDevice) {
+        if (advertisedReservationId != device.sourceInstanceId) return
+        disconnectReservation()
+        stopPhoneServer(clearReservation = false)
+        startPreviewIfAllowed()
+        renderObsSlots(currentDevices)
     }
 
     private fun slotAvailabilityLabel(
@@ -868,12 +893,6 @@ class MainActivity : Activity() {
             } finally {
                 if (listenerThread === Thread.currentThread()) {
                     listenerThread = null
-                    mainHandler.post {
-                        if (pendingListenerStart) {
-                            pendingListenerStart = false
-                            startPhoneServerIfAllowed()
-                        }
-                    }
                 }
             }
         }, "shinPhoneSrtListener").apply {
@@ -913,35 +932,51 @@ class MainActivity : Activity() {
             if (advertisedReservationId != null || reservedBy != null) View.VISIBLE else View.GONE
 
         val blockingWork = {
-            streamClient.disconnect()
-            if (thread != null && thread !== Thread.currentThread()) {
-                runCatching { thread.join(LISTENER_STOP_TIMEOUT_MS) }
-                    .onFailure { Thread.currentThread().interrupt() }
-            }
-            if (thread?.isAlive == true) {
-                Log.w("shin", "SRT listener did not stop within ${LISTENER_STOP_TIMEOUT_MS}ms")
-            } else if (listenerThread === thread) {
-                listenerThread = null
-            }
-            synchronized(callerLifecycleLock) {
-                // stopActiveEncoding touches views when updateStatus; post that part.
-                val needsStatus = updateStatus
-                cancelLensRestart()
-                // Camera/encoder stops are safe off-UI (synchronized internally).
-                camera.stopStreaming()
-                encoder.stop()
-                audioEncoder.stop()
-                if (needsStatus) {
-                    mainHandler.post {
-                        statusText.text = getString(R.string.status_stopped)
-                        statusDetail.text = "Camera preview remains active"
+            try {
+                streamClient.disconnect()
+                if (thread != null && thread !== Thread.currentThread()) {
+                    runCatching { thread.join(LISTENER_STOP_TIMEOUT_MS) }
+                        .onFailure { Thread.currentThread().interrupt() }
+                }
+                if (thread?.isAlive == true) {
+                    Log.w("shin", "SRT listener did not stop within ${LISTENER_STOP_TIMEOUT_MS}ms")
+                } else if (listenerThread === thread) {
+                    listenerThread = null
+                }
+                synchronized(callerLifecycleLock) {
+                    // stopActiveEncoding touches views when updateStatus; post that part.
+                    val needsStatus = updateStatus
+                    cancelLensRestart()
+                    // Camera/encoder stops are safe off-UI (synchronized internally).
+                    camera.stopStreaming()
+                    encoder.stop()
+                    audioEncoder.stop()
+                    if (needsStatus) {
+                        mainHandler.post {
+                            statusText.text = getString(R.string.status_stopped)
+                            statusDetail.text = "Camera preview remains active"
+                        }
                     }
                 }
+                mainHandler.post { hideLiveState() }
+            } finally {
+                // The listener is restartable only after native transport,
+                // encoder, audio, and camera teardown have all completed.
+                listenerTeardownThread = null
+                if (pendingListenerStart) {
+                    pendingListenerStart = false
+                    mainHandler.post { startPhoneServerIfAllowed() }
+                }
             }
-            mainHandler.post { hideLiveState() }
         }
         if (Looper.myLooper() == Looper.getMainLooper()) {
-            Thread({ blockingWork() }, "shinStopServer").apply { isDaemon = true; start() }
+            synchronized(this) {
+                if (listenerTeardownThread?.isAlive == true) return
+                listenerTeardownThread = Thread({ blockingWork() }, "shinStopServer").apply {
+                    isDaemon = true
+                }
+                listenerTeardownThread?.start()
+            }
         } else {
             blockingWork()
         }
@@ -1001,13 +1036,14 @@ class MainActivity : Activity() {
         sourceInstanceId: String,
         slotLabel: String = "",
         bitrateMbps: Int? = null,
+        reservationToken: String? = null,
     ): Boolean {
         val currentReservation = reservationState.confirmedSourceInstanceId
         if (phoneConnected && currentReservation != null && currentReservation != sourceInstanceId) return false
         val effectiveSlot = slotLabel.ifBlank {
             reservationState.confirmedReservation?.slotLabel.orEmpty()
         }
-        if (!reservationState.confirm(sourceInstanceId, effectiveSlot, bitrateMbps)) return false
+        if (!reservationState.confirm(sourceInstanceId, effectiveSlot, bitrateMbps, reservationToken)) return false
         useStreamBitrate(bitrateMbps)
         reservationGeneration += 1
         if (phoneConnected) {
@@ -1015,7 +1051,19 @@ class MainActivity : Activity() {
         } else {
             scheduleReservationRelease()
         }
+        // A phone-side disconnect intentionally leaves the SRT listener down.
+        // Only a fresh token from an explicit OBS Connect may bring it back.
+        if (!phoneServerRunning && reservationToken != null) {
+            mainHandler.post { startPhoneServerIfAllowed() }
+        }
         return true
+    }
+
+    @Synchronized
+    private fun disconnectReservation() {
+        cancelReservationRelease()
+        reservationState.disconnect()
+        selectedObsHost = null
     }
 
     @Synchronized

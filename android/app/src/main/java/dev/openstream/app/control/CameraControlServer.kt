@@ -13,6 +13,24 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
 
+/** Pure authorization boundary kept separate so its fail-closed behavior is unit-testable. */
+internal object ControlAuthorization {
+    fun isAuthorized(
+        currentReservation: String?,
+        controllerAddress: String,
+        activeControllerAddress: String?,
+        requestSource: String = "",
+        requestToken: String = "",
+        activeToken: String? = null,
+    ): Boolean {
+        if (currentReservation == null || controllerAddress.isEmpty()) return false
+        if (controllerAddress != activeControllerAddress) return false
+        return (requestSource.isBlank() && requestToken.isBlank()) ||
+            (requestSource == currentReservation &&
+                requestToken.isNotBlank() && requestToken == activeToken)
+    }
+}
+
 /**
  * Lightweight HTTP control server that accepts camera control commands from OBS.
  * Runs on port 9101 by default. Provides endpoints:
@@ -33,7 +51,7 @@ class CameraControlServer(
     private val onSwitchLens: (CameraLens) -> Unit,
     private val onToggleTorch: (Boolean) -> Unit,
     private val reservationProvider: () -> String?,
-    private val onReserve: (String, String, Int?) -> Boolean,
+    private val onReserve: (String, String, Int?, String?) -> Boolean,
     private val onRelease: (String) -> Boolean,
     private val onIdentify: (String, String) -> Unit,
     private val onError: ((String) -> Unit)? = null,
@@ -295,10 +313,29 @@ class CameraControlServer(
         return json.toString()
     }
 
-    private fun isAuthorizedController(controllerAddress: String): Boolean {
-        return reservationProvider() != null &&
-            controllerAddress.isNotEmpty() &&
-            controllerAddress == activeControllerAddress
+    private fun isAuthorizedController(controllerAddress: String, body: String? = null): Boolean {
+        // Every control command must come from the peer that successfully
+        // reserved this phone. This guard must run before legacy-field
+        // handling, otherwise a blank legacy body could bypass reservation.
+        val currentReservation = reservationProvider()
+        if (currentReservation == null) return false
+        if (!controllerAddress.isNotEmpty()) return false
+        val peerMatches = controllerAddress == activeControllerAddress
+        if (!peerMatches) return false
+
+        // Legacy V1 controls omit identity fields and remain valid after the
+        // peer check. Newer OBS commands must match both identity fields.
+        val json = body?.let(::parseJson) ?: return true
+        val source = json.optString("sourceInstanceId").trim()
+        val token = json.optString("reservationToken").trim()
+        return ControlAuthorization.isAuthorized(
+            currentReservation,
+            controllerAddress,
+            activeControllerAddress,
+            source,
+            token,
+            activeReservationToken,
+        )
     }
 
     private fun unauthorizedControlResponse(): String =
@@ -324,7 +361,7 @@ class CameraControlServer(
         400 to """{"ok":false,"error":"malformed $name request"}"""
 
     private fun handleZoom(body: String, controllerAddress: String): Pair<Int, String> {
-        if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse().let { 401 to it }
+        if (!isAuthorizedController(controllerAddress, body)) return unauthorizedControlResponse().let { 401 to it }
         // Malformed JSON must return 400 with an error envelope, never hang
         // or close the connection without a response (bounded queue rule:
         // every request gets exactly one bounded response).
@@ -336,7 +373,7 @@ class CameraControlServer(
     }
 
     private fun handleTorch(body: String, controllerAddress: String): Pair<Int, String> {
-        if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse().let { 401 to it }
+        if (!isAuthorizedController(controllerAddress, body)) return unauthorizedControlResponse().let { 401 to it }
         val enabled = parseJson(body)?.let { json ->
             runCatching { json.getBoolean("enabled") }.getOrNull()
         } ?: return malformedResponse("torch")
@@ -345,12 +382,16 @@ class CameraControlServer(
     }
 
     private fun handleLens(body: String, controllerAddress: String): Pair<Int, String> {
-        if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse().let { 401 to it }
+        if (!isAuthorizedController(controllerAddress, body)) return unauthorizedControlResponse().let { 401 to it }
         val lensLabel = parseJson(body)?.let { json ->
             runCatching { json.getString("lens") }.getOrNull()
         } ?: return malformedResponse("lens")
         val available = lensListProvider()
-        val target = available.firstOrNull { it.shortLabel == lensLabel }
+        // Accept the ASCII legacy spelling at the protocol boundary while
+        // keeping the canonical UI/status label as the Unicode multiplication
+        // sign used by CameraLens (1×, 0.5×, 2×).
+        val normalizedLensLabel = lensLabel.replace('x', '×')
+        val target = available.firstOrNull { it.shortLabel == normalizedLensLabel }
             ?: return 404 to """{"ok":false,"error":"lens not found","available":${available.map { "\"${it.shortLabel}\"" }}}"""
         onSwitchLens(target)
         return 200 to """{"ok":true,"lens":"${target.shortLabel}"}"""
@@ -400,16 +441,19 @@ class CameraControlServer(
         } else null
         val sameReservationConfig = currentReservation == sourceInstanceId &&
             activeReservationSlotLabel == slotLabel &&
-            activeReservationBitrateMbps == bitrateMbps
+            activeReservationBitrateMbps == bitrateMbps &&
+            reservationToken == activeReservationToken
         if (sameReservationConfig) {
-            activeReservationToken = reservationToken
+            // An identical retry is idempotent: it must not invoke the
+            // reservation callback or extend the reconnect expiry.
             activeControllerAddress = controllerAddress.ifEmpty { null }
             return 200 to JSONObject()
                 .put("ok", true)
                 .put("reservedBy", sourceInstanceId)
+                .put("reservationToken", activeReservationToken.orEmpty())
                 .toString()
         }
-        val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)
+        val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps, reservationToken)
         return if (accepted) {
             activeReservationToken = reservationToken
             activeControllerAddress = controllerAddress.ifEmpty { null }
@@ -418,6 +462,7 @@ class CameraControlServer(
             200 to JSONObject()
                 .put("ok", true)
                 .put("reservedBy", sourceInstanceId)
+                .put("reservationToken", activeReservationToken.orEmpty())
                 .toString()
         } else {
             busyReservationResponse(reservationProvider().orEmpty()).let { 403 to it }
@@ -459,7 +504,7 @@ class CameraControlServer(
     }
 
     private fun handleIdentify(body: String, controllerAddress: String): Pair<Int, String> {
-        if (!isAuthorizedController(controllerAddress)) return unauthorizedControlResponse().let { 401 to it }
+        if (!isAuthorizedController(controllerAddress, body)) return unauthorizedControlResponse().let { 401 to it }
         val json = parseJson(body) ?: return malformedResponse("identify")
         val label = json.optString("label", "CAM").ifBlank { "CAM" }
         val subtitle = json.optString("subtitle", "")
