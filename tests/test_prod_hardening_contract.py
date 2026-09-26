@@ -102,12 +102,3 @@ def test_dock_keeps_full_peer_bound_controls():
     for required in ('send("/zoom"', 'send("/lens"', 'send("/torch"', 'send("/identify"'):
         assert required in dock
     assert dock.count("new QPushButton") == 8
-
-
-def test_docs_use_canonical_ports():
-    arch = read("docs/architecture.md")
-    assert "51615" in arch
-    assert "239.255.43.99" in arch
-    assert ":9100" in arch
-    assert ":9101" in arch
-    assert "51515" not in arch

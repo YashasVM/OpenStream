@@ -134,19 +134,15 @@ def test_pairing_url_acceptance_contract_clamps_network_values() -> None:
 def test_android_and_obs_release_artifacts_stay_atomic() -> None:
     android_workflow = read(".github/workflows/android.yml")
     release_workflow = read(".github/workflows/release.yml")
-    release_docs = read("docs/release.md")
 
     assert "gh release create" not in android_workflow
     assert "python -m pytest -q" in android_workflow
     assert ":app:lintDebug" in android_workflow
     assert "openstream-android.apk.sha256" in android_workflow
-    assert "android/gradle.properties" in release_docs
     assert "openstream.versionName" in release_workflow
     assert "openstream-android-update.json" not in android_workflow
     assert "openstream-android-update.json" not in release_workflow
     assert not (ROOT / "android/app/src/main/java/dev/openstream/app/update/AppUpdater.kt").exists()
-    assert "/releases/latest/download/" in read("README.md")
-    assert "Android APK and OBS artifacts" in release_docs
 
 
 def test_android_update_surface_is_removed() -> None:

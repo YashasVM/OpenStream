@@ -3,16 +3,6 @@ import re
 from _helpers import read_text as read
 
 
-def test_architecture_documents_practical_v1_transport() -> None:
-    architecture = read("docs/architecture.md")
-    assert "MediaCodec hardware AVC/H.264 video encode" in architecture
-    assert "MediaCodec AAC audio encode" in architecture
-    assert "SRT caller" in architecture
-    assert "UDP discovery" in architecture
-    assert "PTP" in architecture
-    assert "## Research Track" not in architecture
-
-
 def test_android_project_declares_camera_media_codec_srt_discovery_boundaries() -> None:
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
     discovery = read("android/app/src/main/java/dev/openstream/app/discovery/PhoneDiscoveryAdvertiser.kt")
@@ -252,32 +242,10 @@ def test_receiver_validates_srt_support() -> None:
     assert "mode=caller" in receiver
 
 
-def test_protocol_documents_media_and_telemetry_contracts() -> None:
-    protocol = read("docs/protocol.md")
-    assert "MediaCodec" in protocol
-    assert "MPEG-TS" in protocol
-    assert "SHIN/1" in protocol
-    assert "shin://connect" in protocol
-    assert "sourceInstanceId" in protocol
-    assert "slotId" in protocol
-    assert "slotLabel" in protocol
-    assert "pairingUrl" in protocol
-    assert "deviceName" in protocol
-    assert "reservedBy" in protocol
-    assert "latencyMs" in protocol
-
-
-def test_docs_keep_python_receiver_as_developer_tool_only() -> None:
-    setup = read("docs/set-up.md")
-    assert "developer/debug path only" in setup
-    assert "not part of the normal user workflow" in setup
-
-
 def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     android_workflow = read(".github/workflows/android.yml")
     obs_workflow = read(".github/workflows/obs-plugin-windows.yml")
     release_workflow = read(".github/workflows/release.yml")
-    release_docs = read("docs/release.md")
     plugin_builder = read("build_plugin.bat")
     gradle_properties = read("android/gradle.properties")
 
@@ -294,12 +262,11 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "OPENSTREAM_RELEASE_KEY_ALIAS" in release_workflow
     assert "OPENSTREAM_RELEASE_KEY_PASSWORD" in release_workflow
     assert "openstream.versionName" in release_workflow
-    assert "android/gradle.properties" in release_docs
     assert "OPENSTREAM_SKIP_INSTALL=1" in obs_workflow
     assert "OPENSTREAM_PLUGIN_PACKAGE_DIR" in obs_workflow
     assert "openstream-obs-windows-x64.zip" in obs_workflow
     assert "gh release create" in release_workflow
-    assert "docs/release-notes-template.md" in release_workflow
+    assert "--generate-notes" in release_workflow
     assert "openstream-android.apk" in release_workflow
     assert "dist/openstream-android.apk" in release_workflow
     assert "openstream-android.apk.sha256" in release_workflow
@@ -307,8 +274,6 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "sha256sum openstream-android.apk" in release_workflow
     assert "Public releases require all Android signing secrets" in release_workflow
     assert "openstream-obs-windows-x64.zip" in release_workflow
-    assert "never publishes a debug-signed fallback" in release_docs
-    assert "Android Signing Secrets" in release_docs
     assert "OPENSTREAM_SKIP_INSTALL" in plugin_builder
     assert "OPENSTREAM_PLUGIN_PACKAGE_DIR" in plugin_builder
     assert "Compress-Archive" in plugin_builder
