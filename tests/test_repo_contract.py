@@ -348,9 +348,9 @@ def test_legacy_android_and_restored_obs_metadata_are_explicit() -> None:
     installer = read("tools/installer/openstream-obs-plugin.iss")
 
     gradle_properties = read("android/gradle.properties")
-    assert "openstream.versionName=1.0.1" in gradle_properties
-    assert "project(openstream_obs_plugin VERSION 1.0.1" in cmake
-    assert '#define OpenStreamVersion "1.0.1"' in installer
+    assert "openstream.versionName=1.0.2" in gradle_properties
+    assert "project(openstream_obs_plugin VERSION 1.0.2" in cmake
+    assert '#define OpenStreamVersion "1.0.2"' in installer
 
 
 def test_openstream_linux_release_includes_native_obs_dock_dependencies() -> None:

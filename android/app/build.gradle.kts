@@ -21,6 +21,13 @@ val openStreamVersionName = providers.gradleProperty("openstream.versionName")
 val openStreamVersionCode = providers.gradleProperty("openstream.versionCode")
     .map { it.toInt() }
     .get()
+// Development APKs are commonly shared outside Gradle's install task. Give
+// each build a newer code so Android accepts an in-place update with the same
+// debug signing key, while releases keep the reviewed code in gradle.properties.
+val developmentVersionCode = maxOf(
+    openStreamVersionCode,
+    (System.currentTimeMillis() / 1000).toInt(),
+)
 
 android {
     namespace = "dev.openstream.app"
@@ -66,6 +73,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            versionNameSuffix = "-dev"
+            if (providers.gradleProperty("openstream.testApplicationIdSuffix").orNull == "true") {
+                applicationIdSuffix = ".test"
+            }
+        }
         release {
             isDebuggable = false
             isMinifyEnabled = false
@@ -84,6 +97,14 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("debug")) { variant ->
+        variant.outputs.forEach { output ->
+            output.versionCode.set(developmentVersionCode)
+        }
     }
 }
 
