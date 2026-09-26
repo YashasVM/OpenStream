@@ -18,8 +18,8 @@ archive does not bundle those system libraries.
 | `openstream-obs-plugin-installer-windows-x64.exe.sha256` | Windows users and automation | SHA-256 checksum for the installer. |
 | `openstream-obs-windows-x64.zip` | Technical users | Manual plugin package with DLL and install scripts. |
 | `openstream-obs-windows-x64.zip.sha256` | Technical users and automation | SHA-256 checksum for the exact manual plugin package. |
-| `shin-obs-linux-x86_64.tar.gz` | Native Linux OBS users | Linux plugin module and install script for compatible distro OBS builds. |
-| `shin-obs-linux-x86_64.tar.gz.sha256` | Linux users and automation | SHA-256 checksum for the exact Linux package. |
+| `openstream-obs-linux-x86_64.tar.gz` | Native Linux OBS users | Linux plugin module and install script for compatible distro OBS builds. |
+| `openstream-obs-linux-x86_64.tar.gz.sha256` | Linux users and automation | SHA-256 checksum for the exact Linux package. |
 
 ### Android compatibility and updates
 
@@ -63,7 +63,7 @@ The `Release` workflow builds:
 | Android APK | `openstream-android.apk`, `openstream-android.apk.sha256` |
 | OBS plugin package | `openstream-obs-windows-x64.zip`, `openstream-obs-windows-x64.zip.sha256` |
 | OBS plugin installer | `openstream-obs-plugin-installer-windows-x64.exe`, `openstream-obs-plugin-installer-windows-x64.exe.sha256` |
-| Linux OBS plugin | `shin-obs-linux-x86_64.tar.gz`, `shin-obs-linux-x86_64.tar.gz.sha256` |
+| Linux OBS plugin | `openstream-obs-linux-x86_64.tar.gz`, `openstream-obs-linux-x86_64.tar.gz.sha256` |
 
 The publish job runs only after repository tests, Android unit tests and lint,
 the signed Android build, and both Windows and Linux plugin builds succeed. It
@@ -152,7 +152,7 @@ only; do not publish that APK as a release.
 - Confirm `openstream-android.apk.sha256` matches the APK.
 - Confirm `openstream-obs-plugin-installer-windows-x64.exe.sha256` matches the installer.
 - Confirm `openstream-obs-windows-x64.zip.sha256` matches the manual plugin package.
-- Confirm `shin-obs-linux-x86_64.tar.gz.sha256` matches the Linux package.
+- Confirm `openstream-obs-linux-x86_64.tar.gz.sha256` matches the Linux package.
 - Confirm OBS lists `OpenStream V8` and can still load saved `openstream_phone_v7_source` scenes.
 - Confirm the dependency report names `avformat-62.dll`, `avcodec-62.dll`, `avutil-60.dll`, and `swscale-9.dll`, and the clean OBS 32.2.1 log has no OpenStream module-load error.
 - Seed `openstream-obs.dll`, run both installer forms, and confirm stale Program Files, ProgramData, and AppData copies were migrated without touching OBS settings or scenes.

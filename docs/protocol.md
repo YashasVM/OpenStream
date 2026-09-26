@@ -1,12 +1,12 @@
-# shin Protocol Specification
+# OpenStream Protocol Specification
 
 ## Overview
 
-shin V1.0.1 currently uses version 1 of its LAN wire protocol. Product
+OpenStream V1.0.1 currently uses version 1 of its LAN wire protocol. Product
 version numbers and protocol versions are independent: `SHIN/1` and
 `SHIN_PHONE/1` below identify the protocol, not the app release.
 
-shin uses three communication channels between the Android phone and OBS:
+OpenStream uses three communication channels between the Android phone and OBS:
 
 1. **Media Stream** - SRT/MPEG-TS for video + audio (phone -> OBS)
 2. **Discovery** - UDP multicast/broadcast beacons (bidirectional)
@@ -123,7 +123,7 @@ SHIN_PHONE/1 {"type":"dev.shin.phone","version":1,"name":"<device-name>","instan
 | `reservedBy` | string | OBS source instance that currently owns the reservation, or empty |
 
 OBS keeps a registry of discovered phones keyed by `instanceId`. Each
-shin source has a `selected_phone_id` setting. `auto` selects the first
+The OpenStream source has a `selected_phone_id` setting. `auto` selects the first
 non-busy phone; any other value binds that source to one specific phone.
 Selection alone does not grant ownership: the source must successfully call
 `/reserve` before it may open media or send camera controls. A phone whose

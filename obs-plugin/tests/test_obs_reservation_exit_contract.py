@@ -12,7 +12,7 @@ def test_worker_exit_releases_active_phone_before_clearing_it() -> None:
         worker_start,
     )
     cleanup_end = source.index(
-        'blog(LOG_INFO, "[shin] Listener worker exited")',
+        'blog(LOG_INFO, "[OpenStream] Listener worker exited")',
         cleanup_start,
     )
     cleanup = source[cleanup_start:cleanup_end]

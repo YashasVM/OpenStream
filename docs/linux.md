@@ -50,13 +50,13 @@ Notes:
 ```
 
 This configures incrementally (`obs-plugin/build` by default, override with
-`OPENSTREAM_PLUGIN_BUILD_DIR`), builds `shin-obs.so`, and runs the
+`OPENSTREAM_PLUGIN_BUILD_DIR`), builds `openstream-obs.so`, and runs the
 C++ contract tests via `ctest`. Useful variants:
 
 - `OPENSTREAM_PLUGIN_BUILD_DIR=/tmp/openstream-linux-build ./build_plugin_linux.sh`
   — validation build outside the repo.
 - `OPENSTREAM_PLUGIN_PACKAGE_DIR="$PWD/artifacts" ./build_plugin_linux.sh`
-  — also stages `shin-obs-linux-x86_64.tar.gz` (module + installer).
+  — also stages `openstream-obs-linux-x86_64.tar.gz` (module + installer).
 - `./build_plugin_linux.sh --package-only` — repackage an existing build.
 - `./build_plugin_linux.sh --install-user` / `--install-system` — build,
   test, then install (see below).
@@ -66,29 +66,30 @@ C++ contract tests via `ctest`. Useful variants:
 Per-user install (default, no root). Respects `XDG_CONFIG_HOME`:
 
 ```sh
-./tools/installer/install-shin-plugin-linux.sh
-# installs to ${XDG_CONFIG_HOME:-$HOME/.config}/obs-studio/plugins/shin-obs/bin/64bit/shin-obs.so
+./tools/installer/install-openstream-plugin-linux.sh
+# installs to ${XDG_CONFIG_HOME:-$HOME/.config}/obs-studio/plugins/openstream-obs/bin/64bit/openstream-obs.so
 ```
 
 System-wide install (requires root; the OBS system plugin dir is
 auto-detected, e.g. `/usr/lib/obs-plugins`):
 
 ```sh
-sudo ./tools/installer/install-shin-plugin-linux.sh --system
+sudo ./tools/installer/install-openstream-plugin-linux.sh --system
 ```
 
 Testing hook (touches nothing outside the given directory):
 
 ```sh
-./tools/installer/install-shin-plugin-linux.sh --dest-dir /tmp/os-install-test
+./tools/installer/install-openstream-plugin-linux.sh --dest-dir /tmp/os-install-test
 ```
 
 The install is atomic (stage to a temp file in the destination, then
 rename), replaces the canonical module, and removes only other-named stale
-copies (`shin-beta-obs.so`, `libshin-obs.so`, the legacy flat
-per-user copy) after the new copy succeeds.
+copies (`shin-obs.so`, `openstream-beta-obs.so`, `libopenstream-obs.so`, and
+the legacy flat per-user copy) after the new copy succeeds. A per-user
+installation also removes the old Shin module from its former plugin folder.
 
-Uninstall: delete `shin-obs.so` from the user or system plugin
+Uninstall: delete `openstream-obs.so` from the user or system plugin
 directory above and restart OBS. There is no uninstaller script.
 
 ## Behavioural notes
@@ -115,7 +116,7 @@ What was actually checked for this branch (local machine):
 
 - Direct `g++` C++20 syntax checks passed for the source, control client, and
   dock against the installed OBS 32.2.2, FFmpeg, and Qt6 development headers.
-- A manual shared-library link produced `shin-obs.so`. `ldd` confirmed links
+- A manual shared-library link produced `openstream-obs.so`. `ldd` confirmed links
   to `libobs`, `libobs-frontend-api`, FFmpeg, Qt6 Core, and Qt6 Widgets, with no
   missing libraries. The dock registration symbols are present in the module.
 - The Linux installer smoke test copied the linked module into an isolated
@@ -127,7 +128,7 @@ What was actually checked for this branch (local machine):
 
 What was NOT validated and remains a blocker for release claims:
 
-- Loading `shin-obs.so` inside a running native OBS GUI on Linux, including
+- Loading `openstream-obs.so` inside a running native OBS GUI on Linux, including
   dock behavior.
 - A physical phone streaming over Wi-Fi (discovery, reservation, SRT
   media, reconnect, controls).

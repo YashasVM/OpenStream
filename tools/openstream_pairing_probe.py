@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Advertise a bounded synthetic shin phone for Linux OBS smoke tests."""
+"""Advertise a bounded synthetic OpenStream phone for Linux OBS smoke tests."""
 
 from __future__ import annotations
 
@@ -65,8 +65,8 @@ def main() -> int:
                 beacon = {
                     "type": "dev.shin.phone",
                     "version": 1,
-                    "name": "shin probe",
-                    "instanceId": "shin-probe-phone",
+                    "name": "OpenStream probe",
+                    "instanceId": "openstream-probe-phone",
                     "host": "127.0.0.1",
                     "listenerPort": args.media_port,
                     "controlPort": args.control_port,
@@ -84,7 +84,7 @@ def main() -> int:
         finally:
             sock.close()
 
-    thread = threading.Thread(target=advertise, name="shin-probe-advertiser", daemon=True)
+    thread = threading.Thread(target=advertise, name="openstream-probe-advertiser", daemon=True)
     thread.start()
     deadline = time.monotonic() + args.duration
     try:
@@ -95,9 +95,9 @@ def main() -> int:
         thread.join(timeout=1)
         server.server_close()
     if not state.reserve_seen.is_set():
-        print("FAIL: OBS did not reserve the shin phone", flush=True)
+        print("FAIL: OBS did not reserve the OpenStream phone", flush=True)
         return 1
-    print("PASS: OBS discovered and reserved the shin phone", flush=True)
+    print("PASS: OBS discovered and reserved the OpenStream phone", flush=True)
     return 0
 
 

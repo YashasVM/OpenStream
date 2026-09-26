@@ -127,7 +127,7 @@ class SettingsActivity : Activity() {
                 @Suppress("DEPRECATION")
                 info.versionCode.toLong()
             }
-            versionInfo.text = "shin v${info.versionName} (${code})"
+            versionInfo.text = "OpenStream v${info.versionName} (${code})"
         }
     }
 

@@ -1,6 +1,6 @@
 """Fast contracts for the legacy OBS dock and the native decoder merge seam.
 
-The Shin release target intentionally does not compile the legacy OBS frontend
+The Linux release target intentionally does not compile the legacy OBS frontend
 dock, so these checks stay source-level. The native source is still compiled
 directly by the plugin build verification.
 """

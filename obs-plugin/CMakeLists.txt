@@ -236,8 +236,7 @@ if (WIN32)
     # Keep the existing Windows packaging contract outside this Linux release.
     set_target_properties(openstream-obs PROPERTIES PREFIX "")
 else()
-    # A distinct module name allows shin and OpenStream to coexist.
-    set_target_properties(openstream-obs PROPERTIES PREFIX "" OUTPUT_NAME "shin-obs")
+    set_target_properties(openstream-obs PROPERTIES PREFIX "")
 endif()
 
 # Install rules: `cmake --install` stages the module into OBS's plugin dir.

@@ -21,7 +21,7 @@ implementation.
 ## Device acceptance tests
 
 - One Android phone streams 1080p30 for 30 minutes without receiver crash.
-- Android discovers a `shin` OBS source without manual IP entry.
+- Android discovers a OpenStream OBS source without manual IP entry.
 - Tapping a discovered OBS device starts the stream directly.
 - Stopping the OBS listener removes the device from Android discovery within about 5 seconds.
 - SRT reconnect completes within 2 seconds after a short Wi-Fi interruption.

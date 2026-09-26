@@ -67,7 +67,7 @@ def test_obs_plugin_registers_shin_source_and_discovery() -> None:
     assert "openstream_phone_v8_source" not in source
     assert "openstream_legacy_source_info" not in source
     assert "obs_register_source" in source
-    assert 'kOpenStreamSourceName = "shin"' in source
+    assert 'kOpenStreamSourceName = "OpenStream Camera"' in source
     assert "listener_enabled" in source
     assert "discovery_broadcast_addresses" in source
     assert "kDiscoveryMulticastAddress" in source
@@ -353,15 +353,15 @@ def test_legacy_android_and_restored_obs_metadata_are_explicit() -> None:
     assert '#define OpenStreamVersion "1.0.1"' in installer
 
 
-def test_shin_linux_release_includes_native_obs_dock_dependencies() -> None:
+def test_openstream_linux_release_includes_native_obs_dock_dependencies() -> None:
     app_gradle = read("android/app/build.gradle.kts")
     cmake = read("obs-plugin/CMakeLists.txt")
     build = read("build_plugin_linux.sh")
-    installer = read("tools/installer/install-shin-plugin-linux.sh")
+    installer = read("tools/installer/install-openstream-plugin-linux.sh")
 
     assert 'applicationId = "dev.openstream.app"' in app_gradle
     assert "src/openstream-dock.cpp" in cmake
-    assert 'OUTPUT_NAME "shin-obs"' in cmake
+    assert 'PREFIX ""' in cmake
     assert "OBS_FRONTEND_LIBRARY" in cmake
     assert "Qt6::Widgets" in cmake
     source = read("obs-plugin/src/openstream-source.cpp")
@@ -370,6 +370,6 @@ def test_shin_linux_release_includes_native_obs_dock_dependencies() -> None:
     workflow = read(".github/workflows/obs-plugin-linux.yml")
     assert 'grep -E "libobs-frontend-api\\.so"' in workflow
     assert 'grep -E "libQt6Widgets"' in workflow
-    assert "shin-obs-linux-x86_64.tar.gz" in build
+    assert "openstream-obs-linux-x86_64.tar.gz" in build
+    assert "plugins/openstream-obs/bin/64bit/openstream-obs.so" in installer
     assert "plugins/shin-obs/bin/64bit/shin-obs.so" in installer
-    assert "plugins/openstream-obs" not in installer

@@ -241,7 +241,7 @@ object ObsDiscoveryProtocol {
         val fallbackId = json.optString("instanceId", "$packetHost:$port")
 
         return DiscoveredObsDevice(
-            name = json.optString("name", "shin Phone Link").ifBlank { "shin Phone Link" },
+            name = json.optString("name", "OpenStream Camera").ifBlank { "OpenStream Camera" },
             host = host,
             port = port,
             latencyMs = json.optInt("latencyMs", 120).coerceIn(80, 200),

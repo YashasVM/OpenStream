@@ -299,15 +299,15 @@ jobs:
       - name: Publish SHA256 for Linux package
         run: |
           cd artifacts
-          sha256sum shin-obs-linux-x86_64.tar.gz > shin-obs-linux-x86_64.tar.gz.sha256
+          sha256sum openstream-obs-linux-x86_64.tar.gz > openstream-obs-linux-x86_64.tar.gz.sha256
 
       - name: Upload Linux plugin artifact
         uses: actions/upload-artifact@v4
         with:
-          name: shin-obs-linux-x86_64
+          name: openstream-obs-linux-x86_64
           path: |
-            artifacts/shin-obs-linux-x86_64.tar.gz
-            artifacts/shin-obs-linux-x86_64.tar.gz.sha256
+            artifacts/openstream-obs-linux-x86_64.tar.gz
+            artifacts/openstream-obs-linux-x86_64.tar.gz.sha256
           if-no-files-found: error
 
   publish:
@@ -340,12 +340,12 @@ jobs:
           test -f dist/openstream-obs-plugin-installer-windows-x64.exe.sha256
           test -f dist/openstream-obs-windows-x64.zip
           test -f dist/openstream-obs-windows-x64.zip.sha256
-          test -f dist/shin-obs-linux-x86_64.tar.gz
-          test -f dist/shin-obs-linux-x86_64.tar.gz.sha256
+          test -f dist/openstream-obs-linux-x86_64.tar.gz
+          test -f dist/openstream-obs-linux-x86_64.tar.gz.sha256
           (cd dist && sha256sum --check openstream-android.apk.sha256)
           (cd dist && sha256sum --check openstream-obs-windows-x64.zip.sha256)
           (cd dist && sha256sum --check openstream-obs-plugin-installer-windows-x64.exe.sha256)
-          (cd dist && sha256sum --check shin-obs-linux-x86_64.tar.gz.sha256)
+          (cd dist && sha256sum --check openstream-obs-linux-x86_64.tar.gz.sha256)
 
       - name: Create release
         env:
@@ -362,8 +362,8 @@ jobs:
             dist/openstream-obs-plugin-installer-windows-x64.exe.sha256 \
             dist/openstream-obs-windows-x64.zip \
             dist/openstream-obs-windows-x64.zip.sha256 \
-            dist/shin-obs-linux-x86_64.tar.gz \
-            dist/shin-obs-linux-x86_64.tar.gz.sha256 \
+            dist/openstream-obs-linux-x86_64.tar.gz \
+            dist/openstream-obs-linux-x86_64.tar.gz.sha256 \
             --target "$RELEASE_COMMIT" \
             --title "OpenStream ${TAG_NAME}" \
             --notes-file docs/release-notes-template.md

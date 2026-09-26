@@ -79,7 +79,7 @@ fi
 # Install-OpenStreamPlugin.ps1 Get-OpenStreamPluginCopies; do not unify).
 remove_stale_names() {
   local dir="$1"
-  for name in openstream-beta-obs.so libopenstream-obs.so; do
+  for name in openstream-beta-obs.so libopenstream-obs.so shin-obs.so; do
     if [[ -f "${dir}/${name}" ]]; then
       rm -f "${dir}/${name}"
       echo "Removed stale copy: ${dir}/${name}"
@@ -134,6 +134,11 @@ else
   mkdir -p "${dest_dir}"
   atomic_install "${PLUGIN_SO}" "${dest_dir}"
   remove_stale_names "${dest_dir}"
+  legacy_shin="${config_home}/obs-studio/plugins/shin-obs/bin/64bit/shin-obs.so"
+  if [[ -f "${legacy_shin}" ]]; then
+    rm -f "${legacy_shin}"
+    echo "Removed stale copy: ${legacy_shin}"
+  fi
   # Legacy flat per-user copy from early manual installs.
   legacy_flat="${config_home}/obs-studio/plugins/openstream-obs.so"
   if [[ -f "${legacy_flat}" ]]; then

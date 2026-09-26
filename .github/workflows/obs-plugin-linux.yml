@@ -57,14 +57,14 @@ jobs:
 
       - name: Verify system ABI linkage
         run: |
-          test -f obs-plugin/build/shin-obs.so
-          ldd obs-plugin/build/shin-obs.so
-          ldd obs-plugin/build/shin-obs.so | grep -E "libobs\.so"
-          ldd obs-plugin/build/shin-obs.so | grep -E "libobs-frontend-api\.so"
-          ldd obs-plugin/build/shin-obs.so | grep -E "libavformat\.so"
-          ldd obs-plugin/build/shin-obs.so | grep -E "libQt6Core"
-          ldd obs-plugin/build/shin-obs.so | grep -E "libQt6Widgets"
-          nm -C obs-plugin/build/shin-obs.so | grep -E "openstream_(register|unregister)_dock\(\)"
+          test -f obs-plugin/build/openstream-obs.so
+          ldd obs-plugin/build/openstream-obs.so
+          ldd obs-plugin/build/openstream-obs.so | grep -E "libobs\.so"
+          ldd obs-plugin/build/openstream-obs.so | grep -E "libobs-frontend-api\.so"
+          ldd obs-plugin/build/openstream-obs.so | grep -E "libavformat\.so"
+          ldd obs-plugin/build/openstream-obs.so | grep -E "libQt6Core"
+          ldd obs-plugin/build/openstream-obs.so | grep -E "libQt6Widgets"
+          nm -C obs-plugin/build/openstream-obs.so | grep -E "openstream_(register|unregister)_dock\(\)"
 
       - name: Run repository behavioural tests (pytest)
         run: |
@@ -73,21 +73,21 @@ jobs:
 
       - name: Verify Linux package tarball and installer layout
         run: |
-          test -f artifacts/shin-obs-linux-x86_64.tar.gz
-          tar -tzf artifacts/shin-obs-linux-x86_64.tar.gz
+          test -f artifacts/openstream-obs-linux-x86_64.tar.gz
+          tar -tzf artifacts/openstream-obs-linux-x86_64.tar.gz
           tmpdir="$(mktemp -d)"
-          tar -xzf artifacts/shin-obs-linux-x86_64.tar.gz -C "$tmpdir"
-          test -f "$tmpdir/shin-obs-linux-x86_64/shin-obs.so"
-          test -f "$tmpdir/shin-obs-linux-x86_64/install-shin-plugin-linux.sh"
+          tar -xzf artifacts/openstream-obs-linux-x86_64.tar.gz -C "$tmpdir"
+          test -f "$tmpdir/openstream-obs-linux-x86_64/openstream-obs.so"
+          test -f "$tmpdir/openstream-obs-linux-x86_64/install-openstream-plugin-linux.sh"
           # Installer smoke test in an isolated --dest-dir: validates the
           # packaged no-argument sibling lookup without touching HOME.
-          (cd "$tmpdir/shin-obs-linux-x86_64" && ./install-shin-plugin-linux.sh --dest-dir "$tmpdir/install-root")
-          test -f "$tmpdir/install-root/shin-obs.so"
+          (cd "$tmpdir/openstream-obs-linux-x86_64" && ./install-openstream-plugin-linux.sh --dest-dir "$tmpdir/install-root")
+          test -f "$tmpdir/install-root/openstream-obs.so"
           rm -rf "$tmpdir"
 
       - name: Upload plugin package
         uses: actions/upload-artifact@v4
         with:
-          name: shin-obs-linux-x86_64
-          path: artifacts/shin-obs-linux-x86_64.tar.gz
+          name: openstream-obs-linux-x86_64
+          path: artifacts/openstream-obs-linux-x86_64.tar.gz
           if-no-files-found: error
