@@ -10,7 +10,7 @@ const links = {
   release: "https://github.com/YashasVM/OpenStream/releases/latest",
   repo: "https://github.com/YashasVM/OpenStream",
   issues: "https://github.com/YashasVM/OpenStream/issues",
-  setup: "https://github.com/YashasVM/OpenStream/blob/main/docs/set-up.md",
+  setup: "#setup",
 };
 
 function Header() {
@@ -127,7 +127,6 @@ function Setup() {
     <section className="section setup" id="setup">
       <header><h2>Five clean moves.<br/>Then live.</h2><p>No desktop webcam client. No capture card. No screen-mirroring detour.</p></header>
       <div className="step-list">{steps.map(([n, title, copy]) => <article key={n}><span>{n}</span><div><h3>{title}</h3><p>{copy}</p></div></article>)}</div>
-      <a className="button button-light" href={links.setup}>Open the illustrated setup guide</a>
     </section>
   );
 }
