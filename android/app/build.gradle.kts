@@ -16,24 +16,24 @@ val hasReleaseSigning = listOf(
     releaseKeyPassword,
 ).all { !it.isNullOrBlank() }
 val openStreamVersionName = providers.gradleProperty("openstream.versionName")
-    .orElse(providers.environmentVariable("OPENSTREAM_VERSION_NAME"))
-    .orElse("1.0.1")
-    .map { it.removePrefix("v") }
+    .get()
+    .removePrefix("v")
 val openStreamVersionCode = providers.gradleProperty("openstream.versionCode")
-    .orElse(providers.environmentVariable("OPENSTREAM_VERSION_CODE"))
-    .orElse("2")
     .map { it.toInt() }
+    .get()
 
 android {
     namespace = "dev.openstream.app"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "dev.shin.app"
+        // Keep the published OpenStream identity so existing installs update
+        // in place when they use the same release signing key.
+        applicationId = "dev.openstream.app"
         minSdk = 29
         targetSdk = 35
-        versionCode = openStreamVersionCode.get()
-        versionName = openStreamVersionName.get()
+        versionCode = openStreamVersionCode
+        versionName = openStreamVersionName
 
         externalNativeBuild {
             cmake {
@@ -110,4 +110,9 @@ kotlin {
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
+    // Unit tests run on the local JVM against android.jar stubs, where
+    // org.json.JSONObject methods throw "not mocked". Ship the real
+    // org.json implementation for tests only; on-device code keeps using
+    // the platform's built-in org.json.
+    testImplementation("org.json:json:20240303")
 }

@@ -36,7 +36,7 @@ if (OPENSTREAM_ENABLE_LIBSRT)
     endif()
 
     if (NOT OPENSTREAM_LIBSRT_INCLUDE_DIR OR NOT OPENSTREAM_LIBSRT_LIBRARY)
-        message(FATAL_ERROR "Normal shin APK builds require Android ABI-compatible libsrt. The bundled static libs were not found for ${ANDROID_ABI}; rebuild them or set -Popenstream.nonStreamingCiBuild=true only for source-only CI checks.")
+        message(FATAL_ERROR "Normal OpenStream APK builds require Android ABI-compatible libsrt. The bundled static libs were not found for ${ANDROID_ABI}; rebuild them or set -Popenstream.nonStreamingCiBuild=true only for source-only CI checks.")
     endif()
 
     target_compile_definitions(openstream_srt PRIVATE OPENSTREAM_HAVE_LIBSRT=1)

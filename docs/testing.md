@@ -21,11 +21,11 @@ implementation.
 ## Device acceptance tests
 
 - One Android phone streams 1080p30 for 30 minutes without receiver crash.
-- Android discovers an OBS `OpenStream Phone Link` listener without manual IP entry.
+- Android discovers a OpenStream OBS source without manual IP entry.
 - Tapping a discovered OBS device starts the stream directly.
 - Stopping the OBS listener removes the device from Android discovery within about 5 seconds.
 - SRT reconnect completes within 2 seconds after a short Wi-Fi interruption.
-- OBS receives video as one source.
+- OBS receives video through the selected `shin` source.
 - OBS receives mono AAC audio at 48 kHz on the source's mixer channel.
 - The OBS source shows only the phone camera feed, never the Android screen.
 - Starting OBS Virtual Camera while the source is live does not create an

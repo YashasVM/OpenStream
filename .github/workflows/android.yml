@@ -29,11 +29,6 @@ jobs:
       - name: Set up Android build environment
         uses: ./.github/actions/android-setup
 
-      - name: Compute Android version metadata
-        id: version
-        run: |
-          echo "code=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
-
       - name: Run repository tests
         run: |
           python -m pip install --disable-pip-version-check pytest
@@ -41,9 +36,6 @@ jobs:
 
       - name: Run Android unit tests and lint, then build APK
         working-directory: android
-        env:
-          OPENSTREAM_VERSION_NAME: 1.0.1
-          OPENSTREAM_VERSION_CODE: ${{ steps.version.outputs.code }}
         run: |
           chmod +x ./gradlew
           ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug

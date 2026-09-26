@@ -2,7 +2,8 @@
 
 This guide is the slower, screenshot-led path for installing OpenStream V1.0.1 on an Android phone and a Windows OBS Studio PC.
 
-For native Linux, follow [Linux setup](linux.md). Published Windows/APK downloads predate the solo-camera changes on this branch.
+For native Linux, follow [Linux setup](linux.md). The same phone pairing and
+per-source ownership rules apply on Linux and Windows.
 
 For the fast technical version, use the [README quick start](../README.md#quick-start).
 
@@ -133,8 +134,35 @@ If the phone does not find OBS, open the source’s **Network & Pairing (Advance
 | Value | Default |
 |---|---|
 | OBS PC IP address | Your PC's LAN IP, for example `192.168.1.25` |
-| SRT port | `9000` |
+| SRT port | `9100` |
 | Latency | `120 ms` |
+
+The phone uses its own control endpoint on port `9101`; do not enter that port
+as the media port. Manual receive mode is an advanced fallback: it makes the
+phone call the OBS listener directly, while automatic pairing reserves the
+selected phone before opening its SRT stream.
+
+### Connect and disconnect a source
+
+Each OBS source is one camera slot. In the source properties, choose a phone
+under **1. Camera**, then click **Connect / Reconnect**. With **Automatic
+pairing**, OBS reserves that phone and the phone shows the selected slot label.
+The source status changes from `Waiting` to `Reserved` and then `Live` after
+SRT media arrives. Use **Add Existing** when the same camera should appear in
+another scene; creating another active source for the same camera is blocked.
+
+To disconnect, stop or remove the source, or use the source's **Disconnect**
+control when it is shown. OBS releases the reservation and the phone returns
+to its available state. Disconnecting one source does not stop another phone.
+If the phone is reserved but media has not arrived, disconnect still releases
+the reservation; a short reconnect window may keep the same phone preferred
+when the network briefly drops.
+
+On Android, tap an OBS device in the discovered list to connect. The active
+card shows the slot label and a **Disconnect** action. Tap it before selecting
+another OBS slot. The phone's **Settings** screen also provides **Save** and
+**Save and connect** for manual pairing; the saved host, port, latency and
+listening port survive a disconnect and app restart.
 
 ---
 
@@ -161,7 +189,7 @@ In OBS:
 | OpenStream V8 is missing in OBS | Confirm `openstream-obs.dll` is in one of the plugin folders above, remove stale older copies, then restart OBS. |
 | Old OpenStream source is still visible | OBS may be loading an older all-users DLL from `C:\ProgramData\obs-studio\plugins\openstream-obs\bin\64bit\`. Replace it with the V1.0.1 DLL or remove it. |
 | Phone cannot see OBS | Put both devices on the same Wi-Fi, disable VPNs, and check guest/client isolation. |
-| Camera stays blank | Start with port `9000`, latency `120 ms`, and one phone only. |
+| Camera stays blank | Start with media port `9100`, latency `120 ms`, and one phone only. |
 | Audio is missing | Grant microphone permission on Android and check the OBS mixer channel. |
 | Stream stutters | Use 5 GHz or Wi-Fi 6, move closer to the router, and avoid congested networks. |
 
@@ -172,7 +200,7 @@ In OBS:
 The Python receiver is a developer/debug path only; it is not part of the normal user workflow.
 
 ```powershell
-python tools/openstream_receiver.py --port 9000 --latency-ms 120 --ffplay
+python tools/openstream_receiver.py --port 9100 --latency-ms 120 --ffplay
 ```
 
 Use it only when debugging SRT transport outside OBS.

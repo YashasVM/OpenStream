@@ -28,7 +28,7 @@ then connects directly over SRT.
 
 The discovery flow:
 
-1. OBS plugin broadcasts UDP beacon every 1 second on port `51515` (multicast `239.255.42.99` + subnet broadcast).
+1. OBS plugin broadcasts UDP beacon every 1 second on port `51615` (multicast `239.255.43.99` + subnet broadcast).
 2. Android app listens for beacons and displays discovered OBS instances.
 3. User taps an OBS device -> Android constructs `srt://<obs-ip>:<port>?mode=caller&latency=<ms>`.
 4. Android MPEG-TS stream begins.
@@ -40,7 +40,7 @@ URL for manual/QR pairing.
 
 ## Remote Camera Controls
 
-The Android app runs a lightweight HTTP control server on port `9001`. The OBS
+The Android app runs a lightweight HTTP control server on port `9101`. The OBS
 plugin sends POST requests to control the phone camera in real-time:
 
 | Endpoint | Body | Effect |
@@ -61,7 +61,7 @@ transport can be tested without blocking the reliable product path.
 
 ## Transport Defaults
 
-Canonical values live in [protocol.md](protocol.md): SRT `:9000`, control `:9001`, discovery UDP `:51515`, `12 Mbps`, `120 ms`.
+Canonical values live in [protocol.md](protocol.md): SRT `:9100`, control `:9101`, discovery UDP `:51615`, `12 Mbps`, `120 ms`.
 
 ## Encoding Defaults
 

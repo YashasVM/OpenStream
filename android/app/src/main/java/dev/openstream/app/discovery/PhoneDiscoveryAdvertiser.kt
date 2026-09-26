@@ -3,6 +3,7 @@ package dev.openstream.app.discovery
 import android.content.Context
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.text.format.Formatter
 import dev.openstream.app.control.CameraControlServer
 import dev.openstream.app.encoder.advertisedMimeType
 import dev.openstream.app.stream.StreamConfig

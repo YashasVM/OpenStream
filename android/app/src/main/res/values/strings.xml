@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">shin</string>
+    <string name="app_name">OpenStream</string>
 
     <!-- Camera controls -->
     <string name="lens_back_wide">1×</string>

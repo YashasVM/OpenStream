@@ -46,11 +46,6 @@ endif()
 find_package(Qt6 6.2 COMPONENTS Core REQUIRED)
 
 if (BUILD_TESTING)
-    add_executable(openstream-solo-camera-tests tests/test_solo_camera.cpp)
-    target_include_directories(openstream-solo-camera-tests PRIVATE src)
-    target_link_libraries(openstream-solo-camera-tests PRIVATE Threads::Threads)
-    add_test(NAME openstream-solo-camera-tests COMMAND openstream-solo-camera-tests)
-
     add_executable(openstream-control-json-tests tests/test_control_json.cpp)
     target_include_directories(openstream-control-json-tests PRIVATE src)
     target_link_libraries(openstream-control-json-tests PRIVATE Qt6::Core)
@@ -134,6 +129,7 @@ else()
     find_package(PkgConfig QUIET)
     if (PkgConfig_FOUND)
         pkg_check_modules(PC_LIBOBS QUIET libobs)
+        pkg_check_modules(PC_OBS_FRONTEND QUIET obs-frontend-api)
         pkg_check_modules(PC_AVFORMAT QUIET libavformat)
         pkg_check_modules(PC_AVCODEC QUIET libavcodec)
         pkg_check_modules(PC_AVUTIL QUIET libavutil)
@@ -203,6 +199,20 @@ target_link_libraries(openstream-obs PRIVATE
     ${SWSCALE_LIBRARY}
 )
 
+if (UNIX AND NOT APPLE)
+    # Native OBS Studio exposes its dock API through obs-frontend-api. Keep
+    # this UI dependency at the plugin boundary; the media engine stays in
+    # openstream-source.cpp and does not depend on OBS frontend or Qt Widgets.
+    find_package(Qt6 6.2 COMPONENTS Widgets REQUIRED)
+    find_library(OBS_FRONTEND_LIBRARY
+        NAMES obs-frontend-api
+        HINTS ${PC_OBS_FRONTEND_LIBRARY_DIRS} ${PC_LIBOBS_LIBRARY_DIRS}
+        REQUIRED
+    )
+    target_sources(openstream-obs PRIVATE src/openstream-dock.cpp)
+    target_link_libraries(openstream-obs PRIVATE Qt6::Widgets ${OBS_FRONTEND_LIBRARY})
+endif()
+
 if (WIN32)
     target_link_libraries(openstream-obs PRIVATE ws2_32 iphlpapi)
 endif()
@@ -226,8 +236,7 @@ if (WIN32)
     # Keep the existing Windows packaging contract outside this Linux release.
     set_target_properties(openstream-obs PROPERTIES PREFIX "")
 else()
-    # A distinct module name allows shin and OpenStream to coexist.
-    set_target_properties(openstream-obs PROPERTIES PREFIX "" OUTPUT_NAME "shin-obs")
+    set_target_properties(openstream-obs PROPERTIES PREFIX "")
 endif()
 
 # Install rules: `cmake --install` stages the module into OBS's plugin dir.
@@ -235,7 +244,9 @@ endif()
 # distro libdir (e.g. /usr/lib/obs-plugins or ~/.local/lib/obs-plugins).
 if (WIN32)
     install(TARGETS openstream-obs
-        RUNTIME DESTINATION "obs-plugins/64bit")
+        RUNTIME DESTINATION "obs-plugins/64bit"
+        LIBRARY DESTINATION "obs-plugins/64bit"
+        ARCHIVE DESTINATION "obs-plugins/64bit")
 else()
     include(GNUInstallDirs)
     install(TARGETS openstream-obs

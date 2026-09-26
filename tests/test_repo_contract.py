@@ -67,7 +67,7 @@ def test_obs_plugin_registers_shin_source_and_discovery() -> None:
     assert "openstream_phone_v8_source" not in source
     assert "openstream_legacy_source_info" not in source
     assert "obs_register_source" in source
-    assert 'kOpenStreamSourceName = "shin"' in source
+    assert 'kOpenStreamSourceName = "OpenStream Camera"' in source
     assert "listener_enabled" in source
     assert "discovery_broadcast_addresses" in source
     assert "kDiscoveryMulticastAddress" in source
@@ -108,12 +108,12 @@ def test_obs_plugin_pairs_the_selected_phone() -> None:
     assert "control_phone(ctx)" in source
 
 
-def test_obs_solo_camera_preserves_legacy_identity_and_advanced_transport() -> None:
+def test_obs_source_ownership_and_advanced_transport() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
     assert "cam_label_for_index" not in source
     assert "next_available_slot_label_locked" not in source
-    assert "g_camera_lease.acquire(ctx)" in source
-    assert "g_camera_lease.release(ctx)" in source
+    assert "g_camera_lease" not in source
+    assert '#include "solo-camera-lease.hpp"' not in source
     assert '"Phone Camera"' in source
     assert "source_instance_id" in source
     assert "slot_id" in source
@@ -148,7 +148,7 @@ def test_slot_reservation_allows_owned_busy_phone_and_reconnect_hold() -> None:
     source = read("obs-plugin/src/openstream-source.cpp")
     app = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
     advertiser = read("android/app/src/main/java/dev/openstream/app/discovery/PhoneDiscoveryAdvertiser.kt")
-    assert "entry.second.busy && entry.second.reserved_by != source_instance_id" in source
+    assert "entry.second.reserved_by != source_instance_id" in source
     assert "found->second.busy && found->second.reserved_by != source_instance_id" in source
     assert "set_slot_status(ctx, \"Reconnecting\")" in source
     assert "set_active_phone(ctx, reserved_phone)" in source
@@ -188,7 +188,7 @@ def test_android_discovery_ui_parses_and_displays_obs_slots() -> None:
     assert "renderObsSlots" in app
     assert "reserveForSlot" in app
     assert "slotAvailabilityLabel" in app
-    assert "device.busy && reservedBy != device.sourceInstanceId" in app
+    assert "device.busy && advertisedReservationId != device.sourceInstanceId" in app
     assert "compareBy<DiscoveredObsDevice> { it.displayLabel }" in discovery
     assert "obsSlotList" in layout
     assert 'name="status_waiting">Choose your OBS computer<' in strings
@@ -216,10 +216,12 @@ def test_android_control_server_supports_source_reservations() -> None:
     assert "reservationProvider" in control
     assert "reserveForSource" in app
     assert "releaseForSource" in app
-    assert "phoneConnected || reservedBy != null" in app
+    assert "selectForSource" in app
+    assert "isPhoneBusy()" in app
+    assert "advertisedReservationId" in app
     assert "private var activeStreamBitrate" in app
     assert "useStreamBitrate(bitrateMbps)" in app
-    assert "reserveForSource(device.sourceInstanceId, device.displayLabel, device.bitrateMbps)" in app
+    assert "selectForSource(device.sourceInstanceId, device.displayLabel, device.bitrateMbps)" in app
     assert "val bitrateMbps = if (json.has(\"bitrateMbps\"))" in control
 
 
@@ -291,8 +293,8 @@ def test_release_workflows_build_streaming_apk_and_plugin_package() -> None:
     assert "OPENSTREAM_RELEASE_STORE_PASSWORD" in release_workflow
     assert "OPENSTREAM_RELEASE_KEY_ALIAS" in release_workflow
     assert "OPENSTREAM_RELEASE_KEY_PASSWORD" in release_workflow
-    assert "OPENSTREAM_VERSION_NAME" in release_workflow
-    assert "OPENSTREAM_VERSION_CODE" in release_workflow
+    assert "openstream.versionName" in release_workflow
+    assert "android/gradle.properties" in release_docs
     assert "OPENSTREAM_SKIP_INSTALL=1" in obs_workflow
     assert "OPENSTREAM_PLUGIN_PACKAGE_DIR" in obs_workflow
     assert "openstream-obs-windows-x64.zip" in obs_workflow
@@ -330,12 +332,10 @@ def test_release_build_fails_without_signing_and_keystores_are_ignored() -> None
     assert "Release builds require OPENSTREAM_RELEASE_KEYSTORE" in app_gradle
     assert "openstream.versionName" in app_gradle
     assert "openstream.versionCode" in app_gradle
-    assert '"1.0.1"' in app_gradle
-    version_code = re.search(
-        r"openStreamVersionCode.*?\.orElse\(\"(\d+)\"\)",
-        app_gradle,
-        re.DOTALL,
-    )
+    assert 'openstream.versionName' in app_gradle
+    assert 'openstream.versionCode' in app_gradle
+    gradle_properties = read("android/gradle.properties")
+    version_code = re.search(r"^openstream\.versionCode=(\d+)$", gradle_properties, re.MULTILINE)
     assert version_code is not None
     assert int(version_code.group(1)) > 0
     assert "*.keystore" in gitignore
@@ -347,22 +347,29 @@ def test_legacy_android_and_restored_obs_metadata_are_explicit() -> None:
     cmake = read("obs-plugin/CMakeLists.txt")
     installer = read("tools/installer/openstream-obs-plugin.iss")
 
-    assert '"1.0.1"' in app_gradle
+    gradle_properties = read("android/gradle.properties")
+    assert "openstream.versionName=1.0.1" in gradle_properties
     assert "project(openstream_obs_plugin VERSION 1.0.1" in cmake
     assert '#define OpenStreamVersion "1.0.1"' in installer
 
 
-def test_shin_release_is_isolated_and_has_no_obs_dock_dependency() -> None:
+def test_openstream_linux_release_includes_native_obs_dock_dependencies() -> None:
     app_gradle = read("android/app/build.gradle.kts")
     cmake = read("obs-plugin/CMakeLists.txt")
     build = read("build_plugin_linux.sh")
-    installer = read("tools/installer/install-shin-plugin-linux.sh")
+    installer = read("tools/installer/install-openstream-plugin-linux.sh")
 
-    assert 'applicationId = "dev.shin.app"' in app_gradle
-    assert "src/openstream-dock.cpp" not in cmake
-    assert 'OUTPUT_NAME "shin-obs"' in cmake
-    assert "OBS_FRONTEND_LIBRARY" not in cmake
-    assert "Qt6::Widgets" not in cmake
-    assert "shin-obs-linux-x86_64.tar.gz" in build
+    assert 'applicationId = "dev.openstream.app"' in app_gradle
+    assert "src/openstream-dock.cpp" in cmake
+    assert 'PREFIX ""' in cmake
+    assert "OBS_FRONTEND_LIBRARY" in cmake
+    assert "Qt6::Widgets" in cmake
+    source = read("obs-plugin/src/openstream-source.cpp")
+    assert "openstream_register_dock();" in source
+    assert "openstream_unregister_dock();" in source
+    workflow = read(".github/workflows/obs-plugin-linux.yml")
+    assert 'grep -E "libobs-frontend-api\\.so"' in workflow
+    assert 'grep -E "libQt6Widgets"' in workflow
+    assert "openstream-obs-linux-x86_64.tar.gz" in build
+    assert "plugins/openstream-obs/bin/64bit/openstream-obs.so" in installer
     assert "plugins/shin-obs/bin/64bit/shin-obs.so" in installer
-    assert "plugins/openstream-obs" not in installer

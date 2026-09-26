@@ -236,11 +236,12 @@ object ObsDiscoveryProtocol {
         val port = json.optInt("listenerPort", -1)
         if (port !in 1..65535) return null
         val advertisedHost = json.optString("host").trim()
-        val host = advertisedHost.ifBlank { packetHost }
+        val host = connectionHost(packetHost, advertisedHost)
+        if (host.isBlank()) return null
         val fallbackId = json.optString("instanceId", "$packetHost:$port")
 
         return DiscoveredObsDevice(
-            name = json.optString("name", "shin Phone Link").ifBlank { "shin Phone Link" },
+            name = json.optString("name", "OpenStream Camera").ifBlank { "OpenStream Camera" },
             host = host,
             port = port,
             latencyMs = json.optInt("latencyMs", 120).coerceIn(80, 200),
@@ -257,4 +258,25 @@ object ObsDiscoveryProtocol {
             busy = json.optBoolean("busy", false),
         )
     }
+
+    /**
+     * Discovery is a same-LAN control protocol, so the UDP peer is the
+     * authoritative address for the follow-up SRT connection. An advertised
+     * host can be stale, belong to another interface, or be a VPN address.
+     * Keep it only as a fallback for callers that do not have a peer address
+     * (for example, a persisted/manual beacon).
+     *
+     * Manual beacons must pass an empty [packetHost] so the explicit
+     * [advertisedHost] is used verbatim. Multi-homed/VPN hosts that need to
+     * override the UDP peer should use [manualConnectionHost].
+     */
+    internal fun connectionHost(packetHost: String, advertisedHost: String): String =
+        packetHost.trim().ifBlank { advertisedHost.trim() }
+
+    /**
+     * Explicit manual override for persisted beacons and multi-homed/VPN hosts.
+     * Returns the trimmed manual host, or empty if none was supplied so callers
+     * can reject the beacon instead of connecting to a blank host.
+     */
+    internal fun manualConnectionHost(manualHost: String): String = manualHost.trim()
 }

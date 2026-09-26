@@ -32,6 +32,7 @@ not included in this release.
 | 1 | [`openstream-android.apk`](https://github.com/YashasVM/OpenStream/releases/latest/download/openstream-android.apk) | Android phone |
 | 2 | [`openstream-obs-plugin-installer-windows-x64.exe`](https://github.com/YashasVM/OpenStream/releases/latest/download/openstream-obs-plugin-installer-windows-x64.exe) | Windows OBS PC |
 | Fallback | [`openstream-obs-windows-x64.zip`](https://github.com/YashasVM/OpenStream/releases/latest/download/openstream-obs-windows-x64.zip) | Manual OBS plugin install |
+| Linux candidate | [Build and install from source](docs/linux.md) | Native Linux OBS; the next tagged release will include a matched Linux package |
 
 Need the non-technical walkthrough with screenshots? Start with [`docs/set-up.md`](docs/set-up.md).
 
@@ -49,7 +50,7 @@ Phone camera -> hardware AVC/H.264 + AAC -> SRT over Wi-Fi -> OpenStream camera 
 
 | Area | V1.0.1 release detail |
 |---|---|
-| **OBS setup** | The OpenStream Camera Control dock provides the legacy connection and camera controls. |
+| **OBS setup** | The V1.0.1 release uses its legacy source controls. The current candidate exposes controls in source properties. |
 | **Scene compatibility** | Existing `OpenStream V7` scene sources keep loading while new sources appear as `OpenStream V8`. |
 | **Pairing clarity** | One camera per OBS process, with a simple computer picker on Android. |
 | **Release polish** | Version defaults, release notes, and setup docs are aligned around V1.0.1. |
@@ -59,6 +60,16 @@ Phone camera -> hardware AVC/H.264 + AAC -> SRT over Wi-Fi -> OpenStream camera 
 ### 1. Install the Android App
 
 Download the APK from the release, copy it to your Android phone, open it, and allow the install prompt. Grant camera and microphone permissions on first launch.
+
+### Updating a local development build
+
+Connect the phone with USB debugging enabled and run `cd android && ./gradlew
+installDebug`. Repeating this command installs the updated app in place when
+the installed build has the same application ID and signing key. The version
+name and code come from `android/gradle.properties`; increase the code there
+for a release. Android rejects an in-place update if the APK uses a different
+signing key, such as when switching between a local debug build and the
+published release. Keep using the same build type for day-to-day updates.
 
 ### 2. Install the OBS Plugin
 
@@ -123,14 +134,14 @@ For native Linux build and installation instructions, see [docs/linux.md](docs/l
 | Feature | Details |
 |---|---|
 | **Native OBS Source** | Adds an `OpenStream V8` source type inside OBS Studio while preserving V7 scene compatibility. |
-| **Camera Dock** | One camera with connect, retry, stop, zoom, torch, and lens controls. |
+| **OBS controls** | Connection, phone selection, zoom, torch, lens, and identify controls are exposed through source properties. |
 | **One-Click Installer** | Windows installer copies the plugin into the OBS plugin folder. |
-| **Single Camera** | One active OpenStream source per OBS process. Reuse that source across scenes. |
+| **Phone ownership** | Each phone can be reserved by one OBS source at a time. Reuse that source across scenes. |
 | **Phone Discovery** | Lists discovered Android phones, includes a refresh action, and can let the phone choose the OBS computer. |
 | **Auto-Connect** | Listens for the Android app and connects without typing IP addresses. |
 | **Deep-Link Pairing URL** | Exposes an `openstream://connect` pairing URL with slot, port, latency, and source identity. |
 | **Separate Audio Mixer** | Phone microphone audio uses the OpenStream source’s OBS mixer channel. |
-| **Remote Controls** | Adjust zoom, torch, rear/front camera, and the phone identify overlay from the persistent dock. |
+| **Remote Controls** | Adjust zoom, torch, rear/front camera, and the phone identify overlay from OBS source properties. |
 | **Reconnect Handling** | Reserves and releases phones per source so streams recover into the same OBS source. |
 
 ---
@@ -140,7 +151,7 @@ For native Linux build and installation instructions, see [docs/linux.md](docs/l
 | Moment | Experience |
 |---|---|
 | **First launch** | The phone explains camera/microphone access, then presents a guided discovery state over the camera preview. |
-| **OBS setup** | Add one `OpenStream V8` source and control it from the Camera Control dock. |
+| **OBS setup** | Add a camera source and use its properties to select a phone and control the connection. |
 | **Pairing** | The phone scans for available OBS computers and provides refresh, empty-state recovery, and manual fallback. |
 | **Going live** | A `LIVE` badge, zoom chip, stream stats, and status text make the active connection visible at a glance. |
 | **Other scenes** | Choose Add Existing to reuse your camera without opening another session. |
@@ -159,7 +170,7 @@ Android phone
   MPEG-TS muxer
   libsrt sender
         |
-        | SRT media stream on port 9000
+        | SRT media stream on port 9100
         v
 Windows or native Linux PC
   OBS Studio
@@ -168,7 +179,7 @@ Windows or native Linux PC
   OBS video frame + audio mixer output
 ```
 
-Transport defaults (SRT `:9000`, control `:9001`, discovery `:51515`, `12 Mbps`, `120 ms`) are canonical in [docs/protocol.md](docs/protocol.md).
+Current candidate defaults (SRT `:9100`, phone control `:9101`, discovery `:51615`, `12 Mbps`, `120 ms`) are canonical in [docs/protocol.md](docs/protocol.md). The standalone Python receiver remains a developer tool and can use a separately selected port.
 
 ---
 
@@ -245,7 +256,7 @@ See [`docs/release.md`](docs/release.md) for release tagging and validation.
 Validate SRT transport without OBS:
 
 ```powershell
-python tools/openstream_receiver.py --port 9000 --latency-ms 120 --ffplay
+python tools/openstream_receiver.py --port 9100 --latency-ms 120 --ffplay
 ```
 
 This is a developer/debug tool only. Normal users should install the OBS plugin.

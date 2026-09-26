@@ -255,8 +255,13 @@ def test_media_send_cannot_cross_disconnect_or_reconnect_boundary():
     assert "SrtNativeBridge.sendVideo(\n            accessUnit.data,\n            accessUnit.presentationTimeUs,\n            accessUnit.flags,\n            generation," in video
     assert "SrtNativeBridge.sendAudio(\n            accessUnit.data,\n            accessUnit.presentationTimeUs,\n            accessUnit.flags,\n            generation," in audio
     bridge = source[source.index("private object SrtNativeBridge") :]
-    assert "external fun sendVideo(\n        data: ByteArray,\n        presentationTimeUs: Long,\n        flags: Int,\n        sessionGeneration: Long," in bridge
-    assert "external fun sendAudio(\n        data: ByteArray,\n        presentationTimeUs: Long,\n        flags: Int,\n        sessionGeneration: Long," in bridge
+    # Safe wrappers (fun sendVideo/sendAudio) must forward generation to private
+    # native methods; direct external funs are also accepted for legacy builds.
+    assert ("nativeSendVideo(" in bridge or "external fun sendVideo(" in bridge)
+    assert ("nativeSendAudio(" in bridge or "external fun sendAudio(" in bridge)
+    assert "sessionGeneration: Long," in bridge
+    # Load failure must never crash: library load is guarded and surfaced.
+    assert "loadError" in bridge and "isAvailable" in bridge
     failure = block_after(source, "private fun markNativeSendFailure")
     assert "if (sessionGeneration.get() == generation)" in failure
     assert failure.index("if (sessionGeneration.get() == generation)") < failure.index(

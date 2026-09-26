@@ -20,9 +20,9 @@
 #include <obs-module.h>
 
 #include "async-control-client.hpp"
+#include "openstream-control-api.hpp"
 #include "media-clock.hpp"
 #include "control-json.hpp"
-#include "solo-camera-lease.hpp"
 #include "socket-send.hpp"
 #include <util/platform.h>
 
@@ -101,9 +101,12 @@ constexpr auto kReconnectReservationWindow = std::chrono::seconds(45);
 constexpr uint64_t kReconnectRecoveryVideoFrames = 30;
 // Keep the historical source IDs below for scene compatibility, but expose the
 // installed release as V1 in the OBS UI and logs.
-constexpr const char *kOpenStreamSourceName = "shin";
+constexpr const char *kOpenStreamSourceName = "OpenStream Camera";
 constexpr const char *kDiscoveryMulticastAddress = "239.255.43.99";
 constexpr const char *kPhoneDiscoveryPrefix = "SHIN_PHONE/1 ";
+// Legacy 1.x phones used the OpenStream namespace. Keep this adapter at the
+// discovery boundary; the engine continues to use one PhoneDevice model.
+constexpr const char *kLegacyPhoneDiscoveryPrefix = "OPENSTREAM_PHONE/1 ";
 
 #ifdef _WIN32
 using SocketHandle = SOCKET;
@@ -539,7 +542,11 @@ class PhoneDiscoveryReceiver {
     if (selected_id.empty() || selected_id == kAutoPhoneId) {
       std::optional<PhoneDevice> deprioritized;
       for (const auto &entry : core.devices_) {
-        if (entry.second.busy && entry.second.reserved_by != source_instance_id) {
+        // Automatic mode is phone initiated: an OBS source may only adopt a
+        // phone that explicitly advertised this source as its reservation.
+        // This prevents a default source from randomly grabbing a nearby
+        // available phone.
+        if (entry.second.reserved_by != source_instance_id) {
           continue;
         }
         if (!deprioritized_id.empty() && entry.second.instance_id == deprioritized_id) {
@@ -561,6 +568,8 @@ class PhoneDiscoveryReceiver {
 
  private:
   static constexpr auto kDeviceTtl = std::chrono::seconds(5);
+  // Bounded registry per AGENTS.md 3/16: capacity + overflow policy declared.
+  static constexpr size_t kMaxDevices = 64;
 
   struct Core {
     std::atomic<bool> running{false};
@@ -589,7 +598,7 @@ class PhoneDiscoveryReceiver {
   static void run_shared(Core *core) {
     SocketHandle socket = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (socket == kInvalidSocket) {
-      blog(LOG_WARNING, "[shin] Could not create phone discovery socket");
+      blog(LOG_WARNING, "[OpenStream] Could not create phone discovery socket");
       std::lock_guard<std::mutex> lock(core->mutex);
       core->running = false;
       return;
@@ -614,7 +623,7 @@ class PhoneDiscoveryReceiver {
     local.sin_port = htons(kDiscoveryPort);
     local.sin_addr.s_addr = INADDR_ANY;
     if (bind(socket, reinterpret_cast<sockaddr *>(&local), sizeof(local)) != 0) {
-      blog(LOG_WARNING, "[shin] Could not bind phone discovery UDP port");
+      blog(LOG_WARNING, "[OpenStream] Could not bind phone discovery UDP port");
       close_socket(socket);
       std::lock_guard<std::mutex> lock(core->mutex);
       core->running = false;
@@ -650,11 +659,15 @@ class PhoneDiscoveryReceiver {
         continue;
       }
       std::string payload(buffer, buffer + received);
-      if (payload.rfind(kPhoneDiscoveryPrefix, 0) != 0) {
+      const bool current_protocol = payload.rfind(kPhoneDiscoveryPrefix, 0) == 0;
+      const bool legacy_protocol = payload.rfind(kLegacyPhoneDiscoveryPrefix, 0) == 0;
+      if (!current_protocol && !legacy_protocol) {
         continue;
       }
-      const std::string json = payload.substr(std::strlen(kPhoneDiscoveryPrefix));
-      if (json_string_value(json, "type").value_or("") != "dev.shin.phone") {
+      const char *prefix = current_protocol ? kPhoneDiscoveryPrefix : kLegacyPhoneDiscoveryPrefix;
+      const std::string json = payload.substr(std::strlen(prefix));
+      const std::string type = json_string_value(json, "type").value_or("");
+      if (type != "dev.shin.phone" && type != "dev.openstream.phone") {
         continue;
       }
       char packet_host[INET_ADDRSTRLEN] = {};
@@ -692,10 +705,22 @@ class PhoneDiscoveryReceiver {
       {
         std::lock_guard<std::mutex> lock(core->mutex);
         pruneExpiredLocked(*core);
+        // Overflow policy: evict eldest (oldest last_seen) with a warning,
+        // never grow unbounded.
+        if (core->devices_.size() >= kMaxDevices &&
+            core->devices_.find(device.instance_id) == core->devices_.end()) {
+          auto eldest = core->devices_.begin();
+          for (auto it = core->devices_.begin(); it != core->devices_.end(); ++it) {
+            if (it->second.last_seen < eldest->second.last_seen) eldest = it;
+          }
+          blog(LOG_WARNING, "[OpenStream] Discovery cap (%zu) reached; evicting %s",
+               kMaxDevices, eldest->first.c_str());
+          core->devices_.erase(eldest);
+        }
         core->devices_[device.instance_id] = device;
       }
       blog(LOG_INFO,
-           "[shin] Discovered phone %s at %s:%d%s",
+           "[OpenStream] Discovered phone %s at %s:%d%s",
            device.name.c_str(),
            device.host.c_str(),
            device.port,
@@ -738,8 +763,14 @@ class DiscoveryAdvertiser {
     }
   }
 
+  void set_source_name(std::string name) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    source_name_ = std::move(name);
+  }
+
  private:
   std::string beacon_payload() const {
+    std::lock_guard<std::mutex> lock(mutex_);
     const std::string host = first_pairing_host();
     std::ostringstream payload;
     payload << "SHIN/1 {"
@@ -762,7 +793,7 @@ class DiscoveryAdvertiser {
   void run() {
     SocketHandle socket = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (socket == kInvalidSocket) {
-      blog(LOG_WARNING, "[shin] Could not create discovery UDP socket");
+      blog(LOG_WARNING, "[OpenStream] Could not create discovery UDP socket");
       return;
     }
 
@@ -810,6 +841,7 @@ class DiscoveryAdvertiser {
   }
 
   std::atomic<bool> stop_requested_ = false;
+  mutable std::mutex mutex_;
   std::thread worker_;
   int listener_port_ = 9100;
   int latency_ms_ = 120;
@@ -838,6 +870,7 @@ struct OpenStreamSource {
   int latency_ms = 120;
   int bitrate_mbps = kDefaultBitrateMbps;
   bool listener_enabled = true;
+  bool enabled = false;
   std::atomic<bool> listener_running = false;
   std::atomic<bool> phone_connected = false;
   std::atomic<bool> slot_busy = false;
@@ -869,6 +902,7 @@ struct OpenStreamSource {
   std::string active_slot_label;
   std::string active_selected_phone_id = PhoneDiscoveryReceiver::kAutoPhoneId;
   std::optional<PhoneDevice> active_phone;
+  std::string reservation_token;
   uint64_t frames_output = 0;
   uint64_t stale_video_frames = 0;
   uint64_t stale_audio_frames = 0;
@@ -881,7 +915,6 @@ struct OpenStreamSource {
 // The map holds shared ownership so a lookup can keep the source alive across
 // the lock boundary.
 std::map<obs_source_t *, std::shared_ptr<OpenStreamSource>> g_source_contexts;
-SoloCameraLease g_camera_lease;
 
 // Locked lookup returning shared ownership. Callers hold the returned
 // shared_ptr for the duration of start/stop/post work, then re-validate
@@ -919,6 +952,23 @@ bool queue_lifecycle_request(const std::shared_ptr<OpenStreamSource> &ctx,
   return true;
 }
 
+void persist_connection_enabled(const std::shared_ptr<OpenStreamSource> &ctx,
+                                bool enabled) {
+  if (!ctx) return;
+  {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    ctx->enabled = enabled;
+    ctx->listener_enabled = enabled;
+  }
+  if (!ctx->source) return;
+  obs_data_t *settings = obs_source_get_settings(ctx->source);
+  if (!settings) return;
+  obs_data_set_bool(settings, "enabled", enabled);
+  obs_data_set_bool(settings, "listener_enabled", enabled);
+  obs_source_update(ctx->source, settings);
+  obs_data_release(settings);
+}
+
 void run_lifecycle_worker(OpenStreamSource *ctx) {
   for (;;) {
     std::optional<bool> request;
@@ -954,12 +1004,12 @@ bool queue_control_command(OpenStreamSource *ctx, const std::string &path,
   const int port = phone->control_port;
   const bool queued = client->post([host, port, path, body] {
     if (!send_control_command(host, port, path, body)) {
-      blog(LOG_WARNING, "[shin] Camera command %s failed", path.c_str());
+      blog(LOG_WARNING, "[OpenStream] Camera command %s failed", path.c_str());
     }
   });
   if (!queued) {
     blog(LOG_WARNING,
-         "[shin] Camera command %s dropped: control queue is full or stopping",
+         "[OpenStream] Camera command %s dropped: control queue is full or stopping",
          path.c_str());
   }
   return queued;
@@ -1140,8 +1190,11 @@ bool reserve_phone(OpenStreamSource *ctx, PhoneDevice &phone) {
   std::ostringstream body;
   {
     std::lock_guard<std::mutex> lock(ctx->settings_mutex);
-    phone.reservation_token =
-        ctx->instance_id + "-" + std::to_string(os_gettime_ns());
+    if (ctx->reservation_token.empty()) {
+      ctx->reservation_token =
+          ctx->instance_id + "-" + std::to_string(os_gettime_ns());
+    }
+    phone.reservation_token = ctx->reservation_token;
     body << "{\"sourceInstanceId\":\"" << json_escape(ctx->instance_id) << "\","
          << "\"reservationToken\":\"" << json_escape(phone.reservation_token) << "\","
          << "\"slotId\":\"" << json_escape(ctx->slot_id) << "\","
@@ -1166,12 +1219,12 @@ void queue_release_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
         if (send_control_command(host, port, "/release", body)) {
           return true;
         }
-        blog(LOG_WARNING, "[shin] Camera reservation release failed; retrying");
+        blog(LOG_WARNING, "[OpenStream] Camera reservation release failed; retrying");
         return false;
       });
   if (!queued) {
     blog(LOG_WARNING,
-         "[shin] Camera reservation release could not be queued: control executor stopped");
+         "[OpenStream] Camera reservation release could not be queued: control executor stopped");
   }
 }
 
@@ -1251,125 +1304,12 @@ void openstream_stop_worker(OpenStreamSource *ctx) {
   if (reserved_phone.has_value()) {
     queue_release_phone(ctx, *reserved_phone);
   }
+  {
+    std::lock_guard<std::mutex> settings_lock(ctx->settings_mutex);
+    ctx->reservation_token.clear();
+  }
   set_active_phone(ctx, std::nullopt);
   set_slot_status(ctx, "Offline");
-  g_camera_lease.release(ctx);
-}
-
-bool open_video_decoder(AVFormatContext *format_ctx,
-                        int *video_stream_index,
-                        CodecContextPtr *decoder_ctx) {
-  const int stream_result = avformat_find_stream_info(format_ctx, nullptr);
-  if (stream_result < 0) {
-    blog(LOG_WARNING,
-         "[shin] Could not read stream info: %s",
-         av_error(stream_result).c_str());
-    return false;
-  }
-
-  const int best_stream = av_find_best_stream(
-      format_ctx, type, -1, -1, nullptr, 0);
-  if (best_stream < 0) {
-    blog(LOG_WARNING,
-         "[shin] No video stream found in SRT input: %s",
-         av_error(best_stream).c_str());
-    return false;
-  }
-
-  AVStream *stream = format_ctx->streams[best_stream];
-  const AVCodec *decoder = avcodec_find_decoder(stream->codecpar->codec_id);
-  if (!decoder) {
-    blog(LOG_WARNING,
-         "[shin] No FFmpeg decoder found for codec id %d",
-         stream->codecpar->codec_id);
-    return false;
-  }
-
-  if (!is_audio) {
-    // Hardware decode probe with explicit software fallback (AGENTS.md rules
-    // 9/18: never enable a software codec silently; HW must have an explicit
-    // fallback and warning). Full zero-copy AVHWFramesContext wiring is still
-    // TODO; today we probe device availability so the fallback is explicit and
-    // logged instead of silent. This never re-encodes ISO video (rule 2).
-    const char *codec_name = avcodec_get_name(stream->codecpar->codec_id);
-    blog(LOG_INFO, "[shin] Probing hardware decode for codec %s",
-         codec_name ? codec_name : "unknown");
-    bool hw_device_available = false;
-#ifdef _WIN32
-    for (const char *hw_name : {"d3d11va", "qsv"}) {
-      const AVHWDeviceType hw_type = av_hwdevice_find_type_by_name(hw_name);
-      if (hw_type == AV_HWDEVICE_TYPE_NONE) continue;
-      AVBufferRef *probe = nullptr;
-      if (av_hwdevice_ctx_create(&probe, hw_type, nullptr, nullptr, 0) == 0) {
-        av_buffer_unref(&probe);
-        hw_device_available = true;
-        blog(LOG_INFO, "[shin] HW decode device %s available", hw_name);
-        break;
-      }
-    }
-#else
-    for (const char *hw_name : {"vaapi", "qsv", "videotoolbox", "drm"}) {
-#endif
-      const AVHWDeviceType hw_type = av_hwdevice_find_type_by_name(hw_name);
-      if (hw_type == AV_HWDEVICE_TYPE_NONE) continue;
-      AVBufferRef *probe = nullptr;
-      if (av_hwdevice_ctx_create(&probe, hw_type, nullptr, nullptr, 0) == 0) {
-        av_buffer_unref(&probe);
-        hw_device_available = true;
-        blog(LOG_INFO, "[shin] HW decode device %s available", hw_name);
-        break;
-      }
-    }
-    if (!hw_device_available) {
-      blog(LOG_WARNING,
-           "[shin] No hardware decode device available; using explicit "
-           "software decode fallback (codec=%s)",
-           codec_name ? codec_name : "unknown");
-    } else {
-      // TODO(hw-frames): attach AVHWFramesContext/get_format to decoder_ctx
-      // for zero-copy output; until then fall back explicitly with warning.
-      blog(LOG_WARNING,
-           "[shin] Hardware device present but zero-copy HW frame path "
-           "not wired yet; using explicit software decode fallback (codec=%s)",
-           codec_name ? codec_name : "unknown");
-    }
-  }
-
-  CodecContextPtr codec_ctx(avcodec_alloc_context3(decoder));
-  if (!codec_ctx) {
-    blog(LOG_WARNING, "[shin] Could not allocate decoder context");
-    return false;
-  }
-
-  int result = avcodec_parameters_to_context(codec_ctx.get(), stream->codecpar);
-  if (result < 0) {
-    blog(LOG_WARNING,
-         "[shin] Could not copy decoder parameters: %s",
-         av_error(result).c_str());
-    return false;
-  }
-
-  if (!is_audio) {
-    codec_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
-  }
-  result = avcodec_open2(codec_ctx.get(), decoder, nullptr);
-  if (result < 0) {
-    blog(LOG_WARNING,
-         "[shin] Could not open decoder: %s",
-         av_error(result).c_str());
-    return false;
-  }
-
-  *stream_index = best_stream;
-  *decoder_ctx = std::move(codec_ctx);
-  if (is_audio) {
-    blog(LOG_INFO,
-         "[OpenStream] Opened audio decoder: %s, %d Hz, %d channels",
-         avcodec_get_name(stream->codecpar->codec_id),
-         stream->codecpar->sample_rate,
-         stream->codecpar->ch_layout.nb_channels);
-  }
-  return true;
 }
 
 bool open_video_decoder(AVFormatContext *format_ctx,
@@ -1383,8 +1323,100 @@ bool open_video_decoder(AVFormatContext *format_ctx,
     return false;
   }
 
-  return open_decoder(format_ctx, AVMEDIA_TYPE_VIDEO, video_stream_index,
-                      decoder_ctx);
+  const int best_stream = av_find_best_stream(
+      format_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
+  if (best_stream < 0) {
+    blog(LOG_WARNING,
+         "[OpenStream] No video stream found in SRT input: %s",
+         av_error(best_stream).c_str());
+    return false;
+  }
+
+  AVStream *stream = format_ctx->streams[best_stream];
+  const AVCodec *decoder = avcodec_find_decoder(stream->codecpar->codec_id);
+  if (!decoder) {
+    blog(LOG_WARNING,
+         "[OpenStream] No FFmpeg decoder found for codec id %d",
+         stream->codecpar->codec_id);
+    return false;
+  }
+
+  // Hardware decode probe with explicit software fallback (AGENTS.md rules
+  // 9/18: never enable a software codec silently; HW must have an explicit
+  // fallback and warning). Full zero-copy AVHWFramesContext wiring is still
+  // TODO; today we probe device availability so the fallback is explicit and
+  // logged instead of silent. This never re-encodes ISO video (rule 2).
+  {
+    const char *codec_name = avcodec_get_name(stream->codecpar->codec_id);
+    blog(LOG_INFO, "[OpenStream] Probing hardware decode for codec %s",
+         codec_name ? codec_name : "unknown");
+    bool hw_device_available = false;
+#ifdef _WIN32
+    for (const char *hw_name : {"d3d11va", "qsv"}) {
+      const AVHWDeviceType hw_type = av_hwdevice_find_type_by_name(hw_name);
+      if (hw_type == AV_HWDEVICE_TYPE_NONE) continue;
+      AVBufferRef *probe = nullptr;
+      if (av_hwdevice_ctx_create(&probe, hw_type, nullptr, nullptr, 0) == 0) {
+        av_buffer_unref(&probe);
+        hw_device_available = true;
+        blog(LOG_INFO, "[OpenStream] HW decode device %s available", hw_name);
+        break;
+      }
+    }
+#else
+    for (const char *hw_name : {"vaapi", "qsv", "videotoolbox", "drm"}) {
+      const AVHWDeviceType hw_type = av_hwdevice_find_type_by_name(hw_name);
+      if (hw_type == AV_HWDEVICE_TYPE_NONE) continue;
+      AVBufferRef *probe = nullptr;
+      if (av_hwdevice_ctx_create(&probe, hw_type, nullptr, nullptr, 0) == 0) {
+        av_buffer_unref(&probe);
+        hw_device_available = true;
+        blog(LOG_INFO, "[OpenStream] HW decode device %s available", hw_name);
+        break;
+      }
+    }
+#endif
+    if (!hw_device_available) {
+      blog(LOG_WARNING,
+           "[OpenStream] No hardware decode device available; using explicit "
+           "software decode fallback (codec=%s)",
+           codec_name ? codec_name : "unknown");
+    } else {
+      // TODO(hw-frames): attach AVHWFramesContext/get_format to decoder_ctx
+      // for zero-copy output; until then fall back explicitly with warning.
+      blog(LOG_WARNING,
+           "[OpenStream] Hardware device present but zero-copy HW frame path "
+           "not wired yet; using explicit software decode fallback (codec=%s)",
+           codec_name ? codec_name : "unknown");
+    }
+  }
+
+  CodecContextPtr codec_ctx(avcodec_alloc_context3(decoder));
+  if (!codec_ctx) {
+    blog(LOG_WARNING, "[OpenStream] Could not allocate decoder context");
+    return false;
+  }
+
+  int result = avcodec_parameters_to_context(codec_ctx.get(), stream->codecpar);
+  if (result < 0) {
+    blog(LOG_WARNING,
+         "[OpenStream] Could not copy decoder parameters: %s",
+         av_error(result).c_str());
+    return false;
+  }
+
+  codec_ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
+  result = avcodec_open2(codec_ctx.get(), decoder, nullptr);
+  if (result < 0) {
+    blog(LOG_WARNING,
+         "[OpenStream] Could not open decoder: %s",
+         av_error(result).c_str());
+    return false;
+  }
+
+  *video_stream_index = best_stream;
+  *decoder_ctx = std::move(codec_ctx);
+  return true;
 }
 
 bool open_audio_decoder(AVFormatContext *format_ctx,
@@ -1393,7 +1425,7 @@ bool open_audio_decoder(AVFormatContext *format_ctx,
   const int best_stream = av_find_best_stream(
       format_ctx, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
   if (best_stream < 0) {
-    blog(LOG_INFO, "[shin] No audio stream found (video-only mode)");
+    blog(LOG_INFO, "[OpenStream] No audio stream found (video-only mode)");
     *audio_stream_index = -1;
     return false;
   }
@@ -1402,7 +1434,7 @@ bool open_audio_decoder(AVFormatContext *format_ctx,
   const AVCodec *decoder = avcodec_find_decoder(stream->codecpar->codec_id);
   if (!decoder) {
     blog(LOG_WARNING,
-         "[shin] No audio decoder found for codec id %d",
+         "[OpenStream] No audio decoder found for codec id %d",
          stream->codecpar->codec_id);
     *audio_stream_index = -1;
     return false;
@@ -1423,7 +1455,7 @@ bool open_audio_decoder(AVFormatContext *format_ctx,
   result = avcodec_open2(codec_ctx.get(), decoder, nullptr);
   if (result < 0) {
     blog(LOG_WARNING,
-         "[shin] Could not open audio decoder: %s",
+         "[OpenStream] Could not open audio decoder: %s",
          av_error(result).c_str());
     *audio_stream_index = -1;
     return false;
@@ -1432,7 +1464,7 @@ bool open_audio_decoder(AVFormatContext *format_ctx,
   *audio_stream_index = best_stream;
   *decoder_ctx = std::move(codec_ctx);
   blog(LOG_INFO,
-       "[shin] Opened audio decoder: %s, %d Hz, %d channels",
+       "[OpenStream] Opened audio decoder: %s, %d Hz, %d channels",
        avcodec_get_name(stream->codecpar->codec_id),
        stream->codecpar->sample_rate,
        stream->codecpar->ch_layout.nb_channels);
@@ -1499,7 +1531,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
                                                 yuv_frame.color_matrix,
                                                 yuv_frame.color_range_min,
                                                 yuv_frame.color_range_max)) {
-      blog(LOG_WARNING, "[shin] Could not calculate OBS YUV color parameters");
+      blog(LOG_WARNING, "[OpenStream] Could not calculate OBS YUV color parameters");
       return false;
     }
 
@@ -1508,7 +1540,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
     if (frames_output == 1 || frames_output % 300 == 0) {
       const char *format_name = av_get_pix_fmt_name(source_format);
       blog(LOG_INFO,
-           "[shin] Output %" PRIu64 " decoded YUV frame(s) to OBS (%dx%d, source format=%s)",
+           "[OpenStream] Output %" PRIu64 " decoded YUV frame(s) to OBS (%dx%d, source format=%s)",
            frames_output,
            width,
            height,
@@ -1531,7 +1563,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
       nullptr,
       nullptr);
   if (!scaled) {
-    blog(LOG_WARNING, "[shin] Could not create BGRA converter");
+    blog(LOG_WARNING, "[OpenStream] Could not create BGRA converter");
     return false;
   }
   if (scaled != current_sws) {
@@ -1554,7 +1586,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
                                    dst_data,
                                    dst_linesize);
   if (scaled_rows != height) {
-    blog(LOG_WARNING, "[shin] Incomplete frame conversion");
+    blog(LOG_WARNING, "[OpenStream] Incomplete frame conversion");
     return false;
   }
 
@@ -1577,7 +1609,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
   if (frames_output == 1 || frames_output % 300 == 0) {
     const char *format_name = av_get_pix_fmt_name(source_format);
     blog(LOG_INFO,
-         "[shin] Output %" PRIu64 " decoded BGRA frame(s) to OBS (%dx%d, source format=%s)",
+         "[OpenStream] Output %" PRIu64 " decoded BGRA frame(s) to OBS (%dx%d, source format=%s)",
          frames_output,
          width,
          height,
@@ -1630,7 +1662,7 @@ uint64_t decode_packets(OpenStreamSource *ctx,
   FramePtr frame(av_frame_alloc());
   FramePtr audio_frame(av_frame_alloc());
   if (!packet || !frame || !audio_frame) {
-    blog(LOG_WARNING, "[shin] Could not allocate decode packet/frame");
+    blog(LOG_WARNING, "[OpenStream] Could not allocate decode packet/frame");
     return 0;
   }
 
@@ -1655,7 +1687,7 @@ uint64_t decode_packets(OpenStreamSource *ctx,
       }
       if (result < 0) {
         blog(LOG_WARNING,
-             "[shin] Could not decode frame: %s",
+             "[OpenStream] Could not decode frame: %s",
              av_error(result).c_str());
         return result;
       }
@@ -1668,14 +1700,14 @@ uint64_t decode_packets(OpenStreamSource *ctx,
                                     : std::nullopt;
       if (video_discontinuity) {
         blog(LOG_WARNING,
-             "[shin] MediaClock discontinuity: video gap surfaced "
+             "[OpenStream] MediaClock discontinuity: video gap surfaced "
              "(jump exceeded %lld ms; total media gaps=%" PRIu64 ")",
              static_cast<long long>(MediaClock::kMaxJumpNs / 1'000'000),
              media_clock.gap_count());
       }
       if (!timestamp_ns) {
         blog(LOG_WARNING,
-             "[shin] Dropping video frame without a usable source timestamp (media gap surfaced)");
+             "[OpenStream] Dropping video frame without a usable source timestamp (media gap surfaced)");
         av_frame_unref(frame.get());
         continue;
       }
@@ -1683,7 +1715,7 @@ uint64_t decode_packets(OpenStreamSource *ctx,
         const uint64_t dropped = ++ctx->stale_video_frames;
         if (dropped == 1 || dropped % 60 == 0) {
           blog(LOG_WARNING,
-               "[shin] Dropped stale video frame(s): %" PRIu64
+               "[OpenStream] Dropped stale video frame(s): %" PRIu64
                " (receiver backlog exceeded %u ms; media gap surfaced)",
                dropped,
                static_cast<unsigned>(kMaximumMediaBacklogNs / 1'000'000));
@@ -1698,6 +1730,9 @@ uint64_t decode_packets(OpenStreamSource *ctx,
                                &sws_ctx,
                                &bgra_buffer)) {
         ++video_frames_output;
+        if (video_frames_output == 1) {
+          set_slot_status(ctx, "Live");
+        }
       }
       av_frame_unref(frame.get());
     }
@@ -1739,14 +1774,14 @@ uint64_t decode_packets(OpenStreamSource *ctx,
                                     : std::nullopt;
       if (audio_discontinuity) {
         blog(LOG_WARNING,
-             "[shin] MediaClock discontinuity: audio gap surfaced "
+             "[OpenStream] MediaClock discontinuity: audio gap surfaced "
              "(jump exceeded %lld ms; total media gaps=%" PRIu64 ")",
              static_cast<long long>(MediaClock::kMaxJumpNs / 1'000'000),
              media_clock.gap_count());
       }
       if (!timestamp_ns) {
         blog(LOG_WARNING,
-             "[shin] Dropping audio frame without a usable source timestamp (media gap surfaced)");
+             "[OpenStream] Dropping audio frame without a usable source timestamp (media gap surfaced)");
         av_frame_unref(audio_frame.get());
         continue;
       }
@@ -1754,7 +1789,7 @@ uint64_t decode_packets(OpenStreamSource *ctx,
         const uint64_t dropped = ++ctx->stale_audio_frames;
         if (dropped == 1 || dropped % 100 == 0) {
           blog(LOG_WARNING,
-               "[shin] Dropped stale audio frame(s): %" PRIu64
+               "[OpenStream] Dropped stale audio frame(s): %" PRIu64
                " (audio gap surfaced)",
                dropped);
         }
@@ -1776,7 +1811,7 @@ uint64_t decode_packets(OpenStreamSource *ctx,
       ++audio_frames_output;
       if (audio_frames_output == 1 || audio_frames_output % 1000 == 0) {
         blog(LOG_INFO,
-             "[shin] Output %" PRIu64 " decoded audio frame(s) (%d Hz, %d ch)",
+             "[OpenStream] Output %" PRIu64 " decoded audio frame(s) (%d Hz, %d ch)",
              audio_frames_output,
              sample_rate,
              channels);
@@ -1797,7 +1832,7 @@ uint64_t decode_packets(OpenStreamSource *ctx,
     }
     if (read_result < 0) {
       blog(LOG_INFO,
-           "[shin] SRT input ended or disconnected: %s",
+           "[OpenStream] SRT input ended or disconnected: %s",
            av_error(read_result).c_str());
       break;
     }
@@ -1815,7 +1850,7 @@ uint64_t decode_packets(OpenStreamSource *ctx,
       av_packet_unref(packet.get());
       if (result < 0) {
         blog(LOG_WARNING,
-             "[shin] Could not send packet to decoder: %s",
+             "[OpenStream] Could not send packet to decoder: %s",
              av_error(result).c_str());
         continue;
       }
@@ -1882,7 +1917,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
             effective_phone_id = reconnect_phone_id;
           } else {
             blog(LOG_INFO,
-                 "[shin] Reconnect hold expired; allowing %s to choose another phone",
+                 "[OpenStream] Reconnect hold expired; allowing %s to choose another phone",
                  ctx->slot_label.c_str());
             expired_reconnect_phone_id = reconnect_phone_id;
             reconnect_phone_id.clear();
@@ -1900,11 +1935,11 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
           break;
         }
         if (auto_phone_selection && !reconnect_phone_id.empty()) {
-          blog(LOG_INFO, "[shin] Waiting for previously connected Android phone");
+          blog(LOG_INFO, "[OpenStream] Waiting for previously connected Android phone");
         } else if (auto_phone_selection) {
-          blog(LOG_INFO, "[shin] Waiting for available Android phone");
+          blog(LOG_INFO, "[OpenStream] Waiting for available Android phone");
         } else {
-          blog(LOG_INFO, "[shin] Waiting for selected Android phone");
+          blog(LOG_INFO, "[OpenStream] Waiting for selected Android phone");
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
       }
@@ -1916,12 +1951,16 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
         break;
       }
       reserved_phone = phone;
-      set_slot_status(ctx, "Reserved");
       set_active_phone(ctx, phone);
       srt_url = "srt://" + phone->host + ":" + std::to_string(phone->port) +
                 "?mode=caller&latency=" + std::to_string(phone->latency_ms);
+      // Distinguish control-OK vs media-blocked: reserve can succeed on TCP
+      // 9101 while SRT 9100 is firewalled/isolated. Surface the media target
+      // so "Reserved" is diagnosable instead of stuck.
+      set_slot_status(ctx, "Reserved — waiting for SRT media to " + phone->host + ":" +
+                               std::to_string(phone->port));
       blog(LOG_INFO,
-           "[shin] Connecting source to phone %s at %s",
+           "[OpenStream] Connecting source to phone %s at %s (control OK; waiting for media)",
            phone->name.c_str(),
            srt_url.c_str());
     } else {
@@ -1938,7 +1977,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     AVFormatContext *raw_format_ctx = nullptr;
     raw_format_ctx = avformat_alloc_context();
     if (!raw_format_ctx) {
-      blog(LOG_WARNING, "[shin] Could not allocate FFmpeg format context");
+      blog(LOG_WARNING, "[OpenStream] Could not allocate FFmpeg format context");
       break;
     }
     raw_format_ctx->interrupt_callback.callback = ffmpeg_interrupt_callback;
@@ -1953,7 +1992,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     av_dict_set_int(&options, "connect_timeout", kSrtConnectTimeoutMs, 0);
 
     blog(LOG_INFO,
-         "[shin] Opening Android stream at %s",
+         "[OpenStream] Opening Android stream at %s",
          srt_url.c_str());
     const AVInputFormat *mpegts_input = av_find_input_format("mpegts");
     int result =
@@ -1962,7 +2001,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     if (result < 0) {
       if (!ctx->stop_requested.load()) {
         blog(LOG_WARNING,
-             "[shin] Could not open SRT input: %s",
+             "[OpenStream] Could not open SRT input: %s",
              av_error(result).c_str());
         avformat_close_input(&raw_format_ctx);
         if (reserved_phone.has_value()) {
@@ -1982,7 +2021,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     FormatContextPtr format_ctx(raw_format_ctx);
     raw_format_ctx = nullptr;
     ctx->phone_connected = true;
-    set_slot_status(ctx, "Live");
+    set_slot_status(ctx, "Receiving video");
     ctx->stale_video_frames = 0;
     ctx->stale_audio_frames = 0;
 
@@ -2011,7 +2050,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     const AVCodecParameters *codecpar =
         format_ctx->streams[video_stream_index]->codecpar;
     blog(LOG_INFO,
-         "[shin] Receiving %dx%d video stream codec=%s%s",
+         "[OpenStream] Receiving %dx%d video stream codec=%s%s",
          codecpar->width,
          codecpar->height,
          avcodec_get_name(codecpar->codec_id),
@@ -2027,7 +2066,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     if (!ctx->stop_requested.load()) {
       hold_phone_for_reconnect(reserved_phone);
       set_slot_status(ctx, "Reconnecting");
-      blog(LOG_INFO, "[shin] Holding %s for reconnect",
+      blog(LOG_INFO, "[OpenStream] Holding %s for reconnect",
            ctx->slot_label.c_str());
       std::this_thread::sleep_for(std::chrono::milliseconds(500));
       continue;
@@ -2040,8 +2079,22 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
   ctx->listener_running = false;
   ctx->phone_connected = false;
   set_slot_status(ctx, "Offline");
+  // Release-before-clear: the phone must see /release while we still hold its
+  // token. queue_release_phone is bounded/non-blocking (urgent capacity 4,
+  // drop-newest), so worker exit never stalls on an unreachable phone.
+  // Destroy order guarantees the executor is still running here:
+  // openstream_destroy joins this worker via openstream_stop_worker before
+  // camera_controls->stop(), so the release is queued, not lost.
+  std::optional<PhoneDevice> final_phone_to_release;
+  {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    final_phone_to_release = ctx->active_phone;
+  }
+  if (final_phone_to_release.has_value()) {
+    queue_release_phone(ctx, *final_phone_to_release);
+  }
   set_active_phone(ctx, std::nullopt);
-  blog(LOG_INFO, "[shin] Listener worker exited");
+  blog(LOG_INFO, "[OpenStream] Listener worker exited");
 }
 
 void openstream_start_worker(OpenStreamSource *ctx) {
@@ -2095,12 +2148,6 @@ void openstream_start_worker(OpenStreamSource *ctx) {
 
   openstream_stop_worker(ctx);
 
-  if (!g_camera_lease.acquire(ctx)) {
-    set_slot_status(ctx, "Another shin camera is active. Use Add Existing to reuse it, or stop it before retrying.");
-    blog(LOG_WARNING, "[shin] Additional camera session blocked: solo-camera mode permits one active source");
-    return;
-  }
-
   ctx->active_srt_url = srt_url;
   ctx->active_listener_port = listener_port;
   ctx->active_latency_ms = latency_ms;
@@ -2132,7 +2179,14 @@ void openstream_update(void *data, obs_data_t *settings) {
   bool should_start = false;
   {
     std::lock_guard<std::mutex> lock(ctx->settings_mutex);
-    ctx->listener_enabled = obs_data_get_bool(settings, "listener_enabled");
+    // Older saved scenes only have listener_enabled. An explicit enabled
+    // value takes precedence, including enabled=false.
+    ctx->enabled = obs_data_has_user_value(settings, "enabled")
+                       ? obs_data_get_bool(settings, "enabled")
+                       : obs_data_get_bool(settings, "listener_enabled");
+    ctx->listener_enabled = ctx->enabled;
+    obs_data_set_bool(settings, "enabled", ctx->enabled);
+    obs_data_set_bool(settings, "listener_enabled", ctx->enabled);
     ctx->device_name = obs_data_get_string(settings, "device_name");
     int requested_port = static_cast<int>(obs_data_get_int(settings, "listener_port"));
     if (requested_port <= 0) {
@@ -2180,7 +2234,7 @@ void openstream_update(void *data, obs_data_t *settings) {
                                             ctx->slot_id,
                                             ctx->slot_label,
                                             ctx->instance_id);
-    ctx->pairing_hint = "Open shin on your phone, choose " + ctx->slot_label +
+    ctx->pairing_hint = "Open OpenStream on your phone, choose " + ctx->slot_label +
                         ", and keep both devices on the same Wi-Fi. Pairing URL is in Advanced.";
     const std::vector<PhoneDevice> phones = ctx->phone_discovery.devices();
     ctx->phone_target_hint = "Waiting for a phone to choose " + ctx->slot_label;
@@ -2207,7 +2261,7 @@ void openstream_update(void *data, obs_data_t *settings) {
     obs_data_set_string(settings, "phone_target_hint", ctx->phone_target_hint.c_str());
     obs_data_set_string(settings, "pairing_hint", ctx->pairing_hint.c_str());
     obs_data_set_string(settings, "pairing_url", ctx->pairing_url.c_str());
-    should_start = ctx->listener_enabled;
+    should_start = ctx->enabled;
   }
   if (should_start) {
     queue_lifecycle_request(lookup_source_context_by_raw(ctx), true);
@@ -2278,7 +2332,10 @@ void openstream_destroy(void *data) {
 }
 
 void openstream_defaults(obs_data_t *settings) {
-  obs_data_set_default_bool(settings, "listener_enabled", true);
+  obs_data_set_default_bool(settings, "enabled", false);
+  // Retain the old key for saved scenes and third party callers. Connection
+  // actions update the canonical enabled key below.
+  obs_data_set_default_bool(settings, "listener_enabled", false);
   obs_data_set_default_string(settings, "device_name", "Phone Camera");
   obs_data_set_default_string(settings, "slot_id", "");
   obs_data_set_default_string(settings, "source_instance_id", "");
@@ -2286,8 +2343,8 @@ void openstream_defaults(obs_data_t *settings) {
   obs_data_set_default_string(settings, "slot_status", "Waiting for phone");
   obs_data_set_default_string(settings, "srt_url", "shin:auto");
   obs_data_set_default_string(settings, "selected_phone_id", PhoneDiscoveryReceiver::kAutoPhoneId);
-  obs_data_set_default_string(settings, "phone_target_hint", "Open shin on your phone to pair");
-  obs_data_set_default_string(settings, "pairing_hint", "Open shin on your phone and choose this OBS computer. Keep both devices on the same Wi-Fi.");
+  obs_data_set_default_string(settings, "phone_target_hint", "Open OpenStream on your phone to pair");
+  obs_data_set_default_string(settings, "pairing_hint", "Open OpenStream on your phone and choose this OBS computer. Keep both devices on the same Wi-Fi.");
   obs_data_set_default_string(settings, "pairing_url", "shin://connect");
   obs_data_set_default_bool(settings, "show_advanced", false);
   obs_data_set_default_bool(settings, "manual_receive", false);
@@ -2295,47 +2352,6 @@ void openstream_defaults(obs_data_t *settings) {
   obs_data_set_default_int(settings, "latency_ms", 120);
   obs_data_set_default_int(settings, "bitrate_mbps", kDefaultBitrateMbps);
   obs_data_set_default_double(settings, "cam_zoom", 1.0);
-}
-
-// Fixed camera-command buttons: one table + one callback instead of four
-// near-identical lambdas. obs_properties_add_button takes a C function
-// pointer (no captures), so the per-button path/body is recovered from the
-// property name.
-struct CameraCommandButton {
-  const char *id;
-  const char *label;
-  const char *path;
-  const char *body;
-  const char *done_log;
-};
-
-constexpr CameraCommandButton kCameraCommandButtons[] = {
-    {"cam_torch_on", "Torch On", "/torch", "{\"enabled\":true}", "Torch ON"},
-    {"cam_torch_off", "Torch Off", "/torch", "{\"enabled\":false}", "Torch OFF"},
-    {"cam_lens_back", "Rear Camera", "/lens", "{\"lens\":\"1×\"}",
-     "Switch to back camera"},
-    {"cam_lens_front", "Front Camera", "/lens", "{\"lens\":\"Front\"}",
-     "Switch to front camera"},
-};
-
-bool camera_command_button_clicked(obs_properties_t *, obs_property_t *prop,
-                                   void *data) {
-  const char *name = prop ? obs_property_name(prop) : nullptr;
-  const CameraCommandButton *button = nullptr;
-  if (name) {
-    for (const auto &candidate : kCameraCommandButtons) {
-      if (std::strcmp(candidate.id, name) == 0) {
-        button = &candidate;
-        break;
-      }
-    }
-  }
-  if (!button) return false;
-  auto *ctx = static_cast<OpenStreamSource *>(data);
-  if (!ctx) return false;
-  if (!queue_control_command(ctx, button->path, button->body)) return false;
-  blog(LOG_INFO, "[OpenStream] %s", button->done_log);
-  return true;
 }
 
 obs_properties_t *openstream_properties(void *data) {
@@ -2440,12 +2456,13 @@ obs_properties_t *openstream_properties(void *data) {
       "Refreshes the discovered phone list without closing this properties window.");
 
   obs_property_t *connect_button =
-      obs_properties_add_button(slot_group, "connect", "Start / Retry Connection", [](obs_properties_t *, obs_property_t *, void *data) {
+      obs_properties_add_button(slot_group, "connect", "Test connection", [](obs_properties_t *, obs_property_t *, void *data) {
     auto *raw = static_cast<OpenStreamSource *>(data);
     const auto owned = lookup_source_context_by_raw(raw);
     if (!owned) {
       return false;
     }
+    persist_connection_enabled(owned, true);
     return queue_lifecycle_request(owned, true);
   });
   obs_property_set_long_description(
@@ -2453,17 +2470,18 @@ obs_properties_t *openstream_properties(void *data) {
       "Connects your phone, or retries the current connection.");
 
   obs_property_t *disconnect_button =
-      obs_properties_add_button(slot_group, "disconnect", "Stop Camera", [](obs_properties_t *, obs_property_t *, void *data) {
+      obs_properties_add_button(slot_group, "disconnect", "Disconnect / release phone", [](obs_properties_t *, obs_property_t *, void *data) {
     auto *raw = static_cast<OpenStreamSource *>(data);
     const auto owned = lookup_source_context_by_raw(raw);
     if (!owned) {
       return false;
     }
+    persist_connection_enabled(owned, false);
     return queue_lifecycle_request(owned, false);
   });
   obs_property_set_long_description(
       disconnect_button,
-      "Stops this OBS source from listening without removing it from the scene.");
+      "Stops the stream and releases the phone reservation (use when stuck on Reserved).");
 
   obs_properties_add_group(props, "slot_setup", "1. Camera", OBS_GROUP_NORMAL, slot_group);
 
@@ -2513,38 +2531,8 @@ obs_properties_t *openstream_properties(void *data) {
     return false;
   }, static_cast<OpenStreamSource *>(data));
 
-  obs_properties_add_button(camera_group, "cam_torch_on", "Torch On", [](obs_properties_t *, obs_property_t *, void *data) {
-    auto *ctx = static_cast<OpenStreamSource *>(data);
-    if (!ctx) return false;
-    if (!queue_control_command(ctx, "/torch", "{\"enabled\":true}")) return false;
-    blog(LOG_INFO, "[shin] Torch ON");
-    return true;
-  });
-
-  obs_properties_add_button(camera_group, "cam_torch_off", "Torch Off", [](obs_properties_t *, obs_property_t *, void *data) {
-    auto *ctx = static_cast<OpenStreamSource *>(data);
-    if (!ctx) return false;
-    if (!queue_control_command(ctx, "/torch", "{\"enabled\":false}")) return false;
-    blog(LOG_INFO, "[shin] Torch OFF");
-    return true;
-  });
-
-  obs_properties_add_button(camera_group, "cam_lens_back", "Rear Camera", [](obs_properties_t *, obs_property_t *, void *data) {
-    auto *ctx = static_cast<OpenStreamSource *>(data);
-    if (!ctx) return false;
-    if (!queue_control_command(ctx, "/lens", "{\"lens\":\"1×\"}")) return false;
-    blog(LOG_INFO, "[shin] Switch to back camera");
-    return true;
-  });
-
-  obs_properties_add_button(camera_group, "cam_lens_front", "Front Camera", [](obs_properties_t *, obs_property_t *, void *data) {
-    auto *ctx = static_cast<OpenStreamSource *>(data);
-    if (!ctx) return false;
-    if (!queue_control_command(ctx, "/lens", "{\"lens\":\"Front\"}")) return false;
-    blog(LOG_INFO, "[shin] Switch to front camera");
-    return true;
-  });
-
+  // Minimal live controls: Zoom + Identify only. Torch/lens live in the dock
+  // (peer-bound, bounded send) so the two surfaces do not duplicate commands.
   obs_properties_add_button(camera_group, "identify_camera", "Identify Phone", [](obs_properties_t *, obs_property_t *, void *data) {
     auto *ctx = static_cast<OpenStreamSource *>(data);
     if (!ctx) return false;
@@ -2553,13 +2541,13 @@ obs_properties_t *openstream_properties(void *data) {
          << "\"subtitle\":\"" << json_escape(ctx->device_name) << "\"}";
     const bool sent = queue_control_command(ctx, "/identify", body.str());
     blog(LOG_INFO,
-         "[shin] Identify %s%s",
+         "[OpenStream] Identify %s%s",
          ctx->slot_label.c_str(),
          sent ? "" : " failed");
     return sent;
   });
 
-  obs_properties_add_group(props, "camera_controls", "2. Live Camera Controls", OBS_GROUP_NORMAL, camera_group);
+  obs_properties_add_group(props, "camera_controls", "2. Live Camera Controls (Zoom + Test)", OBS_GROUP_NORMAL, camera_group);
   obs_properties_add_text(props, "credit", "About", OBS_TEXT_INFO);
 
   return props;
@@ -2613,6 +2601,7 @@ bool openstream_start_camera_source(obs_source_t *source) {
   return forward_to_camera(
       source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
         if (!owned) return false;
+        persist_connection_enabled(owned, true);
         return queue_lifecycle_request(owned, true);
       });
 }
@@ -2621,8 +2610,86 @@ bool openstream_stop_camera_source(obs_source_t *source) {
   return forward_to_camera(
       source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
         if (!owned) return false;
+        persist_connection_enabled(owned, false);
         return queue_lifecycle_request(owned, false);
       });
+}
+
+size_t openstream_camera_phone_count(obs_source_t *source) {
+  return forward_to_camera(source, [](const std::shared_ptr<OpenStreamSource> &owned) {
+    return owned ? owned->phone_discovery.devices().size() : 0u;
+  });
+}
+
+const char *openstream_camera_phone_id(obs_source_t *source, size_t index) {
+  thread_local std::string value;
+  value.clear();
+  forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    if (!owned) return 0;
+    const auto phones = owned->phone_discovery.devices();
+    if (index < phones.size()) value = phones[index].instance_id;
+    return 0;
+  });
+  return value.c_str();
+}
+
+const char *openstream_camera_phone_name(obs_source_t *source, size_t index) {
+  thread_local std::string value;
+  value.clear();
+  forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    if (!owned) return 0;
+    const auto phones = owned->phone_discovery.devices();
+    if (index < phones.size()) value = phone_label(phones[index]);
+    return 0;
+  });
+  return value.c_str();
+}
+
+bool openstream_select_camera_phone(obs_source_t *source, const char *phone_id) {
+  if (!phone_id || !phone_id[0]) return false;
+  return forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    if (!owned) return false;
+    const auto phones = owned->phone_discovery.devices();
+    const auto found = std::find_if(phones.begin(), phones.end(), [&](const PhoneDevice &phone) {
+      return phone.instance_id == phone_id;
+    });
+    if (found == phones.end()) return false;
+    {
+      std::lock_guard<std::mutex> lock(owned->settings_mutex);
+      owned->selected_phone_id = phone_id;
+    }
+    if (!owned->source) return true;
+    obs_data_t *settings = obs_source_get_settings(owned->source);
+    if (!settings) return true;
+    obs_data_set_string(settings, "selected_phone_id", phone_id);
+    obs_source_update(owned->source, settings);
+    obs_data_release(settings);
+    return true;
+  });
+}
+
+bool openstream_set_camera_label(obs_source_t *source, const char *label) {
+  if (!label || !label[0] || std::strlen(label) > 128) return false;
+  return forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    if (!owned) return false;
+    {
+      std::lock_guard<std::mutex> lock(owned->settings_mutex);
+      owned->device_name = label;
+      owned->slot_label = label;
+      owned->pairing_hint = "Open OpenStream on your phone, choose " + owned->slot_label +
+                            ", and keep both devices on the same Wi-Fi.";
+    }
+    owned->discovery.set_source_name(label);
+    if (owned->source) {
+      obs_data_t *settings = obs_source_get_settings(owned->source);
+      if (settings) {
+        obs_data_set_string(settings, "device_name", label);
+        obs_data_set_string(settings, "slot_label", label);
+        obs_data_release(settings);
+      }
+    }
+    return true;
+  });
 }
 
 const char *openstream_source_status(obs_source_t *source) {
@@ -2646,15 +2713,21 @@ bool obs_module_load(void) {
   if (WSAStartup(MAKEWORD(2, 2), &data) == 0) {
     g_winsock_started = true;
   } else {
-    blog(LOG_WARNING, "[shin] WSAStartup failed; discovery may not advertise");
+    blog(LOG_WARNING, "[OpenStream] WSAStartup failed; discovery may not advertise");
   }
 #endif
   obs_register_source(&openstream_source_info);
-  blog(LOG_INFO, "[shin] OBS plugin loaded: protocol 1, video + audio + remote controls");
+#if defined(__linux__)
+  openstream_register_dock();
+#endif
+  blog(LOG_INFO, "[OpenStream] OBS plugin loaded: protocol 1, video + audio + remote controls");
   return true;
 }
 
 void obs_module_unload(void) {
+#if defined(__linux__)
+  openstream_unregister_dock();
+#endif
 #ifdef _WIN32
   if (g_winsock_started) {
     WSACleanup();

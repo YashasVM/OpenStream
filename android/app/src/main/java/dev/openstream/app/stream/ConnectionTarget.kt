@@ -15,7 +15,7 @@ data class ConnectionTarget(
     }
 
     companion object {
-        const val DEFAULT_NAME = "shin Phone Link"
+        const val DEFAULT_NAME = "OpenStream Camera"
         const val DEFAULT_HOST = "192.168.1.2"
         const val DEFAULT_PORT = 9100
         const val DEFAULT_LATENCY_MS = 120

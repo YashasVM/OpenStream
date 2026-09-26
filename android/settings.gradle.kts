@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "shin-android"
+rootProject.name = "openstream-android"
 include(":app")
