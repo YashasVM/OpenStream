@@ -164,10 +164,11 @@ def test_android_update_surface_is_removed() -> None:
 
 def test_android_pr_builds_do_not_receive_signing_secrets_or_write_token() -> None:
     android_workflow = read(".github/workflows/android.yml")
-    build_job_text = android_workflow.split("  build:", 1)[1]
+    build_job_text = android_workflow.split("  build:", 1)[1].split("  signed-candidate:", 1)[0]
 
     assert "permissions:\n  contents: read" in android_workflow
     assert "OPENSTREAM_RELEASE_KEYSTORE_BASE64" not in build_job_text
+    assert "if: github.event_name == 'workflow_dispatch'" in android_workflow
     assert "OPENSTREAM_RELEASE_STORE_PASSWORD" not in build_job_text
     assert "contents: write" not in build_job_text
     assert "persist-credentials: false" in build_job_text

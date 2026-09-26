@@ -1,10 +1,9 @@
 cmake_minimum_required(VERSION 3.24)
-project(openstream_obs_plugin VERSION 1.0.1 LANGUAGES CXX)
+project(openstream_obs_plugin VERSION 1.0.2 LANGUAGES CXX)
 include(CTest)
 find_package(Threads REQUIRED)
-# Version-consistency: keep 1.0.1 in sync with android/app/build.gradle.kts
-# ("1.0.1"), tools/installer/openstream-obs-plugin.iss (#define OpenStreamVersion),
-# build_plugin.bat OPENSTREAM_VERSION, and build_plugin_linux.sh OPENSTREAM_VERSION.
+# Match the Android release version in android/gradle.properties and the
+# installer defaults. Release workflows override OPENSTREAM_VERSION from the tag.
 # Releases ship the APK + plugin atomically.
 set(OPENSTREAM_VERSION "${PROJECT_VERSION}" CACHE STRING "Version embedded in the OBS plugin")
 
@@ -12,7 +11,7 @@ set(OPENSTREAM_VERSION "${PROJECT_VERSION}" CACHE STRING "Version embedded in th
 # avformat 62, avcodec 62, avutil 60 and swscale 9.  Keeping this declaration
 # here makes accidental ABI changes fail at configure time instead of at OBS
 # module-load time.  The enforcement below is Windows-only: Linux links the
-# distro OBS/FFmpeg system ABI (see the Linux branch and docs/linux.md).
+# distro OBS/FFmpeg system ABI.
 set(OPENSTREAM_OBS_BASELINE "32.2.1")
 set(OPENSTREAM_FFMPEG_ABI "avformat-62;avcodec-62;avutil-60;swscale-9")
 
@@ -125,7 +124,7 @@ else()
     # include/library paths are the fallback. There is intentionally no
     # FFmpeg ABI pin on this path: the module links whatever
     # libavformat/libavcodec the system OBS was built against (documented in
-    # docs/linux.md). The Windows release pin above is untouched.
+    # The Windows release pin above is untouched.
     find_package(PkgConfig QUIET)
     if (PkgConfig_FOUND)
         pkg_check_modules(PC_LIBOBS QUIET libobs)
@@ -256,5 +255,5 @@ endif()
 message(STATUS "Building OpenStream OBS source with FFmpeg SRT input support.")
 message(STATUS "OpenStream OBS baseline: ${OPENSTREAM_OBS_BASELINE}; FFmpeg ABI: ${OPENSTREAM_FFMPEG_ABI}")
 if (NOT WIN32)
-    message(STATUS "OpenStream Linux build: linking system OBS/FFmpeg ABI (no Windows version pin). See docs/linux.md.")
+    message(STATUS "OpenStream Linux build: linking system OBS/FFmpeg ABI (no Windows version pin).")
 endif()

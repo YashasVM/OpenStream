@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.text.format.Formatter
+import android.util.Log
 import dev.openstream.app.control.CameraControlServer
 import dev.openstream.app.encoder.advertisedMimeType
 import dev.openstream.app.stream.StreamConfig
@@ -26,7 +27,6 @@ class PhoneDiscoveryAdvertiser(
     private val running = AtomicBoolean(false)
     @Volatile private var pendingRestart = false
     @Volatile private var worker: Thread? = null
-    private val instanceId = UUID.randomUUID().toString()
 
     fun start() {
         if (running.get()) return
@@ -55,20 +55,30 @@ class PhoneDiscoveryAdvertiser(
     }
 
     private fun run() {
+        val instanceId = runCatching {
+            val preferences = context.applicationContext.getSharedPreferences(
+                INSTANCE_PREFERENCES,
+                Context.MODE_PRIVATE,
+            )
+            loadOrCreateInstanceId(
+                existingId = preferences.getString(INSTANCE_ID_KEY, null),
+                persist = { id -> preferences.edit().putString(INSTANCE_ID_KEY, id).commit() },
+                create = { UUID.randomUUID().toString() },
+            )
+        }.getOrElse { error ->
+            Log.e(TAG, "Could not load persistent phone discovery identity", error)
+            finishWorkerAndRestart()
+            return
+        }
         val socket = runCatching {
             DatagramSocket().apply { broadcast = true }
         }.getOrElse {
-            running.set(false)
-            if (worker === Thread.currentThread()) worker = null
-            if (pendingRestart) {
-                pendingRestart = false
-                start()
-            }
+            finishWorkerAndRestart()
             return
         }
         try {
             while (running.get()) {
-                val bytes = beaconPayload().toByteArray(StandardCharsets.UTF_8)
+                val bytes = beaconPayload(instanceId).toByteArray(StandardCharsets.UTF_8)
                 val destinations = linkedSetOf(
                     InetAddress.getByName("255.255.255.255"),
                     InetAddress.getByName(DISCOVERY_MULTICAST_ADDRESS),
@@ -89,16 +99,20 @@ class PhoneDiscoveryAdvertiser(
             }
         } finally {
             socket.close()
-            if (worker === Thread.currentThread()) worker = null
-            running.set(false)
-            if (pendingRestart) {
-                pendingRestart = false
-                start()
-            }
+            finishWorkerAndRestart()
         }
     }
 
-    private fun beaconPayload(): String {
+    private fun finishWorkerAndRestart() {
+        if (worker === Thread.currentThread()) worker = null
+        running.set(false)
+        if (pendingRestart) {
+            pendingRestart = false
+            start()
+        }
+    }
+
+    private fun beaconPayload(instanceId: String): String {
         val json = JSONObject()
             .put("type", TYPE)
             .put("version", 1)
@@ -127,6 +141,9 @@ class PhoneDiscoveryAdvertiser(
     }
 
     companion object {
+        private const val TAG = "shinPhoneAdvertiser"
+        private const val INSTANCE_PREFERENCES = "shin_phone_discovery"
+        private const val INSTANCE_ID_KEY = "phone_instance_id"
         const val DISCOVERY_PORT = 51615
         const val DISCOVERY_MULTICAST_ADDRESS = "239.255.43.99"
         const val PREFIX = "SHIN_PHONE/1"

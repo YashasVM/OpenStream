@@ -59,3 +59,58 @@ jobs:
             dist/openstream-android.apk.sha256
             dist/android-signing.txt
           if-no-files-found: error
+
+  signed-candidate:
+    if: github.event_name == 'workflow_dispatch'
+    name: Release-signed update APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/android-setup
+      - name: Decode release signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.OPENSTREAM_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$KEYSTORE_BASE64"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/openstream-release.keystore"
+      - name: Build release-signed update APK
+        working-directory: android
+        env:
+          OPENSTREAM_RELEASE_KEYSTORE: ${{ runner.temp }}/openstream-release.keystore
+          OPENSTREAM_RELEASE_STORE_PASSWORD: ${{ secrets.OPENSTREAM_RELEASE_STORE_PASSWORD }}
+          OPENSTREAM_RELEASE_KEY_ALIAS: ${{ secrets.OPENSTREAM_RELEASE_KEY_ALIAS }}
+          OPENSTREAM_RELEASE_KEY_PASSWORD: ${{ secrets.OPENSTREAM_RELEASE_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon :app:assembleRelease
+      - name: Check APK metadata and signing continuity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          aapt="$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt"
+          apksigner="$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner"
+          "$apksigner" verify "$apk"
+          metadata=$("$aapt" dump badging "$apk")
+          grep -q "name='dev.openstream.app'" <<< "$metadata"
+          mkdir -p "$RUNNER_TEMP/previous-release" dist
+          gh release download v1.0.1 --pattern openstream-android.apk --dir "$RUNNER_TEMP/previous-release"
+          current_cert=$("$apksigner" verify --print-certs "$apk" | sed -n 's/.*certificate SHA-256 digest: //p')
+          previous_cert=$("$apksigner" verify --print-certs "$RUNNER_TEMP/previous-release/openstream-android.apk" | sed -n 's/.*certificate SHA-256 digest: //p')
+          test "$current_cert" = "$previous_cert"
+          previous_metadata=$("$aapt" dump badging "$RUNNER_TEMP/previous-release/openstream-android.apk")
+          current_code=$(sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p" <<< "$metadata")
+          previous_code=$(sed -n "s/^package:.*versionCode='\([^']*\)'.*/\1/p" <<< "$previous_metadata")
+          test "$current_code" -gt "$previous_code"
+          python tools/check_android_16kb_alignment.py "$apk"
+          cp "$apk" dist/openstream-android-update.apk
+          (cd dist && sha256sum openstream-android-update.apk > openstream-android-update.apk.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openstream-android-signed-candidate
+          path: |
+            dist/openstream-android-update.apk
+            dist/openstream-android-update.apk.sha256
+          if-no-files-found: error
