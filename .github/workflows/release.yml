@@ -366,4 +366,4 @@ jobs:
             dist/openstream-obs-linux-x86_64.tar.gz.sha256 \
             --target "$RELEASE_COMMIT" \
             --title "OpenStream ${TAG_NAME}" \
-            --notes-file docs/release-notes-template.md
+            --generate-notes
