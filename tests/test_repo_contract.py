@@ -93,7 +93,7 @@ def test_obs_plugin_pairs_the_selected_phone() -> None:
     assert "kAutoPhoneId" in source
     assert "std::map<std::string, PhoneDevice> devices_" in source
     assert "reserve_phone" in source
-    assert '"bitrateMbps\\":" << ctx->bitrate_mbps' in source
+    assert "reservation_bitrate_mbps(ctx->bitrate_mbps, phone.bitrate_mbps)" in source
     assert "release_phone" in source
     assert "control_phone(ctx)" in source
 
@@ -118,7 +118,7 @@ def test_obs_source_ownership_and_advanced_transport() -> None:
     assert "kMinBitrateMbps = 8" in source
     assert "kMaxBitrateMbps = 50" in source
     assert '"bitrate_mbps"' in source
-    assert '"Expected bitrate (Mbps)"' in source
+    assert '"Expected bitrate (Mbps, 0 = phone setting)"' in source
 
 
 def test_obs_discovery_beacons_advertise_slots_not_raw_listener_only() -> None:
@@ -307,15 +307,18 @@ def test_release_build_fails_without_signing_and_keystores_are_ignored() -> None
     assert "*.jks" in gitignore
 
 
-def test_legacy_android_and_restored_obs_metadata_are_explicit() -> None:
+def test_android_and_obs_plugin_versions_match() -> None:
     app_gradle = read("android/app/build.gradle.kts")
     cmake = read("obs-plugin/CMakeLists.txt")
     installer = read("tools/installer/openstream-obs-plugin.iss")
 
     gradle_properties = read("android/gradle.properties")
-    assert "openstream.versionName=1.0.2" in gradle_properties
-    assert "project(openstream_obs_plugin VERSION 1.0.2" in cmake
-    assert '#define OpenStreamVersion "1.0.2"' in installer
+    version = re.search(r"openstream\.versionName=([0-9]+\.[0-9]+\.[0-9]+)", gradle_properties)
+    assert version is not None
+    assert f"project(openstream_obs_plugin VERSION {version.group(1)}" in cmake
+    assert f'#define OpenStreamVersion "{version.group(1)}"' in installer
+    assert f'OPENSTREAM_VERSION="${{OPENSTREAM_VERSION:-{version.group(1)}}}"' in read("build_plugin_linux.sh")
+    assert f'OPENSTREAM_VERSION={version.group(1)}' in read("build_plugin.bat")
 
 
 def test_openstream_linux_release_includes_native_obs_dock_dependencies() -> None:

@@ -18,6 +18,7 @@
 #endif
 
 #include <obs-module.h>
+#include <QJsonArray>
 
 #include "async-control-client.hpp"
 #include "openstream-control-api.hpp"
@@ -93,6 +94,13 @@ constexpr int kDefaultListenerPort = 9100;
 constexpr int kDefaultBitrateMbps = 12;
 constexpr int kMinBitrateMbps = 8;
 constexpr int kMaxBitrateMbps = 50;
+
+int reservation_bitrate_mbps(int configured_mbps, int phone_mbps) {
+  if (configured_mbps == 0) {
+    return std::clamp(phone_mbps, kMinBitrateMbps, kMaxBitrateMbps);
+  }
+  return std::clamp(configured_mbps, kMinBitrateMbps, kMaxBitrateMbps);
+}
 constexpr uint64_t kMaximumMediaBacklogNs = 250'000'000;
 constexpr int64_t kSrtIoTimeoutUs = 4'500'000;
 constexpr int64_t kSrtConnectTimeoutMs = 2'000;
@@ -868,7 +876,7 @@ struct OpenStreamSource {
   std::string selected_phone_id = PhoneDiscoveryReceiver::kAutoPhoneId;
   int listener_port = 0;
   int latency_ms = 120;
-  int bitrate_mbps = kDefaultBitrateMbps;
+  int bitrate_mbps = 0;
   bool listener_enabled = true;
   bool enabled = false;
   std::atomic<bool> listener_running = false;
@@ -902,6 +910,14 @@ struct OpenStreamSource {
   std::string active_slot_label;
   std::string active_selected_phone_id = PhoneDiscoveryReceiver::kAutoPhoneId;
   std::optional<PhoneDevice> active_phone;
+  std::vector<std::string> available_camera_lenses;
+  std::string current_camera_lens;
+  double camera_zoom = 1.0;
+  double camera_zoom_min = 1.0;
+  double camera_zoom_max = 10.0;
+  bool camera_torch_available = false;
+  bool camera_torch_enabled = false;
+  bool camera_status_fetch_pending = false;
   std::string reservation_token;
   uint64_t frames_output = 0;
   uint64_t stale_video_frames = 0;
@@ -992,6 +1008,9 @@ void run_lifecycle_worker(OpenStreamSource *ctx) {
 
 bool send_control_command(const std::string &host, int port,
                           const std::string &path, const std::string &body);
+bool send_control_request(const std::string &host, int port,
+                          const std::string &method, const std::string &path,
+                          const std::string &body, std::string *response_body_out);
 std::optional<PhoneDevice> control_phone(OpenStreamSource *ctx);
 
 bool queue_control_command(OpenStreamSource *ctx, const std::string &path,
@@ -1020,8 +1039,9 @@ void set_slot_status(OpenStreamSource *ctx, std::string status) {
   ctx->slot_status = std::move(status);
 }
 
-bool send_control_command(const std::string &host, int port,
-                          const std::string &path, const std::string &body) {
+bool send_control_request(const std::string &host, int port,
+                          const std::string &method, const std::string &path,
+                          const std::string &body, std::string *response_body_out) {
   if (port < 1 || port > 65535 || body.size() > 8192 || path.empty() || path.front() != '/') {
     return false;
   }
@@ -1056,13 +1076,14 @@ bool send_control_command(const std::string &host, int port,
   }
 
   std::ostringstream request;
-  request << "POST " << path << " HTTP/1.1\r\n"
+  request << method << " " << path << " HTTP/1.1\r\n"
           << "Host: " << host << ":" << port << "\r\n"
-          << "Content-Type: application/json\r\n"
-          << "Content-Length: " << body.size() << "\r\n"
-          << "Connection: close\r\n"
-          << "\r\n"
-          << body;
+          << "Connection: close\r\n";
+  if (method == "POST") {
+    request << "Content-Type: application/json\r\n"
+            << "Content-Length: " << body.size() << "\r\n";
+  }
+  request << "\r\n" << body;
   const std::string req = request.str();
   // SIGPIPE hardening (AGENTS.md rule 8): a disconnected phone must fail this
   // command with EPIPE, never terminate OBS. MSG_NOSIGNAL suppresses SIGPIPE
@@ -1104,8 +1125,20 @@ bool send_control_command(const std::string &host, int port,
   close_socket(sock);
 
   const size_t header_end = response.find("\r\n\r\n");
-  if (header_end == std::string::npos ||
-      (response.rfind("HTTP/1.1 200 ", 0) != 0 && response.rfind("HTTP/1.0 200 ", 0) != 0)) {
+  if (header_end == std::string::npos) {
+    blog(LOG_WARNING,
+         "[OpenStream] Camera command %s failed: malformed or missing HTTP response",
+         path.c_str());
+    return false;
+  }
+  const size_t status_end = response.find("\r\n");
+  const std::string status_line = response.substr(0, status_end);
+  if (status_line.rfind("HTTP/1.1 200 ", 0) != 0 &&
+      status_line.rfind("HTTP/1.0 200 ", 0) != 0) {
+    blog(LOG_WARNING,
+         "[OpenStream] Camera command %s rejected: %s",
+         path.c_str(),
+         status_line.c_str());
     return false;
   }
 
@@ -1151,11 +1184,35 @@ bool send_control_command(const std::string &host, int port,
     return false;
   }
   const std::string response_body = response.substr(body_start, content_length);
-  return json_bool_value(response_body, "ok").value_or(false);
+  if (response_body_out) *response_body_out = response_body;
+  const bool accepted = method == "GET" ||
+                       json_bool_value(response_body, "ok").value_or(false);
+  if (!accepted && method == "POST") {
+    blog(LOG_WARNING,
+         "[OpenStream] Camera command %s was not acknowledged: %s",
+         path.c_str(),
+         response_body.c_str());
+  }
+  return accepted;
+}
+
+bool send_control_command(const std::string &host, int port,
+                          const std::string &path, const std::string &body) {
+  return send_control_request(host, port, "POST", path, body, nullptr);
 }
 
 void set_active_phone(OpenStreamSource *ctx, std::optional<PhoneDevice> phone) {
   std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+  const bool changed = ctx->active_phone.has_value() != phone.has_value() ||
+                       (ctx->active_phone.has_value() && phone.has_value() &&
+                        (ctx->active_phone->host != phone->host ||
+                         ctx->active_phone->control_port != phone->control_port));
+  if (changed) {
+    ctx->available_camera_lenses.clear();
+    ctx->current_camera_lens.clear();
+    ctx->camera_torch_available = false;
+    ctx->camera_torch_enabled = false;
+  }
   ctx->slot_busy = phone.has_value();
   ctx->active_phone = std::move(phone);
 }
@@ -1172,6 +1229,93 @@ std::optional<PhoneDevice> control_phone(OpenStreamSource *ctx) {
     }
   }
   return std::nullopt;
+}
+
+bool queue_camera_status_request(const std::shared_ptr<OpenStreamSource> &ctx) {
+  if (!ctx) return false;
+  std::optional<PhoneDevice> phone;
+  {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    phone = ctx->active_phone;
+  }
+  if (!phone.has_value()) {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    ctx->available_camera_lenses.clear();
+    ctx->current_camera_lens.clear();
+    ctx->camera_torch_available = false;
+    ctx->camera_torch_enabled = false;
+    return false;
+  }
+  const auto client = ctx->camera_controls;
+  const std::string host = phone->host;
+  const int port = phone->control_port;
+  {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    if (ctx->camera_status_fetch_pending) return true;
+    ctx->camera_status_fetch_pending = true;
+  }
+  const bool queued = client->post([ctx, host, port] {
+    std::string response;
+    const bool received = send_control_request(host, port, "GET", "/status", "", &response);
+    const QJsonValue lenses_value = control_json_value(response, "availableLenses");
+    std::vector<std::string> labels;
+    if (lenses_value.isArray()) {
+      const QJsonArray lenses = lenses_value.toArray();
+      labels.reserve(std::min(static_cast<size_t>(lenses.size()), size_t{16}));
+      for (const QJsonValue &lens : lenses) {
+        if (!lens.isString()) continue;
+        const std::string label = lens.toString().toUtf8().toStdString();
+        if (!label.empty() && label.size() <= 64 &&
+            std::find(labels.begin(), labels.end(), label) == labels.end()) {
+          labels.push_back(label);
+          if (labels.size() == 16) break;
+        }
+      }
+    }
+    const std::string current = json_string_value(response, "currentLens").value_or("");
+    const auto zoom_value = control_json_value(response, "zoom");
+    const auto zoom_min_value = control_json_value(response, "zoomMin");
+    const auto zoom_max_value = control_json_value(response, "zoomMax");
+    const double zoom = zoom_value.isDouble() ? zoom_value.toDouble() : 1.0;
+    const double zoom_min = zoom_min_value.isDouble() ? zoom_min_value.toDouble() : 1.0;
+    const double zoom_max = zoom_max_value.isDouble() ? zoom_max_value.toDouble() : 10.0;
+    const auto torch_available_value = control_json_value(response, "torchAvailable");
+    const auto torch_enabled_value = control_json_value(response, "torchEnabled");
+    {
+      std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+      ctx->camera_status_fetch_pending = false;
+      // Discard a late response if the selected reservation changed while the
+      // HTTP request was in flight; status is scoped to the active phone.
+      if (!ctx->active_phone.has_value() || ctx->active_phone->host != host ||
+          ctx->active_phone->control_port != port) return;
+      ctx->available_camera_lenses = received ? std::move(labels) : std::vector<std::string>{};
+      ctx->current_camera_lens = received ? current : std::string{};
+      if (received && torch_available_value.isBool()) {
+        ctx->camera_torch_available = torch_available_value.toBool();
+      } else if (!received) {
+        ctx->camera_torch_available = false;
+        ctx->camera_torch_enabled = false;
+      }
+      if (received && torch_enabled_value.isBool()) {
+        ctx->camera_torch_enabled = torch_enabled_value.toBool();
+      }
+      if (received && std::isfinite(zoom) && std::isfinite(zoom_min) &&
+          std::isfinite(zoom_max) && zoom_min > 0.0 && zoom_max >= zoom_min &&
+          zoom_max <= 100.0) {
+        ctx->camera_zoom_min = zoom_min;
+        ctx->camera_zoom_max = zoom_max;
+        ctx->camera_zoom = std::clamp(zoom, zoom_min, zoom_max);
+      }
+    }
+    if (!received) {
+      blog(LOG_WARNING, "[OpenStream] Could not fetch camera lens status from active phone");
+    }
+  });
+  if (!queued) {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    ctx->camera_status_fetch_pending = false;
+  }
+  return queued;
 }
 
 std::string phone_label(const PhoneDevice &phone) {
@@ -1199,7 +1343,8 @@ bool reserve_phone(OpenStreamSource *ctx, PhoneDevice &phone) {
          << "\"reservationToken\":\"" << json_escape(phone.reservation_token) << "\","
          << "\"slotId\":\"" << json_escape(ctx->slot_id) << "\","
          << "\"slotLabel\":\"" << json_escape(ctx->slot_label) << "\","
-         << "\"bitrateMbps\":" << ctx->bitrate_mbps << "}";
+         << "\"bitrateMbps\":"
+         << reservation_bitrate_mbps(ctx->bitrate_mbps, phone.bitrate_mbps) << "}";
   }
   return send_control_command(phone.host, phone.control_port, "/reserve", body.str());
 }
@@ -2162,13 +2307,13 @@ void openstream_start_worker(OpenStreamSource *ctx) {
   ctx->phone_connected = false;
   if (srt_url == "shin:auto") {
     ctx->discovery.start(listener_port,
-                       latency_ms,
-                       bitrate_mbps,
-                       source_name,
-                       instance_id,
-                       slot_id,
-                       slot_label,
-                       pairing_url,
+                         latency_ms,
+                         bitrate_mbps == 0 ? kDefaultBitrateMbps : bitrate_mbps,
+                         source_name,
+                         instance_id,
+                         slot_id,
+                         slot_label,
+                         pairing_url,
                          &ctx->slot_busy);
   }
   ctx->worker = std::thread(openstream_worker, ctx, srt_url, selected_phone_id);
@@ -2197,9 +2342,7 @@ void openstream_update(void *data, obs_data_t *settings) {
     ctx->latency_ms = std::clamp(
         static_cast<int>(obs_data_get_int(settings, "latency_ms")), 80, 200);
     ctx->bitrate_mbps = std::clamp(
-        static_cast<int>(obs_data_get_int(settings, "bitrate_mbps")),
-        kMinBitrateMbps,
-        kMaxBitrateMbps);
+        static_cast<int>(obs_data_get_int(settings, "bitrate_mbps")), 0, kMaxBitrateMbps);
     const char *slot_id = obs_data_get_string(settings, "slot_id");
     if (slot_id && slot_id[0] != '\0') {
       ctx->slot_id = slot_id;
@@ -2350,7 +2493,7 @@ void openstream_defaults(obs_data_t *settings) {
   obs_data_set_default_bool(settings, "manual_receive", false);
   obs_data_set_default_int(settings, "listener_port", kDefaultListenerPort);
   obs_data_set_default_int(settings, "latency_ms", 120);
-  obs_data_set_default_int(settings, "bitrate_mbps", kDefaultBitrateMbps);
+  obs_data_set_default_int(settings, "bitrate_mbps", 0);
   obs_data_set_default_double(settings, "cam_zoom", 1.0);
 }
 
@@ -2507,12 +2650,12 @@ obs_properties_t *openstream_properties(void *data) {
   obs_property_t *bitrate =
       obs_properties_add_int_slider(advanced_group,
                                     "bitrate_mbps",
-                                    "Expected bitrate (Mbps)",
-                                    kMinBitrateMbps,
+                                    "Expected bitrate (Mbps, 0 = phone setting)",
+                                    0,
                                     kMaxBitrateMbps,
                                     1);
   obs_property_int_set_suffix(bitrate, " Mbps");
-  obs_property_set_long_description(bitrate, "Used in discovery so the phone can tune stream quality.");
+  obs_property_set_long_description(bitrate, "0 uses the bitrate advertised by the selected phone. Set 8–50 Mbps to override it.");
   obs_properties_add_group(props, "show_advanced", "3. Network & Pairing (Advanced)", OBS_GROUP_CHECKABLE, advanced_group);
 
   obs_properties_t *camera_group = obs_properties_create();
@@ -2595,6 +2738,67 @@ bool openstream_post_camera_command(obs_source_t *source, const char *path,
         if (!owned) return false;
         return queue_control_command(owned.get(), path, json_body);
       });
+}
+
+bool openstream_request_camera_status(obs_source_t *source) {
+  return forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    return queue_camera_status_request(owned);
+  });
+}
+
+size_t openstream_camera_lens_count(obs_source_t *source) {
+  return forward_to_camera(source, [](const std::shared_ptr<OpenStreamSource> &owned) {
+    if (!owned) return size_t{0};
+    std::lock_guard<std::mutex> lock(owned->settings_mutex);
+    return owned->available_camera_lenses.size();
+  });
+}
+
+const char *openstream_camera_lens_label(obs_source_t *source, size_t index) {
+  thread_local std::string label;
+  return forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    label.clear();
+    if (!owned) return label.c_str();
+    std::lock_guard<std::mutex> lock(owned->settings_mutex);
+    if (index < owned->available_camera_lenses.size()) {
+      label = owned->available_camera_lenses[index];
+    }
+    return label.c_str();
+  });
+}
+
+const char *openstream_camera_current_lens(obs_source_t *source) {
+  thread_local std::string label;
+  return forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    label.clear();
+    if (!owned) return label.c_str();
+    std::lock_guard<std::mutex> lock(owned->settings_mutex);
+    label = owned->current_camera_lens;
+    return label.c_str();
+  });
+}
+
+void openstream_camera_zoom_state(obs_source_t *source, double *zoom,
+                                  double *zoom_min, double *zoom_max) {
+  forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    if (!owned) return 0;
+    std::lock_guard<std::mutex> lock(owned->settings_mutex);
+    if (zoom) *zoom = owned->camera_zoom;
+    if (zoom_min) *zoom_min = owned->camera_zoom_min;
+    if (zoom_max) *zoom_max = owned->camera_zoom_max;
+    return 0;
+  });
+}
+
+void openstream_camera_torch_state(obs_source_t *source, bool *available,
+                                   bool *enabled) {
+  forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    if (!owned) return 0;
+    std::lock_guard<std::mutex> lock(owned->settings_mutex);
+    if (available) *available = owned->camera_torch_available;
+    if (enabled) *enabled = owned->camera_torch_enabled;
+    return 0;
+  });
 }
 
 bool openstream_start_camera_source(obs_source_t *source) {

@@ -22,6 +22,7 @@ void openstream_unregister_dock() {}
 struct ReleaseProbe {
   int listener = -1;
   int port = 0;
+  std::string response_body = "{\"ok\":true}";
   std::promise<std::string> request;
   std::thread worker;
 };
@@ -56,7 +57,8 @@ void start_release_probe(ReleaseProbe &probe) {
   require(::listen(probe.listener, 1) == 0, "could not listen for release probe");
 
   const int listener = probe.listener;
-  probe.worker = std::thread([listener, &request = probe.request] {
+  const std::string response_body = probe.response_body;
+  probe.worker = std::thread([listener, response_body, &request = probe.request] {
     sockaddr_in peer = {};
     socklen_t peer_length = sizeof(peer);
     const int client = ::accept(listener,
@@ -86,17 +88,56 @@ void start_release_probe(ReleaseProbe &probe) {
       if (received.size() >= header_end + 4 + content_length) break;
     }
 
-    constexpr char response[] =
-        "HTTP/1.1 200 OK\r\n"
-        "Content-Type: application/json\r\n"
-        "Content-Length: 11\r\n"
-        "Connection: close\r\n"
-        "\r\n"
-        "{\"ok\":true}";
-    ::send(client, response, sizeof(response) - 1, 0);
+    const std::string response = std::string("HTTP/1.1 200 OK\r\n") +
+        "Content-Type: application/json\r\n" +
+        "Content-Length: " + std::to_string(response_body.size()) + "\r\n" +
+        "Connection: close\r\n\r\n" + response_body;
+    ::send(client, response.data(), response.size(), 0);
     ::close(client);
     request.set_value(std::move(received));
   });
+}
+
+void test_async_camera_status_loads_phone_lenses_and_zoom_range() {
+  ReleaseProbe probe;
+  probe.response_body =
+      R"({"zoom":0.6,"zoomMin":0.6,"zoomMax":8.0,"currentLens":"0.6×","availableLenses":["0.6×","1×","3×","5×","Front"],"torchAvailable":true,"torchEnabled":false})";
+  start_release_probe(probe);
+  std::future<std::string> request = probe.request.get_future();
+
+  auto context = std::make_shared<OpenStreamSource>();
+  PhoneDevice phone;
+  phone.host = "127.0.0.1";
+  phone.control_port = probe.port;
+  set_active_phone(context.get(), phone);
+  require(queue_camera_status_request(context),
+          "active phone status request was not queued asynchronously");
+
+  const auto wait_result = request.wait_for(std::chrono::seconds(3));
+  const std::string captured = wait_result == std::future_status::ready ? request.get() : "";
+  probe.worker.join();
+  ::close(probe.listener);
+  require(wait_result == std::future_status::ready,
+          "async status request did not reach the active phone");
+  require(captured.find("GET /status HTTP/1.1") != std::string::npos,
+          "lens discovery did not use GET /status");
+
+  const auto cache_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (context->available_camera_lenses.empty() &&
+         std::chrono::steady_clock::now() < cache_deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  require(context->available_camera_lenses.size() == 5,
+          "phone JSON lens array was not loaded into the dynamic lens cache");
+  require(context->available_camera_lenses[2] == "3×" &&
+              context->current_camera_lens == "0.6×",
+          "dynamic lens labels or current lens were parsed incorrectly");
+  require(context->camera_zoom == 0.6 && context->camera_zoom_min == 0.6 &&
+              context->camera_zoom_max == 8.0,
+          "phone zoom value or per-lens limits were not applied");
+  require(context->camera_torch_available && !context->camera_torch_enabled,
+          "torch availability or state was not parsed from phone status");
+  context->camera_controls->stop();
 }
 
 void test_worker_releases_reservation_on_exit() {
@@ -136,6 +177,7 @@ void test_worker_releases_reservation_on_exit() {
 
 int main() {
   test_worker_releases_reservation_on_exit();
+  test_async_camera_status_loads_phone_lenses_and_zoom_range();
 
   require(std::string(openstream_source_info.id) == "shin_phone_source",
           "shin source identity changed");
@@ -146,6 +188,13 @@ int main() {
   // No registration: update cannot schedule a worker or open a network socket.
   openstream_update(context.get(), settings);
   require(context->srt_url == "shin:auto", "automatic pairing default changed");
+  require(context->bitrate_mbps == 0, "new sources should inherit the phone bitrate");
+  require(reservation_bitrate_mbps(0, 24) == 24,
+          "Auto reservation should use the bitrate advertised by the phone");
+  require(reservation_bitrate_mbps(18, 24) == 18,
+          "an explicit source bitrate should override the phone setting");
+  require(reservation_bitrate_mbps(0, 100) == kMaxBitrateMbps,
+          "Auto reservation should clamp invalid advertised phone bitrate");
   require(context->slot_label == "Phone Camera", "new source has a production slot label");
   require(!context->enabled, "new source unexpectedly starts enabled");
 
@@ -165,7 +214,9 @@ int main() {
   obs_data_set_bool(settings, "manual_receive", true);
   obs_data_set_int(settings, "listener_port", 9876);
   obs_data_set_int(settings, "latency_ms", 160);
+  obs_data_set_int(settings, "bitrate_mbps", 18);
   openstream_update(context.get(), settings);
+  require(context->bitrate_mbps == 18, "explicit source bitrate override was not retained");
   require(context->srt_url == "srt://0.0.0.0:9876?mode=listener&latency=160",
           "manual caller has no corresponding OBS listener");
   obs_data_set_string(settings, "slot_label", "Legacy CAM B");

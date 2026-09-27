@@ -3,20 +3,30 @@
 #include <obs-frontend-api.h>
 
 #include <QByteArray>
+#include <QAbstractButton>
+#include <QButtonGroup>
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QFrame>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QSlider>
+#include <QScrollArea>
+#include <QToolButton>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
 
 #include <vector>
+#include <algorithm>
+#include <cmath>
 
 namespace {
 constexpr int kSourceRefreshMs = 1500;
@@ -29,6 +39,10 @@ class OpenStreamDock final : public QWidget {
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(8, 8, 8, 8);
     layout->setSpacing(6);
+    auto *version = new QLabel(QStringLiteral("OpenStream OBS v") +
+                               QStringLiteral(OPENSTREAM_VERSION), this);
+    version->setObjectName("openstreamPluginVersion");
+    layout->addWidget(version);
     auto *connection_group = new QGroupBox("Connection", this);
     auto *connection_form = new QFormLayout(connection_group);
     connection_form->setContentsMargins(8, 8, 8, 8);
@@ -68,10 +82,22 @@ class OpenStreamDock final : public QWidget {
     connection_form->addRow(connection);
     layout->addWidget(connection_group);
 
-    auto *controls_group = new QGroupBox("Camera controls", this);
-    auto *controls_layout = new QVBoxLayout(controls_group);
-    controls_layout->setContentsMargins(8, 8, 8, 8);
-    controls_layout->setSpacing(5);
+    auto *lens_group = new QGroupBox("Lens selection", this);
+    auto *lens_layout = new QVBoxLayout(lens_group);
+    lens_layout->setContentsMargins(8, 8, 8, 8);
+    lens_layout->setSpacing(5);
+    lens_scroll_ = new QScrollArea(this);
+    lens_scroll_->setObjectName("openstreamLensOptions");
+    lens_scroll_->setWidgetResizable(true);
+    lens_scroll_->setFrameShape(QFrame::NoFrame);
+    lens_scroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    lens_scroll_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    lens_buttons_widget_ = new QWidget(lens_scroll_);
+    lens_buttons_layout_ = new QHBoxLayout(lens_buttons_widget_);
+    lens_buttons_layout_->setContentsMargins(0, 0, 0, 0);
+    lens_buttons_layout_->setSpacing(4);
+    lens_scroll_->setWidget(lens_buttons_widget_);
+    lens_layout->addWidget(lens_scroll_);
 
     // These calls only publish into the source's bounded, coalescing slots.
     // Network work and worker joins stay outside the OBS UI thread.
@@ -97,43 +123,40 @@ class OpenStreamDock final : public QWidget {
     });
 
     auto *zoom_row = new QHBoxLayout();
-    zoom_ = new QDoubleSpinBox(this);
+    zoom_value_ = new QLabel("1.0×", this);
+    zoom_value_->setObjectName("openstreamZoomValue");
+    zoom_ = new QSlider(Qt::Horizontal, this);
     zoom_->setObjectName("openstreamZoom");
     zoom_->setAccessibleName("Camera zoom");
-    zoom_->setRange(1.0, 10.0);
-    zoom_->setSingleStep(0.1);
-    zoom_->setDecimals(1);
-    zoom_->setSuffix("x");
-    apply_zoom_ = new QPushButton("Apply zoom", this);
-    apply_zoom_->setObjectName("openstreamApplyZoom");
-    zoom_row->addWidget(new QLabel("Zoom", controls_group));
-    zoom_row->addWidget(zoom_);
-    zoom_row->addWidget(apply_zoom_);
-    controls_layout->addLayout(zoom_row);
-    connect(apply_zoom_, &QPushButton::clicked, this, [this] {
-      const QByteArray body = QByteArray("{\"value\":") +
-                              QByteArray::number(zoom_->value(), 'f', 1) + "}";
-      send("/zoom", body.constData());
+    zoom_->setRange(10, 100);
+    zoom_->setSingleStep(1);
+    zoom_->setPageStep(5);
+    zoom_->setTracking(true);
+    zoom_send_timer_ = new QTimer(this);
+    zoom_send_timer_->setInterval(75);
+    zoom_row->addWidget(new QLabel("Zoom", lens_group));
+    zoom_row->addWidget(zoom_, 1);
+    zoom_row->addWidget(zoom_value_);
+    lens_layout->addLayout(zoom_row);
+    connect(zoom_, &QSlider::valueChanged, this, [this](int value) {
+      zoom_value_->setText(QString::number(value / 10.0, 'f', 1) + QChar(0x00d7));
+      if (!zoom_send_timer_->isActive()) zoom_send_timer_->start();
+    });
+    connect(zoom_send_timer_, &QTimer::timeout, this, [this] {
+      sendCurrentZoom();
+      if (!zoom_->isSliderDown()) zoom_send_timer_->stop();
+    });
+    connect(zoom_, &QSlider::sliderReleased, this, [this] {
+      zoom_send_timer_->stop();
+      sendCurrentZoom();
     });
 
-    // Peer-bound camera controls. Each call only publishes into the source's
-    // bounded, coalescing control slot; the network round-trip stays off the
-    // OBS UI thread and the phone rejects non-reserving peers with 401.
-    auto *lens_row = new QHBoxLayout();
-    lens_rear_ = new QPushButton("Rear", this);
-    lens_rear_->setObjectName("openstreamLensRear");
-    lens_front_ = new QPushButton("Front", this);
-    lens_front_->setObjectName("openstreamLensFront");
-    lens_row->addWidget(new QLabel("Lens", controls_group));
-    lens_row->addWidget(lens_rear_);
-    lens_row->addWidget(lens_front_);
-    controls_layout->addLayout(lens_row);
-    connect(lens_rear_, &QPushButton::clicked, this, [this] {
-      send("/lens", R"({"lens":"1×"})");
-    });
-    connect(lens_front_, &QPushButton::clicked, this, [this] {
-      send("/lens", R"({"lens":"Front"})");
-    });
+    layout->addWidget(lens_group);
+
+    auto *controls_group = new QGroupBox("Camera controls", this);
+    auto *controls_layout = new QVBoxLayout(controls_group);
+    controls_layout->setContentsMargins(8, 8, 8, 8);
+    controls_layout->setSpacing(5);
 
     auto *torch_row = new QHBoxLayout();
     torch_on_ = new QPushButton("Torch on", this);
@@ -142,8 +165,11 @@ class OpenStreamDock final : public QWidget {
     torch_off_->setObjectName("openstreamTorchOff");
     identify_ = new QPushButton("Identify", this);
     identify_->setObjectName("openstreamIdentify");
+    torch_status_ = new QLabel("Torch status unavailable", this);
+    torch_status_->setObjectName("openstreamTorchStatus");
     torch_row->addWidget(torch_on_);
     torch_row->addWidget(torch_off_);
+    torch_row->addWidget(torch_status_);
     torch_row->addWidget(identify_);
     controls_layout->addLayout(torch_row);
     connect(torch_on_, &QPushButton::clicked, this, [this] {
@@ -186,6 +212,17 @@ class OpenStreamDock final : public QWidget {
     status_->setText("Add an OpenStream source in OBS first.");
   }
 
+  void sendCurrentZoom() {
+    const QByteArray body = QByteArray("{\"value\":") +
+    QByteArray::number(zoom_->value() / 10.0, 'f', 1) + "}";
+    send("/zoom", body.constData());
+    if (!zoom_->isSliderDown()) {
+      if (obs_source_t *source = currentSource()) {
+        openstream_request_camera_status(source);
+      }
+    }
+  }
+
   void renameSelectedSource() {
     obs_source_t *source = currentSource();
     if (!source) {
@@ -218,6 +255,7 @@ class OpenStreamDock final : public QWidget {
       return;
     }
     const bool queued = openstream_post_camera_command(source, path, body);
+    if (queued) openstream_request_camera_status(source);
     status_->setText(queued ? "Command queued in background."
                             : "Camera is not connected.");
   }
@@ -241,15 +279,15 @@ class OpenStreamDock final : public QWidget {
     test_connect_->setEnabled(available);
     disconnect_->setEnabled(available);
     zoom_->setEnabled(available);
-    apply_zoom_->setEnabled(available);
-    lens_rear_->setEnabled(available);
-    lens_front_->setEnabled(available);
+    zoom_value_->setEnabled(available);
     torch_on_->setEnabled(available);
     torch_off_->setEnabled(available);
     identify_->setEnabled(available);
+    lens_scroll_->setEnabled(false);
 
     if (!source) {
       phone_selector_->clear();
+      refreshLensSelector(nullptr);
       if (!name_->hasFocus()) name_->clear();
       if (sources_.size() > 1) {
         status_->setText("Select an OpenStream source.");
@@ -260,12 +298,98 @@ class OpenStreamDock final : public QWidget {
     }
 
     refreshPhones(source);
+    openstream_request_camera_status(source);
+    refreshLensSelector(source);
+    refreshTorchState(source);
 
     if (replace_name || !name_->hasFocus()) {
       QSignalBlocker blocker(name_);
       name_->setText(QString::fromUtf8(obs_source_get_name(source)));
     }
     status_->setText(QString::fromUtf8(openstream_source_status(source)));
+  }
+
+  void refreshLensSelector(obs_source_t *source) {
+    const size_t count = source ? openstream_camera_lens_count(source) : 0;
+    const QString selected = source
+                                 ? QString::fromUtf8(openstream_camera_current_lens(source))
+                                 : QString();
+    double zoom = 1.0;
+    double zoom_min = 1.0;
+    double zoom_max = 10.0;
+    if (source) openstream_camera_zoom_state(source, &zoom, &zoom_min, &zoom_max);
+
+    QStringList labels;
+    for (size_t index = 0; index < count; ++index) {
+      labels.append(QString::fromUtf8(openstream_camera_lens_label(source, index)));
+    }
+
+    if (labels != lens_labels_) {
+      lens_labels_ = labels;
+      while (QLayoutItem *item = lens_buttons_layout_->takeAt(0)) {
+        delete item->widget();
+        delete item;
+      }
+      delete lens_button_group_;
+      lens_button_group_ = new QButtonGroup(this);
+      lens_button_group_->setExclusive(true);
+      for (const QString &label : lens_labels_) {
+        auto *button = new QToolButton(lens_buttons_widget_);
+        button->setText(label);
+        button->setCheckable(true);
+        button->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        button->setAccessibleName("Select lens " + label);
+        lens_button_group_->addButton(button);
+        lens_buttons_layout_->addWidget(button);
+        connect(button, &QToolButton::clicked, this, [this, label] {
+          QJsonObject body;
+          body.insert("lens", label);
+          const QByteArray json = QJsonDocument(body).toJson(QJsonDocument::Compact);
+          send("/lens", json.constData());
+          if (obs_source_t *source = currentSource()) {
+            openstream_request_camera_status(source);
+          }
+        });
+      }
+      if (lens_labels_.isEmpty()) {
+        auto *waiting = new QLabel("Waiting for connected phone", lens_buttons_widget_);
+        lens_buttons_layout_->addWidget(waiting);
+      }
+      lens_buttons_layout_->addStretch();
+    }
+    {
+      QSignalBlocker blocker(lens_button_group_);
+      for (QAbstractButton *button : lens_button_group_->buttons()) {
+        button->setChecked(button->text() == selected);
+      }
+    }
+    lens_scroll_->setEnabled(!lens_labels_.isEmpty());
+
+    const int min_value = std::max(1, static_cast<int>(std::lround(zoom_min * 10.0)));
+    const int max_value = std::max(min_value, static_cast<int>(std::lround(zoom_max * 10.0)));
+    const int step = std::clamp((max_value - min_value) / 90, 1, 10);
+    QSignalBlocker zoom_blocker(zoom_);
+    zoom_->setRange(min_value, max_value);
+    zoom_->setSingleStep(step);
+    zoom_->setPageStep(step * 5);
+    if (!zoom_->isSliderDown() && !zoom_send_timer_->isActive()) {
+      zoom_->setValue(std::clamp(static_cast<int>(std::lround(zoom * 10.0)),
+                                 min_value,
+                                 max_value));
+      zoom_value_->setText(QString::number(zoom, 'f', 1) + QChar(0x00d7));
+    }
+  }
+
+  void refreshTorchState(obs_source_t *source) {
+    bool available = false;
+    bool enabled = false;
+    if (source) openstream_camera_torch_state(source, &available, &enabled);
+    const bool has_source = source != nullptr;
+    torch_on_->setEnabled(has_source && available);
+    torch_off_->setEnabled(has_source);
+    torch_status_->setText(!has_source ? "No source"
+                            : !available ? "Unavailable for this lens"
+                            : enabled ? "On" : "Off");
   }
 
   void refreshSources() {
@@ -334,12 +458,17 @@ class OpenStreamDock final : public QWidget {
   QLineEdit *name_ = nullptr;
   QPushButton *test_connect_ = nullptr;
   QPushButton *disconnect_ = nullptr;
-  QDoubleSpinBox *zoom_ = nullptr;
-  QPushButton *apply_zoom_ = nullptr;
-  QPushButton *lens_rear_ = nullptr;
-  QPushButton *lens_front_ = nullptr;
+  QSlider *zoom_ = nullptr;
+  QLabel *zoom_value_ = nullptr;
+  QTimer *zoom_send_timer_ = nullptr;
+  QScrollArea *lens_scroll_ = nullptr;
+  QWidget *lens_buttons_widget_ = nullptr;
+  QHBoxLayout *lens_buttons_layout_ = nullptr;
+  QButtonGroup *lens_button_group_ = nullptr;
+  QStringList lens_labels_ = {QStringLiteral("__loading__")};
   QPushButton *torch_on_ = nullptr;
   QPushButton *torch_off_ = nullptr;
+  QLabel *torch_status_ = nullptr;
   QPushButton *identify_ = nullptr;
   QTimer *refresh_ = nullptr;
   std::vector<obs_source_t *> sources_;

@@ -4,6 +4,7 @@ import android.util.Log
 import dev.openstream.app.camera.Camera2Controller
 import dev.openstream.app.camera.CameraLens
 import dev.openstream.app.stream.StreamConfig
+import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.BufferedInputStream
@@ -12,6 +13,9 @@ import java.io.PrintWriter
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
+
+internal fun torchCommandAllowed(enabled: Boolean, torchAvailable: Boolean): Boolean =
+    !enabled || torchAvailable
 
 /**
  * Lightweight HTTP control server that accepts camera control commands from OBS.
@@ -290,7 +294,9 @@ class CameraControlServer(
             .put("zoomMin", camera.zoomRange.start.toDouble())
             .put("zoomMax", camera.zoomRange.endInclusive.toDouble())
             .put("currentLens", currentLensProvider().shortLabel)
-            .put("availableLenses", lensListProvider().map { it.shortLabel })
+            .put("availableLenses", JSONArray(lensListProvider().map { it.shortLabel }))
+            .put("torchAvailable", camera.torchAvailable)
+            .put("torchEnabled", camera.torchEnabled)
             .put("reservedBy", reservationProvider().orEmpty())
         return json.toString()
     }
@@ -340,6 +346,15 @@ class CameraControlServer(
         val enabled = parseJson(body)?.let { json ->
             runCatching { json.getBoolean("enabled") }.getOrNull()
         } ?: return malformedResponse("torch")
+        val controller = cameraProvider()
+        if (!torchCommandAllowed(enabled, controller.torchAvailable)) {
+            return 409 to JSONObject()
+                .put("ok", false)
+                .put("error", "torch unavailable for current lens")
+                .put("torchAvailable", false)
+                .put("torchEnabled", controller.torchEnabled)
+                .toString()
+        }
         onToggleTorch(enabled)
         return 200 to """{"ok":true,"torch":$enabled}"""
     }

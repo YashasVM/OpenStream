@@ -4,118 +4,67 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import android.view.WindowInsets
 import android.widget.EditText
+import android.widget.RadioGroup
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import dev.openstream.app.stream.ConnectionTarget
+import dev.openstream.app.stream.VideoQuality
 
 class SettingsActivity : Activity() {
-
-    private lateinit var inputObsHost: EditText
-    private lateinit var inputObsPort: EditText
-    private lateinit var inputLatency: EditText
-    private lateinit var inputListeningPort: EditText
-    private lateinit var btnSave: TextView
-    private lateinit var btnSaveAndConnect: TextView
-    private lateinit var btnBack: TextView
+    private lateinit var qualityGroup: RadioGroup
+    private lateinit var microphoneSwitch: Switch
+    private lateinit var keepAwakeSwitch: Switch
+    private lateinit var listeningPort: EditText
     private lateinit var versionInfo: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
 
-        inputObsHost = findViewById(R.id.settingsObsHost)
-        inputObsPort = findViewById(R.id.settingsObsPort)
-        inputLatency = findViewById(R.id.settingsLatency)
-        inputListeningPort = findViewById(R.id.settingsListeningPort)
-        btnSave = findViewById(R.id.btnSaveSettings)
-        btnSaveAndConnect = findViewById(R.id.btnSaveAndConnect)
-        btnBack = findViewById(R.id.btnBackSettings)
+        qualityGroup = findViewById(R.id.settingsQuality)
+        microphoneSwitch = findViewById(R.id.settingsMicrophone)
+        keepAwakeSwitch = findViewById(R.id.settingsKeepAwake)
+        listeningPort = findViewById(R.id.settingsListeningPort)
         versionInfo = findViewById(R.id.settingsVersionInfo)
 
-        loadSettings()
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        qualityGroup.check(when (VideoQuality.fromPreference(prefs.getString(KEY_VIDEO_QUALITY, null))) {
+            VideoQuality.DataSaver -> R.id.qualityDataSaver
+            VideoQuality.Balanced -> R.id.qualityBalanced
+            VideoQuality.High -> R.id.qualityHigh
+        })
+        microphoneSwitch.isChecked = prefs.getBoolean(KEY_MICROPHONE_ENABLED, true)
+        keepAwakeSwitch.isChecked = prefs.getBoolean(KEY_KEEP_AWAKE, false)
+        listeningPort.setText(prefs.getInt(KEY_LISTENING_PORT, ConnectionTarget.DEFAULT_PORT).toString())
         showVersionInfo()
 
-        btnSave.setOnClickListener { saveSettings(connectAfterSave = false) }
-        btnSaveAndConnect.setOnClickListener { saveSettings(connectAfterSave = true) }
-        btnBack.setOnClickListener { finish() }
+        findViewById<TextView>(R.id.btnSaveSettings).setOnClickListener { saveSettings() }
+        findViewById<TextView>(R.id.btnBackSettings).setOnClickListener { finish() }
     }
 
-    private fun loadSettings() {
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        inputObsHost.setText(prefs.getString(KEY_OBS_HOST, ""))
-        val port = prefs.getInt(KEY_OBS_PORT, ConnectionTarget.DEFAULT_PORT)
-        if (port != ConnectionTarget.DEFAULT_PORT) inputObsPort.setText(port.toString())
-        val latency = prefs.getInt(KEY_LATENCY, ConnectionTarget.DEFAULT_LATENCY_MS)
-        if (latency != ConnectionTarget.DEFAULT_LATENCY_MS) inputLatency.setText(latency.toString())
-        val listenPort = prefs.getInt(KEY_LISTENING_PORT, ConnectionTarget.DEFAULT_PORT)
-        inputListeningPort.setText(listenPort.toString())
-    }
-
-    private fun saveSettings(connectAfterSave: Boolean) {
-        clearValidationErrors()
-        val host = inputObsHost.text.toString().trim()
-        if (!SettingsValidator.isValidHost(host, required = connectAfterSave)) {
-            inputObsHost.error = "Enter a valid OBS host or IP address"
-            inputObsHost.requestFocus()
+    private fun saveSettings() {
+        val port = listeningPort.text.toString().trim().toIntOrNull()
+        if (port == null || port !in 1024..65535) {
+            listeningPort.error = "Port must be between 1024 and 65535"
+            listeningPort.requestFocus()
             return
         }
-        val port = validatedNumber(
-            input = inputObsPort,
-            defaultValue = ConnectionTarget.DEFAULT_PORT,
-            validRange = 1..65535,
-            label = "OBS port",
-        ) ?: return
-        val latency = validatedNumber(
-            input = inputLatency,
-            defaultValue = ConnectionTarget.DEFAULT_LATENCY_MS,
-            validRange = 80..200,
-            label = "Latency",
-        ) ?: return
-        val listenPort = validatedNumber(
-            input = inputListeningPort,
-            defaultValue = ConnectionTarget.DEFAULT_PORT,
-            validRange = 1024..65535,
-            label = "Listening port",
-        ) ?: return
-
-        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
-            .putString(KEY_OBS_HOST, host)
-            .putInt(KEY_OBS_PORT, port)
-            .putInt(KEY_LATENCY, latency)
-            .putInt(KEY_LISTENING_PORT, listenPort)
-            .apply()
-
-        Toast.makeText(this, "Settings saved", Toast.LENGTH_SHORT).show()
-        setResult(
-            RESULT_OK,
-            Intent().putExtra(EXTRA_CONNECT_AFTER_SAVE, connectAfterSave),
-        )
-        finish()
-    }
-
-    private fun validatedNumber(
-        input: EditText,
-        defaultValue: Int,
-        validRange: IntRange,
-        label: String,
-    ): Int? {
-        val raw = input.text.toString().trim()
-        val value = SettingsValidator.parseNumber(raw, defaultValue, validRange)
-        if (value == null) {
-            input.error = "$label must be between ${validRange.first} and ${validRange.last}"
-            input.requestFocus()
-            return null
+        val quality = when (qualityGroup.checkedRadioButtonId) {
+            R.id.qualityDataSaver -> VideoQuality.DataSaver
+            R.id.qualityBalanced -> VideoQuality.Balanced
+            else -> VideoQuality.High
         }
-        return value
-    }
-
-    private fun clearValidationErrors() {
-        inputObsHost.error = null
-        inputObsPort.error = null
-        inputLatency.error = null
-        inputListeningPort.error = null
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+            .putString(KEY_VIDEO_QUALITY, quality.name)
+            .putBoolean(KEY_MICROPHONE_ENABLED, microphoneSwitch.isChecked)
+            .putBoolean(KEY_KEEP_AWAKE, keepAwakeSwitch.isChecked)
+            .putInt(KEY_LISTENING_PORT, port)
+            .apply()
+        Toast.makeText(this, "Settings saved", Toast.LENGTH_SHORT).show()
+        setResult(RESULT_OK, Intent().putExtra(EXTRA_SETTINGS_CHANGED, true))
+        finish()
     }
 
     private fun showVersionInfo() {
@@ -133,10 +82,10 @@ class SettingsActivity : Activity() {
 
     companion object {
         const val PREFS_NAME = "shin_settings"
-        const val KEY_OBS_HOST = "obs_host"
-        const val KEY_OBS_PORT = "obs_port"
-        const val KEY_LATENCY = "latency_ms"
         const val KEY_LISTENING_PORT = "listening_port"
-        const val EXTRA_CONNECT_AFTER_SAVE = "connect_after_save"
+        const val KEY_VIDEO_QUALITY = "video_quality"
+        const val KEY_MICROPHONE_ENABLED = "microphone_enabled"
+        const val KEY_KEEP_AWAKE = "keep_awake"
+        const val EXTRA_SETTINGS_CHANGED = "settings_changed"
     }
 }

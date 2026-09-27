@@ -36,6 +36,7 @@ import dev.openstream.app.encoder.MediaCodecVideoEncoder
 import dev.openstream.app.stream.ConnectionTarget
 import dev.openstream.app.stream.StreamConfig
 import dev.openstream.app.stream.SrtStreamClient
+import dev.openstream.app.stream.VideoQuality
 
 class MainActivity : Activity() {
 
@@ -69,7 +70,7 @@ class MainActivity : Activity() {
     private lateinit var obsDiscoveryClient: ObsDiscoveryClient
     private lateinit var controlServer: CameraControlServer
 
-    private val streamConfig = StreamConfig.Default1080p30
+    private lateinit var streamConfig: StreamConfig
     private val mainHandler = Handler(Looper.getMainLooper())
     private val reservationState = ReservationState()
     @Volatile private var activeTargetName: String? = null
@@ -93,13 +94,13 @@ class MainActivity : Activity() {
     private var zoomHideRunnable: Runnable? = null
     private var liveDotAnimator: ObjectAnimator? = null
     private var currentPort: Int = ConnectionTarget.DEFAULT_PORT
+    private var restartingForSettings = false
     private var releaseReservationRunnable: Runnable? = null
     private var reservationGeneration = 0L
     private var lensRestartRunnable: Runnable? = null
     private var identifyHideRunnable: Runnable? = null
-    private var pendingConnectAfterSettings = false
     private var currentDevices: List<DiscoveredObsDevice> = emptyList()
-    private var activeStreamBitrate: Int = streamConfig.bitrate
+    private var activeStreamBitrate: Int = 0
     private var lastObsSlotRenderKeys: List<String>? = null
     private val callerLifecycleLock = Any()
 
@@ -132,7 +133,14 @@ class MainActivity : Activity() {
         bindViews()
         setupGestureDetector()
 
-        currentPort = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
+        val settingsPrefs = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
+        streamConfig = StreamConfig.forQuality(
+            VideoQuality.fromPreference(settingsPrefs.getString(SettingsActivity.KEY_VIDEO_QUALITY, null)),
+        )
+        activeStreamBitrate = streamConfig.bitrate
+        if (settingsPrefs.getBoolean(SettingsActivity.KEY_KEEP_AWAKE, false)) toggleKeepScreenOn()
+
+        currentPort = settingsPrefs
             .getInt(SettingsActivity.KEY_LISTENING_PORT, ConnectionTarget.DEFAULT_PORT)
             .takeIf { it in 1024..65535 }
             ?: ConnectionTarget.DEFAULT_PORT
@@ -184,9 +192,10 @@ class MainActivity : Activity() {
             currentLensProvider = { currentLens },
             onSwitchLens = { lens -> runOnUiThread { selectLens(lens) } },
             onToggleTorch = { enabled -> runOnUiThread {
-                torchOn = enabled
-                camera.setTorch(enabled)
-                setTorchUi(enabled)
+                val accepted = camera.setTorch(enabled)
+                torchOn = camera.torchEnabled
+                setTorchUi(torchOn)
+                if (enabled && !accepted) statusDetail.text = "Torch unavailable on this camera"
             }},
             reservationProvider = { reservedBy },
             onReserve = { sourceInstanceId, slotLabel, bitrateMbps ->
@@ -243,24 +252,17 @@ class MainActivity : Activity() {
         controlServer.start()
         startPreviewIfAllowed()
         startPhoneServerIfAllowed()
-        startPendingConnectIfReady()
     }
 
     override fun onResume() {
         super.onResume()
+        if (restartingForSettings) return
         // Reload listening port from settings if it changed
         val settingsPrefs = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
         val savedPort = settingsPrefs.getInt(SettingsActivity.KEY_LISTENING_PORT, currentPort)
         if (savedPort != currentPort && savedPort in 1024..65535) {
             changePort(savedPort)
         }
-        startPendingConnectIfReady()
-    }
-
-    private fun startPendingConnectIfReady() {
-        if (!pendingConnectAfterSettings || !activityStarted || !lifecycleStartGate.canStart()) return
-        pendingConnectAfterSettings = false
-        startStream(connectionTargetFromSettings())
     }
 
     override fun onStop() {
@@ -323,9 +325,10 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == SETTINGS_REQUEST_CODE && resultCode == RESULT_OK &&
-            data?.getBooleanExtra(SettingsActivity.EXTRA_CONNECT_AFTER_SAVE, false) == true
+            data?.getBooleanExtra(SettingsActivity.EXTRA_SETTINGS_CHANGED, false) == true
         ) {
-            pendingConnectAfterSettings = true
+            restartingForSettings = true
+            recreate()
         }
     }
 
@@ -463,7 +466,9 @@ class MainActivity : Activity() {
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
         availableLenses = camera.availableLenses()
         if (currentLens !in availableLenses) {
-            currentLens = availableLenses.firstOrNull { it.isBackFacing } ?: availableLenses.first()
+            currentLens = availableLenses.firstOrNull {
+                it.isBackFacing && (it.zoomRatio == null || kotlin.math.abs(it.zoomRatio - 1f) < 0.1f)
+            } ?: availableLenses.firstOrNull { it.isBackFacing } ?: availableLenses.first()
         }
         buildLensButtons()
     }
@@ -494,14 +499,16 @@ class MainActivity : Activity() {
 
     private fun selectLens(lens: CameraLens) {
         if (lens == currentLens) return
-        // Turn off torch when switching cameras
-        if (torchOn) {
+        val sameCamera = currentLens.cameraId != null && currentLens.cameraId == lens.cameraId
+        // Optical presets share the logical back camera, so keep its torch active.
+        if (!sameCamera && torchOn) {
             torchOn = false
             setTorchUi(false)
         }
         val wasStreaming = activeTargetName != null
-        // Stop the encoder before switching cameras to avoid surface conflicts
-        if (wasStreaming) {
+        // Presets on the same logical camera are seamless zoom requests and keep
+        // the encoder running. Stop it only when switching to another device.
+        if (wasStreaming && !sameCamera) {
             camera.stopStreaming()
             encoder.stop()
         }
@@ -512,7 +519,7 @@ class MainActivity : Activity() {
         }
         // If we were streaming, re-create the encoder and re-attach after the camera settles.
         // MediaCodecList probing is heavy; never run encoder.start() on the UI thread.
-        if (wasStreaming) {
+        if (wasStreaming && !sameCamera) {
             cancelLensRestart()
             val restart = Runnable {
                 lensRestartRunnable = null
@@ -542,7 +549,9 @@ class MainActivity : Activity() {
 
     private fun flipCamera() {
         val target = if (currentLens.isFrontFacing) {
-            availableLenses.firstOrNull { it.isBackFacing } ?: return
+            availableLenses.firstOrNull {
+                it.isBackFacing && (it.zoomRatio == null || kotlin.math.abs(it.zoomRatio - 1f) < 0.1f)
+            } ?: availableLenses.firstOrNull { it.isBackFacing } ?: return
         } else {
             availableLenses.firstOrNull { it.isFrontFacing } ?: return
         }
@@ -558,6 +567,9 @@ class MainActivity : Activity() {
 
     private fun toggleKeepScreenOn() {
         keepScreenOn = !keepScreenOn
+        getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE).edit()
+            .putBoolean(SettingsActivity.KEY_KEEP_AWAKE, keepScreenOn)
+            .apply()
         if (keepScreenOn) {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             btnKeepScreenOn.text = "STAY ✓"
@@ -574,10 +586,12 @@ class MainActivity : Activity() {
     // ─────────────────────────── Torch ───────────────────────────
 
     private fun toggleTorch() {
-        // Only works on back-facing cameras
-        if (currentLens.isFrontFacing) return
-        torchOn = !torchOn
-        camera.setTorch(torchOn)
+        val requested = !torchOn
+        if (!camera.setTorch(requested)) {
+            statusDetail.text = "Torch unavailable on this camera"
+            return
+        }
+        torchOn = camera.torchEnabled
         setTorchUi(torchOn)
     }
 
@@ -794,6 +808,9 @@ class MainActivity : Activity() {
     }
 
     private fun startAudioIfAllowed() {
+        if (!getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
+                .getBoolean(SettingsActivity.KEY_MICROPHONE_ENABLED, true)
+        ) return
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             Log.i("shin", "Microphone permission not granted; streaming video without audio")
             return
@@ -1223,20 +1240,6 @@ class MainActivity : Activity() {
         if (missing.isNotEmpty()) {
             requestPermissions(missing.toTypedArray(), 100)
         }
-    }
-
-    private fun connectionTargetFromSettings(): ConnectionTarget {
-        val settingsPrefs = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
-        val host = settingsPrefs.getString(SettingsActivity.KEY_OBS_HOST, ConnectionTarget.DEFAULT_HOST)
-            ?.trim().orEmpty().ifBlank { ConnectionTarget.DEFAULT_HOST }
-        val port = settingsPrefs.getInt(SettingsActivity.KEY_OBS_PORT, ConnectionTarget.DEFAULT_PORT)
-        val latencyMs = settingsPrefs.getInt(SettingsActivity.KEY_LATENCY, ConnectionTarget.DEFAULT_LATENCY_MS)
-        return ConnectionTarget(
-            name = ConnectionTarget.DEFAULT_NAME,
-            host = host,
-            port = port.coerceIn(1, 65535),
-            latencyMs = latencyMs.coerceIn(80, 200),
-        )
     }
 
     // ─────────────────────────── Display off (screen off while streaming) ───────────────────────────

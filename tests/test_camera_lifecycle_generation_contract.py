@@ -60,7 +60,8 @@ def test_camera_controls_share_session_lifecycle_lock():
 
     set_torch = block_after(SOURCE, "fun setTorch(enabled: Boolean)")
     torch_critical = block_after(set_torch, "synchronized(lifecycleLock)")
-    assert "torchEnabled = enabled" in torch_critical
+    assert "if (enabled && !flashAvailable)" in torch_critical
+    assert "torchOnInternal = enabled" in torch_critical
     assert "rebuildRepeatingRequest()" in torch_critical
 
     assert "val zoomRatio: Float get() = synchronized(lifecycleLock) { currentZoomRatio }" in SOURCE

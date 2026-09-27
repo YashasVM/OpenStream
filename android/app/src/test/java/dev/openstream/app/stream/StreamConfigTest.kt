@@ -27,4 +27,21 @@ class StreamConfigTest {
         assertEquals(12, StreamConfig.Default1080p30.bitrateMbps)
         assertEquals(8, StreamConfig.Default1080p30.copy(bitrate = 8_000_000).bitrateMbps)
     }
+
+    @Test
+    fun savedQualityChangesAdvertisedVideoFormatAndBitrate() {
+        val high = StreamConfig.forQuality(VideoQuality.fromPreference("High"))
+        val balanced = StreamConfig.forQuality(VideoQuality.fromPreference("Balanced"))
+        val saver = StreamConfig.forQuality(VideoQuality.fromPreference("DataSaver"))
+
+        assertEquals(1920, high.width)
+        assertEquals(1080, high.height)
+        assertEquals(60, high.fps)
+        assertEquals(50, high.bitrateMbps)
+        assertEquals(12, balanced.bitrateMbps)
+        assertEquals(1280, saver.width)
+        assertEquals(720, saver.height)
+        assertEquals(8, saver.bitrateMbps)
+        assertEquals(VideoQuality.High, VideoQuality.fromPreference("unknown"))
+    }
 }

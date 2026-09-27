@@ -27,7 +27,6 @@
 
     <!-- Sections -->
     <string name="section_connection">CONNECTION</string>
-    <string name="section_manual">ADVANCED</string>
     <string name="section_settings">SETTINGS</string>
     <!-- Solo-camera picker: one phone camera to one OBS computer. Multiple
          discovered computers remain selectable; legacy slot protocol fields
@@ -35,9 +34,6 @@
     <string name="section_obs_slots">OBS</string>
 
     <!-- Hints -->
-    <string name="hint_obs_host">OBS PC IP address</string>
-    <string name="hint_obs_port">Port (9100)</string>
-    <string name="hint_latency">Latency (120)</string>
     <string name="hint_listening_port">Listening port</string>
 
     <!-- Info -->
@@ -48,11 +44,7 @@
 
     <!-- Settings labels -->
     <string name="settings_title">Settings</string>
-    <string name="settings_obs_host">OBS HOST</string>
-    <string name="settings_obs_port">OBS PORT</string>
-    <string name="settings_latency">LATENCY (ms)</string>
     <string name="settings_listening_port">LISTENING PORT</string>
     <string name="screen_off_overlay_description">Screen dimmed. Tap to restore controls.</string>
-    <string name="settings_save_connect">Save &amp; Connect</string>
     <string name="settings_save">Save Settings</string>
 </resources>

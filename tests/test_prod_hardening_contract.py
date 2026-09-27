@@ -101,4 +101,5 @@ def test_dock_keeps_full_peer_bound_controls():
     dock = read("obs-plugin/src/openstream-dock.cpp")
     for required in ('send("/zoom"', 'send("/lens"', 'send("/torch"', 'send("/identify"'):
         assert required in dock
-    assert dock.count("new QPushButton") == 8
+    assert '"openstreamLensOptions"' in dock
+    assert '"openstreamZoom"' in dock

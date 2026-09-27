@@ -17,6 +17,26 @@ import android.util.Range
 import android.view.Surface
 import java.util.concurrent.atomic.AtomicLong
 
+internal data class CameraCropRegion(val left: Int, val top: Int, val right: Int, val bottom: Int)
+
+/** Build a centered crop in active-array coordinates (which need not start at 0,0). */
+internal fun centeredCropRegion(
+    sensorLeft: Int,
+    sensorTop: Int,
+    sensorRight: Int,
+    sensorBottom: Int,
+    zoomRatio: Float,
+): CameraCropRegion {
+    val safeZoom = zoomRatio.coerceAtLeast(1.0f)
+    val sensorWidth = sensorRight - sensorLeft
+    val sensorHeight = sensorBottom - sensorTop
+    val cropWidth = (sensorWidth / safeZoom).toInt().coerceAtLeast(1)
+    val cropHeight = (sensorHeight / safeZoom).toInt().coerceAtLeast(1)
+    val left = sensorLeft + (sensorWidth - cropWidth) / 2
+    val top = sensorTop + (sensorHeight - cropHeight) / 2
+    return CameraCropRegion(left, top, left + cropWidth, top + cropHeight)
+}
+
 /**
  * Camera2Controller manages the lifecycle of a Camera2 device and its
  * capture sessions. It handles:
@@ -32,6 +52,13 @@ class Camera2Controller(
     private val lensProvider: () -> CameraLens = { CameraLens.Back },
     private val targetFps: Int = 30,
 ) {
+    private data class CamInfo(
+        val id: String,
+        val chars: CameraCharacteristics,
+        val focalLength: Float,
+        val facing: Int,
+    )
+
     private val appContext = context.applicationContext
     private val cameraManager: CameraManager? =
         appContext.getSystemService(CameraManager::class.java)
@@ -58,8 +85,10 @@ class Camera2Controller(
     private var captureFpsRange: Range<Int>? = null
 
     // Torch state
-    private var torchEnabled = false
+    private var torchOnInternal = false
     private var flashAvailable = false
+    val torchAvailable: Boolean get() = synchronized(lifecycleLock) { flashAvailable }
+    val torchEnabled: Boolean get() = synchronized(lifecycleLock) { torchOnInternal }
 
     /** Zoom value as a fraction [minZoom, maxZoom]. */
     val zoomRatio: Float get() = synchronized(lifecycleLock) { currentZoomRatio }
@@ -68,22 +97,11 @@ class Camera2Controller(
 
     companion object {
         private const val TAG = "shinCamera"
-        private const val BACK_DUAL_FOCAL_RATIO_THRESHOLD = 1.5f
         private const val CAMERA_THREAD_JOIN_TIMEOUT_MS = 500L
     }
 
-    /** True when two back-camera focal lengths span a wide-to-tele gap. */
-    private fun hasWideFocalSpread(shortFocalLength: Float, longFocalLength: Float): Boolean {
-        if (shortFocalLength <= 0) return false
-        return longFocalLength / shortFocalLength > BACK_DUAL_FOCAL_RATIO_THRESHOLD
-    }
-
-    /**
-     * Query available lenses on this device.
-     * Returns only CameraLens values that have a matching physical camera.
-     */
+    /** Discover optical presets from logical multi-camera physical lens metadata. */
     fun availableLenses(): List<CameraLens> {
-        val result = mutableListOf<CameraLens>()
         val manager = cameraManager ?: run {
             Log.w(TAG, "CameraManager unavailable; falling back to single Back lens")
             return listOf(CameraLens.Back)
@@ -105,15 +123,13 @@ class Camera2Controller(
             return listOf(CameraLens.Back)
         }
 
-        // Collect all back-facing cameras with their focal lengths
-        data class CamInfo(val id: String, val focalLength: Float, val facing: Int)
         val cameras = cameraIds.mapNotNull { id ->
             try {
                 val chars = manager.getCameraCharacteristics(id)
                 val facing = chars.get(CameraCharacteristics.LENS_FACING) ?: return@mapNotNull null
                 val focalLengths = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
                 val focal = focalLengths?.firstOrNull() ?: 0f
-                CamInfo(id, focal, facing)
+                CamInfo(id, chars, focal, facing)
             } catch (error: CameraAccessException) {
                 Log.w(TAG, "Skipping camera $id during enumeration", error)
                 null
@@ -126,31 +142,102 @@ class Camera2Controller(
             }
         }
 
-        val backCams = cameras.filter { it.facing == CameraCharacteristics.LENS_FACING_BACK }
-            .sortedBy { it.focalLength }
-        val frontCams = cameras.filter { it.facing == CameraCharacteristics.LENS_FACING_FRONT }
-
-        if (backCams.size >= 3) {
-            result.add(CameraLens.BackUltrawide)
-            result.add(CameraLens.Back)
-            result.add(CameraLens.BackTelephoto)
-        } else if (backCams.size == 2) {
-            if (hasWideFocalSpread(backCams[0].focalLength, backCams[1].focalLength)) {
-                result.add(CameraLens.Back)
-                result.add(CameraLens.BackTelephoto)
-            } else {
-                result.add(CameraLens.BackUltrawide)
-                result.add(CameraLens.Back)
-            }
-        } else if (backCams.isNotEmpty()) {
-            result.add(CameraLens.Back)
+        val backCameras = cameras.filter { it.facing == CameraCharacteristics.LENS_FACING_BACK }
+        val logicalBack = backCameras
+            .filter { Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && it.chars.physicalCameraIds.isNotEmpty() }
+            .maxByOrNull { it.chars.physicalCameraIds.size }
+        val result = mutableListOf<CameraLens>()
+        if (logicalBack != null) {
+            result += logicalOpticalPresets(manager, logicalBack.id, logicalBack.chars)
         }
 
-        if (frontCams.isNotEmpty()) {
-            result.add(CameraLens.Front)
+        if (result.none { it.isBackFacing }) {
+            result += fallbackBackLenses(backCameras)
         }
-
+        cameras.firstOrNull { it.facing == CameraCharacteristics.LENS_FACING_FRONT }?.let { front ->
+            result += CameraLens(
+                displayName = "Front camera",
+                shortLabel = "Front",
+                facing = CameraCharacteristics.LENS_FACING_FRONT,
+                cameraId = front.id,
+            )
+        }
         return result.ifEmpty { listOf(CameraLens.Back) }
+    }
+
+    @Suppress("NewApi")
+    private fun logicalOpticalPresets(
+        manager: CameraManager,
+        logicalCameraId: String,
+        logicalChars: CameraCharacteristics,
+    ): List<CameraLens> {
+        val defaultFocal = logicalChars
+            .get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+            ?.firstOrNull() ?: return emptyList()
+        val defaultSensorWidth = logicalChars
+            .get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+            ?.width ?: return emptyList()
+        val zoomRange = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            logicalChars.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
+        } else {
+            null
+        }
+        val minZoom = zoomRange?.lower ?: 1.0f
+        val maxZoom = zoomRange?.upper
+            ?: logicalChars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM)
+            ?: 1.0f
+        val physical = logicalChars.physicalCameraIds.mapNotNull { physicalId ->
+            try {
+                val chars = manager.getCameraCharacteristics(physicalId)
+                if (chars.get(CameraCharacteristics.LENS_FACING) != CameraCharacteristics.LENS_FACING_BACK) {
+                    return@mapNotNull null
+                }
+                val focal = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull()
+                    ?: return@mapNotNull null
+                val sensorWidth = chars.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)?.width
+                    ?: return@mapNotNull null
+                PhysicalLensInfo(physicalId, focal, sensorWidth)
+            } catch (error: Exception) {
+                Log.w(TAG, "Could not read physical lens $physicalId on logical camera $logicalCameraId", error)
+                null
+            }
+        }
+        val presets = buildOpticalLensPresets(
+            logicalCameraId = logicalCameraId,
+            defaultFocalLengthMm = defaultFocal,
+            defaultSensorWidthMm = defaultSensorWidth,
+            minZoomRatio = minZoom,
+            maxZoomRatio = maxZoom,
+            physicalLenses = physical,
+        )
+        Log.i(TAG, "Logical back camera $logicalCameraId exposed optical presets ${presets.map { it.shortLabel }}")
+        return presets
+    }
+
+    private fun fallbackBackLenses(cameras: List<CamInfo>): List<CameraLens> {
+        val back = cameras.sortedBy { it.focalLength }
+        if (back.isEmpty()) return emptyList()
+        if (back.size == 1) {
+            return listOf(CameraLens("Back camera", "1×", back[0].facing, cameraId = back[0].id))
+        }
+        val baseline = back.first()
+        val sensorWidth = baseline.chars.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)?.width ?: 0f
+        if (sensorWidth <= 0f || baseline.focalLength <= 0f) {
+            return listOf(CameraLens("Back camera", "1×", baseline.facing, cameraId = baseline.id))
+        }
+        val baseFovScale = baseline.focalLength / sensorWidth
+        return back.map { camera ->
+            val cameraWidth = camera.chars.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)?.width ?: sensorWidth
+            val ratio = if (cameraWidth > 0f && baseFovScale > 0f) {
+                (camera.focalLength / cameraWidth) / baseFovScale
+            } else {
+                1f
+            }
+            val rounded = String.format(java.util.Locale.ROOT, "%.1f", ratio)
+                .trimEnd('0').trimEnd('.')
+            val label = "${rounded}×"
+            CameraLens("$label camera", label, camera.facing, cameraId = camera.id)
+        }.distinctBy { it.shortLabel }
     }
 
     @SuppressLint("MissingPermission")
@@ -175,6 +262,10 @@ class Camera2Controller(
         }
 
         if (camera != null && activeCameraId == desiredId) {
+            if (activeLens != desiredLens) {
+                activeLens = desiredLens
+                setZoom(desiredLens.zoomRatio ?: 1.0f)
+            }
             createSession()
             return
         }
@@ -206,6 +297,8 @@ class Camera2Controller(
                         cancelCameraRecoveryLocked()
                         camera = device
                         loadZoomCapabilities(desiredId)
+                        currentZoomRatio = (activeLens?.zoomRatio ?: 1.0f)
+                            .coerceIn(minZoomRatio, maxZoomRatio)
                         createSession()
                     }
                 }
@@ -262,12 +355,20 @@ class Camera2Controller(
                 Log.w(TAG, "Cannot switch to lens $lens: no camera available", error)
                 return
             }
-            if (newId == activeCameraId) return
+            if (newId == activeCameraId && camera != null) {
+                activeLens = lens
+                setZoom(lens.zoomRatio ?: 1.0f)
+                return
+            }
 
+            val sameCamera = newId == activeCameraId
             activeLens = lens
             activeCameraId = newId
-            currentZoomRatio = 1.0f
-            torchEnabled = false
+            currentZoomRatio = lens.zoomRatio ?: 1.0f
+            if (!sameCamera) {
+                torchOnInternal = false
+                flashAvailable = false
+            }
 
             closeCamera()
             startPreview()
@@ -319,10 +420,12 @@ class Camera2Controller(
         }
     }
 
-    fun setTorch(enabled: Boolean) {
-        synchronized(lifecycleLock) {
-            torchEnabled = enabled
+    fun setTorch(enabled: Boolean): Boolean {
+        return synchronized(lifecycleLock) {
+            if (enabled && !flashAvailable) return@synchronized false
+            torchOnInternal = enabled
             rebuildRepeatingRequest()
+            true
         }
     }
 
@@ -425,6 +528,7 @@ class Camera2Controller(
             return
         }
         flashAvailable = chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+        if (!flashAvailable) torchOnInternal = false
         val availableFpsRanges = chars
             .get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
             .orEmpty()
@@ -489,11 +593,13 @@ class Camera2Controller(
                                 return
                             }
                             session = captureSession
-                            val template = if (encoded != null) {
-                                CameraDevice.TEMPLATE_RECORD
-                            } else {
-                                CameraDevice.TEMPLATE_PREVIEW
-                            }
+                            // This controller feeds a video stream even while it is
+                            // preview-only. Some multi-camera HALs do not implement
+                            // TEMPLATE_PREVIEW for every physical camera (Samsung's
+                            // telephoto camera returns -38), but do support the
+                            // record template. Keeping one template also avoids a
+                            // capture behavior change when a stream starts/stops.
+                            val template = CameraDevice.TEMPLATE_RECORD
                             runCatching {
                                 val request = device.createCaptureRequest(template).apply {
                                     addTarget(preview)
@@ -576,11 +682,14 @@ class Camera2Controller(
             builder.set(CaptureRequest.CONTROL_ZOOM_RATIO, currentZoomRatio)
         } else {
             val sensor = sensorRect ?: return
-            val cropWidth = (sensor.width() / currentZoomRatio).toInt()
-            val cropHeight = (sensor.height() / currentZoomRatio).toInt()
-            val left = (sensor.width() - cropWidth) / 2
-            val top = (sensor.height() - cropHeight) / 2
-            builder.set(CaptureRequest.SCALER_CROP_REGION, Rect(left, top, left + cropWidth, top + cropHeight))
+            val crop = centeredCropRegion(
+                sensor.left,
+                sensor.top,
+                sensor.right,
+                sensor.bottom,
+                currentZoomRatio,
+            )
+            builder.set(CaptureRequest.SCALER_CROP_REGION, Rect(crop.left, crop.top, crop.right, crop.bottom))
         }
     }
 
@@ -594,7 +703,7 @@ class Camera2Controller(
         if (!flashAvailable) return
         builder.set(
             CaptureRequest.FLASH_MODE,
-            if (torchEnabled) CaptureRequest.FLASH_MODE_TORCH else CaptureRequest.FLASH_MODE_OFF,
+            if (torchOnInternal) CaptureRequest.FLASH_MODE_TORCH else CaptureRequest.FLASH_MODE_OFF,
         )
     }
 
@@ -612,7 +721,7 @@ class Camera2Controller(
             Log.w(TAG, "Deferring camera request rebuild until encoder surface is valid")
             return
         }
-        val template = if (encoded != null) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
+        val template = CameraDevice.TEMPLATE_RECORD
 
         runCatching {
             val request = device.createCaptureRequest(template).apply {
@@ -649,6 +758,7 @@ class Camera2Controller(
     }
 
     private fun selectCameraId(lens: CameraLens): String {
+        lens.cameraId?.let { return it }
         val manager = cameraManager ?: run {
             return activeCameraId
                 ?: throw IllegalStateException("No cameras available on this device")
@@ -672,7 +782,7 @@ class Camera2Controller(
             return activeCameraId
                 ?: throw IllegalStateException("No cameras available on this device")
         }
-        val candidates = cameraIds.filter { id ->
+        val candidate = cameraIds.firstOrNull { id ->
             try {
                 manager.getCameraCharacteristics(id)
                     .get(CameraCharacteristics.LENS_FACING) == lens.facing
@@ -688,48 +798,8 @@ class Camera2Controller(
             }
         }
 
-        if (candidates.isEmpty()) {
-            Log.w(TAG, "No camera matches lens $lens; using ${cameraIds.first()}")
-            return activeCameraId ?: cameraIds.first()
-        }
-        if (candidates.size == 1 || lens.isFrontFacing) return candidates.first()
-
-        data class CamCandidate(val id: String, val focalLength: Float)
-        val sorted = candidates.mapNotNull { id ->
-            try {
-                val chars = manager.getCameraCharacteristics(id)
-                val focal = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull() ?: 0f
-                CamCandidate(id, focal)
-            } catch (error: CameraAccessException) {
-                Log.w(TAG, "Skipping camera $id while selecting lens $lens", error)
-                null
-            } catch (error: SecurityException) {
-                Log.w(TAG, "Skipping camera $id while selecting lens $lens", error)
-                null
-            } catch (error: IllegalArgumentException) {
-                Log.w(TAG, "Skipping camera $id while selecting lens $lens", error)
-                null
-            }
-        }.sortedBy { it.focalLength }
-        if (sorted.isEmpty()) {
-            return activeCameraId ?: candidates.first()
-        }
-
-        return when (lens.focalHint) {
-            CameraLens.FocalHint.Ultrawide -> sorted.first().id
-            CameraLens.FocalHint.Telephoto -> sorted.last().id
-            CameraLens.FocalHint.Normal -> {
-                if (sorted.size >= 3) {
-                    sorted[1].id
-                } else if (sorted.size == 2) {
-                    // Mirrored with availableLenses(): a wide focal spread advertises
-                    // Back+Tele, so Normal takes the short end; a narrow spread
-                    // advertises Ultrawide+Back, so Normal takes the long end.
-                    if (hasWideFocalSpread(sorted[0].focalLength, sorted[1].focalLength)) sorted[0].id else sorted[1].id
-                } else {
-                    sorted.first().id
-                }
-            }
-        }
+        if (candidate != null) return candidate
+        Log.w(TAG, "No camera matches lens $lens; using ${cameraIds.first()}")
+        return activeCameraId ?: cameraIds.first()
     }
 }

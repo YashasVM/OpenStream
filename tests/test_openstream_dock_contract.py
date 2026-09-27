@@ -20,11 +20,15 @@ class OpenStreamPluginContractTests(unittest.TestCase):
         for required in (
             '"Test / connect"',
             '"Disconnect / release"',
-            '"Apply zoom"',
+            '"openstreamZoom"',
+            '"openstreamLensOptions"',
             '"openstreamSourceName"',
             'obs_source_set_name',
             'openstream_start_camera_source',
             'openstream_stop_camera_source',
+            'openstream_request_camera_status',
+            'openstream_camera_lens_count',
+            'openstream_camera_lens_label',
             'send("/zoom"',
             'send("/lens"',
             'send("/torch"',
@@ -42,12 +46,16 @@ class OpenStreamPluginContractTests(unittest.TestCase):
         ):
             self.assertNotIn(removed, DOCK)
 
-        # Dock buttons are bounded connect/disconnect plus peer-bound camera
-        # controls (zoom, lens x2, torch x2, identify). Naming is a local OBS
-        # source metadata edit, not a camera or network operation. Every camera
-        # action goes through send() into the bounded control slot, never
-        # through UI-thread networking.
-        self.assertEqual(DOCK.count("new QPushButton"), 8)
+        # Lens options come from the active phone's async status response.
+        # Every camera action goes through the bounded control slot.
+        self.assertIn('QJsonDocument(body).toJson(QJsonDocument::Compact)', DOCK)
+        self.assertIn('new QToolButton', DOCK)
+        self.assertIn('new QScrollArea', DOCK)
+        self.assertNotIn("resetZoomAfterLensChange", DOCK)
+        self.assertIn('lens_button_group_->buttons()', DOCK)
+        self.assertIn('openstream_camera_zoom_state', DOCK)
+        self.assertLess(DOCK.index('layout->addWidget(lens_group)'),
+                        DOCK.index('layout->addWidget(controls_group)'))
         self.assertNotIn("obs_source_remove", DOCK)
 
     def test_video_decoder_has_one_coherent_definition(self) -> None:

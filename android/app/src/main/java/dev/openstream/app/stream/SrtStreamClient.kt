@@ -10,10 +10,12 @@ data class StreamStats(
     val keyframesSent: Long = 0,
     val bytesSent: Long = 0,
     val sendFailures: Long = 0,
+    val firstPresentationTimeUs: Long = 0,
     val lastPresentationTimeUs: Long = 0,
 ) {
     val secondsSent: Double
-        get() = lastPresentationTimeUs / 1_000_000.0
+        get() = (lastPresentationTimeUs - firstPresentationTimeUs)
+            .coerceAtLeast(0) / 1_000_000.0
 }
 
 data class SrtSendResult(
@@ -38,6 +40,7 @@ class SrtStreamClient {
             keyframesSent = keyframesSent.get(),
             bytesSent = bytesSent.get(),
             sendFailures = sendFailures.get(),
+            firstPresentationTimeUs = firstPresentationTimeUs.get(),
             lastPresentationTimeUs = lastPresentationTimeUs.get(),
         )
 
@@ -45,6 +48,7 @@ class SrtStreamClient {
     private val keyframesSent = AtomicLong()
     private val bytesSent = AtomicLong()
     private val sendFailures = AtomicLong()
+    private val firstPresentationTimeUs = AtomicLong()
     private val lastPresentationTimeUs = AtomicLong()
 
     fun connect(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
@@ -105,6 +109,7 @@ class SrtStreamClient {
                             keyframesSent.incrementAndGet()
                         }
                         bytesSent.addAndGet(accessUnit.data.size.toLong())
+                        firstPresentationTimeUs.compareAndSet(0, accessUnit.presentationTimeUs)
                         lastPresentationTimeUs.updateAndGet { current ->
                             maxOf(current, accessUnit.presentationTimeUs)
                         }
@@ -234,6 +239,7 @@ class SrtStreamClient {
         keyframesSent.set(0)
         bytesSent.set(0)
         sendFailures.set(0)
+        firstPresentationTimeUs.set(0)
         lastPresentationTimeUs.set(0)
     }
 

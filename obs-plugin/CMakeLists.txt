@@ -1,11 +1,16 @@
 cmake_minimum_required(VERSION 3.24)
-project(openstream_obs_plugin VERSION 1.0.2 LANGUAGES CXX)
+project(openstream_obs_plugin VERSION 1.0.3 LANGUAGES CXX)
 include(CTest)
 find_package(Threads REQUIRED)
 # Match the Android release version in android/gradle.properties and the
-# installer defaults. Release workflows override OPENSTREAM_VERSION from the tag.
+# installer defaults. Release workflows pass an explicit override from the tag.
 # Releases ship the APK + plugin atomically.
-set(OPENSTREAM_VERSION "${PROJECT_VERSION}" CACHE STRING "Version embedded in the OBS plugin")
+set(OPENSTREAM_VERSION_OVERRIDE "" CACHE STRING "Release-tag version override")
+if(OPENSTREAM_VERSION_OVERRIDE)
+    set(OPENSTREAM_VERSION "${OPENSTREAM_VERSION_OVERRIDE}")
+else()
+    set(OPENSTREAM_VERSION "${PROJECT_VERSION}")
+endif()
 
 # Releases are built against OBS Studio 32.2.1 x64.  Its bundled FFmpeg ABI is
 # avformat 62, avcodec 62, avutil 60 and swscale 9.  Keeping this declaration

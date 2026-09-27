@@ -36,5 +36,21 @@ data class StreamConfig(
             audioChannelCount = 1,
             audioBitrate = 128_000,
         )
+
+        fun forQuality(quality: VideoQuality): StreamConfig = when (quality) {
+            VideoQuality.DataSaver -> Default1080p30.copy(width = 1280, height = 720, bitrate = 8_000_000)
+            VideoQuality.Balanced -> Default1080p30
+            VideoQuality.High -> Default1080p30.copy(fps = 60, bitrate = 50_000_000, audioBitrate = 192_000)
+        }
+    }
+}
+
+enum class VideoQuality {
+    DataSaver,
+    Balanced,
+    High;
+
+    companion object {
+        fun fromPreference(value: String?): VideoQuality = entries.firstOrNull { it.name == value } ?: High
     }
 }
