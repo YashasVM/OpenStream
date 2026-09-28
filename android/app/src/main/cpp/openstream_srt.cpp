@@ -33,6 +33,7 @@ namespace {
 constexpr const char *kTag = "shinSRT";
 constexpr int kMinSrtLatencyMs = 80;
 constexpr int kMaxSrtLatencyMs = 200;
+constexpr int kListenerAcceptPollMs = 100;
 constexpr int kMediaCodecBufferFlagKeyFrame = 1;
 constexpr int kMediaCodecBufferFlagCodecConfig = 2;
 constexpr int kAudioSampleRate = 48000;
@@ -485,13 +486,16 @@ std::optional<SrtUrl> parseSrtUrl(const std::string &url) {
 class NativeSender {
  public:
   NativeSender() {
+    sendWorker_ = std::thread(&NativeSender::runSendWorker, this);
+  }
+
+  void initializeRuntime() {
 #if OPENSTREAM_HAVE_LIBSRT
     srtStarted_ = srt_startup() == 0;
     if (!srtStarted_) {
       logError("libsrt startup failed");
     }
 #endif
-    sendWorker_ = std::thread(&NativeSender::runSendWorker, this);
   }
 
   ~NativeSender() {
@@ -629,6 +633,12 @@ class NativeSender {
     srt_setsockopt(listenerSocket, 0, SRTO_PEERIDLETIMEO, &peerIdleTimeoutMs, sizeof peerIdleTimeoutMs);
     srt_setsockopt(listenerSocket, 0, SRTO_LATENCY, &latency, sizeof latency);
     srt_setsockopt(listenerSocket, 0, SRTO_PEERLATENCY, &latency, sizeof latency);
+    // Keep accept nonblocking. Cancellation is observed through a short epoll
+    // wait, and the thread that owns this listener closes it after leaving the
+    // wait. Closing it from disconnect() while srt_accept() is blocked can
+    // race libsrt's internal accept state and crash in CUDTUnited::accept.
+    int receiveSync = 0;
+    srt_setsockopt(listenerSocket, 0, SRTO_RCVSYN, &receiveSync, sizeof receiveSync);
 
     sockaddr_in address{};
     address.sin_family = AF_INET;
@@ -637,23 +647,72 @@ class NativeSender {
 
     if (srt_bind(listenerSocket, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == SRT_ERROR) {
       __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT bind failed: %s", srt_getlasterror_str());
-      disconnect();
+      closeListenerSocket(listenerSocket);
       return false;
     }
     if (srt_listen(listenerSocket, 1) == SRT_ERROR) {
       __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT listen failed: %s", srt_getlasterror_str());
-      disconnect();
+      closeListenerSocket(listenerSocket);
       return false;
     }
 
-    sockaddr_storage peer{};
-    int peer_len = sizeof(peer);
+    const int epoll = srt_epoll_create();
+    if (epoll == SRT_ERROR) {
+      logError("Could not create SRT listener poller");
+      closeListenerSocket(listenerSocket);
+      return false;
+    }
+    const int listenerEvents = SRT_EPOLL_IN;
+    if (srt_epoll_add_usock(epoll, listenerSocket, &listenerEvents) == SRT_ERROR) {
+      logError("Could not register SRT listener with poller");
+      srt_epoll_release(epoll);
+      closeListenerSocket(listenerSocket);
+      return false;
+    }
+
     __android_log_print(ANDROID_LOG_INFO, kTag, "Waiting for OBS caller on SRT port %s", parsed->port.c_str());
-    const SRTSOCKET acceptedSocket = srt_accept(listenerSocket, reinterpret_cast<sockaddr *>(&peer), &peer_len);
+    SRTSOCKET acceptedSocket = SRT_INVALID_SOCK;
+    bool cancelled = false;
+    while (isLifecycleCurrent(expectedLifecycleGeneration)) {
+      SRT_EPOLL_EVENT event{};
+      const int ready = srt_epoll_uwait(epoll, &event, 1, kListenerAcceptPollMs);
+      if (ready == 0) continue;
+      if (ready == SRT_ERROR) {
+        if (isLifecycleCurrent(expectedLifecycleGeneration)) {
+          __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT listener poll failed: %s", srt_getlasterror_str());
+        } else {
+          cancelled = true;
+        }
+        break;
+      }
+      if (!isLifecycleCurrent(expectedLifecycleGeneration)) {
+        cancelled = true;
+        break;
+      }
+
+      sockaddr_storage peer{};
+      int peer_len = sizeof(peer);
+      acceptedSocket = srt_accept(listenerSocket, reinterpret_cast<sockaddr *>(&peer), &peer_len);
+      if (acceptedSocket != SRT_INVALID_SOCK) break;
+
+      int systemError = 0;
+      const int acceptError = srt_getlasterror(&systemError);
+      if (acceptError != SRT_EASYNCRCV) {
+        __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT accept failed: %s", srt_getlasterror_str());
+        break;
+      }
+    }
+    srt_epoll_remove_usock(epoll, listenerSocket);
+    srt_epoll_release(epoll);
     closeListenerSocket(listenerSocket);
     if (acceptedSocket == SRT_INVALID_SOCK) {
-      __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT accept failed: %s", srt_getlasterror_str());
-      disconnect();
+      if (!cancelled && isLifecycleCurrent(expectedLifecycleGeneration)) {
+        __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT accept failed: %s", srt_getlasterror_str());
+      }
+      return false;
+    }
+    if (!isLifecycleCurrent(expectedLifecycleGeneration)) {
+      srt_close(acceptedSocket);
       return false;
     }
     srt_setsockopt(acceptedSocket, 0, SRTO_SNDTIMEO, &sendTimeoutMs, sizeof sendTimeoutMs);
@@ -764,11 +823,7 @@ class NativeSender {
       sendQueueBytes_ = 0;
     }
     std::lock_guard<std::mutex> ioLock(ioMutex_);
-    const SRTSOCKET listenerSocket = takeListenerSocket();
     const SRTSOCKET socket = takeSocket();
-    if (listenerSocket != SRT_INVALID_SOCK) {
-      srt_close(listenerSocket);
-    }
     if (socket != SRT_INVALID_SOCK) {
       srt_close(socket);
     }
@@ -878,11 +933,9 @@ class NativeSender {
     return true;
   }
 
-  SRTSOCKET takeListenerSocket() {
+  bool isLifecycleCurrent(uint64_t expectedLifecycleGeneration) const {
     std::lock_guard<std::mutex> lock(socketMutex_);
-    const SRTSOCKET socket = listener_socket_;
-    listener_socket_ = SRT_INVALID_SOCK;
-    return socket;
+    return lifecycleGeneration_ == expectedLifecycleGeneration;
   }
 
   void closeListenerSocket(SRTSOCKET socket) {
@@ -932,8 +985,17 @@ StreamState g_state;
 
 }  // namespace
 
+// Android calls JNI_OnLoad only after the shared object's C++ global
+// constructors have completed. libsrt's startup uses process-wide static
+// registries, so starting it from NativeSender's global constructor can run
+// before those registries are initialized and crash in PacketFilter setup.
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *, void *) {
+  g_state.sender.initializeRuntime();
+  return JNI_VERSION_1_6;
+}
+
 extern "C" JNIEXPORT void JNICALL
-Java_dev_openstream_app_stream_SrtNativeBridge_beginSession(
+Java_dev_openstream_app_stream_SrtNativeBridge_nativeBeginSession(
     JNIEnv *,
     jobject,
     jlong session_generation) {
@@ -952,7 +1014,7 @@ Java_dev_openstream_app_stream_SrtNativeBridge_beginSession(
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_dev_openstream_app_stream_SrtNativeBridge_connect(
+Java_dev_openstream_app_stream_SrtNativeBridge_nativeConnect(
     JNIEnv *env,
     jobject,
     jstring url,
@@ -1003,7 +1065,7 @@ Java_dev_openstream_app_stream_SrtNativeBridge_connect(
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_dev_openstream_app_stream_SrtNativeBridge_listen(
+Java_dev_openstream_app_stream_SrtNativeBridge_nativeListen(
     JNIEnv *env,
     jobject,
     jstring url,
@@ -1054,7 +1116,7 @@ Java_dev_openstream_app_stream_SrtNativeBridge_listen(
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_dev_openstream_app_stream_SrtNativeBridge_sendVideo(
+Java_dev_openstream_app_stream_SrtNativeBridge_nativeSendVideo(
     JNIEnv *env,
     jobject,
     jbyteArray data,
@@ -1095,7 +1157,7 @@ Java_dev_openstream_app_stream_SrtNativeBridge_sendVideo(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_dev_openstream_app_stream_SrtNativeBridge_disconnect(
+Java_dev_openstream_app_stream_SrtNativeBridge_nativeDisconnect(
     JNIEnv *, jobject, jlong session_generation) {
   const uint64_t generation = static_cast<uint64_t>(session_generation);
   std::lock_guard<std::mutex> lock(g_state.mediaMutex);
@@ -1113,7 +1175,7 @@ Java_dev_openstream_app_stream_SrtNativeBridge_disconnect(
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_dev_openstream_app_stream_SrtNativeBridge_sendAudio(
+Java_dev_openstream_app_stream_SrtNativeBridge_nativeSendAudio(
     JNIEnv *env,
     jobject,
     jbyteArray data,

@@ -4,12 +4,10 @@
 #
 #   ./build_plugin_linux.sh [--package-only] [--install-user] [--install-system]
 #
-# Defaults mirror build_plugin.bat: OPENSTREAM_VERSION defaults to 1.0.1
-# (keep in sync with obs-plugin/CMakeLists.txt, android/app/build.gradle.kts,
-# and tools/installer/openstream-obs-plugin.iss).
+# Defaults mirror build_plugin.bat. Keep the version in sync with
+# android/gradle.properties, obs-plugin/CMakeLists.txt, and the installer.
 #
-# Dependencies (do not install system packages from here; install them first,
-# see docs/linux.md):
+# Dependencies (install them before running this script):
 #   cmake, g++, pkg-config, libobs-dev, libavformat-dev, libavcodec-dev,
 #   libavutil-dev, libswscale-dev, qt6-base-dev
 set -euo pipefail
@@ -18,7 +16,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="${SCRIPT_DIR}/obs-plugin"
 BUILD_DIR="${OPENSTREAM_PLUGIN_BUILD_DIR:-${PLUGIN_DIR}/build}"
 PACKAGE_DIR="${OPENSTREAM_PLUGIN_PACKAGE_DIR:-}"
-OPENSTREAM_VERSION="${OPENSTREAM_VERSION:-1.0.1}"
+OPENSTREAM_VERSION="${OPENSTREAM_VERSION:-1.0.2}"
 
 PACKAGE_ONLY=0
 INSTALL_USER=0
@@ -45,7 +43,7 @@ echo ""
 
 for tool in cmake g++ pkg-config; do
   if ! command -v "${tool}" >/dev/null 2>&1; then
-    echo "ERROR: required tool '${tool}' was not found. See docs/linux.md." >&2
+    echo "ERROR: required tool '${tool}' was not found." >&2
     exit 1
   fi
 done
@@ -57,10 +55,10 @@ for module in libobs libavformat libavcodec libavutil libswscale Qt6Core Qt6Widg
   fi
 done
 if [[ "${#missing_pc[@]}" -gt 0 ]]; then
-  echo "ERROR: missing pkg-config modules: ${missing_pc[*]}. See docs/linux.md." >&2
+  echo "ERROR: missing pkg-config modules: ${missing_pc[*]}." >&2
   exit 1
 fi
-echo "OBS system ABI (no Windows version pin; see docs/linux.md):"
+echo "OBS system ABI (no Windows version pin):"
 echo "  libobs $(pkg-config --modversion libobs)"
 echo "  OBS frontend API: resolved by CMake from the installed OBS development package"
 echo "  libavformat $(pkg-config --modversion libavformat)"

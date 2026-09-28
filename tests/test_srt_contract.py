@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from _helpers import block_after
@@ -12,6 +13,29 @@ SRT_PROBE = Path("tools/srt_timeout_probe.py")
 ROOT = Path(__file__).resolve().parents[1]
 KOTLIN = ROOT / "android/app/src/main/java/dev/openstream/app/stream/SrtStreamClient.kt"
 NATIVE = ROOT / "android/app/src/main/cpp/openstream_srt.cpp"
+
+
+def test_kotlin_native_methods_match_jni_exports():
+    kotlin = KOTLIN.read_text(encoding="utf-8")
+    native = NATIVE.read_text(encoding="utf-8")
+    bridge = kotlin[kotlin.index("private object SrtNativeBridge") :]
+    kotlin_methods = set(re.findall(r"private external fun (native\w+)\(", bridge))
+    native_methods = set(
+        re.findall(
+            r"Java_dev_openstream_app_stream_SrtNativeBridge_(native\w+)\(",
+            native,
+        )
+    )
+
+    assert kotlin_methods == {
+        "nativeBeginSession",
+        "nativeConnect",
+        "nativeListen",
+        "nativeSendVideo",
+        "nativeSendAudio",
+        "nativeDisconnect",
+    }
+    assert native_methods == kotlin_methods
 
 
 def test_srt_address_fallback_uses_fresh_native_connects_and_honors_cancellation():
@@ -43,20 +67,23 @@ def test_srt_address_fallback_uses_fresh_native_connects_and_honors_cancellation
 def test_srt_runtime_lifetime_is_process_scoped_and_disconnect_safe():
     source = SRT_NATIVE.read_text(encoding="utf-8")
 
-    # NativeSender owns one libsrt runtime reference for its full lifetime.
-    # connect()/listen() must never acquire or release that global reference,
-    # so disconnect cannot tear the runtime down while setup is in progress.
+    # Runtime startup is delayed until JNI_OnLoad, after shared-library global
+    # constructors have completed. connect()/listen() never own the global ref.
     constructor_start = source.index("NativeSender()")
+    initialize_start = source.index("void initializeRuntime()", constructor_start)
     destructor_start = source.index("~NativeSender()", constructor_start)
     connect_start = source.index("bool connect(")
-    constructor = source[constructor_start:destructor_start]
+    constructor = source[constructor_start:initialize_start]
     destructor = source[destructor_start:connect_start]
     connect = source[connect_start : source.index("bool listen(")]
     listen = source[source.index("bool listen(") : source.index("bool sendNow(")]
     disconnect = source[source.index("void disconnect()") : source.index("private:", source.index("void disconnect()"))]
 
-    assert "srt_startup()" in constructor
-    assert "srtStarted_ = srt_startup() == 0;" in constructor
+    initialize = block_after(source, "void initializeRuntime()")
+    on_load = block_after(source, "JNI_OnLoad(")
+    assert "srt_startup()" not in constructor
+    assert "srtStarted_ = srt_startup() == 0;" in initialize
+    assert "g_state.sender.initializeRuntime();" in on_load
     assert "srt_cleanup()" not in constructor
     assert "srt_cleanup();" in destructor
     assert "srt_startup()" not in connect
@@ -75,9 +102,11 @@ def test_srt_runtime_lifetime_is_process_scoped_and_disconnect_safe():
     assert "Could not resolve SRT host\");\n      disconnect();\n      return false;" in connect
     assert "SRT connect failed: %s\", srt_getlasterror_str());\n      disconnect();\n      return false;" in connect
     assert "Could not create SRT listener socket\");\n      disconnect();\n      return false;" in listen
-    assert "SRT bind failed: %s\", srt_getlasterror_str());\n      disconnect();\n      return false;" in listen
-    assert "SRT listen failed: %s\", srt_getlasterror_str());\n      disconnect();\n      return false;" in listen
-    assert "SRT accept failed: %s\", srt_getlasterror_str());\n      disconnect();\n      return false;" in listen
+    assert "SRT bind failed: %s\", srt_getlasterror_str());\n      closeListenerSocket(listenerSocket);\n      return false;" in listen
+    assert "SRT listen failed: %s\", srt_getlasterror_str());\n      closeListenerSocket(listenerSocket);\n      return false;" in listen
+    assert "srt_epoll_uwait(epoll, &event, 1, kListenerAcceptPollMs)" in listen
+    assert "SRTO_RCVSYN" in listen
+    assert "closeListenerSocket(listenerSocket);" in listen
 
 
 def test_native_connect_and_listen_publish_only_current_generation():
@@ -106,7 +135,7 @@ def test_native_connect_and_listen_publish_only_current_generation():
 
 def test_disconnect_invalidates_generation_before_native_teardown():
     native = NATIVE.read_text()
-    body = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_disconnect")
+    body = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_nativeDisconnect")
     invalidate = "g_state.sender.advanceLifecycleGeneration(generation)"
     teardown = "g_state.sender.disconnect()"
     assert body.index(invalidate) < body.index(teardown)
@@ -114,9 +143,9 @@ def test_disconnect_invalidates_generation_before_native_teardown():
 
 def test_native_media_and_stale_teardown_are_generation_guarded():
     native = NATIVE.read_text()
-    video = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_sendVideo")
-    audio = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_sendAudio")
-    disconnect = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_disconnect")
+    video = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_nativeSendVideo")
+    audio = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_nativeSendAudio")
+    disconnect = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_nativeDisconnect")
 
     generation_guard = (
         "static_cast<uint64_t>(session_generation) != "

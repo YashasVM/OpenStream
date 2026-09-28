@@ -82,6 +82,7 @@ class MainActivity : Activity() {
     @Volatile private var pendingListenerStart = false
     @Volatile private var listenerGeneration = 0L
     @Volatile private var activityStarted = false
+    private val lifecycleStartGate = LifecycleStartGate()
     private var keepScreenOn = false
     private var displayOff = false
     private var originalBrightness = -1f
@@ -231,11 +232,18 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         activityStarted = true
+        if (!lifecycleStartGate.onStart()) return
+        startActivityServices()
+    }
+
+    private fun startActivityServices() {
+        if (!activityStarted || !lifecycleStartGate.canStart()) return
         phoneAdvertiser.start()
         obsDiscoveryClient.start()
         controlServer.start()
         startPreviewIfAllowed()
         startPhoneServerIfAllowed()
+        startPendingConnectIfReady()
     }
 
     override fun onResume() {
@@ -246,25 +254,35 @@ class MainActivity : Activity() {
         if (savedPort != currentPort && savedPort in 1024..65535) {
             changePort(savedPort)
         }
-        if (pendingConnectAfterSettings) {
-            pendingConnectAfterSettings = false
-            startStream(connectionTargetFromSettings())
-        }
+        startPendingConnectIfReady()
+    }
+
+    private fun startPendingConnectIfReady() {
+        if (!pendingConnectAfterSettings || !activityStarted || !lifecycleStartGate.canStart()) return
+        pendingConnectAfterSettings = false
+        startStream(connectionTargetFromSettings())
     }
 
     override fun onStop() {
         activityStarted = false
+        lifecycleStartGate.onStop()
         cancelLensRestart()
         stopLiveDotAnimation()
         // Never block the UI thread on network/thread joins (AGENTS.md 6).
         // Flag flips are immediate; heavy teardown runs on a daemon thread.
         // stopPhoneServer detects a non-UI thread and runs blocking teardown inline.
         Thread({
-            runCatching { camera.stop() }
-            runCatching { stopPhoneServer(clearReservation = false, updateStatus = false) }
-            runCatching { obsDiscoveryClient.stop() }
-            runCatching { phoneAdvertiser.stop() }
-            runCatching { controlServer.stop() }
+            try {
+                runCatching { camera.stop() }
+                runCatching { stopPhoneServer(clearReservation = false, updateStatus = false) }
+                runCatching { obsDiscoveryClient.stop() }
+                runCatching { phoneAdvertiser.stop() }
+                runCatching { controlServer.stop() }
+            } finally {
+                if (lifecycleStartGate.finishTeardown()) {
+                    mainHandler.post { startActivityServices() }
+                }
+            }
         }, "shinActivityStop").apply { isDaemon = true; start() }
         super.onStop()
     }
@@ -786,6 +804,7 @@ class MainActivity : Activity() {
     }
 
     private fun startPhoneServerIfAllowed() {
+        if (!activityStarted || !lifecycleStartGate.canStart()) return
         if (phoneServerRunning) return
         if (listenerThread?.isAlive == true) {
             pendingListenerStart = true
@@ -1189,7 +1208,8 @@ class MainActivity : Activity() {
     // ─────────────────────────── Utilities ───────────────────────────
 
     private fun startPreviewIfAllowed() {
-        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
+        if (activityStarted && lifecycleStartGate.canStart() &&
+            checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
             cameraPreview.holder.surface.isValid
         ) {
             camera.startPreview()

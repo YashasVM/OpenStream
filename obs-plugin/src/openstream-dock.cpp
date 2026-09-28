@@ -5,6 +5,8 @@
 #include <QByteArray>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QFormLayout>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -25,30 +27,34 @@ class OpenStreamDock final : public QWidget {
     setObjectName("OpenStreamCameraControl");
 
     auto *layout = new QVBoxLayout(this);
+    layout->setContentsMargins(8, 8, 8, 8);
+    layout->setSpacing(6);
+    auto *connection_group = new QGroupBox("Connection", this);
+    auto *connection_form = new QFormLayout(connection_group);
+    connection_form->setContentsMargins(8, 8, 8, 8);
+    connection_form->setVerticalSpacing(5);
     source_selector_ = new QComboBox(this);
     source_selector_->setObjectName("openstreamDeviceSelector");
     source_selector_->setAccessibleName("OpenStream source");
-    layout->addWidget(new QLabel("Source", this));
-    layout->addWidget(source_selector_);
+    connection_form->addRow("Source", source_selector_);
     phone_selector_ = new QComboBox(this);
     phone_selector_->setObjectName("openstreamPhoneSelector");
     phone_selector_->setAccessibleName("OpenStream phone");
-    layout->addWidget(new QLabel("Phone", this));
-    layout->addWidget(phone_selector_);
+    connection_form->addRow("Phone", phone_selector_);
 
     status_ = new QLabel("No OpenStream source", this);
     status_->setObjectName("openstreamStatus");
-    layout->addWidget(status_);
+    connection_form->addRow("Status", status_);
 
     auto *name_row = new QHBoxLayout();
-    name_row->addWidget(new QLabel("Name", this));
+    name_row->addWidget(new QLabel("Name", connection_group));
     name_ = new QLineEdit(this);
     name_->setObjectName("openstreamSourceName");
     name_->setAccessibleName("OpenStream source name");
     name_->setMaxLength(128);
     name_->setPlaceholderText("Name this source");
     name_row->addWidget(name_);
-    layout->addLayout(name_row);
+    connection_form->addRow(name_row);
     connect(name_, &QLineEdit::editingFinished, this,
             [this] { renameSelectedSource(); });
 
@@ -59,7 +65,13 @@ class OpenStreamDock final : public QWidget {
     disconnect_->setObjectName("openstreamDisconnect");
     connection->addWidget(test_connect_);
     connection->addWidget(disconnect_);
-    layout->addLayout(connection);
+    connection_form->addRow(connection);
+    layout->addWidget(connection_group);
+
+    auto *controls_group = new QGroupBox("Camera controls", this);
+    auto *controls_layout = new QVBoxLayout(controls_group);
+    controls_layout->setContentsMargins(8, 8, 8, 8);
+    controls_layout->setSpacing(5);
 
     // These calls only publish into the source's bounded, coalescing slots.
     // Network work and worker joins stay outside the OBS UI thread.
@@ -94,10 +106,10 @@ class OpenStreamDock final : public QWidget {
     zoom_->setSuffix("x");
     apply_zoom_ = new QPushButton("Apply zoom", this);
     apply_zoom_->setObjectName("openstreamApplyZoom");
-    zoom_row->addWidget(new QLabel("Zoom", this));
+    zoom_row->addWidget(new QLabel("Zoom", controls_group));
     zoom_row->addWidget(zoom_);
     zoom_row->addWidget(apply_zoom_);
-    layout->addLayout(zoom_row);
+    controls_layout->addLayout(zoom_row);
     connect(apply_zoom_, &QPushButton::clicked, this, [this] {
       const QByteArray body = QByteArray("{\"value\":") +
                               QByteArray::number(zoom_->value(), 'f', 1) + "}";
@@ -112,10 +124,10 @@ class OpenStreamDock final : public QWidget {
     lens_rear_->setObjectName("openstreamLensRear");
     lens_front_ = new QPushButton("Front", this);
     lens_front_->setObjectName("openstreamLensFront");
-    lens_row->addWidget(new QLabel("Lens", this));
+    lens_row->addWidget(new QLabel("Lens", controls_group));
     lens_row->addWidget(lens_rear_);
     lens_row->addWidget(lens_front_);
-    layout->addLayout(lens_row);
+    controls_layout->addLayout(lens_row);
     connect(lens_rear_, &QPushButton::clicked, this, [this] {
       send("/lens", R"({"lens":"1×"})");
     });
@@ -133,7 +145,7 @@ class OpenStreamDock final : public QWidget {
     torch_row->addWidget(torch_on_);
     torch_row->addWidget(torch_off_);
     torch_row->addWidget(identify_);
-    layout->addLayout(torch_row);
+    controls_layout->addLayout(torch_row);
     connect(torch_on_, &QPushButton::clicked, this, [this] {
       send("/torch", R"({"enabled":true})");
     });
@@ -143,6 +155,8 @@ class OpenStreamDock final : public QWidget {
     connect(identify_, &QPushButton::clicked, this, [this] {
       send("/identify", R"({"label":"OBS"})");
     });
+
+    layout->addWidget(controls_group);
 
     layout->addStretch();
 
