@@ -51,6 +51,23 @@ OpenStream/
 └── README.md
 ```
 
+## API Documentation
+
+OpenStream provides a clean C++ API for integration:
+
+```cpp
+#include "openstream/openstream.h"
+
+// Initialize streaming
+OpenStream::StreamConfig config;
+config.bitrate = 5000;  // 5 Mbps
+config.fps = 60;
+config.resolution = {1920, 1080};
+
+auto stream = OpenStream::CreateStream(config);
+stream->Start();
+```
+
 ## OBS Integration
 
 OpenStream provides a comprehensive OBS Studio plugin for streaming integration. Install the plugin to enable streaming features within OBS.
