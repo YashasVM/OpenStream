@@ -9,7 +9,7 @@ OpenStream is a multi-platform streaming plugin that provides robust, low-latenc
 - 🔧 **Plugin Architecture**: Easy integration with existing applications
 - 📱 **Mobile Support**: Full Android support
 
-## Getting Started
+## Quick Start
 
 ### Prerequisites
 
