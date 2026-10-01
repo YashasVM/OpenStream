@@ -132,24 +132,25 @@ cd tests
 - Verify file permissions on plugin files
 - Restart OBS completely
 
-## Performance
+## Performance Metrics
 
 OpenStream is optimized for:
-- Minimal CPU usage
-- Sub-100ms latency
+- Minimal CPU usage (<10% on modern hardware)
+- Sub-100ms latency for reliable streaming
 - Support for 1080p @ 60fps streaming
-- Concurrent stream handling
+- Concurrent stream handling with multiple outputs
 
 ## License
 
 MIT License - See LICENSE file for details
 
-## Support
+## Support & Feedback
 
 For issues, feature requests, or questions:
 - Open an issue on GitHub
 - Check existing documentation in `/website`
 - Review the contributing guidelines
+- Join our community discussions
 
 ## Acknowledgments
 
