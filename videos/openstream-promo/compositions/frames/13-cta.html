@@ -1,0 +1,83 @@
+<template>
+  <style>
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-400.woff2") format("woff2"); font-weight: 400; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-500.woff2") format("woff2"); font-weight: 500; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-600.woff2") format("woff2"); font-weight: 600; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-700.woff2") format("woff2"); font-weight: 700; }
+
+    #root { position: absolute; inset: 0; overflow: hidden; color: #F3EFE8; font-family: "Inter", sans-serif; }
+    .f13-bg { position: absolute; inset: 0; background: radial-gradient(ellipse 70% 60% at 50% 42%, #1A1A1C 0%, #0B0B0C 70%); }
+    .f13-cam { position: absolute; inset: 0; perspective: 1600px; perspective-origin: 50% 45%; }
+    .f13-punch { position: absolute; inset: 0; transform-style: preserve-3d; }
+    .f13-stage { position: absolute; inset: 0; transform-style: preserve-3d; }
+    .f13-h { display: block; font-weight: 600; letter-spacing: -0.04em; line-height: 1.04; white-space: nowrap; }
+    .f13-kick { display: block; font-size: 24px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #8C877F; white-space: nowrap; }
+    .f13-card { background: #FBF9F5; border-radius: 28px; box-shadow: 0 0 0 1px rgba(14,14,15,0.12), 0 2px 6px rgba(14,14,15,0.04), 0 30px 70px rgba(40,30,15,0.12); }
+    .f13-pill { position: absolute; display: flex; align-items: center; gap: 12px; height: 60px; padding: 0 26px; border-radius: 9999px; background: #FBF9F5; color: #0E0E0F; font-size: 25px; font-weight: 600; white-space: nowrap; box-shadow: 0 0 0 1px rgba(14,14,15,0.12), 0 14px 34px rgba(40,30,15,0.14); }
+    .f13-pill b { display: block; width: 10px; height: 10px; border-radius: 50%; background: #0E0E0F; }
+    .f13-tile { position: absolute; transform-style: preserve-3d; }
+    .f13-tile .tl-l { position: absolute; inset: 0; border-radius: 24%; background: #2A2A2C; }
+    .f13-tile .tl-f { position: absolute; inset: 0; border-radius: 24%; background: linear-gradient(160deg, #1C1C1E, #0B0B0C); display: flex; align-items: center; justify-content: center; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08); }
+    .f13-tile .tl-logo { display: block; width: 62%; height: auto; }
+    .f13-phone { position: absolute; transform-style: preserve-3d; }
+    .f13-phone .ph-l { position: absolute; inset: 0; border-radius: 46px; background: #2B2B2E; }
+    .f13-phone .ph-back { position: absolute; inset: 0; border-radius: 46px; background: linear-gradient(140deg, #4A4A4F, #1C1C1E); }
+    .f13-phone .ph-front { position: absolute; inset: 0; border-radius: 46px; background: #0E0E10; box-shadow: inset 0 0 0 2px #3A3A3E; }
+    .f13-phone .ph-screen { position: absolute; inset: 11px; border-radius: 36px; overflow: hidden; background: #000; }
+    .f13-phone .ph-screen img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .f13-phone .ph-hole { position: absolute; left: 50%; top: 22px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: #050505; box-shadow: 0 0 0 2px #1d1d20; }
+    .f13-shadow { position: absolute; border-radius: 50%; background: radial-gradient(closest-side, rgba(40,30,15,0.26), transparent); }
+
+    .f13-mark { position: absolute; left: 870px; top: 150px; width: 180px; height: 136px; }
+    .f13-logo { display: block; width: 100%; height: 100%; }
+    .f13-logo path { stroke-dasharray: 1 2; }
+    .f13-title { position: absolute; left: 0; right: 0; top: 340px; text-align: center; font-size: 140px; font-weight: 700; letter-spacing: -0.05em; line-height: 1; white-space: nowrap; }
+    .f13-sub { position: absolute; left: 0; right: 0; top: 520px; text-align: center; font-size: 42px; font-weight: 500; color: #8C877F; white-space: nowrap; }
+    .f13-btnwrap { position: absolute; left: 0; right: 0; top: 640px; display: flex; justify-content: center; }
+    .f13-btn { display: flex; align-items: center; gap: 20px; height: 104px; padding: 0 44px 0 52px; border-radius: 9999px; background: #F3EFE8; color: #0E0E0F; font-size: 40px; font-weight: 600; letter-spacing: -0.02em; white-space: nowrap; }
+    .f13-btn .gh { display: block; width: 46px; height: 46px; }
+    .f13-star { display: block; width: 50px; height: 50px; margin-left: 6px; }
+    .f13-star polygon { stroke-dasharray: 1 2; }
+    .f13-url { position: absolute; left: 0; right: 0; top: 790px; text-align: center; font-size: 30px; font-weight: 500; color: #8C877F; white-space: nowrap; }
+
+  </style>
+
+  <div id="root" data-composition-id="13-cta" data-width="1920" data-height="1080">
+    <div id="f13-bg" class="f13-bg clip" data-start="0" data-duration="3.75" data-track-index="0"></div>
+    <div id="f13-cam" class="f13-cam clip" data-start="0" data-duration="3.75" data-track-index="1">
+      <div class="f13-punch" id="f13-punch">
+        <div class="f13-stage" id="f13-stage">
+          <div class="f13-mark"><svg class="f13-logo" viewBox="52 60 90 68" aria-label="OpenStream logo"><g fill="none" stroke="#F3EFE8" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path id="f13-o" pathLength="1" d="M 110.6 78.6 A 29.6 29.6 0 1 0 108.6 112.6"/><path id="f13-s" pathLength="1" d="M 137 87 L 103.5 87 A 8.7 8.7 0 0 0 103.5 104.4 L 127.6 104.4 A 8.7 8.7 0 0 1 127.6 121.8 L 107.5 121.8"/></g></svg></div>
+          <div class="f13-title" id="f13-t">OpenStream <span style="color: #8C877F; font-weight: 500;">2</span></div>
+          <div class="f13-sub" id="f13-sub">Free and open source.</div>
+          <div class="f13-btnwrap"><div class="f13-btn" id="f13-btn"><svg class="gh" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><span>Star on GitHub</span><svg class="f13-star" id="f13-star" viewBox="0 0 24 24" aria-hidden="true"><polygon id="f13-sf" points="12 2.5 14.94 8.46 21.5 9.41 16.75 14.04 17.87 20.58 12 17.5 6.13 20.58 7.25 14.04 2.5 9.41 9.06 8.46" fill="#0E0E0F" stroke="none"/><polygon id="f13-sp" pathLength="1" points="12 2.5 14.94 8.46 21.5 9.41 16.75 14.04 17.87 20.58 12 17.5 6.13 20.58 7.25 14.04 2.5 9.41 9.06 8.46" fill="none" stroke="#0E0E0F" stroke-width="1.6" stroke-linejoin="round"/></svg></div></div>
+          <div class="f13-url" id="f13-url">github.com/YashasVM/OpenStream</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      const B = 0.46875;
+      const D = 3.75;
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo("#f13-stage", { z: -220, rotationX: 6 }, { z: 0, rotationX: 0, duration: 1.4, ease: "power3.out" }, 0);
+      tl.to("#f13-stage", { z: 60, duration: D - 1.4, ease: "sine.inOut" }, 1.4);
+      tl.fromTo("#f13-o", { attr: { "stroke-dashoffset": 1.02 } }, { attr: { "stroke-dashoffset": 0 }, duration: 1.3, ease: "power2.inOut" }, 0);
+      tl.fromTo("#f13-s", { attr: { "stroke-dashoffset": 1.02 } }, { attr: { "stroke-dashoffset": 0 }, duration: 1.0, ease: "power2.inOut" }, 0.5);
+      tl.fromTo("#f13-t", { opacity: 0, filter: "blur(14px)", y: 20 }, { opacity: 1, filter: "blur(0px)", y: 0, duration: 1.0, ease: "power3.out" }, 0.15);
+      tl.fromTo("#f13-sub", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.8, ease: "power3.out" }, 0.9);
+      tl.fromTo("#f13-btn", { opacity: 0, y: 30, scale: 0.94 }, { opacity: 1, y: 0, scale: 1, duration: 0.9, ease: "power3.out" }, 1.2);
+      tl.fromTo("#f13-sp", { attr: { "stroke-dashoffset": 1.02 } }, { attr: { "stroke-dashoffset": 0 }, duration: 0.8, ease: "power2.inOut" }, 1.3);
+      tl.fromTo("#f13-sf", { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "power2.out" }, 1.95);
+      tl.fromTo("#f13-star", { rotation: -30, scale: 0.8 }, { rotation: 0, scale: 1, duration: 1.6, ease: "power2.out" }, 1.3);
+      tl.fromTo("#f13-url", { opacity: 0 }, { opacity: 1, duration: 0.8, ease: "power2.out" }, 2.0);
+      tl.to("#f13-stage", { opacity: 0, duration: 0.5, ease: "power2.in" }, D - 0.5);
+      tl.fromTo("#f13-punch", { scale: 1.040 }, { scale: 1, duration: 0.22, ease: "power2.out", immediateRender: false }, 0.00000);
+
+      window.__timelines["13-cta"] = tl;
+    })();
+  </script>
+</template>

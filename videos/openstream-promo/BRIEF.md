@@ -6,7 +6,7 @@ message: "OpenStream 2 turns your Android phone into a native OBS camera — it 
 destination: youtube
 aspect: 1920x1080
 language: en
-length: 40s
+length: 37.5s
 angle: kill-the-capture-card
 ---
 
@@ -43,3 +43,10 @@ User: "clean, professional", "colors like beige", "high energy beat", "just crea
 - Hook must start low and build to the high-energy part; ~45s allowed, shorter if content is thinner (chose 40s).
 - Use the real Android launcher logo (vectorised to assets/openstream-logo.svg).
 - Keep every version: renders/openstream-promo-vN.mp4, committed.
+
+## v4 direction (user, 2026-10-03)
+
+- Loved v3's look. Start at a medium pace (not slow), step up to high energy in gears (not a smooth ramp,
+  not instant), get fast toward the end, then go slow again on the GitHub star close.
+- Animations were too slow and the beat too smooth in v3 — make everything energetic.
+- Phone screenshot: assets/phone-live.jpg (Screenshot_20261003_092438_OpenStream.jpg).

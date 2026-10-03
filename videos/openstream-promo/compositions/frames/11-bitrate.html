@@ -1,0 +1,79 @@
+<template>
+  <style>
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-400.woff2") format("woff2"); font-weight: 400; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-500.woff2") format("woff2"); font-weight: 500; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-600.woff2") format("woff2"); font-weight: 600; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-700.woff2") format("woff2"); font-weight: 700; }
+
+    #root { position: absolute; inset: 0; overflow: hidden; color: #F3EFE8; font-family: "Inter", sans-serif; }
+    .f11-bg { position: absolute; inset: 0; background: radial-gradient(ellipse 70% 60% at 50% 42%, #1A1A1C 0%, #0B0B0C 70%); }
+    .f11-cam { position: absolute; inset: 0; perspective: 1600px; perspective-origin: 50% 45%; }
+    .f11-punch { position: absolute; inset: 0; transform-style: preserve-3d; }
+    .f11-stage { position: absolute; inset: 0; transform-style: preserve-3d; }
+    .f11-h { display: block; font-weight: 600; letter-spacing: -0.04em; line-height: 1.04; white-space: nowrap; }
+    .f11-kick { display: block; font-size: 24px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #8C877F; white-space: nowrap; }
+    .f11-card { background: #FBF9F5; border-radius: 28px; box-shadow: 0 0 0 1px rgba(14,14,15,0.12), 0 2px 6px rgba(14,14,15,0.04), 0 30px 70px rgba(40,30,15,0.12); }
+    .f11-pill { position: absolute; display: flex; align-items: center; gap: 12px; height: 60px; padding: 0 26px; border-radius: 9999px; background: #FBF9F5; color: #0E0E0F; font-size: 25px; font-weight: 600; white-space: nowrap; box-shadow: 0 0 0 1px rgba(14,14,15,0.12), 0 14px 34px rgba(40,30,15,0.14); }
+    .f11-pill b { display: block; width: 10px; height: 10px; border-radius: 50%; background: #0E0E0F; }
+    .f11-tile { position: absolute; transform-style: preserve-3d; }
+    .f11-tile .tl-l { position: absolute; inset: 0; border-radius: 24%; background: #2A2A2C; }
+    .f11-tile .tl-f { position: absolute; inset: 0; border-radius: 24%; background: linear-gradient(160deg, #1C1C1E, #0B0B0C); display: flex; align-items: center; justify-content: center; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08); }
+    .f11-tile .tl-logo { display: block; width: 62%; height: auto; }
+    .f11-phone { position: absolute; transform-style: preserve-3d; }
+    .f11-phone .ph-l { position: absolute; inset: 0; border-radius: 46px; background: #2B2B2E; }
+    .f11-phone .ph-back { position: absolute; inset: 0; border-radius: 46px; background: linear-gradient(140deg, #4A4A4F, #1C1C1E); }
+    .f11-phone .ph-front { position: absolute; inset: 0; border-radius: 46px; background: #0E0E10; box-shadow: inset 0 0 0 2px #3A3A3E; }
+    .f11-phone .ph-screen { position: absolute; inset: 11px; border-radius: 36px; overflow: hidden; background: #000; }
+    .f11-phone .ph-screen img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .f11-phone .ph-hole { position: absolute; left: 50%; top: 22px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: #050505; box-shadow: 0 0 0 2px #1d1d20; }
+    .f11-shadow { position: absolute; border-radius: 50%; background: radial-gradient(closest-side, rgba(40,30,15,0.26), transparent); }
+
+    .f11-mask { position: absolute; left: 140px; right: 140px; top: 350px; height: 300px; overflow: hidden; }
+    .f11-big { position: absolute; left: 20px; top: 20px; font-size: 230px; font-weight: 700; letter-spacing: -0.055em; line-height: 1; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .f11-sub { position: absolute; left: 160px; top: 690px; font-size: 46px; font-weight: 500; letter-spacing: -0.02em; color: #8C877F; white-space: nowrap; }
+    .f11-bar { position: absolute; left: 160px; top: 800px; width: 1600px; height: 4px; background: #F3EFE8; display: block; }
+
+  </style>
+
+  <div id="root" data-composition-id="11-bitrate" data-width="1920" data-height="1080">
+    <div id="f11-bg" class="f11-bg clip" data-start="0" data-duration="1.875" data-track-index="0"></div>
+    <div id="f11-cam" class="f11-cam clip" data-start="0" data-duration="1.875" data-track-index="1">
+      <div class="f11-punch" id="f11-punch">
+        <div class="f11-stage" id="f11-stage">
+          <div class="f11-kick" id="f11-k" style="position: absolute; left: 160px; top: 300px;">03 · Quality</div>
+          <div class="f11-mask"><div class="f11-big" id="f11-big"><span id="f11-num">12</span> Mbps.</div></div>
+          <div class="f11-sub" id="f11-sub">By default. Tune it from the OBS dock.</div>
+          <i class="f11-bar" id="f11-bar"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      const B = 0.46875;
+      const D = 1.875;
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo("#f11-stage", { rotationY: 14, rotationX: 6, z: -200 }, { rotationY: 0, rotationX: 0, z: 0, duration: 0.6, ease: "expo.out" }, 0);
+      tl.to("#f11-stage", { z: 70, rotationY: -3.5, duration: D - 0.6, ease: "none" }, 0.6);
+      tl.fromTo("#f11-big", { yPercent: 105 }, { yPercent: 0, duration: 0.32, ease: "expo.out" }, 0);
+      tl.fromTo("#f11-k", { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.25, ease: "expo.out" }, 0.05);
+      tl.fromTo("#f11-sub", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.28, ease: "expo.out" }, B);
+      tl.fromTo("#f11-bar", { scaleX: 0 }, { scaleX: 1, duration: D, ease: "none", transformOrigin: "0% 50%" }, 0);
+      const c = { v: 0 };
+      const el = document.getElementById("f11-num");
+      tl.fromTo(c, { v: 0 }, { v: 12, duration: 0.5, ease: "power2.out", onUpdate: function () { el.textContent = String(Math.round(c.v)); } }, 0);
+      tl.fromTo("#f11-punch", { scale: 1.030 }, { scale: 1, duration: 0.22, ease: "power2.out", immediateRender: false }, 0.00000);
+      tl.fromTo("#f11-punch", { scale: 1.030 }, { scale: 1, duration: 0.22, ease: "power2.out", immediateRender: false }, 0.46875);
+      tl.fromTo("#f11-punch", { scale: 1.030 }, { scale: 1, duration: 0.22, ease: "power2.out", immediateRender: false }, 0.93750);
+      tl.fromTo("#f11-punch", { scale: 1.030 }, { scale: 1, duration: 0.22, ease: "power2.out", immediateRender: false }, 1.40625);
+      tl.fromTo("#f11-punch", { scale: 1.012 }, { scale: 1, duration: 0.22, ease: "power2.out", immediateRender: false }, 0.23438);
+      tl.fromTo("#f11-punch", { scale: 1.012 }, { scale: 1, duration: 0.22, ease: "power2.out", immediateRender: false }, 0.70312);
+      tl.fromTo("#f11-punch", { scale: 1.012 }, { scale: 1, duration: 0.22, ease: "power2.out", immediateRender: false }, 1.17188);
+      tl.fromTo("#f11-punch", { scale: 1.012 }, { scale: 1, duration: 0.22, ease: "power2.out", immediateRender: false }, 1.64062);
+
+      window.__timelines["11-bitrate"] = tl;
+    })();
+  </script>
+</template>

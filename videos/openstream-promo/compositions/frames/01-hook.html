@@ -1,0 +1,70 @@
+<template>
+  <style>
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-400.woff2") format("woff2"); font-weight: 400; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-500.woff2") format("woff2"); font-weight: 500; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-600.woff2") format("woff2"); font-weight: 600; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-700.woff2") format("woff2"); font-weight: 700; }
+
+    #root { position: absolute; inset: 0; overflow: hidden; color: #F3EFE8; font-family: "Inter", sans-serif; }
+    .f01-bg { position: absolute; inset: 0; background: radial-gradient(ellipse 70% 60% at 50% 42%, #1A1A1C 0%, #0B0B0C 70%); }
+    .f01-cam { position: absolute; inset: 0; perspective: 1600px; perspective-origin: 50% 45%; }
+    .f01-punch { position: absolute; inset: 0; transform-style: preserve-3d; }
+    .f01-stage { position: absolute; inset: 0; transform-style: preserve-3d; }
+    .f01-h { display: block; font-weight: 600; letter-spacing: -0.04em; line-height: 1.04; white-space: nowrap; }
+    .f01-kick { display: block; font-size: 24px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #8C877F; white-space: nowrap; }
+    .f01-card { background: #FBF9F5; border-radius: 28px; box-shadow: 0 0 0 1px rgba(14,14,15,0.12), 0 2px 6px rgba(14,14,15,0.04), 0 30px 70px rgba(40,30,15,0.12); }
+    .f01-pill { position: absolute; display: flex; align-items: center; gap: 12px; height: 60px; padding: 0 26px; border-radius: 9999px; background: #FBF9F5; color: #0E0E0F; font-size: 25px; font-weight: 600; white-space: nowrap; box-shadow: 0 0 0 1px rgba(14,14,15,0.12), 0 14px 34px rgba(40,30,15,0.14); }
+    .f01-pill b { display: block; width: 10px; height: 10px; border-radius: 50%; background: #0E0E0F; }
+    .f01-tile { position: absolute; transform-style: preserve-3d; }
+    .f01-tile .tl-l { position: absolute; inset: 0; border-radius: 24%; background: #2A2A2C; }
+    .f01-tile .tl-f { position: absolute; inset: 0; border-radius: 24%; background: linear-gradient(160deg, #1C1C1E, #0B0B0C); display: flex; align-items: center; justify-content: center; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08); }
+    .f01-tile .tl-logo { display: block; width: 62%; height: auto; }
+    .f01-phone { position: absolute; transform-style: preserve-3d; }
+    .f01-phone .ph-l { position: absolute; inset: 0; border-radius: 46px; background: #2B2B2E; }
+    .f01-phone .ph-back { position: absolute; inset: 0; border-radius: 46px; background: linear-gradient(140deg, #4A4A4F, #1C1C1E); }
+    .f01-phone .ph-front { position: absolute; inset: 0; border-radius: 46px; background: #0E0E10; box-shadow: inset 0 0 0 2px #3A3A3E; }
+    .f01-phone .ph-screen { position: absolute; inset: 11px; border-radius: 36px; overflow: hidden; background: #000; }
+    .f01-phone .ph-screen img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .f01-phone .ph-hole { position: absolute; left: 50%; top: 22px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: #050505; box-shadow: 0 0 0 2px #1d1d20; }
+    .f01-shadow { position: absolute; border-radius: 50%; background: radial-gradient(closest-side, rgba(40,30,15,0.26), transparent); }
+
+    .f01-l { position: absolute; left: 0; right: 0; display: flex; justify-content: center; gap: 30px; transform-style: preserve-3d; }
+    .f01-w { display: block; font-size: 124px; font-weight: 600; letter-spacing: -0.045em; line-height: 1.05; white-space: nowrap; }
+
+  </style>
+
+  <div id="root" data-composition-id="01-hook" data-width="1920" data-height="1080">
+    <div id="f01-bg" class="f01-bg clip" data-start="0" data-duration="3.75" data-track-index="0"></div>
+    <div id="f01-cam" class="f01-cam clip" data-start="0" data-duration="3.75" data-track-index="1">
+      <div class="f01-punch" id="f01-punch">
+        <div class="f01-stage" id="f01-stage">
+          <div class="f01-l" style="top: 360px; color: #8C877F;"><span class="f01-w" id="f01-a0">Your</span><span class="f01-w" id="f01-a1">phone</span><span class="f01-w" id="f01-a2">has</span></div>
+          <div class="f01-l" style="top: 500px;"><span class="f01-w" id="f01-b0">a</span><span class="f01-w" id="f01-b1">great</span><span class="f01-w" id="f01-b2">camera.</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      const B = 0.46875;
+      const D = 3.75;
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo("#f01-stage", { rotationX: 10, rotationY: -6, z: -160 }, { rotationX: 0, rotationY: 4, z: 40, duration: D, ease: "power2.inOut" }, 0);
+      tl.fromTo("#f01-a0", { opacity: 0, y: 70, z: 260, filter: "blur(10px)" }, { opacity: 1, y: 0, z: 0, filter: "blur(0px)", duration: 0.34, ease: "expo.out" }, 0.00000);
+      tl.fromTo("#f01-a1", { opacity: 0, y: 70, z: 260, filter: "blur(10px)" }, { opacity: 1, y: 0, z: 0, filter: "blur(0px)", duration: 0.34, ease: "expo.out" }, 0.46875);
+      tl.fromTo("#f01-a2", { opacity: 0, y: 70, z: 260, filter: "blur(10px)" }, { opacity: 1, y: 0, z: 0, filter: "blur(0px)", duration: 0.34, ease: "expo.out" }, 0.93750);
+      tl.fromTo("#f01-b0", { opacity: 0, y: 70, z: 260, filter: "blur(10px)" }, { opacity: 1, y: 0, z: 0, filter: "blur(0px)", duration: 0.34, ease: "expo.out" }, 1.87500);
+      tl.fromTo("#f01-b1", { opacity: 0, y: 70, z: 260, filter: "blur(10px)" }, { opacity: 1, y: 0, z: 0, filter: "blur(0px)", duration: 0.34, ease: "expo.out" }, 2.34375);
+      tl.fromTo("#f01-b2", { opacity: 0, y: 70, z: 260, filter: "blur(10px)" }, { opacity: 1, y: 0, z: 0, filter: "blur(0px)", duration: 0.34, ease: "expo.out" }, 2.81250);
+      tl.fromTo("#f01-b2", { scale: 1 }, { scale: 1.06, duration: 0.2, ease: "power2.out", yoyo: true, repeat: 1, immediateRender: false }, 7 * B);
+      tl.fromTo("#f01-punch", { scale: 1.014 }, { scale: 1, duration: 0.22, ease: "power2.out", immediateRender: false }, 0.00000);
+      tl.fromTo("#f01-punch", { scale: 1.014 }, { scale: 1, duration: 0.22, ease: "power2.out", immediateRender: false }, 0.93750);
+      tl.fromTo("#f01-punch", { scale: 1.014 }, { scale: 1, duration: 0.22, ease: "power2.out", immediateRender: false }, 1.87500);
+      tl.fromTo("#f01-punch", { scale: 1.014 }, { scale: 1, duration: 0.22, ease: "power2.out", immediateRender: false }, 2.81250);
+
+      window.__timelines["01-hook"] = tl;
+    })();
+  </script>
+</template>

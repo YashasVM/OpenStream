@@ -1,36 +1,45 @@
 {
   "bgm": {
-    "path": "assets/bgm/openstream2-120bpm.wav",
+    "path": "assets/bgm/openstream2-v4-128bpm.wav",
     "volume": 0.9
   },
   "voices": [],
   "sfx": [
     {
       "frame": 2,
-      "name": "click-soft",
-      "file": "assets/sfx/click-soft.mp3",
+      "name": "click",
+      "file": "assets/sfx/click.mp3",
       "source": "local",
-      "offset_s": 2.1,
+      "offset_s": 2.055,
       "duration_s": 0.37,
-      "volume": 0.18
+      "volume": 0.3
     },
     {
       "frame": 2,
-      "name": "click-soft",
-      "file": "assets/sfx/click-soft.mp3",
+      "name": "click",
+      "file": "assets/sfx/click.mp3",
       "source": "local",
-      "offset_s": 2.6,
+      "offset_s": 2.52375,
       "duration_s": 0.37,
-      "volume": 0.18
+      "volume": 0.3
     },
     {
       "frame": 2,
-      "name": "click-soft",
-      "file": "assets/sfx/click-soft.mp3",
+      "name": "click",
+      "file": "assets/sfx/click.mp3",
       "source": "local",
-      "offset_s": 3.1,
+      "offset_s": 2.9925,
       "duration_s": 0.37,
-      "volume": 0.18
+      "volume": 0.3
+    },
+    {
+      "frame": 3,
+      "name": "whoosh",
+      "file": "assets/sfx/whoosh.mp3",
+      "source": "local",
+      "offset_s": 0,
+      "duration_s": 0.57,
+      "volume": 0.35
     },
     {
       "frame": 5,
@@ -46,52 +55,52 @@
       "name": "pop",
       "file": "assets/sfx/pop.mp3",
       "source": "local",
-      "offset_s": 0.3,
+      "offset_s": 0.05,
       "duration_s": 0.72,
-      "volume": 0.22
+      "volume": 0.25
     },
     {
       "frame": 6,
       "name": "pop",
       "file": "assets/sfx/pop.mp3",
       "source": "local",
-      "offset_s": 1.3,
+      "offset_s": 0.75313,
       "duration_s": 0.72,
-      "volume": 0.22
+      "volume": 0.25
     },
     {
       "frame": 6,
       "name": "pop",
       "file": "assets/sfx/pop.mp3",
       "source": "local",
-      "offset_s": 2.3,
+      "offset_s": 1.45625,
       "duration_s": 0.72,
-      "volume": 0.22
+      "volume": 0.25
     },
     {
       "frame": 7,
       "name": "whoosh",
       "file": "assets/sfx/whoosh.mp3",
       "source": "local",
-      "offset_s": 0.05,
+      "offset_s": 0,
+      "duration_s": 0.57,
+      "volume": 0.3
+    },
+    {
+      "frame": 7,
+      "name": "whoosh-short",
+      "file": "assets/sfx/whoosh-short.mp3",
+      "source": "local",
+      "offset_s": 0.70312,
       "duration_s": 0.57,
       "volume": 0.28
     },
     {
       "frame": 7,
-      "name": "whoosh-short",
-      "file": "assets/sfx/whoosh-short.mp3",
-      "source": "local",
-      "offset_s": 1.0,
-      "duration_s": 0.57,
-      "volume": 0.25
-    },
-    {
-      "frame": 7,
       "name": "pop",
       "file": "assets/sfx/pop.mp3",
       "source": "local",
-      "offset_s": 2.0,
+      "offset_s": 1.875,
       "duration_s": 0.72,
       "volume": 0.2
     },
@@ -100,7 +109,7 @@
       "name": "pop",
       "file": "assets/sfx/pop.mp3",
       "source": "local",
-      "offset_s": 2.5,
+      "offset_s": 2.34375,
       "duration_s": 0.72,
       "volume": 0.2
     },
@@ -109,99 +118,90 @@
       "name": "whoosh-short",
       "file": "assets/sfx/whoosh-short.mp3",
       "source": "local",
-      "offset_s": 0.1,
+      "offset_s": 0.05,
       "duration_s": 0.57,
-      "volume": 0.25
+      "volume": 0.28
     },
     {
       "frame": 8,
       "name": "click-soft",
       "file": "assets/sfx/click-soft.mp3",
       "source": "local",
-      "offset_s": 1.0,
+      "offset_s": 0.9375,
       "duration_s": 0.37,
-      "volume": 0.18
+      "volume": 0.2
     },
     {
       "frame": 8,
       "name": "click-soft",
       "file": "assets/sfx/click-soft.mp3",
       "source": "local",
-      "offset_s": 1.5,
+      "offset_s": 1.40625,
       "duration_s": 0.37,
-      "volume": 0.18
+      "volume": 0.2
     },
     {
       "frame": 8,
       "name": "click-soft",
       "file": "assets/sfx/click-soft.mp3",
       "source": "local",
-      "offset_s": 2.0,
+      "offset_s": 1.875,
       "duration_s": 0.37,
-      "volume": 0.18
+      "volume": 0.2
     },
     {
       "frame": 8,
       "name": "click-soft",
       "file": "assets/sfx/click-soft.mp3",
       "source": "local",
-      "offset_s": 2.5,
+      "offset_s": 2.34375,
       "duration_s": 0.37,
-      "volume": 0.18
+      "volume": 0.2
     },
     {
       "frame": 9,
-      "name": "click-soft",
-      "file": "assets/sfx/click-soft.mp3",
+      "name": "whoosh-short",
+      "file": "assets/sfx/whoosh-short.mp3",
       "source": "local",
-      "offset_s": 0.4,
-      "duration_s": 0.37,
-      "volume": 0.16
+      "offset_s": 0,
+      "duration_s": 0.57,
+      "volume": 0.3
     },
     {
-      "frame": 9,
-      "name": "click-soft",
-      "file": "assets/sfx/click-soft.mp3",
+      "frame": 10,
+      "name": "whoosh-short",
+      "file": "assets/sfx/whoosh-short.mp3",
       "source": "local",
-      "offset_s": 0.9,
-      "duration_s": 0.37,
-      "volume": 0.16
+      "offset_s": 0,
+      "duration_s": 0.57,
+      "volume": 0.3
     },
     {
-      "frame": 9,
-      "name": "click-soft",
-      "file": "assets/sfx/click-soft.mp3",
+      "frame": 11,
+      "name": "whoosh-short",
+      "file": "assets/sfx/whoosh-short.mp3",
       "source": "local",
-      "offset_s": 1.4,
-      "duration_s": 0.37,
-      "volume": 0.16
+      "offset_s": 0,
+      "duration_s": 0.57,
+      "volume": 0.3
     },
     {
-      "frame": 9,
-      "name": "click-soft",
-      "file": "assets/sfx/click-soft.mp3",
+      "frame": 12,
+      "name": "whoosh-short",
+      "file": "assets/sfx/whoosh-short.mp3",
+      "source": "local",
+      "offset_s": 0,
+      "duration_s": 0.57,
+      "volume": 0.3
+    },
+    {
+      "frame": 13,
+      "name": "sparkle",
+      "file": "assets/sfx/sparkle.mp3",
       "source": "local",
       "offset_s": 1.9,
-      "duration_s": 0.37,
-      "volume": 0.16
-    },
-    {
-      "frame": 9,
-      "name": "click-soft",
-      "file": "assets/sfx/click-soft.mp3",
-      "source": "local",
-      "offset_s": 2.4,
-      "duration_s": 0.37,
-      "volume": 0.16
-    },
-    {
-      "frame": 9,
-      "name": "click-soft",
-      "file": "assets/sfx/click-soft.mp3",
-      "source": "local",
-      "offset_s": 2.9,
-      "duration_s": 0.37,
-      "volume": 0.16
+      "duration_s": 1.8,
+      "volume": 0.22
     }
   ]
 }
