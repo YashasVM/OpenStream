@@ -2,11 +2,11 @@
 workflow: product-launch-video
 flow: automation
 storyboard: no
-message: "OpenStream turns your Android phone into a native OBS camera over local Wi-Fi — free and open source on GitHub."
+message: "OpenStream 2 turns your Android phone into a native OBS camera — it works out of the box. Free and open source on GitHub."
 destination: youtube
 aspect: 1920x1080
 language: en
-length: 30s
+length: 40s
 angle: kill-the-capture-card
 ---
 
@@ -35,3 +35,11 @@ User: "clean, professional", "colors like beige", "high energy beat", "just crea
 - No website capture: user dislikes the current site look and colors.
 - No voiceover, no captions.
 - CTA: github.com/YashasVM/OpenStream
+
+## v3 direction (user, 2026-10-03)
+
+- "Forget the earlier guidance" — full creative control; premium, clean, minimal, few colours.
+- Present the release as "OpenStream 2" that works out of the box.
+- Hook must start low and build to the high-energy part; ~45s allowed, shorter if content is thinner (chose 40s).
+- Use the real Android launcher logo (vectorised to assets/openstream-logo.svg).
+- Keep every version: renders/openstream-promo-vN.mp4, committed.

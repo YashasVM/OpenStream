@@ -1,0 +1,70 @@
+<template>
+  <style>
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-400.woff2") format("woff2"); font-weight: 400; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-500.woff2") format("woff2"); font-weight: 500; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-600.woff2") format("woff2"); font-weight: 600; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-700.woff2") format("woff2"); font-weight: 700; }
+
+    #root { position: absolute; inset: 0; overflow: hidden; color: #0E0E0F; font-family: "Inter", sans-serif; }
+    .f08-bg { position: absolute; inset: 0; background: radial-gradient(ellipse 75% 65% at 50% 40%, #F8F5F0 0%, #F3EFE8 60%, #E9E3D8 100%); }
+    .f08-cam { position: absolute; inset: 0; perspective: 1700px; perspective-origin: 50% 45%; }
+    .f08-stage { position: absolute; inset: 0; transform-style: preserve-3d; }
+    .f08-h { display: block; font-weight: 600; letter-spacing: -0.04em; line-height: 1.04; white-space: nowrap; }
+    .f08-kick { display: block; font-size: 24px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #5E5A54; white-space: nowrap; }
+    .f08-sub { display: block; font-weight: 500; letter-spacing: -0.01em; color: #5E5A54; white-space: nowrap; }
+    .f08-card { background: #FBF9F5; border-radius: 28px; box-shadow: 0 0 0 1px rgba(14,14,15,0.12), 0 2px 6px rgba(14,14,15,0.04), 0 30px 70px rgba(40,30,15,0.12); }
+    .f08-pill { position: absolute; display: flex; align-items: center; gap: 12px; height: 60px; padding: 0 26px; border-radius: 9999px; background: #FBF9F5; font-size: 25px; font-weight: 600; white-space: nowrap; box-shadow: 0 0 0 1px rgba(14,14,15,0.12), 0 14px 34px rgba(40,30,15,0.14); }
+    .f08-pill b { display: block; width: 10px; height: 10px; border-radius: 50%; background: #0E0E0F; }
+    .f08-tile { position: absolute; transform-style: preserve-3d; }
+    .f08-tile .tl-l { position: absolute; inset: 0; border-radius: 24%; background: #2A2A2C; }
+    .f08-tile .tl-f { position: absolute; inset: 0; border-radius: 24%; background: linear-gradient(160deg, #1C1C1E, #0B0B0C); display: flex; align-items: center; justify-content: center; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08); }
+    .f08-tile .tl-logo { display: block; width: 62%; height: auto; }
+    .f08-phone { position: absolute; transform-style: preserve-3d; }
+    .f08-phone .ph-l { position: absolute; inset: 0; border-radius: 46px; background: #2B2B2E; }
+    .f08-phone .ph-back { position: absolute; inset: 0; border-radius: 46px; background: linear-gradient(140deg, #4A4A4F, #1C1C1E); }
+    .f08-phone .ph-front { position: absolute; inset: 0; border-radius: 46px; background: #0E0E10; box-shadow: inset 0 0 0 2px #3A3A3E; }
+    .f08-phone .ph-screen { position: absolute; inset: 11px; border-radius: 36px; overflow: hidden; background: #000; }
+    .f08-phone .ph-screen img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .f08-phone .ph-hole { position: absolute; left: 50%; top: 22px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: #050505; box-shadow: 0 0 0 2px #1d1d20; }
+    .f08-shadow { position: absolute; border-radius: 50%; background: radial-gradient(closest-side, rgba(40,30,15,0.26), transparent); }
+
+    .f08-head { position: absolute; left: 160px; top: 150px; display: flex; flex-direction: column; gap: 14px; }
+    .f08-list { position: absolute; left: 160px; top: 520px; width: 760px; }
+    .f08-row { display: flex; align-items: center; gap: 20px; height: 84px; border-top: 1px solid rgba(14,14,15,0.12); font-size: 36px; font-weight: 500; letter-spacing: -0.02em; white-space: nowrap; }
+    .f08-row i { display: block; width: 10px; height: 10px; border-radius: 50%; background: #0E0E0F; }
+    .f08-dock { position: absolute; left: 1180px; top: 150px; width: 560px; height: 800px; overflow: hidden; border-radius: 26px; background: #1E1E20; }
+    .f08-dock img { display: block; width: 560px; height: 800px; }
+
+  </style>
+
+  <div id="root" data-composition-id="08-control" data-width="1920" data-height="1080" data-duration="4.4">
+    <div id="f08-bg" class="f08-bg clip" data-start="0" data-duration="4.4" data-track-index="0"></div>
+    <div id="f08-cam" class="f08-cam clip" data-start="0" data-duration="4.4" data-track-index="1">
+      <div class="f08-stage" id="f08-stage">
+        <div class="f08-head"><span class="f08-kick">Remote control</span><span class="f08-h" style="font-size: 84px;">Run the camera</span><span class="f08-h" style="font-size: 84px; color: #5E5A54;">from OBS.</span></div>
+        <div class="f08-list"><div class="f08-row" id="f08-r0"><i></i>Front & rear lenses</div><div class="f08-row" id="f08-r1"><i></i>Zoom</div><div class="f08-row" id="f08-r2"><i></i>Torch on / off</div><div class="f08-row" id="f08-r3"><i></i>Identify the phone</div></div>
+        <div class="f08-shadow" id="f08-sh" style="left: 1150px; top: 930px; width: 620px; height: 60px;"></div>
+        <div class="f08-dock f08-card" id="f08-dock"><img src="assets/obs-dock-panel.png" alt="OpenStream Camera Control dock in OBS" /></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      const B = 0.5;
+      const D = 4.0;
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo("#f08-stage", { rotationY: -10, rotationX: 6, z: -100 }, { rotationY: 6, rotationX: 0, z: 40, duration: D, ease: "power2.inOut" }, 0);
+      tl.fromTo(".f08-head", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 0);
+      tl.fromTo("#f08-dock", { opacity: 0, z: -600, rotationY: -40, x: 200 }, { opacity: 1, z: 0, rotationY: -14, x: 0, duration: 1.1, ease: "expo.out" }, 0.1);
+      tl.to("#f08-dock", { rotationY: -4, duration: D - 1.2, ease: "sine.inOut" }, 1.2);
+      tl.fromTo("#f08-sh", { opacity: 0 }, { opacity: 1, duration: 0.8 }, 0.4);
+      for (let i = 0; i < 4; i++) {
+        tl.fromTo("#f08-r" + i, { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.5, ease: "power3.out" }, (2 + i) * B);
+      }
+
+      window.__timelines["08-control"] = tl;
+    })();
+  </script>
+</template>

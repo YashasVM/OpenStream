@@ -1,0 +1,72 @@
+<template>
+  <style>
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-400.woff2") format("woff2"); font-weight: 400; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-500.woff2") format("woff2"); font-weight: 500; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-600.woff2") format("woff2"); font-weight: 600; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-700.woff2") format("woff2"); font-weight: 700; }
+
+    #root { position: absolute; inset: 0; overflow: hidden; color: #0E0E0F; font-family: "Inter", sans-serif; }
+    .f07-bg { position: absolute; inset: 0; background: radial-gradient(ellipse 75% 65% at 50% 40%, #F8F5F0 0%, #F3EFE8 60%, #E9E3D8 100%); }
+    .f07-cam { position: absolute; inset: 0; perspective: 1700px; perspective-origin: 50% 45%; }
+    .f07-stage { position: absolute; inset: 0; transform-style: preserve-3d; }
+    .f07-h { display: block; font-weight: 600; letter-spacing: -0.04em; line-height: 1.04; white-space: nowrap; }
+    .f07-kick { display: block; font-size: 24px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #5E5A54; white-space: nowrap; }
+    .f07-sub { display: block; font-weight: 500; letter-spacing: -0.01em; color: #5E5A54; white-space: nowrap; }
+    .f07-card { background: #FBF9F5; border-radius: 28px; box-shadow: 0 0 0 1px rgba(14,14,15,0.12), 0 2px 6px rgba(14,14,15,0.04), 0 30px 70px rgba(40,30,15,0.12); }
+    .f07-pill { position: absolute; display: flex; align-items: center; gap: 12px; height: 60px; padding: 0 26px; border-radius: 9999px; background: #FBF9F5; font-size: 25px; font-weight: 600; white-space: nowrap; box-shadow: 0 0 0 1px rgba(14,14,15,0.12), 0 14px 34px rgba(40,30,15,0.14); }
+    .f07-pill b { display: block; width: 10px; height: 10px; border-radius: 50%; background: #0E0E0F; }
+    .f07-tile { position: absolute; transform-style: preserve-3d; }
+    .f07-tile .tl-l { position: absolute; inset: 0; border-radius: 24%; background: #2A2A2C; }
+    .f07-tile .tl-f { position: absolute; inset: 0; border-radius: 24%; background: linear-gradient(160deg, #1C1C1E, #0B0B0C); display: flex; align-items: center; justify-content: center; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08); }
+    .f07-tile .tl-logo { display: block; width: 62%; height: auto; }
+    .f07-phone { position: absolute; transform-style: preserve-3d; }
+    .f07-phone .ph-l { position: absolute; inset: 0; border-radius: 46px; background: #2B2B2E; }
+    .f07-phone .ph-back { position: absolute; inset: 0; border-radius: 46px; background: linear-gradient(140deg, #4A4A4F, #1C1C1E); }
+    .f07-phone .ph-front { position: absolute; inset: 0; border-radius: 46px; background: #0E0E10; box-shadow: inset 0 0 0 2px #3A3A3E; }
+    .f07-phone .ph-screen { position: absolute; inset: 11px; border-radius: 36px; overflow: hidden; background: #000; }
+    .f07-phone .ph-screen img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .f07-phone .ph-hole { position: absolute; left: 50%; top: 22px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: #050505; box-shadow: 0 0 0 2px #1d1d20; }
+    .f07-shadow { position: absolute; border-radius: 50%; background: radial-gradient(closest-side, rgba(40,30,15,0.26), transparent); }
+
+    .f07-head { position: absolute; left: 160px; top: 120px; display: flex; flex-direction: column; gap: 16px; }
+    .f07-win { position: absolute; left: 640px; top: 300px; width: 1100px; height: 649px; overflow: hidden; border-radius: 22px; background: #1E1E20; }
+    .f07-bar { height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 20px; background: #2A2A2D; }
+    .f07-bar i { display: block; width: 14px; height: 14px; border-radius: 50%; background: rgba(255,255,255,0.22); }
+    .f07-bar span { display: block; margin-left: 14px; font-size: 20px; font-weight: 600; color: rgba(255,255,255,0.7); }
+    .f07-win img { display: block; width: 1100px; height: 597px; }
+
+  </style>
+
+  <div id="root" data-composition-id="07-proof" data-width="1920" data-height="1080" data-duration="4.4">
+    <div id="f07-bg" class="f07-bg clip" data-start="0" data-duration="4.4" data-track-index="0"></div>
+    <div id="f07-cam" class="f07-cam clip" data-start="0" data-duration="4.4" data-track-index="1">
+      <div class="f07-stage" id="f07-stage">
+        <div class="f07-head"><span class="f07-kick">Real footage</span><span class="f07-h" style="font-size: 84px;">Live in OBS.</span></div>
+        <div class="f07-win f07-card" id="f07-win"><div class="f07-bar"><i></i><i></i><i></i><span>OBS Studio</span></div><img src="assets/obs-live.png" alt="OBS Studio showing the OpenStream phone camera live" /></div>
+        <div class="f07-shadow" id="f07-sh" style="left: 220px; top: 920px; width: 400px; height: 54px;"></div>
+        <div class="f07-phone" id="f07-ph" style="left: 270px; top: 320px; width: 290px; height: 600px;"><i class="ph-l" style="transform: translateZ(-1px);"></i><i class="ph-l" style="transform: translateZ(-2px);"></i><i class="ph-l" style="transform: translateZ(-3px);"></i><i class="ph-l" style="transform: translateZ(-4px);"></i><i class="ph-l" style="transform: translateZ(-5px);"></i><i class="ph-l" style="transform: translateZ(-6px);"></i><i class="ph-l" style="transform: translateZ(-7px);"></i><i class="ph-l" style="transform: translateZ(-8px);"></i><i class="ph-l" style="transform: translateZ(-9px);"></i><i class="ph-l" style="transform: translateZ(-10px);"></i><i class="ph-l" style="transform: translateZ(-11px);"></i><i class="ph-l" style="transform: translateZ(-12px);"></i><i class="ph-l" style="transform: translateZ(-13px);"></i><i class="ph-l" style="transform: translateZ(-14px);"></i><i class="ph-back" style="transform: translateZ(-15px);"></i><div class="ph-front"><div class="ph-screen"><img src="assets/phone-app.jpg" alt="OpenStream Android app camera screen" /></div><i class="ph-hole"></i></div></div>
+        <div class="f07-pill" id="f07-p0" style="left: 1080px; top: 330px;"><b></b>Native OBS source</div>
+        <div class="f07-pill" id="f07-p1" style="left: 470px; top: 880px;"><b></b>Found on your Wi-Fi automatically</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      const B = 0.5;
+      const D = 4.0;
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo("#f07-stage", { rotationY: 20, rotationX: 8, z: -200 }, { rotationY: -6, rotationX: 2, z: 80, duration: D, ease: "power2.inOut" }, 0);
+      tl.fromTo(".f07-head", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 0);
+      tl.fromTo("#f07-win", { opacity: 0, z: -900, rotationY: 24 }, { opacity: 1, z: 0, rotationY: 0, duration: 1.0, ease: "expo.out" }, 0.05);
+      tl.fromTo("#f07-ph", { x: -500, z: 300, rotationY: -70 }, { x: 0, z: 120, rotationY: 16, duration: 0.9, ease: "expo.out" }, 2 * B);
+      tl.to("#f07-ph", { rotationY: 4, duration: D - 2 * B - 0.9, ease: "sine.inOut" }, 2 * B + 0.9);
+      tl.fromTo("#f07-sh", { opacity: 0 }, { opacity: 1, duration: 0.6 }, 2 * B + 0.2);
+      tl.fromTo("#f07-p0", { opacity: 0, scale: 0.6, z: 160 }, { opacity: 1, scale: 1, z: 160, duration: 0.5, ease: "back.out(2)" }, 4 * B);
+      tl.fromTo("#f07-p1", { opacity: 0, scale: 0.6, z: 160 }, { opacity: 1, scale: 1, z: 160, duration: 0.5, ease: "back.out(2)" }, 5 * B);
+
+      window.__timelines["07-proof"] = tl;
+    })();
+  </script>
+</template>
