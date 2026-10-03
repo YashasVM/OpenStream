@@ -1,0 +1,89 @@
+<template>
+  <style>
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-400.woff2") format("woff2"); font-weight: 400; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-500.woff2") format("woff2"); font-weight: 500; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-600.woff2") format("woff2"); font-weight: 600; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-700.woff2") format("woff2"); font-weight: 700; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-800.woff2") format("woff2"); font-weight: 800; }
+
+    #root { position: absolute; inset: 0; overflow: hidden; color: #121212; font-family: "Inter", sans-serif; }
+    .f02-bg { position: absolute; inset: 0; overflow: hidden; background: #F2EBDD; }
+    .f02-blob { position: absolute; border-radius: 50%; filter: blur(120px); opacity: 0.42; }
+    .f02-cam { position: absolute; inset: 0; perspective: 1600px; perspective-origin: 50% 45%; }
+    .f02-stage { position: absolute; inset: 0; transform-style: preserve-3d; }
+    .f02-chrome { position: absolute; top: 64px; display: flex; align-items: center; gap: 14px; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; color: #121212; white-space: nowrap; }
+    .f02-chrome i { display: block; width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(95deg, #FF5A1F 0%, #FF3D7F 48%, #7B61FF 100%); }
+    .f02-count { position: absolute; top: 66px; right: 160px; font-size: 20px; font-weight: 500; color: #4A4A4F; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .f02-grad { background: linear-gradient(95deg, #FF5A1F 0%, #FF3D7F 48%, #7B61FF 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .f02-kick { font-size: 24px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #D63F0B; white-space: nowrap; }
+    .f02-card { background: #FFFCF7; border-radius: 28px; box-shadow: 0 2px 4px rgba(18,18,18,0.04), 0 24px 60px rgba(60,40,10,0.14); }
+    .f02-pill { display: flex; align-items: center; gap: 14px; height: 68px; padding: 0 30px; border-radius: 9999px; background: #FFFCF7; font-size: 28px; font-weight: 600; white-space: nowrap; box-shadow: 0 2px 4px rgba(18,18,18,0.05), 0 16px 40px rgba(60,40,10,0.14); }
+    .f02-pill b { display: block; width: 14px; height: 14px; border-radius: 50%; }
+    .f02-phone { position: absolute; transform-style: preserve-3d; }
+    .f02-phone .ph-l { position: absolute; inset: 0; border-radius: 46px; background: #2B2B2E; }
+    .f02-phone .ph-back { position: absolute; inset: 0; border-radius: 46px; background: linear-gradient(140deg, #4A4A4F, #1C1C1E); }
+    .f02-phone .ph-front { position: absolute; inset: 0; border-radius: 46px; background: #0E0E10; box-shadow: inset 0 0 0 2px #3A3A3E; }
+    .f02-phone .ph-screen { position: absolute; inset: 11px; border-radius: 36px; overflow: hidden; background: #000; }
+    .f02-phone .ph-screen img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .f02-phone .ph-hole { position: absolute; left: 50%; top: 22px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: #050505; box-shadow: 0 0 0 2px #1d1d20; }
+    .f02-shadow { position: absolute; border-radius: 50%; background: radial-gradient(closest-side, rgba(60,40,10,0.28), transparent); }
+    .f02-icon { position: absolute; transform-style: preserve-3d; }
+    .f02-icon .ic-l { position: absolute; inset: 0; border-radius: 26%; background: #B5361A; }
+    .f02-icon .ic-f { position: absolute; inset: 0; border-radius: 26%; background: linear-gradient(95deg, #FF5A1F 0%, #FF3D7F 48%, #7B61FF 100%); display: flex; align-items: center; justify-content: center; }
+    .f02-icon .ic-ring { display: block; width: 50%; height: 50%; border-radius: 50%; border: solid #FFFCF7; border-width: calc(var(--s) * 0.065); box-sizing: border-box; display: flex; align-items: center; justify-content: center; }
+    .f02-icon .ic-dot { display: block; width: 34%; height: 34%; border-radius: 50%; background: #FFFCF7; }
+
+    .f02-none { position: absolute; left: 0; right: 0; top: 330px; height: 260px; display: flex; justify-content: center; align-items: center; gap: 48px; }
+    .f02-nw { display: block; font-size: 240px; font-weight: 800; letter-spacing: -0.055em; line-height: 1; }
+    .f02-copy { position: absolute; left: 790px; top: 360px; display: flex; flex-direction: column; gap: 22px; }
+    .f02-just { display: block; font-size: 128px; font-weight: 800; letter-spacing: -0.05em; line-height: 1; white-space: nowrap; }
+    .f02-just .f02-grad { display: inline; }
+    .f02-sub { display: block; font-size: 34px; font-weight: 500; color: #4A4A4F; white-space: nowrap; }
+    .f02-flash { position: absolute; inset: 0; background: #FFFFFF; }
+
+  </style>
+
+  <div id="root" data-composition-id="02-turn" data-width="1920" data-height="1080">
+    <div id="f02-bg" class="f02-bg clip" data-start="0" data-duration="3.75" data-track-index="0"><div class="f02-blob" id="f02-b0" style="left: 1200px; top: -240px; width: 760px; height: 760px; background: #FF3D7F;"></div><div class="f02-blob" id="f02-b1" style="left: -260px; top: 520px; width: 700px; height: 700px; background: #FFC531;"></div><div class="f02-blob" id="f02-b2" style="left: 760px; top: 640px; width: 560px; height: 560px; background: #2F6BFF;"></div></div>
+    <div id="f02-cam" class="f02-cam clip" data-start="0" data-duration="3.75" data-track-index="1">
+      <div class="f02-chrome" style="left: 160px;"><i></i>OpenStream</div>
+      <div class="f02-count">02 / 07</div>
+      <div class="f02-stage" id="f02-stage">
+        <div class="f02-none" id="f02-none"><span class="f02-nw" id="f02-n0">None</span><span class="f02-nw" id="f02-n1">of</span><span class="f02-nw f02-grad" id="f02-n2">it.</span></div>
+        <div class="f02-shadow" id="f02-sh" style="left: 290px; top: 880px; width: 420px; height: 70px;"></div>
+        <div class="f02-phone" id="f02-ph" style="left: 330px; top: 190px; width: 340px; height: 703px;"><i class="ph-l" style="transform: translateZ(-1px);"></i><i class="ph-l" style="transform: translateZ(-2px);"></i><i class="ph-l" style="transform: translateZ(-3px);"></i><i class="ph-l" style="transform: translateZ(-4px);"></i><i class="ph-l" style="transform: translateZ(-5px);"></i><i class="ph-l" style="transform: translateZ(-6px);"></i><i class="ph-l" style="transform: translateZ(-7px);"></i><i class="ph-l" style="transform: translateZ(-8px);"></i><i class="ph-l" style="transform: translateZ(-9px);"></i><i class="ph-l" style="transform: translateZ(-10px);"></i><i class="ph-l" style="transform: translateZ(-11px);"></i><i class="ph-l" style="transform: translateZ(-12px);"></i><i class="ph-l" style="transform: translateZ(-13px);"></i><i class="ph-l" style="transform: translateZ(-14px);"></i><i class="ph-back" style="transform: translateZ(-15px);"></i><div class="ph-front"><div class="ph-screen"><img src="assets/phone-app.jpg" alt="OpenStream Android app camera screen" /></div><i class="ph-hole"></i></div></div>
+        <div class="f02-copy" id="f02-copy"><span class="f02-kick">The new way</span><span class="f02-just">Just your <span class="f02-grad">phone.</span></span><span class="f02-sub">The Android camera already in your pocket.</span></div>
+      </div>
+    </div>
+    <div id="f02-flash" class="f02-flash clip" data-start="3.47" data-duration="0.28" data-track-index="2"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      const B = 0.46875;
+      const D = 3.75;
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo("#f02-b0", { x: 0, y: 0 }, { x: -120, y: 90, duration: 3.75, ease: "sine.inOut" }, 0);
+      tl.fromTo("#f02-b1", { x: 0, y: 0 }, { x: 140, y: -60, duration: 3.75, ease: "sine.inOut" }, 0);
+      tl.fromTo("#f02-b2", { x: 0, y: 0 }, { x: -80, y: -80, duration: 3.75, ease: "sine.inOut" }, 0);
+      
+      tl.fromTo("#f02-stage", { rotationX: 8, rotationY: -6, z: -120 }, { rotationX: 2, rotationY: 6, z: 0, duration: 4 * B, ease: "power2.inOut" }, 0);
+      ["#f02-n0", "#f02-n1", "#f02-n2"].forEach(function (s, i) {
+        tl.fromTo(s, { opacity: 0, z: 900, rotationX: -40 }, { opacity: 1, z: 0, rotationX: 0, duration: 0.38, ease: "expo.out" }, i * B);
+      });
+      tl.fromTo("#f02-none", { scale: 1 }, { scale: 1.05, duration: 0.3, ease: "power2.out", immediateRender: false }, 3 * B);
+      // beat 4: words blast back into depth, the phone rises and turns
+      tl.to("#f02-none", { z: -1400, opacity: 0, duration: 0.4, ease: "power3.in" }, 4 * B - 0.25);
+      tl.fromTo("#f02-ph", { y: 820, z: -300, rotationY: -70, rotationX: 24 }, { y: 0, z: 0, rotationY: -24, rotationX: 6, duration: 0.65, ease: "power3.out" }, 4 * B);
+      tl.to("#f02-ph", { rotationY: 14, rotationX: 2, duration: 1.3, ease: "sine.inOut" }, 4 * B + 0.65);
+      tl.fromTo("#f02-sh", { opacity: 0, scaleX: 0.4 }, { opacity: 1, scaleX: 1, duration: 0.6, ease: "power3.out" }, 4 * B);
+      tl.fromTo("#f02-copy", { opacity: 0, x: 120, z: -200 }, { opacity: 1, x: 0, z: 0, duration: 0.5, ease: "expo.out" }, 4 * B + 0.12);
+      // the build: camera dives toward the phone into the drop
+      tl.to("#f02-stage", { z: 520, rotationY: -4, duration: 2 * B + 0.1, ease: "power3.in" }, 6 * B - 0.1);
+      tl.fromTo("#f02-flash", { opacity: 0 }, { opacity: 1, duration: 0.24, ease: "power2.in" }, 3.47);
+
+      window.__timelines["02-turn"] = tl;
+    })();
+  </script>
+</template>

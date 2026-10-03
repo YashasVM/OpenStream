@@ -1,0 +1,6 @@
+OpenStream — phone → OBS camera.
+OpenStream turns an Android phone into a native OBS camera over local Wi-Fi.
+No capture card. No screen-mirror detour. No cloud — media stays on your LAN.
+Camera2 + MediaCodec → MPEG-TS (AVC + AAC) → SRT → native OBS source.
+Default bitrate 12 Mbps (8–50). Dynamic camera lenses and quality controls from an OBS dock.
+Five moves. Then live. Free & open source: github.com/YashasVM/OpenStream

@@ -1,0 +1,89 @@
+<template>
+  <style>
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-400.woff2") format("woff2"); font-weight: 400; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-500.woff2") format("woff2"); font-weight: 500; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-600.woff2") format("woff2"); font-weight: 600; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-700.woff2") format("woff2"); font-weight: 700; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-800.woff2") format("woff2"); font-weight: 800; }
+
+    #root { position: absolute; inset: 0; overflow: hidden; color: #121212; font-family: "Inter", sans-serif; }
+    .f03-bg { position: absolute; inset: 0; overflow: hidden; background: #F2EBDD; }
+    .f03-blob { position: absolute; border-radius: 50%; filter: blur(120px); opacity: 0.42; }
+    .f03-cam { position: absolute; inset: 0; perspective: 1600px; perspective-origin: 50% 45%; }
+    .f03-stage { position: absolute; inset: 0; transform-style: preserve-3d; }
+    .f03-chrome { position: absolute; top: 64px; display: flex; align-items: center; gap: 14px; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; color: #121212; white-space: nowrap; }
+    .f03-chrome i { display: block; width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(95deg, #FF5A1F 0%, #FF3D7F 48%, #7B61FF 100%); }
+    .f03-count { position: absolute; top: 66px; right: 160px; font-size: 20px; font-weight: 500; color: #4A4A4F; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .f03-grad { background: linear-gradient(95deg, #FF5A1F 0%, #FF3D7F 48%, #7B61FF 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .f03-kick { font-size: 24px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #D63F0B; white-space: nowrap; }
+    .f03-card { background: #FFFCF7; border-radius: 28px; box-shadow: 0 2px 4px rgba(18,18,18,0.04), 0 24px 60px rgba(60,40,10,0.14); }
+    .f03-pill { display: flex; align-items: center; gap: 14px; height: 68px; padding: 0 30px; border-radius: 9999px; background: #FFFCF7; font-size: 28px; font-weight: 600; white-space: nowrap; box-shadow: 0 2px 4px rgba(18,18,18,0.05), 0 16px 40px rgba(60,40,10,0.14); }
+    .f03-pill b { display: block; width: 14px; height: 14px; border-radius: 50%; }
+    .f03-phone { position: absolute; transform-style: preserve-3d; }
+    .f03-phone .ph-l { position: absolute; inset: 0; border-radius: 46px; background: #2B2B2E; }
+    .f03-phone .ph-back { position: absolute; inset: 0; border-radius: 46px; background: linear-gradient(140deg, #4A4A4F, #1C1C1E); }
+    .f03-phone .ph-front { position: absolute; inset: 0; border-radius: 46px; background: #0E0E10; box-shadow: inset 0 0 0 2px #3A3A3E; }
+    .f03-phone .ph-screen { position: absolute; inset: 11px; border-radius: 36px; overflow: hidden; background: #000; }
+    .f03-phone .ph-screen img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .f03-phone .ph-hole { position: absolute; left: 50%; top: 22px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: #050505; box-shadow: 0 0 0 2px #1d1d20; }
+    .f03-shadow { position: absolute; border-radius: 50%; background: radial-gradient(closest-side, rgba(60,40,10,0.28), transparent); }
+    .f03-icon { position: absolute; transform-style: preserve-3d; }
+    .f03-icon .ic-l { position: absolute; inset: 0; border-radius: 26%; background: #B5361A; }
+    .f03-icon .ic-f { position: absolute; inset: 0; border-radius: 26%; background: linear-gradient(95deg, #FF5A1F 0%, #FF3D7F 48%, #7B61FF 100%); display: flex; align-items: center; justify-content: center; }
+    .f03-icon .ic-ring { display: block; width: 50%; height: 50%; border-radius: 50%; border: solid #FFFCF7; border-width: calc(var(--s) * 0.065); box-sizing: border-box; display: flex; align-items: center; justify-content: center; }
+    .f03-icon .ic-dot { display: block; width: 34%; height: 34%; border-radius: 50%; background: #FFFCF7; }
+
+    .f03-word { position: absolute; left: 0; right: 0; top: 390px; text-align: center; font-size: 200px; font-weight: 800; letter-spacing: -0.06em; line-height: 1; white-space: nowrap; }
+    .f03-tag { position: absolute; left: 0; right: 0; top: 630px; text-align: center; font-size: 48px; font-weight: 600; letter-spacing: -0.03em; white-space: nowrap; }
+    .f03-tag .f03-grad { display: inline; }
+    .f03-chips { position: absolute; left: 0; right: 0; top: 760px; display: flex; justify-content: center; gap: 24px; transform-style: preserve-3d; }
+    .f03-flash { position: absolute; inset: 0; background: #FFFFFF; }
+
+  </style>
+
+  <div id="root" data-composition-id="03-drop" data-width="1920" data-height="1080">
+    <div id="f03-bg" class="f03-bg clip" data-start="0" data-duration="3.75" data-track-index="0"><div class="f03-blob" id="f03-b0" style="left: -160px; top: -200px; width: 780px; height: 780px; background: #FF5A1F;"></div><div class="f03-blob" id="f03-b1" style="left: 1180px; top: -120px; width: 720px; height: 720px; background: #7B61FF;"></div><div class="f03-blob" id="f03-b2" style="left: 560px; top: 660px; width: 760px; height: 760px; background: #FF3D7F;"></div></div>
+    <div id="f03-cam" class="f03-cam clip" data-start="0" data-duration="3.75" data-track-index="1">
+      <div class="f03-chrome" style="left: 160px;"><i></i>OpenStream</div>
+      <div class="f03-count">03 / 07</div>
+      <div class="f03-stage" id="f03-stage">
+        <div class="f03-icon" id="f03-icon" style="left: 850px; top: 130px; width: 220px; height: 220px; --s: 220px;"><i class="ic-l" style="transform: translateZ(-1px);"></i><i class="ic-l" style="transform: translateZ(-2px);"></i><i class="ic-l" style="transform: translateZ(-3px);"></i><i class="ic-l" style="transform: translateZ(-4px);"></i><i class="ic-l" style="transform: translateZ(-5px);"></i><i class="ic-l" style="transform: translateZ(-6px);"></i><i class="ic-l" style="transform: translateZ(-7px);"></i><i class="ic-l" style="transform: translateZ(-8px);"></i><i class="ic-l" style="transform: translateZ(-9px);"></i><i class="ic-l" style="transform: translateZ(-10px);"></i><div class="ic-f"><i class="ic-ring"><i class="ic-dot"></i></i></div></div>
+        <div class="f03-word" id="f03-word">OpenStream</div>
+        <div class="f03-tag" id="f03-tag">Your Android phone, now a <span class="f03-grad">native OBS camera.</span></div>
+        <div class="f03-chips">
+          <div class="f03-pill" id="f03-p0"><b style="background: #FF5A1F;"></b>No capture card</div>
+          <div class="f03-pill" id="f03-p1"><b style="background: #2F6BFF;"></b>No cloud</div>
+          <div class="f03-pill" id="f03-p2"><b style="background: #7ED321;"></b>Open source</div>
+        </div>
+      </div>
+    </div>
+    <div id="f03-flash" class="f03-flash clip" data-start="0" data-duration="0.45" data-track-index="2"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      const B = 0.46875;
+      const D = 3.75;
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo("#f03-b0", { x: 0, y: 0 }, { x: 120, y: 100, duration: 3.75, ease: "sine.inOut" }, 0);
+      tl.fromTo("#f03-b1", { x: 0, y: 0 }, { x: -140, y: 80, duration: 3.75, ease: "sine.inOut" }, 0);
+      tl.fromTo("#f03-b2", { x: 0, y: 0 }, { x: 60, y: -90, duration: 3.75, ease: "sine.inOut" }, 0);
+      
+      tl.fromTo("#f03-flash", { opacity: 1 }, { opacity: 0, duration: 0.4, ease: "power2.out" }, 0);
+      tl.fromTo("#f03-stage", { rotationX: 10, rotationY: 12, z: -200 }, { rotationX: 0, rotationY: -6, z: 0, duration: D, ease: "power2.out" }, 0);
+      tl.fromTo("#f03-icon", { rotationY: 220, rotationX: 30, z: 600, opacity: 0 }, { rotationY: 0, rotationX: 0, z: 0, opacity: 1, duration: 0.8, ease: "expo.out" }, 0);
+      tl.fromTo("#f03-word", { opacity: 0, z: 500, filter: "blur(24px)" }, { opacity: 1, z: 0, filter: "blur(0px)", duration: 0.55, ease: "expo.out" }, 0.08);
+      tl.fromTo("#f03-tag", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.45, ease: "expo.out" }, B);
+      // icon breathes on every beat
+      for (let k = 2; k < 8; k++) {
+        tl.fromTo("#f03-icon", { z: 70 }, { z: 0, duration: 0.32, ease: "power2.out", immediateRender: false }, k * B);
+      }
+      ["#f03-p0", "#f03-p1", "#f03-p2"].forEach(function (s, i) {
+        tl.fromTo(s, { opacity: 0, rotationX: -90, y: 30 }, { opacity: 1, rotationX: 0, y: 0, duration: 0.45, ease: "back.out(1.8)", transformOrigin: "50% 100%" }, (4 + i) * B);
+      });
+
+      window.__timelines["03-drop"] = tl;
+    })();
+  </script>
+</template>
