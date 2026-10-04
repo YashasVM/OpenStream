@@ -1,0 +1,165 @@
+<template>
+  <style>
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-400.woff2") format("woff2"); font-weight: 400; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-500.woff2") format("woff2"); font-weight: 500; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-600.woff2") format("woff2"); font-weight: 600; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-700.woff2") format("woff2"); font-weight: 700; }
+    @font-face { font-family: "Unbounded"; src: url("assets/fonts/Unbounded-var.woff2") format("woff2"); font-weight: 200 900; }
+
+    #root { position: absolute; inset: 0; overflow: hidden; color: #f2ede4; font-family: "Inter", sans-serif; background: #0e0e0c; }
+    .bg { position: absolute; inset: 0; background: radial-gradient(ellipse 70% 60% at 50% 45%, #1b1a17 0%, #0e0e0c 70%); }
+    .cam { position: absolute; inset: 0; perspective: 1800px; perspective-origin: 50% 45%; }
+    .stage { position: absolute; inset: 0; transform-style: preserve-3d; }
+    .disp { font-family: "Unbounded", sans-serif; font-weight: 800; letter-spacing: -0.055em; line-height: 0.9; text-transform: uppercase; white-space: nowrap; }
+    .mask { display: block; overflow: hidden; padding-bottom: 0.06em; }
+    .mask > span { display: block; }
+    .o { color: #ff5b14; }
+    .label { font: 500 24px "Inter", sans-serif; letter-spacing: 0.02em; color: #8a857b; white-space: nowrap; }
+    .chip { display: inline-flex; align-items: center; gap: 12px; height: 64px; padding: 0 30px; border-radius: 99px; box-shadow: inset 0 0 0 1.5px rgba(242,237,228,0.14); font: 600 26px "Inter", sans-serif; white-space: nowrap; position: relative; }
+    .chip b { width: 10px; height: 10px; border-radius: 50%; background: #ff5b14; display: block; }
+    .chip.solid { background: #ff5b14; color: #0e0e0c; box-shadow: none; }
+    .feed { position: relative; overflow: hidden; border-radius: 14px; background: #000; }
+    .feed-z { position: absolute; inset: 0; }
+    .feed img { position: absolute; display: block; height: auto; }
+    .phone { position: absolute; transform-style: preserve-3d; }
+    .phone .ph-l { position: absolute; inset: 0; border-radius: 46px; background: #2a2a28; }
+    .phone .ph-back { position: absolute; inset: 0; border-radius: 46px; background: linear-gradient(140deg, #4a4944, #1c1c1a); }
+    .phone .ph-front { position: absolute; inset: 0; border-radius: 46px; background: #0d0d0c; box-shadow: inset 0 0 0 2px #3a3936; }
+    .phone .ph-screen { position: absolute; inset: 11px; border-radius: 36px; overflow: hidden; background: #000; }
+    .phone .ph-screen img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .phone .ph-hole { position: absolute; left: 50%; top: 22px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: #050505; box-shadow: 0 0 0 2px #1d1d1b; }
+    .cur { position: absolute; left: 0; top: 0; width: 40px; height: 50px; z-index: 50; filter: drop-shadow(0 8px 14px rgba(0,0,0,0.55)); }
+    .cur svg { position: absolute; left: 0; top: 0; width: 40px; height: 50px; transform-origin: 6px 4px; }
+    .cur-ring { position: absolute; left: -26px; top: -28px; width: 60px; height: 60px; border-radius: 50%; border: 3px solid #ff5b14; opacity: 0; display: block; }
+    .obs { position: absolute; width: 1180px; height: 700px; border-radius: 22px; background: #1a1a17; box-shadow: 0 0 0 1px rgba(242,237,228,0.14), 0 50px 120px rgba(0,0,0,0.6); overflow: hidden; transform-style: preserve-3d; }
+    .obs-bar { position: absolute; left: 0; right: 0; top: 0; height: 44px; display: flex; align-items: center; gap: 9px; padding-left: 18px; border-bottom: 1px solid rgba(242,237,228,0.14); }
+    .obs-bar i { width: 12px; height: 12px; border-radius: 50%; background: #3a3934; display: block; }
+    .obs-bar span { margin-left: 14px; font: 500 17px "Inter", sans-serif; color: #8a857b; }
+    .obs-side { position: absolute; left: 16px; top: 60px; width: 240px; height: 624px; border-radius: 14px; background: #0e0e0c; padding: 18px 14px; }
+    .obs-h { display: block; font: 600 15px "Inter", sans-serif; color: #8a857b; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 10px; }
+    .obs-row { display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 12px; border-radius: 10px; font: 500 18px "Inter", sans-serif; color: #f2ede4; }
+    .obs-row.on { background: rgba(242,237,228,0.08); }
+    .obs-row.src { background: rgba(255,91,20,0.14); box-shadow: inset 0 0 0 1.5px #ff5b14; opacity: 0; }
+    .obs-mini { width: 26px; height: 20px; display: block; }
+    .obs-plus { position: absolute; left: 14px; bottom: 14px; width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font: 500 28px "Inter", sans-serif; background: rgba(242,237,228,0.08); }
+    .obs-prev { position: absolute; left: 272px; top: 60px; width: 892px; height: 502px; border-radius: 14px; background: #050505; overflow: hidden; }
+    .obs-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 500 20px "Inter", sans-serif; color: #4a4843; }
+    .obs-feedwrap { position: absolute; inset: 0; }
+    .obs-live { position: absolute; left: 20px; top: 18px; display: flex; align-items: center; gap: 9px; height: 38px; padding: 0 16px; border-radius: 99px; background: #ff5b14; color: #0e0e0c; font: 700 17px "Inter", sans-serif; letter-spacing: 0.08em; opacity: 0; }
+    .obs-live b { width: 9px; height: 9px; border-radius: 50%; background: #0e0e0c; display: block; }
+    .obs-bot { position: absolute; left: 272px; top: 576px; width: 892px; height: 108px; border-radius: 14px; background: #0e0e0c; }
+    .obs-meters { position: absolute; left: 22px; top: 20px; bottom: 20px; display: flex; gap: 8px; align-items: flex-end; }
+    .obs-meters i { width: 10px; border-radius: 3px; background: linear-gradient(0deg, #f2ede4 0%, #8a857b 100%); opacity: 0.5; display: block; }
+    .obs-stream { position: absolute; right: 20px; top: 26px; width: 260px; height: 56px; border-radius: 99px; box-shadow: inset 0 0 0 1.5px #f2ede4; font: 600 19px "Inter", sans-serif; overflow: hidden; }
+    .obs-stream em { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-style: normal; }
+    .obs-stream em + em { background: #ff5b14; color: #0e0e0c; transform: translateY(101%); }
+
+    .s4-win { position: absolute; left: 640px; top: 200px; width: 1180px; height: 700px; transform-style: preserve-3d; }
+    .s4-win .obs { left: 0; top: 0; }
+    .obs-feedwrap { clip-path: inset(0 100% 0 0); }
+    .s4-wifi { position: absolute; inset: 0; width: 1920px; height: 1080px; overflow: visible; }
+    .s4-wifi path { fill: none; stroke: #ff5b14; stroke-width: 4; stroke-linecap: round; stroke-dasharray: 1 1; stroke-dashoffset: 1; }
+    .s4-pulse { position: absolute; left: 450px; top: 510px; width: 20px; height: 20px; border-radius: 50%; background: #ff5b14; box-shadow: 0 0 24px #ff5b14; display: block; opacity: 0; }
+    .s4-menu { position: absolute; left: 30px; top: 430px; width: 300px; padding: 10px; border-radius: 14px; background: #24231f; box-shadow: 0 0 0 1px rgba(242,237,228,0.14), 0 24px 50px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 2px; opacity: 0; transform-origin: 0% 100%; }
+    .s4-menu span { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 14px; border-radius: 9px; font: 500 19px "Inter", sans-serif; color: #8a857b; }
+    .s4-menu .hl { color: #f2ede4; }
+    .s4-pick { position: absolute; left: 398px; top: 160px; width: 640px; padding: 28px; border-radius: 20px; background: #24231f; box-shadow: 0 0 0 1px rgba(242,237,228,0.14), 0 30px 70px rgba(0,0,0,0.6); opacity: 0; }
+    .s4-pt { display: block; font: 700 26px "Unbounded", sans-serif; letter-spacing: -0.03em; margin-bottom: 20px; }
+    .s4-dev { display: flex; align-items: center; gap: 18px; height: 92px; padding: 0 22px; border-radius: 14px; box-shadow: inset 0 0 0 1.5px rgba(242,237,228,0.14); }
+    .s4-dev b { width: 14px; height: 14px; border-radius: 50%; background: #ff5b14; display: block; box-shadow: 0 0 14px #ff5b14; }
+    .s4-dev > span { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+    .s4-dev strong { font: 600 23px "Inter", sans-serif; }
+    .s4-dev em { font: 500 18px "Inter", sans-serif; font-style: normal; color: #8a857b; }
+    .s4-dev i { font: 700 28px "Inter", sans-serif; font-style: normal; color: #ff5b14; opacity: 0; }
+    .s4-nos { position: absolute; left: 0; right: 0; top: 950px; display: flex; justify-content: center; gap: 24px; }
+    .s4-nos .chip { opacity: 0; }
+    .s4-nos .chip i { position: absolute; left: 20px; right: 20px; top: 50%; height: 3px; margin-top: -1px; background: #ff5b14; display: block; transform: scaleX(0); transform-origin: 0% 50%; }
+
+  </style>
+
+  <div id="root" data-composition-id="s4-demo" data-width="1920" data-height="1080">
+    <div id="s4-demo-bg" class="bg clip" data-start="0" data-duration="9.2" data-track-index="0"></div>
+    <div id="s4-demo-cam" class="cam clip" data-start="0" data-duration="9.2" data-track-index="1">
+      <div class="stage" id="s4-stage">
+        <div class="phone" id="s4-ph" style="left: 150px; top: 250px; width: 300px; height: 620px;"><i class="ph-l" style="transform: translateZ(-1px);"></i><i class="ph-l" style="transform: translateZ(-2px);"></i><i class="ph-l" style="transform: translateZ(-3px);"></i><i class="ph-l" style="transform: translateZ(-4px);"></i><i class="ph-l" style="transform: translateZ(-5px);"></i><i class="ph-l" style="transform: translateZ(-6px);"></i><i class="ph-l" style="transform: translateZ(-7px);"></i><i class="ph-l" style="transform: translateZ(-8px);"></i><i class="ph-l" style="transform: translateZ(-9px);"></i><i class="ph-l" style="transform: translateZ(-10px);"></i><i class="ph-l" style="transform: translateZ(-11px);"></i><i class="ph-l" style="transform: translateZ(-12px);"></i><i class="ph-l" style="transform: translateZ(-13px);"></i><i class="ph-l" style="transform: translateZ(-14px);"></i><i class="ph-back" style="transform: translateZ(-15px);"></i><div class="ph-front"><div class="ph-screen"><img src="assets/phone-live.jpg" alt="OpenStream Android app" /></div><i class="ph-hole"></i></div></div>
+        <svg class="s4-wifi" viewBox="0 0 1920 1080" aria-hidden="true"><path id="s4-arc" d="M 460 520 C 560 360 640 340 760 420" pathLength="1"/></svg>
+        <i class="s4-pulse" id="s4-p1"></i><i class="s4-pulse" id="s4-p2"></i><i class="s4-pulse" id="s4-p3"></i>
+        <div class="s4-win" id="s4-win">
+          <div class="obs" id="s4-obs">
+            <div class="obs-bar"><i></i><i></i><i></i><span>OBS Studio</span></div>
+            <div class="obs-side">
+              <span class="obs-h">Scenes</span><span class="obs-row on">Scene</span>
+              <span class="obs-h" style="margin-top: 150px;">Sources</span>
+              <span class="obs-row src" id="s4-obs-src"><svg class="obs-mini" viewBox="52 60 90 68" aria-label="OpenStream logo"><g fill="none" stroke="#f2ede4" stroke-width="5.4" stroke-linecap="round" stroke-linejoin="round"><path pathLength="1" d="M 110.6 78.6 A 29.6 29.6 0 1 0 108.6 112.6"/><path pathLength="1" d="M 137 87 L 103.5 87 A 8.7 8.7 0 0 0 103.5 104.4 L 127.6 104.4 A 8.7 8.7 0 0 1 127.6 121.8 L 107.5 121.8"/></g></svg>OpenStream</span>
+              <span class="obs-plus" id="s4-obs-plus">+</span>
+            </div>
+            <div class="obs-prev" id="s4-obs-prev"><span class="obs-empty" id="s4-obs-empty">No source selected</span><div class="obs-feedwrap" id="s4-obs-feedwrap"><div class="feed" id="s4-obs-feed" style="width: 892px; height: 502px;"><div class="feed-z" id="s4-obs-feed-z"><img src="assets/obs-live.png" alt="Live phone camera feed in OBS" style="width: 2208.0px; left: -510.7px; top: -57.8px;" /></div></div></div>
+              <span class="obs-live" id="s4-obs-live"><b></b>LIVE</span></div>
+            <div class="obs-bot">
+              <div class="obs-meters"><i style="height: 62%;"></i><i style="height: 78%;"></i><i style="height: 54%;"></i><i style="height: 70%;"></i></div>
+              <span class="obs-stream" id="s4-obs-stream"><em id="s4-obs-st1">Start Streaming</em><em id="s4-obs-st2">Stop Streaming</em></span>
+            </div>
+          </div>
+          <div class="s4-menu" id="s4-menu"><span>Image</span><span>Media Source</span><span class="hl" id="s4-mi"><svg class="obs-mini" viewBox="52 60 90 68" aria-label="OpenStream logo"><g fill="none" stroke="#f2ede4" stroke-width="5.4" stroke-linecap="round" stroke-linejoin="round"><path pathLength="1" d="M 110.6 78.6 A 29.6 29.6 0 1 0 108.6 112.6"/><path pathLength="1" d="M 137 87 L 103.5 87 A 8.7 8.7 0 0 0 103.5 104.4 L 127.6 104.4 A 8.7 8.7 0 0 1 127.6 121.8 L 107.5 121.8"/></g></svg>OpenStream</span><span>Video Capture Device</span></div>
+          <div class="s4-pick" id="s4-pick">
+            <span class="s4-pt">Pick your phone</span>
+            <span class="s4-dev" id="s4-dev"><b></b><span><strong>Galaxy S24 Ultra</strong><em>192.168.1.24 · ready</em></span><i id="s4-chk">✓</i></span>
+          </div>
+          <div class="cur" id="s4-cur"><i class="cur-ring" id="s4-cur-ring"></i><svg viewBox="0 0 28 36" aria-hidden="true"><path d="M3 2 L3 29 L10.5 22 L15.5 33 L20 31 L15 20.5 L25 20.5 Z" fill="#f2ede4" stroke="#0e0e0c" stroke-width="2.2" stroke-linejoin="round"/></svg></div>
+        </div>
+        <div class="s4-nos" id="s4-nos"><span class="chip" id="s4-n0">Cables<i></i></span><span class="chip" id="s4-n1">Accounts<i></i></span><span class="chip" id="s4-n2">Cloud<i></i></span></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      const D = 9.2;
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo("#s4-stage", { z: -260, rotationY: 10, rotationX: 6, opacity: 0 }, { z: 0, rotationY: 2, rotationX: 2, opacity: 1, duration: 2.0, ease: "power3.out" }, 0);
+      tl.to("#s4-stage", { z: 60, rotationY: -3, rotationX: 0, duration: D - 2.0, ease: "sine.inOut" }, 2.0);
+      tl.fromTo("#s4-ph", { rotationY: 30 }, { rotationY: 18, duration: D, ease: "sine.inOut" }, 0);
+      tl.fromTo("#s4-win", { rotationY: -14 }, { rotationY: -6, duration: D, ease: "sine.inOut" }, 0);
+      tl.fromTo("#s4-ph .ph-front", { boxShadow: "inset 0 0 0 2px #3a3936" }, { boxShadow: "inset 0 0 0 3px #ff5b14", duration: 0.3, yoyo: true, repeat: 1 }, 0.40);
+      tl.set("#s4-cur", { x: 700, y: 760 }, 0);
+      tl.to("#s4-cur", { x: 36, y: 644, duration: 1.0, ease: "power3.inOut" }, 0.900);
+      tl.fromTo("#s4-cur svg", { scale: 1 }, { scale: 0.82, duration: 0.08, ease: "power2.out", yoyo: true, repeat: 1, immediateRender: false }, 1.900);
+      tl.fromTo("#s4-cur-ring", { scale: 0.2, opacity: 0.9 }, { scale: 1.6, opacity: 0, duration: 0.3, ease: "expo.out", immediateRender: false }, 1.900);
+      tl.fromTo("#s4-menu", { opacity: 0, scale: 0.9, y: 10 }, { opacity: 1, scale: 1, y: 0, duration: 0.3, ease: "power3.out" }, 1.98);
+      tl.to("#s4-cur", { x: 120, y: 538, duration: 0.45, ease: "power3.inOut" }, 2.100);
+      tl.to("#s4-mi", { backgroundColor: "rgba(255,91,20,0.18)", duration: 0.15 }, 2.45);
+      tl.fromTo("#s4-cur svg", { scale: 1 }, { scale: 0.82, duration: 0.08, ease: "power2.out", yoyo: true, repeat: 1, immediateRender: false }, 2.600);
+      tl.fromTo("#s4-cur-ring", { scale: 0.2, opacity: 0.9 }, { scale: 1.6, opacity: 0, duration: 0.3, ease: "expo.out", immediateRender: false }, 2.600);
+      tl.to("#s4-menu", { opacity: 0, duration: 0.2 }, 2.70);
+      tl.fromTo("#s4-obs-src", { opacity: 0, x: -20 }, { opacity: 1, x: 0, duration: 0.35, ease: "power3.out" }, 2.75);
+      tl.fromTo("#s4-pick", { opacity: 0, scale: 0.92, z: 80 }, { opacity: 1, scale: 1, z: 0, duration: 0.45, ease: "expo.out" }, 2.85);
+      tl.to("#s4-cur", { x: 700, y: 300, duration: 0.65, ease: "power3.inOut" }, 2.800);
+      tl.fromTo("#s4-cur svg", { scale: 1 }, { scale: 0.82, duration: 0.08, ease: "power2.out", yoyo: true, repeat: 1, immediateRender: false }, 3.500);
+      tl.fromTo("#s4-cur-ring", { scale: 0.2, opacity: 0.9 }, { scale: 1.6, opacity: 0, duration: 0.3, ease: "expo.out", immediateRender: false }, 3.500);
+      tl.to("#s4-dev", { boxShadow: "inset 0 0 0 2px #ff5b14", duration: 0.2 }, 3.50);
+      tl.fromTo("#s4-chk", { opacity: 0, scale: 0.4 }, { opacity: 1, scale: 1, duration: 0.35, ease: "back.out(3)" }, 3.60);
+      tl.to("#s4-pick", { opacity: 0, scale: 0.96, duration: 0.3, ease: "power2.in" }, 4.05);
+      tl.to("#s4-arc", { strokeDashoffset: 0, duration: 0.6, ease: "power3.inOut" }, 3.80);
+      tl.fromTo("#s4-p1", { opacity: 0, x: 0, y: 0 }, { keyframes: [{ opacity: 1, x: 100, y: -130, duration: 0.25 }, { x: 190, y: -150, duration: 0.2 }, { opacity: 0, x: 300, y: -90, duration: 0.25 }], ease: "none" }, 4.20);
+      tl.fromTo("#s4-p2", { opacity: 0, x: 0, y: 0 }, { keyframes: [{ opacity: 1, x: 100, y: -130, duration: 0.25 }, { x: 190, y: -150, duration: 0.2 }, { opacity: 0, x: 300, y: -90, duration: 0.25 }], ease: "none" }, 4.70);
+      tl.fromTo("#s4-p3", { opacity: 0, x: 0, y: 0 }, { keyframes: [{ opacity: 1, x: 100, y: -130, duration: 0.25 }, { x: 190, y: -150, duration: 0.2 }, { opacity: 0, x: 300, y: -90, duration: 0.25 }], ease: "none" }, 5.20);
+      tl.to("#s4-obs-feedwrap", { clipPath: "inset(0 0% 0 0)", duration: 0.7, ease: "power4.inOut" }, 4.35);
+      tl.to("#s4-obs-empty", { opacity: 0, duration: 0.2 }, 4.35);
+      tl.fromTo("#s4-obs-feed-z", { scale: 1.15 }, { scale: 1, duration: 1.6, ease: "expo.out" }, 4.35);
+      tl.to("#s4-cur", { x: 1250, y: 820, duration: 1.0, ease: "power2.in" }, 4.700);
+      tl.fromTo("#s4-n0", { opacity: 0, scale: 0.7, y: 20 }, { opacity: 1, scale: 1, y: 0, duration: 0.4, ease: "back.out(1.8)" }, 6.000);
+      tl.to("#s4-n0 i", { scaleX: 1, duration: 0.25, ease: "power3.out" }, 6.30);
+      tl.to("#s4-n0", { opacity: 0.45, duration: 0.2 }, 6.50);
+      tl.fromTo("#s4-n1", { opacity: 0, scale: 0.7, y: 20 }, { opacity: 1, scale: 1, y: 0, duration: 0.4, ease: "back.out(1.8)" }, 6.550);
+      tl.to("#s4-n1 i", { scaleX: 1, duration: 0.25, ease: "power3.out" }, 6.85);
+      tl.to("#s4-n1", { opacity: 0.45, duration: 0.2 }, 7.05);
+      tl.fromTo("#s4-n2", { opacity: 0, scale: 0.7, y: 20 }, { opacity: 1, scale: 1, y: 0, duration: 0.4, ease: "back.out(1.8)" }, 7.100);
+      tl.to("#s4-n2 i", { scaleX: 1, duration: 0.25, ease: "power3.out" }, 7.40);
+      tl.to("#s4-n2", { opacity: 0.45, duration: 0.2 }, 7.60);
+      tl.to("#s4-stage", { opacity: 0, filter: "blur(8px)", duration: 0.3, ease: "power2.in" }, 8.900);
+
+      window.__timelines["s4-demo"] = tl;
+    })();
+  </script>
+</template>

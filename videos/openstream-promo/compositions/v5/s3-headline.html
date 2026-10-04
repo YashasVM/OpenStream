@@ -1,0 +1,103 @@
+<template>
+  <style>
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-400.woff2") format("woff2"); font-weight: 400; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-500.woff2") format("woff2"); font-weight: 500; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-600.woff2") format("woff2"); font-weight: 600; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-700.woff2") format("woff2"); font-weight: 700; }
+    @font-face { font-family: "Unbounded"; src: url("assets/fonts/Unbounded-var.woff2") format("woff2"); font-weight: 200 900; }
+
+    #root { position: absolute; inset: 0; overflow: hidden; color: #f2ede4; font-family: "Inter", sans-serif; background: #0e0e0c; }
+    .bg { position: absolute; inset: 0; background: radial-gradient(ellipse 70% 60% at 50% 45%, #1b1a17 0%, #0e0e0c 70%); }
+    .cam { position: absolute; inset: 0; perspective: 1800px; perspective-origin: 50% 45%; }
+    .stage { position: absolute; inset: 0; transform-style: preserve-3d; }
+    .disp { font-family: "Unbounded", sans-serif; font-weight: 800; letter-spacing: -0.055em; line-height: 0.9; text-transform: uppercase; white-space: nowrap; }
+    .mask { display: block; overflow: hidden; padding-bottom: 0.06em; }
+    .mask > span { display: block; }
+    .o { color: #ff5b14; }
+    .label { font: 500 24px "Inter", sans-serif; letter-spacing: 0.02em; color: #8a857b; white-space: nowrap; }
+    .chip { display: inline-flex; align-items: center; gap: 12px; height: 64px; padding: 0 30px; border-radius: 99px; box-shadow: inset 0 0 0 1.5px rgba(242,237,228,0.14); font: 600 26px "Inter", sans-serif; white-space: nowrap; position: relative; }
+    .chip b { width: 10px; height: 10px; border-radius: 50%; background: #ff5b14; display: block; }
+    .chip.solid { background: #ff5b14; color: #0e0e0c; box-shadow: none; }
+    .feed { position: relative; overflow: hidden; border-radius: 14px; background: #000; }
+    .feed-z { position: absolute; inset: 0; }
+    .feed img { position: absolute; display: block; height: auto; }
+    .phone { position: absolute; transform-style: preserve-3d; }
+    .phone .ph-l { position: absolute; inset: 0; border-radius: 46px; background: #2a2a28; }
+    .phone .ph-back { position: absolute; inset: 0; border-radius: 46px; background: linear-gradient(140deg, #4a4944, #1c1c1a); }
+    .phone .ph-front { position: absolute; inset: 0; border-radius: 46px; background: #0d0d0c; box-shadow: inset 0 0 0 2px #3a3936; }
+    .phone .ph-screen { position: absolute; inset: 11px; border-radius: 36px; overflow: hidden; background: #000; }
+    .phone .ph-screen img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .phone .ph-hole { position: absolute; left: 50%; top: 22px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: #050505; box-shadow: 0 0 0 2px #1d1d1b; }
+    .cur { position: absolute; left: 0; top: 0; width: 40px; height: 50px; z-index: 50; filter: drop-shadow(0 8px 14px rgba(0,0,0,0.55)); }
+    .cur svg { position: absolute; left: 0; top: 0; width: 40px; height: 50px; transform-origin: 6px 4px; }
+    .cur-ring { position: absolute; left: -26px; top: -28px; width: 60px; height: 60px; border-radius: 50%; border: 3px solid #ff5b14; opacity: 0; display: block; }
+    .obs { position: absolute; width: 1180px; height: 700px; border-radius: 22px; background: #1a1a17; box-shadow: 0 0 0 1px rgba(242,237,228,0.14), 0 50px 120px rgba(0,0,0,0.6); overflow: hidden; transform-style: preserve-3d; }
+    .obs-bar { position: absolute; left: 0; right: 0; top: 0; height: 44px; display: flex; align-items: center; gap: 9px; padding-left: 18px; border-bottom: 1px solid rgba(242,237,228,0.14); }
+    .obs-bar i { width: 12px; height: 12px; border-radius: 50%; background: #3a3934; display: block; }
+    .obs-bar span { margin-left: 14px; font: 500 17px "Inter", sans-serif; color: #8a857b; }
+    .obs-side { position: absolute; left: 16px; top: 60px; width: 240px; height: 624px; border-radius: 14px; background: #0e0e0c; padding: 18px 14px; }
+    .obs-h { display: block; font: 600 15px "Inter", sans-serif; color: #8a857b; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 10px; }
+    .obs-row { display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 12px; border-radius: 10px; font: 500 18px "Inter", sans-serif; color: #f2ede4; }
+    .obs-row.on { background: rgba(242,237,228,0.08); }
+    .obs-row.src { background: rgba(255,91,20,0.14); box-shadow: inset 0 0 0 1.5px #ff5b14; opacity: 0; }
+    .obs-mini { width: 26px; height: 20px; display: block; }
+    .obs-plus { position: absolute; left: 14px; bottom: 14px; width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font: 500 28px "Inter", sans-serif; background: rgba(242,237,228,0.08); }
+    .obs-prev { position: absolute; left: 272px; top: 60px; width: 892px; height: 502px; border-radius: 14px; background: #050505; overflow: hidden; }
+    .obs-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 500 20px "Inter", sans-serif; color: #4a4843; }
+    .obs-feedwrap { position: absolute; inset: 0; }
+    .obs-live { position: absolute; left: 20px; top: 18px; display: flex; align-items: center; gap: 9px; height: 38px; padding: 0 16px; border-radius: 99px; background: #ff5b14; color: #0e0e0c; font: 700 17px "Inter", sans-serif; letter-spacing: 0.08em; opacity: 0; }
+    .obs-live b { width: 9px; height: 9px; border-radius: 50%; background: #0e0e0c; display: block; }
+    .obs-bot { position: absolute; left: 272px; top: 576px; width: 892px; height: 108px; border-radius: 14px; background: #0e0e0c; }
+    .obs-meters { position: absolute; left: 22px; top: 20px; bottom: 20px; display: flex; gap: 8px; align-items: flex-end; }
+    .obs-meters i { width: 10px; border-radius: 3px; background: linear-gradient(0deg, #f2ede4 0%, #8a857b 100%); opacity: 0.5; display: block; }
+    .obs-stream { position: absolute; right: 20px; top: 26px; width: 260px; height: 56px; border-radius: 99px; box-shadow: inset 0 0 0 1.5px #f2ede4; font: 600 19px "Inter", sans-serif; overflow: hidden; }
+    .obs-stream em { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-style: normal; }
+    .obs-stream em + em { background: #ff5b14; color: #0e0e0c; transform: translateY(101%); }
+
+    .s3-top { position: absolute; left: 80px; right: 80px; top: 60px; display: flex; justify-content: space-between; align-items: center; font: 500 22px "Inter", sans-serif; }
+    .s3-logo { display: flex; align-items: center; gap: 12px; font: 700 26px "Unbounded", sans-serif; letter-spacing: -0.02em; }
+    .s3-mark { width: 44px; height: 34px; display: block; }
+    .s3-gh { font-weight: 500; }
+    .s3-title { position: absolute; left: 80px; right: 80px; top: 250px; font-size: 200px; }
+    .s3-l2 > span { padding-left: 150px; display: flex; align-items: center; gap: 60px; }
+    .s3-l3 > span { text-align: right; }
+    .s3-title em { font-style: normal; }
+    .s3-badge { position: relative; display: block; width: 170px; height: 170px; }
+    .s3-badge svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .s3-badge text { font: 600 9.6px "Inter", sans-serif; letter-spacing: 0.18em; fill: #f2ede4; }
+    .s3-bmark { position: absolute; left: 50%; top: 50%; width: 70px; height: 53px; margin: -26px 0 0 -35px; }
+
+  </style>
+
+  <div id="root" data-composition-id="s3-headline" data-width="1920" data-height="1080">
+    <div id="s3-headline-bg" class="bg clip" data-start="0" data-duration="5.2" data-track-index="0"></div>
+    <div id="s3-headline-cam" class="cam clip" data-start="0" data-duration="5.2" data-track-index="1">
+      <div class="stage" id="s3-stage">
+        <div class="s3-top" id="s3-top"><span class="s3-logo"><svg class="s3-mark" viewBox="52 60 90 68" aria-label="OpenStream logo"><g fill="none" stroke="#f2ede4" stroke-width="5.4" stroke-linecap="round" stroke-linejoin="round"><path pathLength="1" d="M 110.6 78.6 A 29.6 29.6 0 1 0 108.6 112.6"/><path pathLength="1" d="M 137 87 L 103.5 87 A 8.7 8.7 0 0 0 103.5 104.4 L 127.6 104.4 A 8.7 8.7 0 0 1 127.6 121.8 L 107.5 121.8"/></g></svg>OpenStream</span><span class="label">Android → OBS · local Wi-Fi</span><span class="s3-gh">GitHub ↗</span></div>
+        <div class="s3-title disp">
+          <span class="mask s3-l1"><span id="s3-a">Your phone.</span></span>
+          <span class="mask s3-l2"><span id="s3-b">Now an <i class="s3-badge" id="s3-badge"><svg viewBox="0 0 100 100"><defs><path id="s3-circ" d="M50,50 m-38,0 a38,38 0 1,1 76,0 a38,38 0 1,1 -76,0"/></defs><text><textPath href="#s3-circ">OPENSTREAM · OBS CAMERA · OPENSTREAM · OBS CAMERA · </textPath></text></svg><svg class="s3-bmark" viewBox="52 60 90 68" aria-label="OpenStream logo"><g fill="none" stroke="#ff5b14" stroke-width="5.4" stroke-linecap="round" stroke-linejoin="round"><path pathLength="1" d="M 110.6 78.6 A 29.6 29.6 0 1 0 108.6 112.6"/><path pathLength="1" d="M 137 87 L 103.5 87 A 8.7 8.7 0 0 0 103.5 104.4 L 127.6 104.4 A 8.7 8.7 0 0 1 127.6 121.8 L 107.5 121.8"/></g></svg></i></span></span>
+          <span class="mask s3-l3"><span id="s3-c"><em class="o">OBS</em> camera.</span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      const D = 5.2;
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo("#s3-stage", { z: -80, rotationY: -4 }, { z: 60, rotationY: 3, duration: D, ease: "power1.inOut" }, 0);
+      tl.fromTo("#s3-top", { opacity: 0, y: -20 }, { opacity: 1, y: 0, duration: 0.6, ease: "power2.out" }, 0.1);
+      tl.fromTo("#s3-badge svg", { rotation: 0 }, { rotation: 140, duration: D, ease: "none" }, 0);
+      tl.fromTo("#s3-a", { yPercent: 110 }, { yPercent: 0, duration: 1.0, ease: "power4.out" }, 0.300);
+      tl.fromTo("#s3-b", { yPercent: 110 }, { yPercent: 0, duration: 1.0, ease: "power4.out" }, 1.400);
+      tl.fromTo("#s3-c", { yPercent: 110 }, { yPercent: 0, duration: 1.0, ease: "power4.out" }, 2.600);
+      tl.fromTo("#s3-c .o", { color: "#f2ede4" }, { color: "#ff5b14", duration: 0.4 }, 3.2);
+      tl.to("#s3-stage", { opacity: 0, filter: "blur(8px)", duration: 0.3, ease: "power2.in" }, 4.900);
+
+      window.__timelines["s3-headline"] = tl;
+    })();
+  </script>
+</template>

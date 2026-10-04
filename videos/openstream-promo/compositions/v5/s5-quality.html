@@ -1,0 +1,116 @@
+<template>
+  <style>
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-400.woff2") format("woff2"); font-weight: 400; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-500.woff2") format("woff2"); font-weight: 500; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-600.woff2") format("woff2"); font-weight: 600; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-700.woff2") format("woff2"); font-weight: 700; }
+    @font-face { font-family: "Unbounded"; src: url("assets/fonts/Unbounded-var.woff2") format("woff2"); font-weight: 200 900; }
+
+    #root { position: absolute; inset: 0; overflow: hidden; color: #f2ede4; font-family: "Inter", sans-serif; background: #0e0e0c; }
+    .bg { position: absolute; inset: 0; background: radial-gradient(ellipse 70% 60% at 50% 45%, #1b1a17 0%, #0e0e0c 70%); }
+    .cam { position: absolute; inset: 0; perspective: 1800px; perspective-origin: 50% 45%; }
+    .stage { position: absolute; inset: 0; transform-style: preserve-3d; }
+    .disp { font-family: "Unbounded", sans-serif; font-weight: 800; letter-spacing: -0.055em; line-height: 0.9; text-transform: uppercase; white-space: nowrap; }
+    .mask { display: block; overflow: hidden; padding-bottom: 0.06em; }
+    .mask > span { display: block; }
+    .o { color: #ff5b14; }
+    .label { font: 500 24px "Inter", sans-serif; letter-spacing: 0.02em; color: #8a857b; white-space: nowrap; }
+    .chip { display: inline-flex; align-items: center; gap: 12px; height: 64px; padding: 0 30px; border-radius: 99px; box-shadow: inset 0 0 0 1.5px rgba(242,237,228,0.14); font: 600 26px "Inter", sans-serif; white-space: nowrap; position: relative; }
+    .chip b { width: 10px; height: 10px; border-radius: 50%; background: #ff5b14; display: block; }
+    .chip.solid { background: #ff5b14; color: #0e0e0c; box-shadow: none; }
+    .feed { position: relative; overflow: hidden; border-radius: 14px; background: #000; }
+    .feed-z { position: absolute; inset: 0; }
+    .feed img { position: absolute; display: block; height: auto; }
+    .phone { position: absolute; transform-style: preserve-3d; }
+    .phone .ph-l { position: absolute; inset: 0; border-radius: 46px; background: #2a2a28; }
+    .phone .ph-back { position: absolute; inset: 0; border-radius: 46px; background: linear-gradient(140deg, #4a4944, #1c1c1a); }
+    .phone .ph-front { position: absolute; inset: 0; border-radius: 46px; background: #0d0d0c; box-shadow: inset 0 0 0 2px #3a3936; }
+    .phone .ph-screen { position: absolute; inset: 11px; border-radius: 36px; overflow: hidden; background: #000; }
+    .phone .ph-screen img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .phone .ph-hole { position: absolute; left: 50%; top: 22px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: #050505; box-shadow: 0 0 0 2px #1d1d1b; }
+    .cur { position: absolute; left: 0; top: 0; width: 40px; height: 50px; z-index: 50; filter: drop-shadow(0 8px 14px rgba(0,0,0,0.55)); }
+    .cur svg { position: absolute; left: 0; top: 0; width: 40px; height: 50px; transform-origin: 6px 4px; }
+    .cur-ring { position: absolute; left: -26px; top: -28px; width: 60px; height: 60px; border-radius: 50%; border: 3px solid #ff5b14; opacity: 0; display: block; }
+    .obs { position: absolute; width: 1180px; height: 700px; border-radius: 22px; background: #1a1a17; box-shadow: 0 0 0 1px rgba(242,237,228,0.14), 0 50px 120px rgba(0,0,0,0.6); overflow: hidden; transform-style: preserve-3d; }
+    .obs-bar { position: absolute; left: 0; right: 0; top: 0; height: 44px; display: flex; align-items: center; gap: 9px; padding-left: 18px; border-bottom: 1px solid rgba(242,237,228,0.14); }
+    .obs-bar i { width: 12px; height: 12px; border-radius: 50%; background: #3a3934; display: block; }
+    .obs-bar span { margin-left: 14px; font: 500 17px "Inter", sans-serif; color: #8a857b; }
+    .obs-side { position: absolute; left: 16px; top: 60px; width: 240px; height: 624px; border-radius: 14px; background: #0e0e0c; padding: 18px 14px; }
+    .obs-h { display: block; font: 600 15px "Inter", sans-serif; color: #8a857b; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 10px; }
+    .obs-row { display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 12px; border-radius: 10px; font: 500 18px "Inter", sans-serif; color: #f2ede4; }
+    .obs-row.on { background: rgba(242,237,228,0.08); }
+    .obs-row.src { background: rgba(255,91,20,0.14); box-shadow: inset 0 0 0 1.5px #ff5b14; opacity: 0; }
+    .obs-mini { width: 26px; height: 20px; display: block; }
+    .obs-plus { position: absolute; left: 14px; bottom: 14px; width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font: 500 28px "Inter", sans-serif; background: rgba(242,237,228,0.08); }
+    .obs-prev { position: absolute; left: 272px; top: 60px; width: 892px; height: 502px; border-radius: 14px; background: #050505; overflow: hidden; }
+    .obs-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 500 20px "Inter", sans-serif; color: #4a4843; }
+    .obs-feedwrap { position: absolute; inset: 0; }
+    .obs-live { position: absolute; left: 20px; top: 18px; display: flex; align-items: center; gap: 9px; height: 38px; padding: 0 16px; border-radius: 99px; background: #ff5b14; color: #0e0e0c; font: 700 17px "Inter", sans-serif; letter-spacing: 0.08em; opacity: 0; }
+    .obs-live b { width: 9px; height: 9px; border-radius: 50%; background: #0e0e0c; display: block; }
+    .obs-bot { position: absolute; left: 272px; top: 576px; width: 892px; height: 108px; border-radius: 14px; background: #0e0e0c; }
+    .obs-meters { position: absolute; left: 22px; top: 20px; bottom: 20px; display: flex; gap: 8px; align-items: flex-end; }
+    .obs-meters i { width: 10px; border-radius: 3px; background: linear-gradient(0deg, #f2ede4 0%, #8a857b 100%); opacity: 0.5; display: block; }
+    .obs-stream { position: absolute; right: 20px; top: 26px; width: 260px; height: 56px; border-radius: 99px; box-shadow: inset 0 0 0 1.5px #f2ede4; font: 600 19px "Inter", sans-serif; overflow: hidden; }
+    .obs-stream em { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-style: normal; }
+    .obs-stream em + em { background: #ff5b14; color: #0e0e0c; transform: translateY(101%); }
+
+    .s5-card { position: absolute; left: 790px; top: 230px; width: 1040px; height: 585px; border-radius: 20px; box-shadow: 0 0 0 1px rgba(242,237,228,0.14), 0 50px 120px rgba(0,0,0,0.6); transform-style: preserve-3d; }
+    .s5-card .feed { border-radius: 20px; }
+    .s5-tag { position: absolute; left: 22px; top: 20px; display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 18px; border-radius: 99px; background: rgba(14,14,12,0.75); font: 700 18px "Inter", sans-serif; letter-spacing: 0.06em; }
+    .s5-tag b { width: 9px; height: 9px; border-radius: 50%; background: #ff5b14; display: block; }
+    .s5-left { position: absolute; left: 90px; top: 220px; width: 660px; }
+    .s5-big { font-size: 150px; }
+    .s5-chips { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 44px; }
+    .s5-chips .chip { opacity: 0; }
+    .s5-4k { display: flex; align-items: center; gap: 22px; margin-top: 36px; }
+    .s5-k { font: 800 30px "Unbounded", sans-serif; letter-spacing: -0.03em; box-shadow: inset 0 0 0 1.5px #f2ede4; opacity: 0; }
+    .s5-k i { position: absolute; left: 14px; right: 14px; top: 50%; height: 4px; margin-top: -2px; background: #ff5b14; display: block; transform: scaleX(0) rotate(-8deg); transform-origin: 0% 50%; }
+    .s5-note { font: 500 26px "Inter", sans-serif; font-style: italic; color: #8a857b; opacity: 0; white-space: nowrap; }
+    .s5-router { position: absolute; left: 90px; top: 870px; display: flex; align-items: center; gap: 20px; font: 500 30px "Inter", sans-serif; color: #8a857b; opacity: 0; }
+    .s5-router svg { width: 108px; height: 72px; display: block; }
+
+  </style>
+
+  <div id="root" data-composition-id="s5-quality" data-width="1920" data-height="1080">
+    <div id="s5-quality-bg" class="bg clip" data-start="0" data-duration="10.0" data-track-index="0"></div>
+    <div id="s5-quality-cam" class="cam clip" data-start="0" data-duration="10.0" data-track-index="1">
+      <div class="stage" id="s5-stage">
+        <div class="s5-card" id="s5-card"><div class="feed" id="s5-feed" style="width: 1040px; height: 585px;"><div class="feed-z" id="s5-feed-z"><img src="assets/obs-live.png" alt="Live phone camera feed in OBS" style="width: 2574.4px; left: -595.4px; top: -67.4px;" /></div></div><span class="s5-tag" id="s5-tag"><b></b>LIVE · 1080p60</span></div>
+        <div class="s5-left">
+          <div class="disp s5-big"><span class="mask"><span id="s5-b1">1080p</span></span><span class="mask"><span id="s5-b2" class="o">60.</span></span></div>
+          <div class="s5-chips"><span class="chip" id="s5-c0"><b></b>Every lens</span><span class="chip" id="s5-c1"><b></b>HW encoded</span><span class="chip" id="s5-c2"><b></b>AAC audio</span></div>
+          <div class="s5-4k" id="s5-4k"><span class="chip s5-k" id="s5-k">4K<i id="s5-kx"></i></span><span class="s5-note" id="s5-note">we tried. your Wi-Fi cried.</span></div>
+        </div>
+        <div class="s5-router" id="s5-router"><svg viewBox="0 0 120 80" aria-hidden="true"><rect x="10" y="44" width="100" height="26" rx="8" fill="none" stroke="#8a857b" stroke-width="4"/><path d="M30 44 L22 12 M90 44 L98 12" stroke="#8a857b" stroke-width="4" stroke-linecap="round"/><circle cx="32" cy="57" r="4" fill="#ff5b14"/><circle cx="48" cy="57" r="4" fill="#8a857b"/></svg><span>router.exe has retired</span></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      const D = 10.0;
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo("#s5-card", { x: -380, y: -60, scale: 1.35, rotationY: 0 }, { x: 0, y: 0, scale: 1, rotationY: -10, duration: 1.4, ease: "power4.inOut" }, 0);
+      tl.to("#s5-card", { rotationY: -4, rotationX: 2, duration: D - 1.4, ease: "sine.inOut" }, 1.4);
+      tl.fromTo("#s5-feed-z", { scale: 1.08 }, { scale: 1.0, duration: D, ease: "none" }, 0);
+      tl.fromTo("#s5-stage", { z: 0 }, { z: 50, duration: D, ease: "sine.inOut" }, 0);
+      tl.fromTo("#s5-tag", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 0.9);
+      tl.fromTo("#s5-b1", { yPercent: 110 }, { yPercent: 0, duration: 0.9, ease: "power4.out" }, 1.000);
+      tl.fromTo("#s5-b2", { yPercent: 110 }, { yPercent: 0, duration: 0.9, ease: "power4.out" }, 1.800);
+      tl.fromTo("#s5-c0", { opacity: 0, scale: 0.7, y: 20 }, { opacity: 1, scale: 1, y: 0, duration: 0.45, ease: "back.out(1.8)" }, 0.700);
+      tl.fromTo("#s5-c1", { opacity: 0, scale: 0.7, y: 20 }, { opacity: 1, scale: 1, y: 0, duration: 0.45, ease: "back.out(1.8)" }, 1.700);
+      tl.fromTo("#s5-c2", { opacity: 0, scale: 0.7, y: 20 }, { opacity: 1, scale: 1, y: 0, duration: 0.45, ease: "back.out(1.8)" }, 2.700);
+      tl.fromTo("#s5-k", { opacity: 0, x: -60 }, { opacity: 1, x: 0, duration: 0.5, ease: "back.out(2)" }, 3.90);
+      tl.fromTo("#s5-k", { rotation: 0 }, { keyframes: { rotation: [0, -6, 5, -4, 3, 0] }, duration: 0.7, ease: "none", immediateRender: false }, 5.40);
+      tl.to("#s5-kx", { scaleX: 1, duration: 0.3, ease: "power3.out" }, 6.50);
+      tl.to("#s5-k", { opacity: 0.4, rotation: -4, y: 6, duration: 0.4, ease: "power2.out" }, 6.75);
+      tl.fromTo("#s5-note", { opacity: 0, x: -16 }, { opacity: 1, x: 0, duration: 0.5, ease: "power2.out" }, 7.000);
+      tl.fromTo("#s5-router", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" }, 7.700);
+      tl.fromTo("#s5-router svg", { rotation: 0 }, { rotation: 9, y: 6, duration: 0.6, ease: "bounce.out" }, 8.30);
+      tl.to("#s5-stage", { opacity: 0, filter: "blur(8px)", duration: 0.3, ease: "power2.in" }, 9.700);
+
+      window.__timelines["s5-quality"] = tl;
+    })();
+  </script>
+</template>

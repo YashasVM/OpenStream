@@ -50,3 +50,12 @@ User: "clean, professional", "colors like beige", "high energy beat", "just crea
   not instant), get fast toward the end, then go slow again on the GitHub star close.
 - Animations were too slow and the beat too smooth in v3 — make everything energetic.
 - Phone screenshot: assets/phone-live.jpg (Screenshot_20261003_092438_OpenStream.jpg).
+
+## v5 direction (user, 2026-10-04)
+
+- ~45s narrated SaaS-demo promo: "use your Android phone as an ultra-HQ OBS webcam, zero friction".
+- Use the live website's design system (ink #0e0e0c, paper #f2ede4, orange #ff5b14, Unbounded + Inter).
+- Male voiceover (Kokoro am_michael, 1.08x), smooth cursor, 3D phone + OBS window.
+- Joke: 1080p60 not 4K because 4K over Wi-Fi is too much ("how routers retire early").
+- End card URL: os.yash0.in. Built by tools/build_frames_v5.py + tools/make_music_v5.py.
+- v4 root composition archived at archive/index-v4.html (its frames stay in compositions/frames/).

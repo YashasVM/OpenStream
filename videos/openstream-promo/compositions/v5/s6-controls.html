@@ -1,0 +1,144 @@
+<template>
+  <style>
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-400.woff2") format("woff2"); font-weight: 400; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-500.woff2") format("woff2"); font-weight: 500; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-600.woff2") format("woff2"); font-weight: 600; }
+    @font-face { font-family: "Inter"; src: url("assets/fonts/Inter-700.woff2") format("woff2"); font-weight: 700; }
+    @font-face { font-family: "Unbounded"; src: url("assets/fonts/Unbounded-var.woff2") format("woff2"); font-weight: 200 900; }
+
+    #root { position: absolute; inset: 0; overflow: hidden; color: #f2ede4; font-family: "Inter", sans-serif; background: #0e0e0c; }
+    .bg { position: absolute; inset: 0; background: radial-gradient(ellipse 70% 60% at 50% 45%, #1b1a17 0%, #0e0e0c 70%); }
+    .cam { position: absolute; inset: 0; perspective: 1800px; perspective-origin: 50% 45%; }
+    .stage { position: absolute; inset: 0; transform-style: preserve-3d; }
+    .disp { font-family: "Unbounded", sans-serif; font-weight: 800; letter-spacing: -0.055em; line-height: 0.9; text-transform: uppercase; white-space: nowrap; }
+    .mask { display: block; overflow: hidden; padding-bottom: 0.06em; }
+    .mask > span { display: block; }
+    .o { color: #ff5b14; }
+    .label { font: 500 24px "Inter", sans-serif; letter-spacing: 0.02em; color: #8a857b; white-space: nowrap; }
+    .chip { display: inline-flex; align-items: center; gap: 12px; height: 64px; padding: 0 30px; border-radius: 99px; box-shadow: inset 0 0 0 1.5px rgba(242,237,228,0.14); font: 600 26px "Inter", sans-serif; white-space: nowrap; position: relative; }
+    .chip b { width: 10px; height: 10px; border-radius: 50%; background: #ff5b14; display: block; }
+    .chip.solid { background: #ff5b14; color: #0e0e0c; box-shadow: none; }
+    .feed { position: relative; overflow: hidden; border-radius: 14px; background: #000; }
+    .feed-z { position: absolute; inset: 0; }
+    .feed img { position: absolute; display: block; height: auto; }
+    .phone { position: absolute; transform-style: preserve-3d; }
+    .phone .ph-l { position: absolute; inset: 0; border-radius: 46px; background: #2a2a28; }
+    .phone .ph-back { position: absolute; inset: 0; border-radius: 46px; background: linear-gradient(140deg, #4a4944, #1c1c1a); }
+    .phone .ph-front { position: absolute; inset: 0; border-radius: 46px; background: #0d0d0c; box-shadow: inset 0 0 0 2px #3a3936; }
+    .phone .ph-screen { position: absolute; inset: 11px; border-radius: 36px; overflow: hidden; background: #000; }
+    .phone .ph-screen img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .phone .ph-hole { position: absolute; left: 50%; top: 22px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: #050505; box-shadow: 0 0 0 2px #1d1d1b; }
+    .cur { position: absolute; left: 0; top: 0; width: 40px; height: 50px; z-index: 50; filter: drop-shadow(0 8px 14px rgba(0,0,0,0.55)); }
+    .cur svg { position: absolute; left: 0; top: 0; width: 40px; height: 50px; transform-origin: 6px 4px; }
+    .cur-ring { position: absolute; left: -26px; top: -28px; width: 60px; height: 60px; border-radius: 50%; border: 3px solid #ff5b14; opacity: 0; display: block; }
+    .obs { position: absolute; width: 1180px; height: 700px; border-radius: 22px; background: #1a1a17; box-shadow: 0 0 0 1px rgba(242,237,228,0.14), 0 50px 120px rgba(0,0,0,0.6); overflow: hidden; transform-style: preserve-3d; }
+    .obs-bar { position: absolute; left: 0; right: 0; top: 0; height: 44px; display: flex; align-items: center; gap: 9px; padding-left: 18px; border-bottom: 1px solid rgba(242,237,228,0.14); }
+    .obs-bar i { width: 12px; height: 12px; border-radius: 50%; background: #3a3934; display: block; }
+    .obs-bar span { margin-left: 14px; font: 500 17px "Inter", sans-serif; color: #8a857b; }
+    .obs-side { position: absolute; left: 16px; top: 60px; width: 240px; height: 624px; border-radius: 14px; background: #0e0e0c; padding: 18px 14px; }
+    .obs-h { display: block; font: 600 15px "Inter", sans-serif; color: #8a857b; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 10px; }
+    .obs-row { display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 12px; border-radius: 10px; font: 500 18px "Inter", sans-serif; color: #f2ede4; }
+    .obs-row.on { background: rgba(242,237,228,0.08); }
+    .obs-row.src { background: rgba(255,91,20,0.14); box-shadow: inset 0 0 0 1.5px #ff5b14; opacity: 0; }
+    .obs-mini { width: 26px; height: 20px; display: block; }
+    .obs-plus { position: absolute; left: 14px; bottom: 14px; width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font: 500 28px "Inter", sans-serif; background: rgba(242,237,228,0.08); }
+    .obs-prev { position: absolute; left: 272px; top: 60px; width: 892px; height: 502px; border-radius: 14px; background: #050505; overflow: hidden; }
+    .obs-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 500 20px "Inter", sans-serif; color: #4a4843; }
+    .obs-feedwrap { position: absolute; inset: 0; }
+    .obs-live { position: absolute; left: 20px; top: 18px; display: flex; align-items: center; gap: 9px; height: 38px; padding: 0 16px; border-radius: 99px; background: #ff5b14; color: #0e0e0c; font: 700 17px "Inter", sans-serif; letter-spacing: 0.08em; opacity: 0; }
+    .obs-live b { width: 9px; height: 9px; border-radius: 50%; background: #0e0e0c; display: block; }
+    .obs-bot { position: absolute; left: 272px; top: 576px; width: 892px; height: 108px; border-radius: 14px; background: #0e0e0c; }
+    .obs-meters { position: absolute; left: 22px; top: 20px; bottom: 20px; display: flex; gap: 8px; align-items: flex-end; }
+    .obs-meters i { width: 10px; border-radius: 3px; background: linear-gradient(0deg, #f2ede4 0%, #8a857b 100%); opacity: 0.5; display: block; }
+    .obs-stream { position: absolute; right: 20px; top: 26px; width: 260px; height: 56px; border-radius: 99px; box-shadow: inset 0 0 0 1.5px #f2ede4; font: 600 19px "Inter", sans-serif; overflow: hidden; }
+    .obs-stream em { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-style: normal; }
+    .obs-stream em + em { background: #ff5b14; color: #0e0e0c; transform: translateY(101%); }
+
+    .s6-wrap { position: absolute; left: 90px; top: 170px; width: 1740px; height: 640px; transform-style: preserve-3d; }
+    .s6-card { position: absolute; left: 0; top: 0; width: 1100px; height: 619px; border-radius: 20px; box-shadow: 0 0 0 1px rgba(242,237,228,0.14), 0 50px 120px rgba(0,0,0,0.6); }
+    .s6-card .feed { border-radius: 20px; }
+    .s6-focus { position: absolute; left: 640px; top: 210px; width: 130px; height: 130px; margin: -65px 0 0 -65px; border: 3px solid #ff5b14; border-radius: 14px; opacity: 0; display: block; }
+    .s6-dock { position: absolute; left: 1150px; top: 0; width: 590px; height: 619px; border-radius: 20px; background: #1a1a17; box-shadow: 0 0 0 1px rgba(242,237,228,0.14); padding: 34px 36px; }
+    .s6-title { display: flex; align-items: center; gap: 12px; font: 700 22px "Unbounded", sans-serif; letter-spacing: -0.02em; margin-bottom: 30px; white-space: nowrap; }
+    .s6-lbl { display: block; font: 600 16px "Inter", sans-serif; letter-spacing: 0.1em; text-transform: uppercase; color: #8a857b; margin: 26px 0 14px; }
+    .s6-lenses { display: flex; gap: 12px; }
+    .s6-lens { display: flex; align-items: center; justify-content: center; height: 62px; min-width: 104px; padding: 0 20px; border-radius: 99px; box-shadow: inset 0 0 0 1.5px rgba(242,237,228,0.14); font: 600 22px "Inter", sans-serif; white-space: nowrap; }
+    .s6-lens.on { box-shadow: inset 0 0 0 1.5px #f2ede4; }
+    .s6-slider { position: relative; height: 62px; }
+    .s6-slider::before { content: ""; position: absolute; left: 0; right: 0; top: 29px; height: 4px; border-radius: 2px; background: rgba(242,237,228,0.14); }
+    .s6-fill { position: absolute; left: 0; top: 29px; width: 400px; height: 4px; border-radius: 2px; background: #ff5b14; display: block; transform-origin: 0% 50%; }
+    .s6-knob { position: absolute; left: 160px; top: 15px; width: 32px; height: 32px; margin-left: -16px; border-radius: 50%; background: #f2ede4; display: block; }
+    .s6-live { position: absolute; left: 0; right: 0; top: 880px; display: flex; justify-content: center; }
+    .s6-live .chip { height: 72px; font-size: 28px; padding: 0 36px; }
+
+  </style>
+
+  <div id="root" data-composition-id="s6-controls" data-width="1920" data-height="1080">
+    <div id="s6-controls-bg" class="bg clip" data-start="0" data-duration="5.0" data-track-index="0"></div>
+    <div id="s6-controls-cam" class="cam clip" data-start="0" data-duration="5.0" data-track-index="1">
+      <div class="stage" id="s6-stage">
+        <div class="s6-wrap" id="s6-wrap">
+          <div class="s6-card"><div class="feed" id="s6-feed" style="width: 1100px; height: 619px;"><div class="feed-z" id="s6-feed-z"><img src="assets/obs-live.png" alt="Live phone camera feed in OBS" style="width: 2722.9px; left: -629.8px; top: -71.2px;" /></div></div><i class="s6-focus" id="s6-focus"></i></div>
+          <div class="s6-dock" id="s6-dock">
+            <span class="s6-title"><svg class="obs-mini" viewBox="52 60 90 68" aria-label="OpenStream logo"><g fill="none" stroke="#f2ede4" stroke-width="5.4" stroke-linecap="round" stroke-linejoin="round"><path pathLength="1" d="M 110.6 78.6 A 29.6 29.6 0 1 0 108.6 112.6"/><path pathLength="1" d="M 137 87 L 103.5 87 A 8.7 8.7 0 0 0 103.5 104.4 L 127.6 104.4 A 8.7 8.7 0 0 1 127.6 121.8 L 107.5 121.8"/></g></svg>OpenStream Camera Control</span>
+            <span class="s6-lbl">Lens</span>
+            <div class="s6-lenses"><span class="s6-lens" id="s6-l0">0.6×</span><span class="s6-lens" id="s6-l1">1×</span><span class="s6-lens" id="s6-l2">3×</span><span class="s6-lens" id="s6-l3">5×</span></div>
+            <span class="s6-lbl">Exposure</span>
+            <div class="s6-slider"><i class="s6-fill" id="s6-fill"></i><i class="s6-knob" id="s6-knob"></i></div>
+            <span class="s6-lbl">Focus</span>
+            <div class="s6-lenses"><span class="s6-lens on">Tap to focus</span><span class="s6-lens">Auto</span></div>
+          </div>
+          <div class="cur" id="s6-cur"><i class="cur-ring" id="s6-cur-ring"></i><svg viewBox="0 0 28 36" aria-hidden="true"><path d="M3 2 L3 29 L10.5 22 L15.5 33 L20 31 L15 20.5 L25 20.5 Z" fill="#f2ede4" stroke="#0e0e0c" stroke-width="2.2" stroke-linejoin="round"/></svg></div>
+        </div>
+        <div class="s6-live" id="s6-live"><span class="chip solid">Live, right from OBS</span></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      const D = 5.0;
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo("#s6-wrap", { rotationY: 12, rotationX: 6, z: -200, opacity: 0 }, { rotationY: 4, rotationX: 2, z: 0, opacity: 1, duration: 0.9, ease: "expo.out" }, 0);
+      tl.to("#s6-wrap", { rotationY: -3, rotationX: 0, z: 40, duration: D - 0.9, ease: "sine.inOut" }, 0.9);
+      tl.set("#s6-cur", { x: 1500, y: 560 }, 0);
+      tl.set("#s6-l0", { boxShadow: "inset 0 0 0 1.5px rgba(242,237,228,0.14)" }, 0);
+      tl.to("#s6-cur", { x: 1238, y: 222, duration: 0.4, ease: "power3.inOut" }, 0.050);
+      tl.fromTo("#s6-cur svg", { scale: 1 }, { scale: 0.82, duration: 0.08, ease: "power2.out", yoyo: true, repeat: 1, immediateRender: false }, 0.450);
+      tl.fromTo("#s6-cur-ring", { scale: 0.2, opacity: 0.9 }, { scale: 1.6, opacity: 0, duration: 0.3, ease: "expo.out", immediateRender: false }, 0.450);
+      tl.to("#s6-l0", { backgroundColor: "#ff5b14", color: "#0e0e0c", duration: 0.12 }, 0.45);
+      tl.to("#s6-feed-z", { scale: 1.0, duration: 0.35, ease: "power3.out", transformOrigin: "62% 48%" }, 0.45);
+      tl.to("#s6-cur", { x: 1354, y: 222, duration: 0.3, ease: "power3.inOut" }, 0.570);
+      tl.fromTo("#s6-cur svg", { scale: 1 }, { scale: 0.82, duration: 0.08, ease: "power2.out", yoyo: true, repeat: 1, immediateRender: false }, 0.870);
+      tl.fromTo("#s6-cur-ring", { scale: 0.2, opacity: 0.9 }, { scale: 1.6, opacity: 0, duration: 0.3, ease: "expo.out", immediateRender: false }, 0.870);
+      tl.to("#s6-l1", { backgroundColor: "#ff5b14", color: "#0e0e0c", duration: 0.12 }, 0.87);
+      tl.to("#s6-l0", { backgroundColor: "rgba(0,0,0,0)", color: "#f2ede4", duration: 0.12 }, 0.87);
+      tl.to("#s6-feed-z", { scale: 1.3, duration: 0.35, ease: "power3.out", transformOrigin: "62% 48%" }, 0.87);
+      tl.to("#s6-cur", { x: 1470, y: 222, duration: 0.3, ease: "power3.inOut" }, 0.990);
+      tl.fromTo("#s6-cur svg", { scale: 1 }, { scale: 0.82, duration: 0.08, ease: "power2.out", yoyo: true, repeat: 1, immediateRender: false }, 1.290);
+      tl.fromTo("#s6-cur-ring", { scale: 0.2, opacity: 0.9 }, { scale: 1.6, opacity: 0, duration: 0.3, ease: "expo.out", immediateRender: false }, 1.290);
+      tl.to("#s6-l2", { backgroundColor: "#ff5b14", color: "#0e0e0c", duration: 0.12 }, 1.29);
+      tl.to("#s6-l1", { backgroundColor: "rgba(0,0,0,0)", color: "#f2ede4", duration: 0.12 }, 1.29);
+      tl.to("#s6-feed-z", { scale: 2.1, duration: 0.35, ease: "power3.out", transformOrigin: "62% 48%" }, 1.29);
+      tl.to("#s6-cur", { x: 1346, y: 343, duration: 0.28, ease: "power3.inOut" }, 1.320);
+      tl.fromTo("#s6-cur svg", { scale: 1 }, { scale: 0.82, duration: 0.08, ease: "power2.out", yoyo: true, repeat: 1, immediateRender: false }, 1.620);
+      tl.fromTo("#s6-cur-ring", { scale: 0.2, opacity: 0.9 }, { scale: 1.6, opacity: 0, duration: 0.3, ease: "expo.out", immediateRender: false }, 1.620);
+      tl.to("#s6-cur", { x: 1586, duration: 0.5, ease: "power2.inOut" }, 1.72);
+      tl.to("#s6-knob", { x: 240, duration: 0.5, ease: "power2.inOut" }, 1.72);
+      tl.fromTo("#s6-fill", { scaleX: 0.4 }, { scaleX: 1, duration: 0.5, ease: "power2.inOut" }, 1.72);
+      tl.fromTo("#s6-feed", { filter: "brightness(0.7) blur(0px)" }, { filter: "brightness(1.12) blur(0px)", duration: 0.5, ease: "power2.inOut" }, 1.72);
+      tl.to("#s6-feed", { filter: "brightness(1.12) blur(4px)", duration: 0.3 }, 2.30);
+      tl.to("#s6-cur", { x: 650, y: 220, duration: 0.5, ease: "power3.inOut" }, 2.250);
+      tl.fromTo("#s6-cur svg", { scale: 1 }, { scale: 0.82, duration: 0.08, ease: "power2.out", yoyo: true, repeat: 1, immediateRender: false }, 2.750);
+      tl.fromTo("#s6-cur-ring", { scale: 0.2, opacity: 0.9 }, { scale: 1.6, opacity: 0, duration: 0.3, ease: "expo.out", immediateRender: false }, 2.750);
+      tl.fromTo("#s6-focus", { opacity: 0, scale: 1.6 }, { opacity: 1, scale: 1, duration: 0.3, ease: "power3.out" }, 2.75);
+      tl.to("#s6-feed", { filter: "brightness(1.12) blur(0px)", duration: 0.35, ease: "power2.out" }, 2.80);
+      tl.to("#s6-focus", { opacity: 0, duration: 0.4 }, 3.55);
+      tl.fromTo("#s6-live", { opacity: 0, scale: 0.7, y: 20 }, { opacity: 1, scale: 1, y: 0, duration: 0.5, ease: "back.out(1.8)" }, 3.050);
+      tl.to("#s6-stage", { opacity: 0, filter: "blur(8px)", duration: 0.3, ease: "power2.in" }, 4.700);
+
+      window.__timelines["s6-controls"] = tl;
+    })();
+  </script>
+</template>
