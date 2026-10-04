@@ -42,3 +42,4 @@ artifacts-local/
 website/node_modules/
 website/dist/
 aqtinstall.log
+.wrangler/

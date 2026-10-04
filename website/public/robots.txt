@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://openstream.pages.dev/sitemap.xml
+Sitemap: https://openstream.yash0.in/sitemap.xml
