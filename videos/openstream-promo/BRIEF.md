@@ -59,3 +59,14 @@ User: "clean, professional", "colors like beige", "high energy beat", "just crea
 - Joke: 1080p60 not 4K because 4K over Wi-Fi is too much ("how routers retire early").
 - End card URL: os.yash0.in. Built by tools/build_frames_v5.py + tools/make_music_v5.py.
 - v4 root composition archived at archive/index-v4.html (its frames stay in compositions/frames/).
+
+## v6 direction (user, 2026-10-04) — v5 rejected
+
+- v5 felt flat and cringe; the 4K joke undercut the product. Never joke about limits or missing features.
+- Energetic: upbeat music (HeyGen "Car Ad Energy", 120 BPM, starts at 10s so the drop hits "Meet OpenStream" at 0:06),
+  energetic voice (HeyGen "Ewan – Bright & Energetic", 1.08x, word timestamps drive motion).
+- Take inspiration from the site (ink / paper / orange, Unbounded + Inter), do NOT reproduce its layout or rotating badge.
+- No real-room screenshots — feed is a generated creator shot (assets/feed-creator.png, codex image_gen); phone + OBS UI are designed.
+- One continuous composition (tools/build_v6.py → index.html): lens dive, logo drop, cursor demo with camera chase,
+  dive into the preview, extruded 3D type, Go-live climax. Final audio loudnorm'd to -14 LUFS after render.
+- v5 entry archived at archive/index-v5.html.
