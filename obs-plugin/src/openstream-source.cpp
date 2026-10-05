@@ -1549,7 +1549,9 @@ bool output_decoded_frame(OpenStreamSource *ctx,
     return true;
   }
 
-  SwsContext *current_sws = sws_ctx->get();
+  // sws_getCachedContext frees an incompatible old context, including on failure.
+  // Transfer ownership before calling it so the smart pointer cannot free it again.
+  SwsContext *current_sws = sws_ctx->release();
   SwsContext *scaled = sws_getCachedContext(
       current_sws,
       width,
@@ -1562,12 +1564,10 @@ bool output_decoded_frame(OpenStreamSource *ctx,
       nullptr,
       nullptr,
       nullptr);
+  sws_ctx->reset(scaled);
   if (!scaled) {
     blog(LOG_WARNING, "[OpenStream] Could not create BGRA converter");
     return false;
-  }
-  if (scaled != current_sws) {
-    sws_ctx->reset(scaled);
   }
 
   const int linesize = width * 4;

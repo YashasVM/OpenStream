@@ -19,6 +19,14 @@ using openstream_test::require;
 void openstream_register_dock() {}
 void openstream_unregister_dock() {}
 
+// Capture the OBS output boundary without starting its graphics runtime.
+static uint32_t captured_video_width = 0;
+void obs_source_output_video(obs_source_t *, const struct obs_source_frame *frame) {
+  require(frame != nullptr && frame->format == VIDEO_FORMAT_BGRA,
+          "converter did not deliver a BGRA frame to OBS");
+  captured_video_width = frame->width;
+}
+
 struct ReleaseProbe {
   int listener = -1;
   int port = 0;
@@ -134,7 +142,36 @@ void test_worker_releases_reservation_on_exit() {
           "worker exit kept a stale active reservation after release");
 }
 
+void test_converter_survives_format_changes() {
+  OpenStreamSource context;
+  CodecContextPtr decoder(avcodec_alloc_context3(nullptr));
+  SwsContextPtr converter(nullptr);
+  std::vector<uint8_t> pixels;
+  for (const auto &[width, format] : std::vector<std::pair<int, AVPixelFormat>>{
+           {64, AV_PIX_FMT_RGB24}, {64, AV_PIX_FMT_RGB24},
+           {128, AV_PIX_FMT_BGR24}, {32, AV_PIX_FMT_RGB24}, {64, AV_PIX_FMT_BGR24}}) {
+    FramePtr frame(av_frame_alloc());
+    frame->width = width;
+    frame->height = 32;
+    frame->format = format;
+    require(av_frame_get_buffer(frame.get(), 32) == 0, "could not allocate test frame");
+    for (int row = 0; row < frame->height; ++row) {
+      std::memset(frame->data[0] + row * frame->linesize[0], 0, width * 3);
+    }
+    require(output_decoded_frame(&context, decoder.get(), frame.get(), 0,
+                                 &converter, &pixels),
+            "frame conversion failed after a size change");
+    require(captured_video_width == static_cast<uint32_t>(width),
+            "OBS received a frame with stale dimensions");
+    require(pixels.size() == static_cast<size_t>(width * 32 * 4),
+            "converted frame retained the old dimensions");
+    require(pixels[0] == 0 && pixels[1] == 0 && pixels[2] == 0 && pixels[3] == 255,
+            "converted black frame has incorrect BGRA pixels");
+  }
+}
+
 int main() {
+  test_converter_survives_format_changes();
   test_worker_releases_reservation_on_exit();
 
   require(std::string(openstream_source_info.id) == "shin_phone_source",
