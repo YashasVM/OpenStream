@@ -113,14 +113,13 @@ bool hasStartCode(const std::vector<uint8_t> &data, size_t offset) {
          data[offset + 2] == 0x01;
 }
 
-std::vector<uint8_t> normalizeAnnexB(const uint8_t *bytes, size_t size) {
-  std::vector<uint8_t> input(bytes, bytes + size);
+std::vector<uint8_t> normalizeAnnexB(std::vector<uint8_t> input) {
   if (input.empty() || hasStartCode(input, 0)) {
     return input;
   }
 
-  std::vector<uint8_t> output;
-  output.reserve(input.size() + 16);
+  // Validate the complete access unit before changing any length prefixes.
+  // Invalid input must retain its original bytes for the existing fallback.
   size_t offset = 0;
   while (offset + 4 <= input.size()) {
     const uint32_t nalSize = (static_cast<uint32_t>(input[offset]) << 24u) |
@@ -128,16 +127,29 @@ std::vector<uint8_t> normalizeAnnexB(const uint8_t *bytes, size_t size) {
                              (static_cast<uint32_t>(input[offset + 2]) << 8u) |
                              static_cast<uint32_t>(input[offset + 3]);
     offset += 4;
-    if (nalSize == 0 || offset + nalSize > input.size()) {
+    if (nalSize == 0 || nalSize > input.size() - offset) {
       return input;
     }
-    output.insert(output.end(), {0x00, 0x00, 0x00, 0x01});
-    output.insert(output.end(), input.begin() + static_cast<std::ptrdiff_t>(offset),
-                  input.begin() + static_cast<std::ptrdiff_t>(offset + nalSize));
     offset += nalSize;
   }
+  if (offset != input.size()) {
+    return input;
+  }
 
-  return offset == input.size() ? output : input;
+  // Four-byte NAL lengths and Annex B start codes occupy the same space.
+  offset = 0;
+  while (offset < input.size()) {
+    const uint32_t nalSize = (static_cast<uint32_t>(input[offset]) << 24u) |
+                             (static_cast<uint32_t>(input[offset + 1]) << 16u) |
+                             (static_cast<uint32_t>(input[offset + 2]) << 8u) |
+                             static_cast<uint32_t>(input[offset + 3]);
+    input[offset] = 0;
+    input[offset + 1] = 0;
+    input[offset + 2] = 0;
+    input[offset + 3] = 1;
+    offset += 4 + nalSize;
+  }
+  return input;
 }
 
 int aacSampleRateIndex(int sampleRate) {
@@ -1133,7 +1145,7 @@ Java_dev_openstream_app_stream_SrtNativeBridge_nativeSendVideo(
     return JNI_FALSE;
   }
 
-  std::vector<uint8_t> annexB = normalizeAnnexB(bytes.data(), bytes.size());
+  std::vector<uint8_t> annexB = normalizeAnnexB(std::move(bytes));
   if ((flags & kMediaCodecBufferFlagCodecConfig) != 0) {
     g_state.codecConfig = std::move(annexB);
     logInfo("Stored codec config for keyframe pre-roll");
@@ -1142,7 +1154,9 @@ Java_dev_openstream_app_stream_SrtNativeBridge_nativeSendVideo(
 
   const bool keyFrame = (flags & kMediaCodecBufferFlagKeyFrame) != 0;
   if (keyFrame && !g_state.codecConfig.empty()) {
-    std::vector<uint8_t> withConfig = g_state.codecConfig;
+    std::vector<uint8_t> withConfig;
+    withConfig.reserve(g_state.codecConfig.size() + annexB.size());
+    withConfig.insert(withConfig.end(), g_state.codecConfig.begin(), g_state.codecConfig.end());
     withConfig.insert(withConfig.end(), annexB.begin(), annexB.end());
     annexB = std::move(withConfig);
   }

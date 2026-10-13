@@ -1109,8 +1109,10 @@ class MainActivity : Activity() {
                         reservationState.confirmedReservation == null
                     ) {
                         selectedObsHost = null
-                        statusText.text = "Connection timed out"
-                        statusDetail.text = "Choose an OBS slot to try again"
+                        // The phone can see OBS but OBS never reserved it: OBS is
+                        // not receiving our beacons, almost always a PC firewall.
+                        statusText.text = "OBS didn't respond"
+                        statusDetail.text = "Allow UDP 51615 in the computer's firewall, then tap the slot again"
                     }
                 }
             }
