@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OpenStream Promo</title>
+<style>
+@font-face{font-family:Inter;src:url(data:font/woff2;base64,__INTER__) format('woff2');font-weight:100 900}
+@font-face{font-family:'Plex Mono';src:url(data:font/woff2;base64,__MONO400__) format('woff2');font-weight:400}
+@font-face{font-family:'Plex Mono';src:url(data:font/woff2;base64,__MONO500__) format('woff2');font-weight:500}
+html,body{margin:0;background:#141412;overflow:hidden;height:100%}
+#stage{position:absolute;left:0;top:0;width:1920px;height:1080px;overflow:hidden;background:#f7f5ef;font-family:Inter,sans-serif;color:#11110f;transform-origin:0 0}
+#bg,#grain{position:absolute;left:0;top:0;width:1920px;height:1080px}
+#grain{opacity:.05;mix-blend-mode:multiply}
+.layer{position:absolute;left:0;top:0;width:1920px;height:1080px;display:none;transform-origin:960px 540px}
+.cam{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0}
+.abs{position:absolute;white-space:nowrap}
+.mono{font-family:'Plex Mono',monospace}
+.title{position:absolute;left:0;top:0;width:1920px;height:1080px;display:flex;align-items:center;justify-content:center;font-size:84px;font-weight:600;letter-spacing:-.045em;white-space:nowrap}
+.w{display:inline-block;white-space:pre}
+.hl{position:relative;display:inline-block;isolation:isolate}
+.hl>i{position:absolute;left:-.12em;right:-.12em;top:.1em;bottom:.0em;background:#ffe86b;border-radius:.14em;transform-origin:0 50%;z-index:-1}
+/* phone */
+.persp{position:absolute;left:0;top:0;width:1920px;height:1080px;perspective:2400px}
+.phone{position:absolute;width:420px;height:880px;border-radius:64px;background:#1b1b1b;box-sizing:border-box;padding:12px;transform-style:preserve-3d}
+.phone .scr{position:relative;width:100%;height:100%;border-radius:52px;background:#0d0d0c;overflow:hidden;color:#fff}
+.chip{position:absolute;white-space:nowrap;background:#fff;border:1px solid #e4e0d4;border-radius:18px;padding:18px 24px;box-sizing:border-box}
+.chip small{display:block;font-family:'Plex Mono',monospace;font-size:14px;letter-spacing:.12em;color:#8b877a;margin-bottom:6px}
+.chip b{font-size:34px;font-weight:600;letter-spacing:-.03em}
+/* pipeline */
+.card{position:absolute;width:540px;height:250px;background:#fff;border:1px solid #e4e0d4;border-radius:28px;box-sizing:border-box;padding:40px 44px}
+.card .ic{width:72px;height:72px;border-radius:16px;background:#11110f;display:flex;align-items:center;justify-content:center}
+.card h3{margin:26px 0 8px;font-size:40px;font-weight:600;letter-spacing:-.035em}
+.card p{margin:0;font-family:'Plex Mono',monospace;font-size:19px;color:#77736a}
+/* obs */
+.obs{position:absolute;width:1400px;height:820px;border-radius:16px;background:#191919;overflow:hidden;color:#e9e9e9;border:1px solid #3c3c3c;font-size:17px}
+.obs .bar{height:44px;background:#222;display:flex;align-items:center;padding:0 18px;justify-content:space-between;color:#bbb}
+.obs .menu{height:34px;background:#272727;display:flex;align-items:center;padding:0 18px;gap:26px;color:#9c9c9c;font-size:15px}
+.dock{position:absolute;left:1000px;top:78px;width:400px;height:742px;background:#151515;border-left:1px solid #333;box-sizing:border-box;padding:26px}
+.dock .lbl{font-family:'Plex Mono',monospace;font-size:13px;letter-spacing:.14em;color:#8a8a8a;margin:24px 0 10px}
+.btn{display:flex;align-items:center;justify-content:center;height:52px;border:1px solid #444;border-radius:8px;background:#202020;color:#eee;font-size:17px;box-sizing:border-box}
+.panel{position:absolute;top:640px;height:180px;box-sizing:border-box;padding:16px 20px;border-right:1px solid #2e2e2e;line-height:1.9;color:#bdbdbd}
+.panel b{color:#fff3a5;font-weight:500}
+/* tiles */
+.tile{position:absolute;white-space:nowrap;background:#fff;border:1px solid #e4e0d4;border-radius:22px;padding:20px 28px;font-size:30px;font-weight:600;letter-spacing:-.025em;display:flex;align-items:center;gap:14px;transform-origin:50% 50%}
+.tile i{width:14px;height:14px;border-radius:50%;background:#11110f;display:inline-block}
+#ui{position:fixed;left:0;right:0;bottom:0;display:flex;gap:12px;align-items:center;padding:10px 16px;background:#000c;color:#fff;font:13px 'Plex Mono',monospace}
+#ui input{flex:1}
+#ui button{font:inherit;padding:4px 14px}
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="bg" width="1920" height="1080"></canvas>
+
+  <!-- A: Your phone. -->
+  <div class="layer" id="LA"><div class="cam" id="CA"><div class="title" id="TA"></div></div></div>
+  <!-- B: Now an OBS camera. -->
+  <div class="layer" id="LB"><div class="cam" id="CB"><div class="title" id="TB"></div></div></div>
+
+  <!-- C: phone goes live -->
+  <div class="layer" id="LC"><div class="cam" id="CC">
+    <canvas id="shadowC" class="abs" width="700" height="200" style="left:410px;top:900px"></canvas>
+    <div class="persp" style="perspective-origin:760px 540px">
+      <div class="phone" id="phone" style="left:550px;top:100px">
+        <div class="scr">
+          <div class="abs" style="left:32px;top:44px;font-size:24px;font-weight:600;letter-spacing:-.02em">OpenStream</div>
+          <div class="abs mono" id="pill" style="right:30px;top:42px;font-size:15px;padding:6px 12px;border-radius:30px;border:1px solid #444;display:flex;align-items:center;gap:8px"><i id="pdot" style="width:9px;height:9px;border-radius:50%;background:#777;display:inline-block"></i><span id="ptxt">READY</span></div>
+          <div class="abs mono" style="left:32px;top:96px;display:flex;gap:10px;font-size:14px;color:#aaa">
+            <span style="border:1px solid #3a3a3a;border-radius:6px;padding:4px 9px">1080p30</span><span style="border:1px solid #3a3a3a;border-radius:6px;padding:4px 9px">AAC</span><span style="border:1px solid #3a3a3a;border-radius:6px;padding:4px 9px">Wi-Fi</span>
+          </div>
+          <div class="abs" id="vf" style="left:20px;top:146px;width:356px;height:480px;border-radius:22px;overflow:hidden"></div>
+          <div class="abs mono" id="rec" style="left:42px;top:166px;font-size:15px;color:#fff;display:flex;align-items:center;gap:8px"><i style="width:10px;height:10px;border-radius:50%;background:#ff3b30;display:inline-block"></i><span id="rectc">REC 00:00:00</span></div>
+          <div class="abs mono" style="left:20px;top:646px;width:356px;display:flex;justify-content:space-around;font-size:22px;color:#cfcfcf"><span>↻</span><span>▦</span><span style="color:#fff3a5">1.0×</span><span>☼</span></div>
+          <div class="abs" style="left:146px;top:712px;width:104px;height:104px;border-radius:50%;border:6px solid #fff;box-sizing:border-box"></div>
+          <div class="abs" id="recbtn" style="background:#ff3b30"></div>
+          <div class="abs" id="ripple" style="border:3px solid #fff;border-radius:50%"></div>
+          <div class="abs" id="touch" style="width:64px;height:64px;border-radius:50%;background:rgba(255,255,255,.28);border:2px solid rgba(255,255,255,.85);box-sizing:border-box"></div>
+        </div>
+      </div>
+    </div>
+    <div class="chip" id="ch0" style="left:1130px;top:300px"><small>VIDEO</small><b>1080p30</b></div>
+    <div class="chip" id="ch1" style="left:1210px;top:470px"><small>AUDIO</small><b>AAC, own mixer channel</b></div>
+    <div class="chip" id="ch2" style="left:1130px;top:640px"><small>TRANSPORT</small><b>SRT · 120 ms</b></div>
+  </div></div>
+
+  <!-- D: No capture card / Just local Wi-Fi -->
+  <div class="layer" id="LD"><div class="cam" id="CD"><div class="title" id="TD1"></div><div class="title" id="TD2"></div></div></div>
+
+  <!-- E: pipeline -->
+  <div class="layer" id="LE">
+    <div class="abs mono" id="eLabel" style="left:0;width:1920px;top:150px;text-align:center;font-size:18px;letter-spacing:.3em;color:#8b877a">LOCAL NETWORK  ·  EXPLICIT PIPES</div>
+    <div class="cam" id="CE">
+      <svg class="abs" width="2600" height="1080" style="left:0;top:0;overflow:visible">
+        <path id="ln1" d="M590 540 L 1010 540" stroke="#11110f" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <path id="ln2" d="M1550 540 L 1970 540" stroke="#11110f" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <g id="pk"></g>
+      </svg>
+      <div class="abs mono" id="lab1" style="left:690px;top:480px;font-size:17px;color:#77736a;letter-spacing:.06em">H.264 + AAC</div>
+      <div class="abs mono" id="lab2" style="left:1660px;top:480px;font-size:17px;color:#77736a;letter-spacing:.06em">MPEG-TS · LAN</div>
+      <div class="card" id="cd0" style="left:50px;top:415px"><div class="ic"><svg width="40" height="40" viewBox="0 0 40 40"><rect x="11" y="3" width="18" height="34" rx="4" fill="none" stroke="#fff3a5" stroke-width="3"/><circle cx="20" cy="12" r="3.5" fill="#fff3a5"/></svg></div><h3>Android camera</h3><p>Camera2 + MediaCodec</p></div>
+      <div class="card" id="cd1" style="left:1010px;top:415px"><div class="ic"><svg width="44" height="44" viewBox="0 0 44 44"><path d="M6 22h32M30 14l8 8-8 8" fill="none" stroke="#fff3a5" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><h3>SRT stream</h3><p>port 9000 · 120 ms</p></div>
+      <div class="card" id="cd2" style="left:1970px;top:415px"><div class="ic"><svg width="44" height="44" viewBox="0 0 44 44"><rect x="5" y="8" width="34" height="24" rx="4" fill="none" stroke="#fff3a5" stroke-width="3"/><path d="M15 39h14" stroke="#fff3a5" stroke-width="3" stroke-linecap="round"/></svg></div><h3>OBS source</h3><p>FFmpeg decode + mixer</p></div>
+    </div>
+  </div>
+
+  <!-- F: Control the shot -->
+  <div class="layer" id="LF"><div class="cam" id="CF"><div class="title" id="TF"></div></div></div>
+
+  <!-- G: OBS dock -->
+  <div class="layer" id="LG"><div class="cam" id="CG">
+    <div class="persp" style="perspective-origin:960px 540px">
+      <div class="obs" id="obs" style="left:260px;top:130px">
+        <div class="bar"><span><span style="color:#777">●</span>&nbsp; OBS Studio</span><span>—&nbsp;&nbsp; □ &nbsp;&nbsp;×</span></div>
+        <div class="menu"><span>File</span><span>Edit</span><span>View</span><span>Docks</span><span>Profile</span><span>Scene Collection</span></div>
+        <div class="abs" style="left:0;top:78px;width:1000px;height:562px;background:#0f0f0f"></div>
+        <div class="abs" id="pv" style="left:40px;top:100px;width:920px;height:518px;overflow:hidden;background:#000"></div>
+        <div class="abs" id="torchGlow" style="left:40px;top:100px;width:920px;height:518px;background:radial-gradient(ellipse at 50% 40%,rgba(255,250,220,.55),rgba(255,250,220,0) 60%)"></div>
+        <div class="abs" style="left:64px;top:124px;width:872px;height:470px;border:1px solid rgba(255,255,255,.4)"></div>
+        <div class="abs mono" style="left:80px;top:140px;font-size:15px;padding:5px 11px;background:rgba(0,0,0,.45);border-radius:5px;display:flex;gap:8px;align-items:center"><i style="width:9px;height:9px;border-radius:50%;background:#51d267;display:inline-block"></i>LIVE · 30 FPS</div>
+        <div class="abs mono" id="pvZoom" style="right:480px;top:140px;font-size:15px;padding:5px 11px;background:rgba(0,0,0,.45);border-radius:5px">1.0×</div>
+        <div class="panel" style="left:0;width:280px">Scenes<br><b>Camera</b><br>Overlay<br>Starting soon</div>
+        <div class="panel" style="left:280px;width:300px">Sources<br><b>OpenStream</b><br>Audio<br>Overlay</div>
+        <div class="panel" style="left:580px;width:420px">Audio Mixer<br><span style="color:#ccc">OpenStream AAC</span><div id="meter" style="display:flex;gap:4px;margin-top:6px"></div></div>
+        <div class="dock">
+          <div style="display:flex;align-items:center;gap:12px;font-weight:600;font-size:18px"><span style="width:34px;height:34px;border-radius:7px;background:#fff;color:#11110f;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600">Os</span>Camera Control<span style="margin-left:auto;color:#51d267;font-weight:500;font-size:15px">● Connected</span></div>
+          <div class="lbl">SOURCE</div>
+          <div class="btn" style="justify-content:space-between;padding:0 16px"><span>Pixel 8 Pro</span><span style="color:#888">▾</span></div>
+          <div class="lbl">CAMERA</div>
+          <div style="display:flex;gap:8px"><div class="btn" style="flex:1;background:#fff3a5;color:#11110f;border-color:#fff3a5;font-weight:600">Rear</div><div class="btn" style="flex:1">Front</div></div>
+          <div style="display:flex;gap:8px;margin-top:8px"><div class="btn" id="torch" style="flex:1">Torch</div><div class="btn" style="flex:1">Identify</div></div>
+          <div class="lbl" style="display:flex;justify-content:space-between"><span>ZOOM</span><span id="zval" style="color:#fff3a5;font-size:16px">1.0×</span></div>
+          <div style="position:relative;height:40px">
+            <div class="abs" style="left:0;top:18px;width:348px;height:5px;border-radius:3px;background:#3a3a3a"></div>
+            <div class="abs" id="zfill" style="left:0;top:18px;height:5px;border-radius:3px;background:#fff3a5"></div>
+            <div class="abs" id="zknob" style="top:6px;width:28px;height:28px;border-radius:50%;background:#fff;margin-left:-14px"></div>
+          </div>
+          <div class="lbl">LINK</div>
+          <div class="mono" style="font-size:15px;color:#aaa;line-height:2">SRT :9000 · 12 Mbps<br>AAC · own mixer channel</div>
+        </div>
+        <svg class="abs" id="cursor" width="34" height="46" viewBox="0 0 34 46" style="left:0;top:0;overflow:visible"><path d="M3 2 L3 36 L12 28 L18 42 L24 39 L18 26 L30 26 Z" fill="#fff" stroke="#111" stroke-width="2.4" stroke-linejoin="round"/></svg>
+        <div class="abs" id="clickR" style="border:2px solid #fff3a5;border-radius:50%"></div>
+      </div>
+    </div>
+  </div></div>
+
+  <!-- H: feature cloud -->
+  <div class="layer" id="LH"><div class="cam" id="CH"><div id="tiles"></div><div class="title" id="TH"></div></div></div>
+
+  <!-- I: logo -->
+  <div class="layer" id="LI">
+    <div class="abs" id="logoRow" style="left:0;top:0;width:1920px;height:1080px">
+      <svg class="abs" id="mark" width="150" height="150" viewBox="0 0 64 64" style="overflow:visible;z-index:2">
+        <rect id="mRect" width="64" height="64" rx="12" fill="#11110f"/>
+        <path id="mArc" d="M42 23a14 14 0 1 0 0 18" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+        <path id="mArrow" d="M24 32h21M38 26l7 6-7 6" fill="none" stroke="#fff3a5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <div class="abs" id="wmClip" style="overflow:hidden;height:150px"><div id="wm" class="abs" style="left:0;top:22px;font-size:96px;font-weight:600;letter-spacing:.02em;line-height:1">OPENSTREAM</div></div>
+    </div>
+    <div class="abs" id="tagline" style="left:0;width:1920px;top:680px;text-align:center;font-size:34px;font-weight:450;letter-spacing:-.02em;color:#5e5b52">Your Android phone, now an OBS camera.</div>
+    <div class="abs mono" id="url" style="left:0;width:1920px;top:760px;text-align:center;font-size:24px;letter-spacing:.08em;color:#11110f"></div>
+  </div>
+
+  <div class="abs mono" id="hudL" style="left:56px;top:44px;font-size:15px;letter-spacing:.22em;color:#11110f">OPENSTREAM</div>
+  <div class="abs mono" id="hudR" style="right:56px;top:44px;font-size:15px;letter-spacing:.22em;color:#11110f">V1.0.1</div>
+  <canvas id="grain" width="960" height="540"></canvas>
+</div>
+<div id="ui"><button id="pb">▶ play</button><input id="scrub" type="range" min="0" max="32" step="0.01" value="0"><span id="tc">0.00</span></div>
+
+<script>
+/* BEAT SHEET (100 BPM, beat = 0.6 s)
+   0.00  A  "Your phone." words blur up, slow push          | soft pad swell, pluck per word
+   2.40  ->B dissolve + zoom-through                         | whoosh
+   2.70  B  "Now an OBS camera." highlight sweeps 3.9s       | pluck per word, tick on highlight
+   5.40  ->C phone rises in 3D                               | whoosh, arp + bass enter
+   8.00  C  tap record -> LIVE, REC counts, chips pop 8.5+   | click + pop, pops on chips
+  10.20  ->D "No capture card." / 11.6 "Just local Wi-Fi."    | whoosh, kick enters
+  12.90  ->E pipeline: lines draw, packets flow, camera pans | whoosh, hats enter, ticks on cards
+  18.00  ->F "Control the shot without leaving OBS."         | whoosh
+  20.40  ->G OBS window, push to dock, drag zoom 1.0->1.8x   | whoosh, click, ticks on drag
+  24.10  G  Torch click, preview brightens, pull back        | click
+  25.20  ->H feature tiles float in around "Open source..."   | whoosh, pops, riser from 26.4
+  28.20  ->I logo mark draws, wordmark reveals, URL types    | soft impact, chime, ring-out
+  32.00  end
+*/
+window.VIDEO = { w: 1920, h: 1080, duration: 32 };
+const RENDER = location.search.includes('render');
+
+// ---------- helpers ----------
+function spring(t, w = 14, z = 0.82) {
+  if (t <= 0) return 0;
+  if (z >= 1) return 1 - Math.exp(-w * t) * (1 + w * t);
+  const wd = w * Math.sqrt(1 - z * z);
+  return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + (z * w / wd) * Math.sin(wd * t));
+}
+const track = (v0, keys) => t => { let v = v0, p = v0; for (const [tk, val, w, z] of keys) { v += (val - p) * spring(t - tk, w, z); p = val; } return v; };
+const kf = keys => t => { if (t <= keys[0][0]) return keys[0][1]; for (let i = 1; i < keys.length; i++) { const [a, va] = keys[i - 1], [b, vb, e = ease] = keys[i]; if (t <= b) return lerp(va, vb, e((t - a) / (b - a))); } return keys[keys.length - 1][1]; };
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const ease = x => (x = clamp(x), x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const eOut = x => (x = clamp(x), 1 - Math.pow(1 - x, 4));
+const eExpo = x => (x = clamp(x), x === 1 ? 1 : 1 - Math.pow(2, -10 * x));
+const lerp = (a, b, k) => a + (b - a) * k;
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const rng = s => () => (s = (s + 0x6D2B79F5) | 0, s = Math.imul(s ^ (s >>> 15), 1 | s), s ^= s + Math.imul(s ^ (s >>> 7), 61 | s), ((s ^ (s >>> 14)) >>> 0) / 4294967296);
+const $ = id => document.getElementById(id);
+
+// ---------- background (drawn once) ----------
+(() => {
+  const c = $('bg').getContext('2d');
+  c.fillStyle = '#f7f5ef'; c.fillRect(0, 0, 1920, 1080);
+  let g = c.createRadialGradient(960, 380, 0, 960, 380, 1100);
+  g.addColorStop(0, 'rgba(255,243,165,.55)'); g.addColorStop(.45, 'rgba(255,243,165,.12)'); g.addColorStop(1, 'rgba(255,243,165,0)');
+  c.fillStyle = g; c.fillRect(0, 0, 1920, 1080);
+  c.fillStyle = 'rgba(17,17,15,.07)';
+  for (let x = 40; x < 1920; x += 48) for (let y = 36; y < 1080; y += 48) { c.beginPath(); c.arc(x, y, 1.4, 0, 7); c.fill(); }
+  g = c.createRadialGradient(960, 540, 500, 960, 540, 1250);
+  g.addColorStop(0, 'rgba(60,50,20,0)'); g.addColorStop(1, 'rgba(60,50,20,.16)');
+  c.fillStyle = g; c.fillRect(0, 0, 1920, 1080);
+  // soft shadow under phone
+  const s = $('shadowC').getContext('2d');
+  g = s.createRadialGradient(350, 100, 0, 350, 100, 300);
+  g.addColorStop(0, 'rgba(40,35,20,.35)'); g.addColorStop(1, 'rgba(40,35,20,0)');
+  s.save(); s.scale(1, .28); s.translate(0, 257); s.fillStyle = g; s.fillRect(0, -300, 700, 600); s.restore();
+})();
+const grains = [0, 1, 2, 3].map(k => { const r = rng(91 + k), cv = document.createElement('canvas'); cv.width = 960; cv.height = 540; const x = cv.getContext('2d'), d = x.createImageData(960, 540); for (let i = 0; i < d.data.length; i += 4) { const v = 128 + (r() - .5) * 255; d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 255; } x.putImageData(d, 0, 0); return cv; });
+const gctx = $('grain').getContext('2d');
+
+// ---------- viewfinder scene (SVG) ----------
+const sceneSVG = id => `<svg id="${id}" width="100%" height="100%" viewBox="0 0 640 360" preserveAspectRatio="xMidYMid slice" style="display:block">
+<defs><linearGradient id="${id}w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6b7684"/><stop offset="1" stop-color="#a99f86"/></linearGradient>
+<radialGradient id="${id}l" cx=".72" cy=".25" r=".5"><stop offset="0" stop-color="#ffe9b0" stop-opacity=".55"/><stop offset="1" stop-color="#ffe9b0" stop-opacity="0"/></radialGradient></defs>
+<g id="${id}g">
+<rect width="640" height="360" fill="url(#${id}w)"/><rect width="640" height="360" fill="url(#${id}l)"/>
+<rect x="420" y="40" width="150" height="120" rx="6" fill="#c9d4dc" opacity=".55"/><path d="M495 40v120M420 100h150" stroke="#8a95a0" stroke-width="4" opacity=".6"/>
+<rect x="60" y="70" width="90" height="150" rx="4" fill="#3d4637" opacity=".5"/><rect x="72" y="84" width="66" height="30" rx="3" fill="#b78a5c" opacity=".7"/><rect x="72" y="124" width="66" height="30" rx="3" fill="#7c8f6a" opacity=".7"/>
+<path d="M540 300 q-10-70 20-110 q10 40-5 110z" fill="#4c6b44"/><path d="M552 300 q20-60 55-80 q-15 50-40 80z" fill="#5d7f50"/><rect x="530" y="290" width="44" height="40" rx="5" fill="#8a6a4a"/>
+<rect y="292" width="640" height="68" fill="#3a3f30"/>
+<path d="M190 360 q10-112 130-118 q120 6 130 118z" fill="#283039"/>
+<rect x="302" y="200" width="36" height="46" rx="12" fill="#b88d72"/>
+<ellipse cx="320" cy="168" rx="50" ry="58" fill="#c99d80"/>
+<ellipse cx="302" cy="170" rx="4.5" ry="5.5" fill="#2a2420"/><ellipse cx="338" cy="170" rx="4.5" ry="5.5" fill="#2a2420"/><path d="M294 156 q8-5 16 0M330 156 q8-5 16 0" stroke="#2a2420" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M308 196 q12 9 24 0" stroke="#7a4f3c" stroke-width="3.5" fill="none" stroke-linecap="round"/><path d="M320 172 q-4 10 0 14" stroke="#a87c62" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+<path d="M268 160 q0-66 54-66 q52 0 52 62 q-14-34-54-34 q-36 0-52 38z" fill="#2a2420"/>
+<path d="M300 300 h40 v-18 h-40z" fill="#16181a"/><rect x="306" y="250" width="28" height="40" rx="14" fill="#2b2d30"/>
+</g></svg>`;
+$('vf').innerHTML = sceneSVG('vfS');
+$('pv').innerHTML = sceneSVG('pvS');
+
+// ---------- titles ----------
+function makeTitle(el, tokens) {
+  const words = [], hls = [];
+  tokens.forEach((tk, ti) => {
+    const parts = tk.t.split(' '), lastTok = ti === tokens.length - 1;
+    const host = tk.hl ? document.createElement('span') : el;
+    if (tk.hl) { host.className = 'hl'; const i = document.createElement('i'); host.appendChild(i); hls.push(i); el.appendChild(host); if (!lastTok) host.style.marginRight = '.24em'; }
+    parts.forEach((p, pi) => {
+      const s = document.createElement('span'); s.className = 'w'; s.textContent = p;
+      const lastInTok = pi === parts.length - 1;
+      if (!(lastInTok && (tk.hl || lastTok))) s.style.marginRight = '.24em';
+      host.appendChild(s); words.push(s);
+    });
+  });
+  return { words, hls };
+}
+const ink = [17, 17, 15], soft = [196, 186, 150];
+function wordIn(s, t, t0, out = 1e9) {
+  const k = eExpo(seg(t, t0, t0 + .7)), c = eOut(seg(t, t0 + .05, t0 + .9));
+  const o = eOut(seg(t, out, out + .45));
+  s.style.opacity = Math.min(1, k * 1.8) * (1 - o);
+  s.style.transform = `translateY(${(1 - k) * 46 - o * 40}px)`;
+  const b = (1 - k) * 16 + o * 14; s.style.filter = b > .2 ? `blur(${b.toFixed(1)}px)` : 'none';
+  s.style.color = `rgb(${ink.map((v, i) => Math.round(lerp(soft[i], v, c))).join(',')})`;
+}
+const TA = makeTitle($('TA'), [{ t: 'Your' }, { t: 'phone.' }]);
+const TB = makeTitle($('TB'), [{ t: 'Now an' }, { t: 'OBS camera.', hl: 1 }]);
+const TD1 = makeTitle($('TD1'), [{ t: 'No capture card.' }]);
+const TD2 = makeTitle($('TD2'), [{ t: 'Just' }, { t: 'local Wi-Fi.', hl: 1 }]);
+const TF = makeTitle($('TF'), [{ t: 'Control the shot' }, { t: 'without leaving OBS.', hl: 1 }]);
+const TH = makeTitle($('TH'), [{ t: 'Open source.' }, { t: 'Built for OBS.', hl: 1 }]);
+const hlSweep = (i, t, t0) => { i.style.transform = `scaleX(${eExpo(seg(t, t0, t0 + .6))})`; };
+
+// ---------- layers ----------
+const layers = [];
+function layer(id, s, e, fi = .35, fo = .35, zoom = .08) { layers.push({ el: $(id), s, e, fi, fo, zoom }); }
+layer('LA', 0, 2.75, .01);
+layer('LB', 2.4, 5.75);
+layer('LC', 5.4, 10.55, .4);
+layer('LD', 10.2, 13.25);
+layer('LE', 12.9, 18.35, .4);
+layer('LF', 18.0, 20.75);
+layer('LG', 20.4, 25.55, .4);
+layer('LH', 25.2, 28.55);
+layer('LI', 28.2, 99, .3);
+function applyLayers(t) {
+  for (const L of layers) {
+    const vis = t >= L.s && t < L.e;
+    L.el.style.display = vis ? 'block' : 'none';
+    if (!vis) continue;
+    const ki = eOut(seg(t, L.s, L.s + L.fi)), ko = 1 - ease(seg(t, L.e - L.fo, L.e));
+    L.el.style.opacity = Math.min(ki, ko);
+    const b = (1 - ki) * 10 + (1 - ko) * 16;
+    L.el.style.filter = b > .3 ? `blur(${b.toFixed(1)}px)` : 'none';
+    const sc = (1 + (1 - ko) * L.zoom) * (1 - (1 - ki) * .04);
+    L.el.style.transform = sc !== 1 ? `scale(${sc})` : 'none';
+  }
+}
+const camSet = (el, fx, fy, s, rot = 0) => { el.style.transform = `translate(960px,540px) scale(${s}) rotate(${rot}deg) translate(${-fx}px,${-fy}px)`; };
+
+// ---------- scene C bits ----------
+const phoneY = track(980, [[5.4, 0, 6.5, .92]]);
+const phoneRY = track(-38, [[5.4, -16, 5, .9], [8.4, -10, 4, 1]]);
+const phoneRX = track(24, [[5.4, 7, 5, .9]]);
+const phoneRZ = track(-6, [[5.4, 2, 5, .9]]);
+const camC = { x: kf([[5.4, 860], [7.2, 780], [8.0, 760], [9.0, 920], [10.5, 960]]), y: kf([[5.4, 560], [7.2, 640], [8.0, 760], [9.0, 560], [10.5, 540]]), s: kf([[5.4, .86], [7.2, .94], [8.0, 1.32], [9.0, 1.0], [10.5, 1.04]]) };
+const touchX = kf([[6.9, 330], [7.85, 166, ease]]), touchY = kf([[6.9, 520], [7.85, 732, ease]]);
+const TAP = 8.0;
+
+// ---------- scene E ----------
+const camE = { x: kf([[12.9, 320], [13.6, 340], [14.9, 1280], [16.0, 1290], [16.7, 2220], [17.2, 2240], [18.3, 1260]]), s: kf([[12.9, 1.05], [14.9, 1.0], [16.7, 1.0], [17.2, 1.0], [18.0, .66]]) };
+const lineDraw = [[13.9, 14.9], [15.7, 16.7]];
+const cardIn = [13.0, 14.75, 16.55];
+const pkG = $('pk'), packets = [];
+for (let i = 0; i < 10; i++) { const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect'); r.setAttribute('width', 26); r.setAttribute('height', 12); r.setAttribute('rx', 6); r.setAttribute('y', 534); r.setAttribute('fill', '#ffe86b'); r.setAttribute('stroke', '#11110f'); r.setAttribute('stroke-width', 2); pkG.appendChild(r); packets.push(r); }
+
+// ---------- scene G ----------
+const meter = $('meter'); const meterBars = [];
+for (let i = 0; i < 22; i++) { const b = document.createElement('i'); b.style.cssText = 'display:inline-block;width:12px;height:16px;border-radius:2px'; meter.appendChild(b); meterBars.push(b); }
+const obsRX = track(26, [[20.4, 4, 5, .95], [24.6, 0, 4, 1]]), obsRY = track(14, [[20.4, -3, 5, .95], [24.6, 0, 4, 1]]), obsY = track(260, [[20.4, 0, 6, .95]]);
+// dock positions in obs coords: knob track x from 1026 to 1374, y ~ (computed at load)
+let knobBase = null;
+const zoomV = kf([[22.15, 1.0], [23.35, 1.8, ease]]);
+const camG = { x: kf([[20.4, 960], [21.3, 960], [22.0, 1330], [22.5, 1330], [23.4, 1020], [24.4, 1060], [25.5, 960]]), y: kf([[20.4, 560], [21.3, 560], [22.0, 560], [22.5, 560], [23.4, 540], [25.5, 540]]), s: kf([[20.4, .9], [21.3, .94], [22.0, 1.55], [22.5, 1.55], [23.4, 1.02], [24.4, 1.06], [25.5, 1.0]]) };
+
+// ---------- scene H tiles ----------
+const tileData = [['1080p30', -560, -250, 1], ['AAC audio', 520, -270, .8], ['SRT · 120 ms', -660, 40, .7], ['Live zoom', 640, 20, 1.1], ['Fast reconnects', -470, 290, .9], ['Local Wi-Fi', 470, 300, .75], ['Android 10+', -120, -360, .6], ['Windows x64', 90, 380, .65]];
+const tiles = tileData.map(([txt, x, y, d], i) => { const e = document.createElement('div'); e.className = 'tile'; e.innerHTML = `<i style="background:${i % 3 === 0 ? '#ffe86b' : '#11110f'};${i % 3 === 0 ? 'border:2px solid #11110f;box-sizing:border-box' : ''}"></i>${txt}`; $('tiles').appendChild(e); return { e, x, y, d, t0: 25.35 + i * .09 }; });
+
+// ---------- scene I ----------
+const arcLen = 75, arrowLen = 40;
+$('mArc').style.strokeDasharray = arcLen; $('mArrow').style.strokeDasharray = arrowLen;
+
+let measured = false;
+function measure() {
+  measured = true;
+  tiles.forEach(T => { T.w = T.e.offsetWidth; T.h = T.e.offsetHeight; });
+  const wm = $('wm'); wm.style.display = 'block'; LIwm = wm.offsetWidth;
+}
+let LIwm = 820;
+
+// ---------- seek ----------
+window.seek = function (t) {
+  t = clamp(t, 0, VIDEO.duration - 1e-4);
+  if (!measured) { layers.forEach(L => L.el.style.display = 'block'); measure(); }
+  applyLayers(t);
+  // grain
+  gctx.drawImage(grains[Math.floor(t * 24) % 4], 0, 0);
+  const hud = Math.min(eOut(seg(t, 5.6, 6.2)), 1 - eOut(seg(t, 27.8, 28.3))) * .4;
+  $('hudL').style.opacity = hud; $('hudR').style.opacity = hud;
+
+  // A
+  if (t < 2.75) {
+    camSet($('CA'), 960, 540, kf([[0, 1.0], [2.75, 1.22, x => x]])(t));
+    wordIn(TA.words[0], t, .25); wordIn(TA.words[1], t, .55);
+  }
+  // B
+  if (t >= 2.4 && t < 5.75) {
+    camSet($('CB'), 960, 540, kf([[2.4, 1.0], [5.75, 1.28, x => x]])(t));
+    [2.75, 2.95, 3.2, 3.42].forEach((tw, i) => wordIn(TB.words[i], t, tw));
+    hlSweep(TB.hls[0], t, 3.95);
+  }
+  // C
+  if (t >= 5.4 && t < 10.55) {
+    camSet($('CC'), camC.x(t), camC.y(t), camC.s(t));
+    const ph = $('phone');
+    ph.style.transform = `translateY(${phoneY(t)}px) rotateY(${phoneRY(t)}deg) rotateX(${phoneRX(t)}deg) rotateZ(${phoneRZ(t)}deg)`;
+    $('shadowC').style.opacity = clamp(1 - phoneY(t) / 500) * .9;
+    const live = t >= TAP + .12;
+    const lk = spring(t - TAP - .12, 18, .6);
+    $('pdot').style.background = live ? '#51d267' : '#777';
+    $('ptxt').textContent = live ? 'LIVE' : 'READY';
+    $('pill').style.borderColor = live ? '#51d267' : '#444';
+    $('pill').style.color = live ? '#51d267' : '#bbb';
+    $('pill').style.transform = `scale(${live ? 1 + (1 - lk) * .3 : 1})`;
+    // record button morph circle -> rounded square
+    const m = ease(seg(t, TAP + .05, TAP + .35)), sz = lerp(76, 40, m), rr = lerp(38, 9, m);
+    const press = 1 - .12 * Math.sin(Math.PI * seg(t, TAP - .08, TAP + .14));
+    Object.assign($('recbtn').style, { width: sz + 'px', height: sz + 'px', borderRadius: rr + 'px', left: (198 - sz / 2) + 'px', top: (764 - sz / 2) + 'px', transform: `scale(${press})` });
+    const rp = seg(t, TAP, TAP + .6), rs = lerp(80, 220, eOut(rp));
+    Object.assign($('ripple').style, { width: rs + 'px', height: rs + 'px', left: (198 - rs / 2) + 'px', top: (764 - rs / 2) + 'px', opacity: rp > 0 && rp < 1 ? (1 - rp) * .8 : 0 });
+    const tv = Math.min(eOut(seg(t, 6.9, 7.2)), 1 - eOut(seg(t, TAP + .25, TAP + .6)));
+    const tsc = 1 - .18 * Math.sin(Math.PI * seg(t, TAP - .08, TAP + .14));
+    Object.assign($('touch').style, { left: (touchX(t) - 32 + 32) + 'px', top: (touchY(t) - 32 + 32) + 'px', opacity: tv, transform: `scale(${tsc})` });
+    $('rec').style.opacity = live ? (Math.floor((t - TAP) * 2) % 2 === 0 ? 1 : .55) : 0;
+    const secs = Math.max(0, Math.floor(t - TAP)); $('rectc').textContent = 'REC 00:00:0' + secs;
+    $('vfS').style.transform = `scale(${1 + .04 * eOut(seg(t, 5.4, 10.5))})`;
+    [0, 1, 2].forEach(i => {
+      const t0 = 8.45 + i * .22, k = spring(t - t0, 13, .72), o = clamp((t - t0) * 5);
+      const c = $('ch' + i);
+      c.style.opacity = o;
+      c.style.transform = `translate(${(1 - k) * 120}px, ${(1 - k) * 30}px) scale(${.9 + .1 * k}) rotate(${(1 - k) * 4}deg)`;
+      c.style.filter = o < 1 ? `blur(${((1 - o) * 8).toFixed(1)}px)` : 'none';
+    });
+  }
+  // D
+  if (t >= 10.2 && t < 13.25) {
+    camSet($('CD'), 960, 540, kf([[10.2, 1.0], [13.25, 1.2, x => x]])(t));
+    [10.5, 10.68, 10.86].forEach((tw, i) => wordIn(TD1.words[i], t, tw, 11.55));
+    [11.75, 11.93, 12.11].forEach((tw, i) => wordIn(TD2.words[i], t, tw));
+    hlSweep(TD2.hls[0], t, 12.35);
+  }
+  // E
+  if (t >= 12.9 && t < 18.35) {
+    camSet($('CE'), camE.x(t), 540, camE.s(t));
+    $('eLabel').style.opacity = eOut(seg(t, 13.2, 13.8)) * (1 - seg(t, 17.3, 17.7));
+    $('eLabel').style.transform = `translateY(${(1 - eOut(seg(t, 13.2, 14))) * 20}px)`;
+    cardIn.forEach((t0, i) => {
+      const k = spring(t - t0, 12, .7), o = clamp((t - t0) * 4);
+      const c = $('cd' + i); c.style.opacity = o;
+      c.style.transform = `translateY(${(1 - k) * 60}px) scale(${.86 + .14 * k})`;
+      c.style.boxShadow = `0 ${20 * k}px ${50 * k}px rgba(40,35,20,${.10 * k})`;
+      const pulse = Math.exp(-((t - (i ? lineDraw[i - 1][1] : 99)) ** 2) * 40);
+      c.style.borderColor = pulse > .05 ? `rgba(17,17,15,${.15 + pulse * .85})` : '#e4e0d4';
+    });
+    lineDraw.forEach(([a, b], i) => {
+      const p = $('ln' + (i + 1)), k = ease(seg(t, a, b));
+      p.style.strokeDasharray = 420; p.style.strokeDashoffset = 420 * (1 - k);
+      $('lab' + (i + 1)).style.opacity = eOut(seg(t, a + .3, a + .8));
+    });
+    packets.forEach((r, j) => {
+      const ln = j % 2, [a, b] = lineDraw[ln];
+      if (t < b) { r.setAttribute('opacity', 0); return; }
+      const x0 = ln ? 1550 : 590, ph = ((t - b) * 1.15 + (j >> 1) * .2) % 1;
+      r.setAttribute('x', x0 + ph * 420 - 13);
+      r.setAttribute('opacity', Math.min(1, ph * 6, (1 - ph) * 6) * clamp((t - b) * 3));
+    });
+  }
+  // F
+  if (t >= 18.0 && t < 20.75) {
+    camSet($('CF'), 960, 540, kf([[18.0, .92], [20.75, 1.12, x => x]])(t));
+    [18.3, 18.45, 18.6, 18.8, 18.95, 19.1].forEach((tw, i) => wordIn(TF.words[i], t, tw));
+    hlSweep(TF.hls[0], t, 19.45);
+  }
+  // G
+  if (t >= 20.4 && t < 25.55) {
+    camSet($('CG'), camG.x(t), camG.y(t), camG.s(t));
+    $('obs').style.transform = `translateY(${obsY(t)}px) rotateX(${obsRX(t)}deg) rotateY(${obsRY(t)}deg)`;
+    if (!knobBase) { const tr = $('zknob').parentElement; knobBase = { x: 260 + 1000 + 26, y: 130 + tr.offsetTop + 78 + 20 }; }
+    const z = zoomV(t), zf = (z - 1) / 3; // slider spans 1x..4x
+    const kx = zf * 348;
+    $('zknob').style.left = kx + 'px'; $('zfill').style.width = kx + 'px';
+    const zs = z.toFixed(1) + '×'; $('zval').textContent = zs; $('pvZoom').textContent = zs;
+    $('pvSg').setAttribute('transform', `translate(320 165) scale(${z}) translate(-320 -165)`);
+    const torch = t >= 24.12, tk = eOut(seg(t, 24.12, 24.5));
+    $('torchGlow').style.opacity = torch ? tk : 0;
+    Object.assign($('torch').style, torch ? { background: '#fff3a5', color: '#11110f', borderColor: '#fff3a5', fontWeight: 600 } : { background: '#202020', color: '#eee', borderColor: '#444', fontWeight: 400 });
+    // cursor path in obs coords
+    const ky = $('zknob').parentElement.offsetTop + 78 + 20; // relative to obs
+    const knobAt = 1026 + kx;
+    const torchEl = $('torch'), tX = 1000 + torchEl.offsetLeft + torchEl.offsetWidth / 2, tY = 78 + torchEl.offsetTop + 26;
+    let cx, cy;
+    const startK = 1026 + 0;
+    if (t < 22.0) { const k = ease(seg(t, 21.1, 21.95)); cx = lerp(1180, startK, k) + Math.sin(k * Math.PI) * 30; cy = lerp(760, ky, k); }
+    else if (t < 23.45) { cx = knobAt; cy = ky; }
+    else { const k = ease(seg(t, 23.5, 24.05)); cx = lerp(knobAt, tX, k) - Math.sin(k * Math.PI) * 40; cy = lerp(ky, tY, k); }
+    const press = (t > 22.0 && t < 23.4) ? .88 : 1 - .12 * Math.sin(Math.PI * seg(t, 24.02, 24.2));
+    const cur = $('cursor');
+    cur.style.transform = `translate(${cx - 3}px,${cy - 2}px) scale(${press})`;
+    cur.style.opacity = Math.min(eOut(seg(t, 21.1, 21.35)), 1 - seg(t, 25.0, 25.3));
+    $('zknob').style.transform = `scale(${t > 22.0 && t < 23.4 ? 1.18 : 1})`;
+    const cr = (t >= 22.0 && t < 22.6) ? seg(t, 22.0, 22.6) : seg(t, 24.12, 24.72), crx = t < 23 ? startK : tX, cry = t < 23 ? ky : tY;
+    const rs = lerp(20, 90, eOut(cr));
+    Object.assign($('clickR').style, { width: rs + 'px', height: rs + 'px', left: (crx - rs / 2) + 'px', top: (cry - rs / 2) + 'px', opacity: cr > 0 && cr < 1 ? 1 - cr : 0 });
+    meterBars.forEach((b, i) => { const lvl = 11 + 6 * Math.sin(t * 7.3) + 4 * Math.sin(t * 13.1 + 1) + 2 * Math.sin(t * 29); b.style.background = i < lvl ? (i < 14 ? '#51d267' : i < 18 ? '#fff3a5' : '#ff6b5a') : '#2c2c2c'; });
+  }
+  // H
+  if (t >= 25.2 && t < 28.55) {
+    camSet($('CH'), 960, 540, 1);
+    [25.4, 25.55, 25.85, 26.0, 26.15].forEach((tw, i) => wordIn(TH.words[i], t, tw));
+    hlSweep(TH.hls[0], t, 26.45);
+    $('TH').style.transform = `scale(${lerp(.9, 1.08, (t - 25.2) / 3.35)})`;
+    tiles.forEach((T, i) => {
+      const k = spring(t - T.t0, 9, .9), o = clamp((t - T.t0) * 3.5);
+      const drift = (t - 25.2) * 26 * T.d;
+      const px = 960 + T.x * lerp(1.9, 1, k) + Math.sign(T.x) * drift - T.w / 2;
+      const py = 540 + T.y * lerp(1.9, 1, k) - drift * .25 * Math.sign(T.y) - T.h / 2 + Math.sin(t * 1.3 + i) * 6;
+      T.e.style.left = px + 'px'; T.e.style.top = py + 'px';
+      T.e.style.opacity = o * (T.d < .7 ? .75 : 1);
+      T.e.style.transform = `scale(${T.d * (.9 + .1 * k)}) rotate(${(i % 2 ? 1 : -1) * (2 + (1 - k) * 6)}deg)`;
+      const bl = (1 - o) * 10 + (T.d > 1 ? 1.5 : T.d < .7 ? 1.2 : 0);
+      T.e.style.filter = bl > .3 ? `blur(${bl.toFixed(1)}px)` : 'none';
+    });
+  }
+  // I
+  if (t >= 28.2) {
+    const mk = spring(t - 28.25, 11, .62), shift = ease(seg(t, 29.05, 29.75));
+    const gap = 44, total = 150 + gap + LIwm, rowX = 960 - total / 2;
+    const markX = lerp(960 - 75, rowX, shift), markY = 470 - 75 - 40;
+    const mark = $('mark');
+    mark.style.left = markX + 'px'; mark.style.top = markY + 'px';
+    mark.style.transform = `scale(${mk}) rotate(${(1 - mk) * -25}deg)`;
+    $('mArc').style.strokeDashoffset = arcLen * (1 - ease(seg(t, 28.45, 29.0)));
+    $('mArrow').style.strokeDashoffset = arrowLen * (1 - ease(seg(t, 28.75, 29.15)));
+    const wc = $('wmClip'), reveal = eOut(seg(t, 29.5, 30.15));
+    wc.style.left = (rowX + 150 + gap) + 'px'; wc.style.top = markY + 'px'; wc.style.width = (LIwm * reveal + 4) + 'px';
+    $('wm').style.transform = `translateX(${(1 - reveal) * -60}px)`;
+    $('wm').style.opacity = Math.min(1, reveal * 2);
+    const tg = eOut(seg(t, 30.0, 30.6));
+    $('tagline').style.opacity = tg; $('tagline').style.transform = `translateY(${(1 - tg) * 20}px)`;
+    $('tagline').style.filter = tg < 1 ? `blur(${((1 - tg) * 8).toFixed(1)}px)` : 'none';
+    const url = 'openstream.pages.dev', n = Math.floor(clamp((t - 30.5) * 26, 0, url.length));
+    const caret = t > 30.4 && (n < url.length || Math.floor(t * 2.2) % 2 === 0) ? '▍' : ' ';
+    $('url').textContent = url.slice(0, n) + caret;
+    $('logoRow').style.transform = `scale(${lerp(1, 1.04, seg(t, 28.2, 32))})`;
+    $('logoRow').style.transformOrigin = '960px 400px';
+  }
+};
+
+// ---------- audio ----------
+const SFX = __SFX__;
+window.buildAudio = async function (ctx) {
+  const sr = ctx.sampleRate, D = VIDEO.duration;
+  const master = ctx.createGain(); master.gain.value = .8;
+  const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 3;
+  master.connect(comp); comp.connect(ctx.destination);
+  const R = rng(1234);
+  const conv = ctx.createConvolver(), il = Math.floor(sr * 2.8), ir = ctx.createBuffer(2, il, sr);
+  for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < il; i++) d[i] = (R() * 2 - 1) * Math.pow(1 - i / il, 3.2); }
+  conv.buffer = ir; const rvg = ctx.createGain(); rvg.gain.value = .32; conv.connect(rvg); rvg.connect(master);
+  const music = ctx.createGain(); music.gain.value = .5; music.connect(master); music.connect(conv);
+  const fxBus = ctx.createGain(); fxBus.gain.value = .9; fxBus.connect(master);
+  const fxVerb = ctx.createGain(); fxVerb.gain.value = .25; fxBus.connect(fxVerb); fxVerb.connect(conv);
+  const noise = ctx.createBuffer(1, sr * 2, sr); { const d = noise.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = R() * 2 - 1; }
+  const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+  const env = (g, t0, a, peak, dec, sus = 0, rel = 0) => { g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(peak, t0 + a); g.gain.setTargetAtTime(sus, t0 + a, dec); };
+  const B = .6;
+  const chords = [[53, 57, 60, 64], [48, 55, 62, 64], [57, 60, 64, 67], [55, 59, 62, 67]];
+  const roots = [41, 36, 45, 43];
+  const ci = t => Math.floor(t / (4 * B)) % 4;
+  // pads
+  for (let bar = 0; bar * 4 * B < D; bar++) {
+    const t0 = bar * 4 * B, ch = chords[bar % 4], dur = 4 * B;
+    const vol = (t0 < 28.2 ? (t0 < 5.4 ? .05 : .04) : .075);
+    for (const m of ch) for (const det of [-7, 7]) {
+      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = mtof(m); o.detune.value = det;
+      const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = t0 < 5.4 ? 700 : 1100; f.Q.value = .3;
+      const g = ctx.createGain(); g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(vol / 2, t0 + .5); g.gain.setValueAtTime(vol / 2, t0 + dur - .1); g.gain.linearRampToValueAtTime(0, t0 + dur + (t0 >= 28 ? 2.5 : .5));
+      o.connect(f); f.connect(g); g.connect(music); o.start(t0); o.stop(t0 + dur + 3);
+    }
+  }
+  const pluck = (t0, m, vol = .16, bright = 3000) => {
+    for (const [type, mul, v] of [['triangle', 1, 1], ['sine', 2, .35]]) {
+      const o = ctx.createOscillator(); o.type = type; o.frequency.value = mtof(m) * mul;
+      const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(bright, t0); f.frequency.exponentialRampToValueAtTime(500, t0 + .4);
+      const g = ctx.createGain(); g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(vol * v, t0 + .005); g.gain.exponentialRampToValueAtTime(.0001, t0 + .55);
+      o.connect(f); f.connect(g); g.connect(music); o.start(t0); o.stop(t0 + .6);
+    }
+  };
+  // word plucks in the intro
+  [[.25, 72], [.55, 76], [2.75, 72], [2.95, 74], [3.2, 76], [3.42, 79]].forEach(([t0, m]) => pluck(t0, m, .13));
+  // arp 8ths 5.4 -> 28.2
+  const pat = [0, 2, 1, 3, 2, 1, 3, 2];
+  for (let t0 = 5.4; t0 < 28.15; t0 += B / 2) {
+    const k = Math.round((t0 - 5.4) / (B / 2)), ch = chords[ci(t0 + .01)];
+    pluck(t0, ch[pat[k % 8]] + 12, t0 > 25.2 ? .11 : .085, t0 > 12.9 ? 3800 : 2600);
+  }
+  // bass
+  for (let t0 = 5.4; t0 < 28.15; t0 += B) {
+    const m = roots[ci(t0 + .01)] - 12 + 12;
+    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = mtof(m);
+    const o2 = ctx.createOscillator(); o2.type = 'triangle'; o2.frequency.value = mtof(m);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(.13, t0 + .03); g.gain.exponentialRampToValueAtTime(.06, t0 + B * .9); g.gain.linearRampToValueAtTime(0, t0 + B);
+    const g2 = ctx.createGain(); g2.gain.value = .25; o2.connect(g2); g2.connect(g);
+    o.connect(g); g.connect(master); o.start(t0); o.stop(t0 + B); o2.start(t0); o2.stop(t0 + B);
+  }
+  // kick
+  const kick = (t0, v = .7) => { const o = ctx.createOscillator(); o.frequency.setValueAtTime(140, t0); o.frequency.exponentialRampToValueAtTime(42, t0 + .13); const g = ctx.createGain(); g.gain.setValueAtTime(v, t0); g.gain.exponentialRampToValueAtTime(.001, t0 + .35); o.connect(g); g.connect(master); o.start(t0); o.stop(t0 + .4); };
+  const hat = (t0, v = .05) => { const s = ctx.createBufferSource(); s.buffer = noise; const f = ctx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 8000; const g = ctx.createGain(); g.gain.setValueAtTime(v, t0); g.gain.exponentialRampToValueAtTime(.001, t0 + .06); s.connect(f); f.connect(g); g.connect(master); s.start(t0, R() * 1.5); s.stop(t0 + .08); };
+  const clap = (t0, v = .12) => { const s = ctx.createBufferSource(); s.buffer = noise; const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1500; f.Q.value = .8; const g = ctx.createGain(); g.gain.setValueAtTime(v, t0); g.gain.exponentialRampToValueAtTime(.001, t0 + .18); s.connect(f); f.connect(g); g.connect(master); g.connect(conv); s.start(t0, R()); s.stop(t0 + .2); };
+  for (let t0 = 10.2; t0 < 28.15; t0 += B) { if (t0 > 24.95 && t0 < 25.25) continue; kick(t0, t0 > 25.2 ? .5 : .42); }
+  for (let t0 = 13.2; t0 < 28.15; t0 += B) { hat(t0 + B / 2); if (t0 > 25.2) hat(t0 + B / 4, .025); }
+  for (let t0 = 13.2 + B; t0 < 28.15; t0 += 2 * B) clap(t0, .1);
+  // samples
+  const dec = {};
+  for (const k in SFX) { const bin = atob(SFX[k]), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); dec[k] = await ctx.decodeAudioData(u.buffer); }
+  const play = (k, t0, v = 1, rate = 1) => { const s = ctx.createBufferSource(); s.buffer = dec[k]; s.playbackRate.value = rate; const g = ctx.createGain(); g.gain.value = v; s.connect(g); g.connect(fxBus); s.start(Math.max(0, t0)); };
+  [2.35, 5.3, 10.1, 12.8, 17.9, 20.3, 25.1].forEach((t0, i) => play('whoosh', t0, .55, i % 2 ? 1.08 : .95));
+  play('tick', 3.95, .5); play('tick', 12.35, .5); play('tick', 19.45, .5); play('tick', 26.45, .5);
+  play('click', TAP, .9); play('pop', TAP + .12, .7, 1.1);
+  [8.45, 8.67, 8.89].forEach((t0, i) => play('pop', t0, .45, 1 + i * .08));
+  [13.0, 14.75, 16.55].forEach(t0 => play('pop', t0, .5, .9));
+  [14.9, 16.7].forEach(t0 => play('tick', t0, .5, 1.2));
+  play('click', 22.0, .8);
+  for (let i = 0; i < 9; i++) play('tick', 22.2 + i * .13, .22, 1.3 + i * .04);
+  play('click', 23.42, .5, 1.2); play('click', 24.08, .85);
+  tiles.forEach((T, i) => play('pop', T.t0, .3, .95 + i * .05));
+  play('riser', 26.6, .55);
+  play('impact', 28.22, .9);
+  // end chime
+  [[28.3, 84], [28.45, 88], [28.6, 91], [29.3, 96]].forEach(([t0, m]) => { const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = mtof(m); const g = ctx.createGain(); g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(.07, t0 + .01); g.gain.exponentialRampToValueAtTime(.0001, t0 + 2.5); o.connect(g); g.connect(music); o.start(t0); o.stop(t0 + 2.6); });
+  play('tick', 29.25, .35);
+  for (let i = 0; i < 20; i++) play('tick', 30.5 + i / 26, .12, 1.6);
+};
+
+// ---------- preview ----------
+if (RENDER) { $('ui').style.display = 'none'; }
+else {
+  const fit = () => { const s = Math.min(innerWidth / 1920, (innerHeight - 50) / 1080); $('stage').style.transform = `scale(${s})`; };
+  addEventListener('resize', fit); fit();
+  let buf, ac, src, startAt = 0, offset = 0, playing = false;
+  async function play() { ac ??= new AudioContext(); if (!buf) { const off = new OfflineAudioContext(2, Math.ceil(48000 * VIDEO.duration), 48000); await buildAudio(off); buf = await off.startRendering(); } src = ac.createBufferSource(); src.buffer = buf; src.connect(ac.destination); src.start(0, offset % VIDEO.duration); startAt = ac.currentTime; playing = true; $('pb').textContent = '❚❚ pause'; }
+  function pause() { if (!playing) return; offset += ac.currentTime - startAt; src.stop(); playing = false; $('pb').textContent = '▶ play'; }
+  const now = () => playing ? (offset + ac.currentTime - startAt) % VIDEO.duration : offset;
+  $('pb').onclick = () => playing ? pause() : play();
+  $('scrub').oninput = e => { const was = playing; pause(); offset = +e.target.value; if (was) play(); };
+  (function loop() { const t = now(); seek(t); $('scrub').value = t; $('tc').textContent = t.toFixed(2); requestAnimationFrame(loop); })();
+}
+seek(0);
+</script>
+</body>
+</html>
