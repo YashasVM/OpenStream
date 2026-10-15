@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OpenStream — Launch Promo</title>
+<style>
+/*FONTS*/
+:root { --ink:#11110F; --paper:#F7F5EF; --sig:#FFF3A5; --green:#51D267; --card:#151515; }
+* { box-sizing:border-box; margin:0; padding:0; }
+html, body { background:#000; overflow:hidden; height:100%; }
+#stage { position:absolute; left:0; top:0; width:1920px; height:1080px; overflow:hidden; background:var(--ink); transform-origin:0 0; font-family:'Inter',sans-serif; }
+.abs { position:absolute; white-space:nowrap; }
+.layer { position:absolute; inset:0; }
+.mono { font-family:'IBM Plex Mono',monospace; font-weight:500; letter-spacing:.14em; text-transform:uppercase; }
+.grid { position:absolute; inset:-200px; background-image:linear-gradient(rgba(255,255,255,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.045) 1px,transparent 1px); background-size:48px 48px; }
+.grid.light { background-image:linear-gradient(rgba(17,17,15,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(17,17,15,.06) 1px,transparent 1px); background-size:24px 24px; }
+.big { font-weight:900; letter-spacing:-.055em; line-height:.86; }
+.serif { font-family:'Instrument Serif',serif; font-style:italic; font-weight:400; }
+#vig { position:absolute; inset:0; background:radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 45%, rgba(0,0,0,.34) 100%); pointer-events:none; }
+#grain { position:absolute; inset:0; opacity:.07; mix-blend-mode:overlay; pointer-events:none; }
+#hud { position:absolute; inset:0; pointer-events:none; font-family:'IBM Plex Mono',monospace; font-weight:500; font-size:14px; letter-spacing:.16em; text-transform:uppercase; }
+#hud .br { position:absolute; width:34px; height:34px; border-color:currentColor; border-style:solid; border-width:0; }
+.mask { display:inline-block; overflow:hidden; vertical-align:top; }
+.mask > span { display:inline-block; }
+/* product card (mirrors the website's Camera Control dock) */
+.cardw { position:absolute; left:410px; top:250px; width:1100px; height:580px; transform-style:preserve-3d; }
+.card { position:absolute; inset:0; border:3px solid var(--ink); border-radius:14px; background:var(--card); color:#fff; overflow:hidden; box-shadow:16px 16px 0 var(--sig); }
+.ghost { position:absolute; inset:0; border:2px solid rgba(17,17,15,.35); border-radius:14px; background:rgba(247,245,239,.6); }
+.ct { display:flex; align-items:center; gap:18px; height:84px; padding:0 26px; border-bottom:1px solid #3c3c3c; font-size:26px; font-weight:700; }
+.markt { display:grid; place-items:center; width:50px; height:50px; border-radius:9px; background:var(--paper); color:var(--ink); font-size:20px; font-weight:600; }
+.cb { position:absolute; top:84px; left:0; right:0; bottom:0; display:grid; grid-template-columns:.85fr 1.15fr; gap:14px; padding:18px; }
+.pn { position:relative; border:1px solid #444; border-radius:8px; padding:24px; }
+.pn small { display:block; font-family:'IBM Plex Mono',monospace; font-size:15px; letter-spacing:.14em; color:#9a9a9a; margin-bottom:12px; }
+.fx { display:flex; align-items:center; justify-content:center; height:62px; border:1px solid #474747; border-radius:6px; background:#212121; font-size:20px; font-weight:600; }
+.row { display:flex; gap:10px; }
+.row > * { flex:1; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="cam" class="layer">
+    <!-- S1 spark -->
+    <div id="s1" class="layer"><div id="s1grid" class="grid"></div>
+      <div id="s1lab" class="abs mono" style="left:210px;top:470px;font-size:20px;color:rgba(255,255,255,.75)"></div>
+      <div id="s1dot" class="abs" style="left:0;top:0;width:20px;height:20px;border-radius:10px;background:var(--sig)"></div>
+    </div>
+    <!-- S2 brand slam -->
+    <div id="s2" class="layer">
+      <div id="s2kick" class="abs mono" style="left:0;width:1920px;text-align:center;top:300px;font-size:22px;color:var(--ink)">Introducing — V1.0.1</div>
+      <div id="s2word" class="abs big" style="left:0;width:1920px;top:390px;text-align:center;font-size:228px;color:var(--ink)"></div>
+      <div id="s2sub" class="abs serif" style="left:0;width:1920px;text-align:center;top:650px;font-size:76px;color:var(--ink)"><span class="mask"><span>Your Android phone. Now an OBS camera.</span></span></div>
+    </div>
+    <!-- S3 kinetic type -->
+    <div id="s3" class="layer">
+      <div id="t2pat" class="layer"></div>
+      <div id="t4grid" class="grid light"></div>
+      <div id="t3frame" class="abs" style="left:260px;top:190px;width:1400px;height:700px">
+        <div class="abs" style="left:0;top:0;width:70px;height:70px;border-left:6px solid var(--ink);border-top:6px solid var(--ink)"></div>
+        <div class="abs" style="right:0;top:0;width:70px;height:70px;border-right:6px solid var(--ink);border-top:6px solid var(--ink)"></div>
+        <div class="abs" style="left:0;bottom:0;width:70px;height:70px;border-left:6px solid var(--ink);border-bottom:6px solid var(--ink)"></div>
+        <div class="abs" style="right:0;bottom:0;width:70px;height:70px;border-right:6px solid var(--ink);border-bottom:6px solid var(--ink)"></div>
+        <div class="abs mono" style="left:96px;top:22px;font-size:20px;color:var(--ink)">● REC &nbsp; 1080p30</div>
+      </div>
+      <div id="t1" class="abs big" style="left:200px;top:300px;font-size:250px;color:#fff"><div class="tl">NO WEBCAM</div><div class="tl" style="color:var(--sig)">CLIENT.</div></div>
+      <div id="t2" class="abs big" style="left:200px;top:300px;font-size:250px;color:var(--ink)"><div class="tl">NO CAPTURE</div><div class="tl">CARD.</div></div>
+      <div id="t3" class="abs big" style="left:380px;top:340px;font-size:190px;color:var(--ink)"><div class="tl">NO SCREEN</div><div class="tl">MIRRORING.</div></div>
+      <div id="t4" class="abs" style="left:0;top:0;width:1920px;height:1080px">
+        <svg id="t4hl" class="abs" style="left:430px;top:600px" width="1100" height="120" viewBox="0 0 1100 120"><path d="M20 70 C 260 40, 640 96, 1080 58" fill="none" stroke="#FFF3A5" stroke-width="64" stroke-linecap="round"/></svg>
+        <div id="t4txt" class="abs" style="left:0;width:1920px;text-align:center;top:300px;font-family:'Caveat',cursive;font-weight:600;font-size:330px;color:var(--ink)">just Wi‑Fi.</div>
+      </div>
+      <div id="t4wipe" class="abs" style="left:0;top:0;height:1080px;width:0;background:var(--ink)"></div>
+    </div>
+    <!-- S4 pipeline / particles -->
+    <div id="s4" class="layer">
+      <div id="s4rot" class="layer"><canvas id="pc" width="1920" height="1080" class="abs" style="left:0;top:0"></canvas>
+        <div id="nodes"></div>
+        <div id="s4mid" class="abs" style="left:0;width:1920px;text-align:center;top:452px;color:#fff">
+          <div class="big" style="font-size:130px">120<span style="font-size:70px;letter-spacing:-.02em"> ms</span></div>
+          <div class="mono" style="font-size:20px;margin-top:20px;color:var(--sig)">SRT · MPEG-TS · :9000</div>
+        </div>
+      </div>
+      <div id="s4iris" class="abs" style="left:960px;top:540px;width:0;height:0;border-radius:50%;background:var(--paper)"></div>
+    </div>
+    <!-- S5 product -->
+    <div id="s5" class="layer"><div class="grid light"></div>
+      <div id="s5kick" class="abs mono" style="left:410px;top:150px;font-size:22px;color:var(--ink)">Control the shot — without leaving OBS</div>
+      <div style="position:absolute;inset:0;perspective:2200px">
+        <div id="cardw" class="cardw">
+          <div class="ghost" style="transform:translate3d(60px,56px,-140px)"></div>
+          <div class="ghost" style="transform:translate3d(30px,28px,-70px)"></div>
+          <div class="card">
+            <div class="ct"><span class="markt">Os</span>OpenStream Camera Control<span style="margin-left:auto;color:#888">•••</span></div>
+            <div class="cb">
+              <div class="pn"><small>CONNECTION</small>
+                <div id="cstat" style="font-size:26px;font-weight:700;height:44px"></div>
+                <small style="margin-top:18px">SOURCE</small>
+                <div class="fx" style="justify-content:space-between;padding:0 18px">Pixel 8 Pro <span style="color:#888">▾</span></div>
+                <div class="row" style="margin-top:16px"><div id="cbtn" class="fx" style="position:relative;overflow:hidden"><i id="cprog" style="position:absolute;left:0;top:0;bottom:0;width:0;background:var(--sig)"></i><span id="cbtxt" style="position:relative">Connect / retry</span></div><div class="fx" style="flex:.55">Stop</div></div>
+              </div>
+              <div class="pn"><small>CAMERA</small>
+                <div class="row" style="gap:0"><div class="fx" style="background:#4a4a4a;border-radius:6px 0 0 6px">Rear</div><div class="fx" style="border-radius:0 6px 6px 0">Front</div></div>
+                <div class="row" style="margin-top:12px"><div class="fx">Torch on</div><div class="fx">Torch off</div><div class="fx">Identify</div></div>
+                <div style="display:flex;justify-content:space-between;margin-top:34px;font-size:24px;font-weight:600"><span>Zoom</span><span id="zval" style="color:var(--sig)">1.0×</span></div>
+                <div id="ztrack" style="position:relative;height:8px;margin-top:26px;border-radius:4px;background:#555"><i id="zfill" style="position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:var(--sig)"></i><b id="zknob" style="position:absolute;top:50%;width:30px;height:30px;border-radius:50%;background:#fff;transform:translate(-50%,-50%)"></b></div>
+              </div>
+            </div>
+          </div>
+          <svg id="cursor" class="abs" style="left:0;top:0" width="44" height="56" viewBox="0 0 22 28"><path d="M2 2 L2 22 L7.5 17 L11 25.5 L14.5 24 L11 15.8 L18 15.8 Z" fill="#fff" stroke="#11110F" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+      <div id="toast" class="abs" style="right:120px;top:90px;padding:20px 28px;border:2px solid var(--ink);border-radius:10px;background:var(--card);color:#fff;font-family:'IBM Plex Mono',monospace;font-size:21px;font-weight:500;letter-spacing:.08em;box-shadow:8px 8px 0 var(--ink)"><span style="color:var(--green)">●</span> LIVE · OPENSTREAM / PHONE · 30 FPS</div>
+      <div id="s5wipe" class="abs" style="left:0;bottom:0;width:1920px;height:0;background:var(--sig)"></div>
+    </div>
+    <!-- S6 data -->
+    <div id="s6" class="layer">
+      <div id="s6kick" class="abs mono" style="left:200px;top:120px;font-size:22px;color:var(--ink)">V1.0.1 defaults — straight from the release</div>
+      <div id="rows"></div>
+      <div id="s6iris" class="abs" style="left:960px;top:540px;width:0;height:0;border-radius:50%;background:var(--ink)"></div>
+    </div>
+    <!-- S7 end card -->
+    <div id="s7" class="layer"><div class="grid"></div>
+      <div id="ring" class="abs" style="border:3px solid var(--sig);border-radius:50%"></div>
+      <div id="lockup" class="abs" style="left:0;top:0;height:140px;display:flex;align-items:center;gap:40px">
+        <div id="emark" style="display:grid;place-items:center;width:140px;height:140px;border-radius:20px;background:var(--paper);color:var(--ink);font-size:58px;font-weight:600">Os</div>
+        <div class="mask"><span id="ename" class="big" style="font-size:150px;color:#fff;letter-spacing:-.045em;line-height:1.05">OPENSTREAM</span></div>
+      </div>
+      <div id="edot" class="abs" style="left:0;top:0;width:34px;height:34px;border-radius:50%;background:var(--sig)"></div>
+      <div id="etag" class="abs serif" style="left:0;width:1920px;text-align:center;top:610px;font-size:64px;color:rgba(255,255,255,.92)"><span class="mask"><span>Your Android phone. Now an OBS camera.</span></span></div>
+      <div id="erule" class="abs" style="left:660px;top:720px;width:600px;height:1px;background:rgba(255,255,255,.5);transform-origin:50% 50%"></div>
+      <div id="eurl" class="abs mono" style="left:0;width:1920px;text-align:center;top:756px;font-size:26px;color:var(--sig);letter-spacing:.3em"></div>
+    </div>
+    <!-- carried transition shapes -->
+    <div id="flood" class="abs" style="background:var(--sig)"></div>
+  </div>
+  <div id="vig"></div>
+  <canvas id="grain" width="1920" height="1080"></canvas>
+  <div id="hud">
+    <div class="br" style="left:40px;top:40px;border-left-width:2px;border-top-width:2px"></div>
+    <div class="br" style="right:40px;top:40px;border-right-width:2px;border-top-width:2px"></div>
+    <div class="br" style="left:40px;bottom:40px;border-left-width:2px;border-bottom-width:2px"></div>
+    <div class="br" style="right:40px;bottom:40px;border-right-width:2px;border-bottom-width:2px"></div>
+    <div id="hscene" class="abs" style="right:92px;top:50px"></div>
+    <div class="abs" style="left:92px;top:50px">OPENSTREAM / V1.0.1</div>
+    <div id="hcat" class="abs" style="left:92px;bottom:50px"></div>
+    <div class="abs" style="right:92px;bottom:50px"><span style="color:#FF3B30">●</span> <span id="htc"></span></div>
+  </div>
+</div>
+<div id="ctl" style="position:fixed;left:0;right:0;bottom:0;display:flex;gap:12px;align-items:center;padding:10px 16px;background:#111;color:#ddd;font:13px 'IBM Plex Mono',monospace">
+  <button id="pp" style="padding:6px 14px">Play</button><input id="scrub" type="range" min="0" max="1000" value="0" style="flex:1"><span id="tt">0.00</span>
+</div>
+<script>
+/* BEAT SHEET — 128 BPM, B = 0.469 s, 40 beats = 18.75 s
+ b0     0.00  S1 SPARK      yellow dot appears on ink grid           tick
+ b1,b2  0.47  pulses                                                 tick
+ b2     0.94  dot stretches into a line, label types                 whoosh, blips, riser starts
+ b3     1.41  line wobbles
+ b3.5-4 1.64  line floods vertically into yellow                     impact at b4
+ b4     1.88  S2 BRAND      kicker; OPENSTREAM letters on 1/16s      drums in, ticks
+ b6     2.81  serif line; weight morphs thin -> black
+ b6.75  3.16  full stop lands; b7.25 it grows into an ink flood        whoosh -> impact b8
+ b8     3.75  S3 TYPE       NO WEBCAM / CLIENT.  (white on ink)       blip
+ b10    4.69               NO CAPTURE / CARD.  (ink on yellow, outline pattern)  blip
+ b12    5.63               NO SCREEN / MIRRORING. (viewfinder, green)            blip
+ b14    6.56               "just Wi-Fi." draws on, highlighter b15.3             blip, stroke swish
+ b16.5  7.73  ink bar wipes across                                    whoosh, drop
+ b17    7.97  S4 PIPELINE   particles: phone -> SRT -> OBS            impact, drums back
+ b20    9.38  particles condense into a ring around "120 ms"         riser
+ b22    10.31 ring bursts; b22.25 paper iris floods                   impact
+ b23    10.78 S5 PRODUCT    Camera Control dock floats in             whoosh
+ b24.5  11.48 cursor clicks Connect / retry, progress fills          click, ticks
+ b25.9  12.14 Connected ✓                                            ding
+ b26.5  12.42 cursor drags zoom 1.0x -> 1.8x                         blips
+ b27.25 12.77 LIVE toast slides in                                   blip
+ b28.5  13.36 yellow bar wipes up                                    whoosh
+ b29    13.59 S6 DATA       1080p30 / SRT 120 ms / AAC / 12 Mbps slam on 8ths   hits
+ b32    15.00 rows collapse to a line; b32.5 ink iris                 riser -> impact b33
+ b33    15.47 S7 END        dot, ring pulse; dot travels to the wordmark   ring-out
+ b34    15.94 mark + OPENSTREAM; b35 tagline; b35.5 rule; b36 URL types    ticks
+ b40    18.75 end
+*/
+const W = 1920, H = 1080, BPM = 128, B = 60 / BPM, b = n => n * B;
+window.VIDEO = { w: W, h: H, duration: b(40) };
+
+function spring(t, w = 14, z = 0.82) { if (t <= 0) return 0; if (z >= 1) return 1 - Math.exp(-w * t) * (1 + w * t); const wd = w * Math.sqrt(1 - z * z); return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + (z * w / wd) * Math.sin(wd * t)); }
+const track = (v0, keys) => t => { let v = v0, p = v0; for (const [tk, val, w, z] of keys) { v += (val - p) * spring(t - tk, w, z); p = val; } return v; };
+const kf = keys => t => { if (t <= keys[0][0]) return keys[0][1]; for (let i = 1; i < keys.length; i++) { const [a, va] = keys[i - 1], [bb, vb, e = ease] = keys[i]; if (t <= bb) return lerp(va, vb, e((t - a) / (bb - a))); } return keys[keys.length - 1][1]; };
+const clamp = (x, a = 0, c = 1) => Math.min(c, Math.max(a, x));
+const ease = x => (x = clamp(x), x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const easeIn = x => (x = clamp(x), x * x * x);
+const easeOut = x => (x = clamp(x), 1 - Math.pow(1 - x, 3));
+const easeInExpo = x => (x = clamp(x), x === 0 ? 0 : Math.pow(2, 10 * x - 10));
+const lerp = (a, c, k) => a + (c - a) * k;
+const seg = (t, a, c) => clamp((t - a) / (c - a));
+const rng = s => () => (s = (s + 0x6D2B79F5) | 0, s = Math.imul(s ^ (s >>> 15), 1 | s), s ^= s + Math.imul(s ^ (s >>> 7), 61 | s), ((s ^ (s >>> 14)) >>> 0) / 4294967296);
+const $ = id => document.getElementById(id);
+const show = (el, on) => { el.style.display = on ? '' : 'none'; return on; };
+const tf = (el, s) => { el.style.transform = s; };
+const typed = (s, t, a, c) => s.slice(0, Math.round(s.length * seg(t, a, c)));
+
+const RENDER = location.search.includes('render');
+const stage = $('stage');
+
+// ---------- build static DOM ----------
+const WORD = 'OPENSTREAM';
+$('s2word').innerHTML = WORD.split('').map(ch => `<span class="mask"><span>${ch}</span></span>`).join('') + '<span id="s2dot" style="display:inline-block;width:56px;height:56px;border-radius:50%;background:var(--ink);margin-left:14px;vertical-align:baseline"></span>';
+const s2letters = [...$('s2word').querySelectorAll('.mask > span')];
+
+{ // outline pattern for "NO CAPTURE CARD."
+  let h = '';
+  for (let r = 0; r < 8; r++) h += `<div class="abs big" data-r="${r}" style="left:0;top:${r * 150 - 40}px;font-size:150px;color:transparent;-webkit-text-stroke:2px rgba(17,17,15,.28)">${'CAPTURE CARD · '.repeat(6)}</div>`;
+  $('t2pat').innerHTML = h;
+}
+const patRows = [...$('t2pat').children];
+
+const NODES = [
+  { x: 330, t: 'ANDROID CAMERA', s: 'Camera2 + MediaCodec' },
+  { x: 960, t: 'SRT STREAM', s: 'MPEG-TS · port 9000' },
+  { x: 1590, t: 'OBS SOURCE', s: 'FFmpeg decode + mixer' },
+];
+$('nodes').innerHTML = NODES.map((n, i) => `<div class="abs node" style="left:${n.x - 170}px;top:470px;width:340px;height:140px;border:2px solid rgba(255,255,255,.85);border-radius:12px;background:rgba(17,17,15,.82);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:#fff"><div class="mono" style="font-size:22px;font-weight:700">${n.t}</div><div class="mono" style="font-size:15px;color:var(--sig);letter-spacing:.06em;text-transform:none">${n.s}</div></div>`).join('');
+const nodeEls = [...$('nodes').children];
+
+const ROWS = [
+  { l: 'Video', v: n => `${Math.round(n)}p30`, a: 0, z: 1080 },
+  { l: 'Transport', v: n => `SRT ${Math.round(n)} ms`, a: 0, z: 120 },
+  { l: 'Audio', v: () => 'AAC', a: 0, z: 0 },
+  { l: 'Default bitrate', v: n => `${Math.round(n)} Mbps`, a: 0, z: 12 },
+];
+$('rows').innerHTML = ROWS.map((r, i) => `<div class="abs srow" style="left:200px;top:${190 + i * 195}px;width:1520px;height:195px;border-top:3px solid var(--ink);display:flex;align-items:center;justify-content:space-between"><div class="mono" style="font-size:24px;color:var(--ink)">${String(i + 1).padStart(2, '0')} — ${r.l}</div><div class="big sval" style="font-size:150px;color:var(--ink)"></div></div>`).join('');
+const rowEls = [...$('rows').children];
+
+// particles (deterministic)
+const P = [], R = rng(7);
+for (let i = 0; i < 520; i++) P.push({ ph: R(), lane: (R() - .5) * 2, sp: .8 + R() * .5, w: R() * Math.PI * 2, ang: (i / 520) * Math.PI * 2, rr: 230 + (R() - .5) * 26, bs: .6 + R() * .9, sz: 1.5 + R() * 2.5 });
+
+// grain tiles
+const grainTiles = [];
+{ const g = rng(99); for (let k = 0; k < 4; k++) { const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d'), d = x.createImageData(256, 256); for (let i = 0; i < d.data.length; i += 4) { const v = g() * 255; d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 255; } x.putImageData(d, 0, 0); grainTiles.push(c); } }
+const gctx = $('grain').getContext('2d');
+const pctx = $('pc').getContext('2d');
+
+// ---------- scenes ----------
+const SCENES = [
+  { a: 0, z: b(4), bg: '#11110F', cat: 'Signal / open', dark: 1 },
+  { a: b(4), z: b(8), bg: '#FFF3A5', cat: 'Brand', dark: 0 },
+  { a: b(8), z: b(17), bg: null, cat: 'Kinetic type', dark: null },
+  { a: b(17), z: b(23), bg: '#11110F', cat: 'Pipeline', dark: 1 },
+  { a: b(23), z: b(29), bg: '#F7F5EF', cat: 'Product', dark: 0 },
+  { a: b(29), z: b(33), bg: '#FFF3A5', cat: 'Data', dark: 0 },
+  { a: b(33), z: b(40), bg: '#11110F', cat: 'End card', dark: 1 },
+];
+const T3 = [ // sub-backgrounds of the kinetic triplet
+  { a: b(8), bg: '#11110F', dark: 1 }, { a: b(10), bg: '#FFF3A5', dark: 0 }, { a: b(12), bg: '#51D267', dark: 0 }, { a: b(14), bg: '#F7F5EF', dark: 0 },
+];
+
+function s1(t) {
+  if (!show($('s1'), t < b(4))) return;
+  tf($('s1grid'), `scale(${lerp(1, 1.12, ease(seg(t, 0, b(4))))})`);
+  const appear = spring(t - 0.05, 18, .55);
+  const pulse = 1 + .7 * Math.exp(-(t - b(1)) * 9) * (t > b(1)) + .7 * Math.exp(-(t - b(2)) * 9) * (t > b(2) && t < b(2.2));
+  const stretch = spring(t - b(2), 15, .72);
+  const wob = t > b(3) ? Math.sin((t - b(3)) * 40) * 14 * Math.exp(-(t - b(3)) * 7) : 0;
+  const flood = easeInExpo(seg(t, b(3.45), b(4)));
+  const w = lerp(20, 1500, stretch), h = lerp(lerp(20, 5, clamp(stretch * 2)), 1100, flood);
+  const ww = lerp(w, 1960, flood);
+  const d = $('s1dot');
+  d.style.width = ww + 'px'; d.style.height = h + 'px';
+  d.style.borderRadius = lerp(10, 0, Math.max(clamp(stretch * 3), flood)) + 'px';
+  const sc = t < b(2) ? appear * pulse : 1;
+  tf(d, `translate(${960 - ww / 2}px, ${540 - h / 2 + wob * (1 - flood)}px) scale(${sc})`);
+  $('s1lab').textContent = typed('OPENSTREAM / V1.0.1 — wireless OBS camera', t, b(2.2), b(3.1));
+  $('s1lab').style.opacity = 1 - flood;
+  $('s1lab').style.transform = `translateY(${wob * .4}px)`;
+}
+
+function s2(t) {
+  if (!show($('s2'), t >= b(4) && t < b(8.05))) return;
+  const k = $('s2kick');
+  k.style.opacity = seg(t, b(4), b(4.4));
+  tf(k, `translateY(${(1 - spring(t - b(4), 16, .7)) * 30}px)`);
+  k.textContent = typed('Introducing — V1.0.1', t, b(4), b(5));
+  const wgt = lerp(250, 900, ease(seg(t, b(4.5), b(6.5))));
+  $('s2word').style.fontVariationSettings = `'wght' ${wgt}`;
+  $('s2word').style.fontWeight = Math.round(wgt);
+  s2letters.forEach((el, i) => { const p = spring(t - (b(4.25) + i * B / 4), 20, .62); tf(el, `translateY(${(1 - p) * 110}%)`); });
+  const sub = $('s2sub').firstElementChild.firstElementChild, ps = spring(t - b(6), 14, .8);
+  tf(sub, `translateY(${(1 - ps) * 105}%)`);
+  const dot = $('s2dot');
+  const pop = spring(t - b(6.75), 22, .5), grow = easeIn(seg(t, b(7.2), b(8)));
+  tf(dot, `scale(${pop * lerp(1, 90, grow)})`);
+  const out = grow;
+  $('s2kick').style.opacity *= 1 - out;
+  tf($('s2sub'), `translateY(${out * 60}px)`);
+}
+
+function s3(t) {
+  if (!show($('s3'), t >= b(8) && t < b(17))) return;
+  const i = t < b(10) ? 0 : t < b(12) ? 1 : t < b(14) ? 2 : 3;
+  ['t1', 't2', 't3', 't4'].forEach((id, j) => show($(id), i === j));
+  show($('t2pat'), i === 1); show($('t3frame'), i === 2); show($('t4grid'), i === 3);
+  const st = T3[i].a;
+  if (i < 3) {
+    const el = $(['t1', 't2', 't3'][i]);
+    [...el.children].forEach((ln, j) => {
+      const p = spring(t - st - j * B / 2, 17, .64);
+      const vel = Math.abs(spring(t - st - j * B / 2 + .01, 17, .64) - p) * 100;
+      tf(ln, `translateX(${(1 - p) * (i === 1 ? -900 : 900)}px) skewX(${(i === 1 ? 1 : -1) * clamp(vel, 0, 1) * 18}deg)`);
+    });
+    tf(el, `scale(${lerp(1, 1.05, seg(t, st, st + b(2)))})`);
+  }
+  if (i === 1) patRows.forEach((r, j) => tf(r, `translateX(${(j % 2 ? -1 : 1) * (t - st) * 260 - (j % 2 ? 0 : 900)}px)`));
+  if (i === 2) { const p = spring(t - st, 16, .7); tf($('t3frame'), `scale(${lerp(1.25, 1, p)})`); $('t3frame').style.opacity = clamp(p * 1.4); }
+  if (i === 3) {
+    const r = ease(seg(t, b(14.1), b(15.3)));
+    $('t4txt').style.clipPath = `inset(-20% ${100 - r * 100}% -20% 0)`;
+    tf($('t4txt'), `translateY(${(1 - spring(t - b(14), 12, .8)) * 40}px) rotate(-3deg)`);
+    const hl = $('t4hl').querySelector('path'), L = 1100;
+    hl.style.strokeDasharray = L; hl.style.strokeDashoffset = L * (1 - ease(seg(t, b(15.2), b(15.9))));
+    tf($('t4grid'), `scale(${lerp(1, 1.06, seg(t, b(14), b(17)))})`);
+    tf($('t4'), `scale(${lerp(1, 1.08, ease(seg(t, b(15.9), b(17))))})`);
+  }
+  $('t4wipe').style.width = (i === 3 ? easeIn(seg(t, b(16.45), b(17))) * 1920 : 0) + 'px';
+}
+
+function drawParticles(t) {
+  const x = pctx; x.clearRect(0, 0, W, H);
+  const lt = t - b(17);
+  const cond = ease(seg(t, b(20), b(21.4)));
+  const burst = seg(t, b(22), b(23));
+  const fadeIn = seg(t, b(17), b(17.6));
+  for (const p of P) {
+    const f = ((lt * .42 * p.sp + p.ph) % 1);
+    const fx = lerp(NODES[0].x, NODES[2].x, f);
+    const narrow = Math.abs(Math.sin(f * Math.PI * 2)) ;
+    const fy = 540 + p.lane * 120 * narrow + Math.sin(f * 14 + p.w) * 8;
+    const a = p.ang + lt * .6;
+    const rr = p.rr + Math.sin(lt * 3 + p.w) * 6;
+    let px = lerp(fx, 960 + Math.cos(a) * rr, cond), py = lerp(fy, 540 + Math.sin(a) * rr, cond);
+    if (burst > 0) { const d = easeOut(burst) * 1300 * p.bs; px += Math.cos(a) * d; py += Math.sin(a) * d; }
+    const hue = f; // white -> yellow along the pipe
+    const col = cond > .5 ? `rgba(255,243,165,${.9 * (1 - burst)})` : `rgba(255,${lerp(255, 243, hue) | 0},${lerp(255, 165, hue) | 0},${.85 * fadeIn * (1 - burst)})`;
+    x.strokeStyle = col; x.lineWidth = p.sz;
+    const len = cond > .02 && cond < .98 ? 10 : burst > 0 ? 40 * p.bs : 14;
+    const dx = burst > 0 ? Math.cos(a) : cond > .5 ? -Math.sin(a) : 1, dy = burst > 0 ? Math.sin(a) : cond > .5 ? Math.cos(a) : 0;
+    x.beginPath(); x.moveTo(px - dx * len, py - dy * len); x.lineTo(px, py); x.stroke();
+  }
+  if (cond > 0 && burst < 1) { // ring outline
+    x.strokeStyle = `rgba(255,243,165,${.6 * cond * (1 - burst)})`; x.lineWidth = 2;
+    x.beginPath(); x.arc(960, 540, 300 + burst * 600, 0, Math.PI * 2); x.stroke();
+  }
+}
+
+function s4(t) {
+  if (!show($('s4'), t >= b(17) && t < b(23))) return;
+  const lt = t - b(17);
+  tf($('s4rot'), `rotate(${lerp(-2.5, 2, lt / b(6))}deg) scale(${lerp(1.08, 1, ease(lt / b(6)))})`);
+  drawParticles(t);
+  const cond = ease(seg(t, b(20), b(21.2)));
+  nodeEls.forEach((n, i) => { const p = spring(t - b(17) - i * B / 2, 16, .66); n.style.opacity = clamp(p) * (1 - cond); tf(n, `translateY(${(1 - p) * 60}px) scale(${lerp(1, .7, cond)})`); });
+  const mid = $('s4mid'), mp = spring(t - b(20.75), 16, .6), bu = seg(t, b(22), b(22.4));
+  mid.style.opacity = clamp(mp) * (1 - bu);
+  tf(mid, `scale(${lerp(.6, 1, mp) * (1 + bu * .5)})`);
+  const ir = easeIn(seg(t, b(22.25), b(23))) * 2300;
+  const iris = $('s4iris'); iris.style.width = iris.style.height = ir + 'px'; tf(iris, `translate(${-ir / 2}px, ${-ir / 2}px)`);
+}
+
+const localPos = el => { let x = 0, y = 0; while (el && el.id !== 'cardw') { x += el.offsetLeft; y += el.offsetTop; el = el.offsetParent; } return { x, y }; };
+function cursorAt(t) {
+  const bt = $('cbtn'), bp = localPos(bt), zt = $('ztrack'), zp = localPos(zt);
+  const C = { x: bp.x + bt.offsetWidth * .5 - 6, y: bp.y + bt.offsetHeight * .5 - 4 };
+  const Z0 = { x: zp.x - 4, y: zp.y - 4 }, Z1 = { x: zp.x + zt.offsetWidth * .4 - 4, y: zp.y - 4 };
+  const X = kf([[b(23), 1180], [b(24.3), C.x], [b(25.9), C.x + 20], [b(26.35), Z0.x], [b(26.5), Z0.x], [b(27.75), Z1.x], [b(29), Z1.x + 60]]);
+  const Y = kf([[b(23), 700], [b(24.3), C.y], [b(25.9), C.y + 14], [b(26.35), Z0.y], [b(26.5), Z0.y], [b(27.75), Z1.y], [b(29), Z1.y + 50]]);
+  return { x: X(t), y: Y(t) };
+}
+function s5(t) {
+  if (!show($('s5'), t >= b(23) && t < b(29.05))) return;
+  const lt = t - b(23);
+  const ein = spring(lt, 11, .72);
+  const push = ease(seg(t, b(23), b(29)));
+  tf($('cardw'), `translate3d(0,${(1 - ein) * 500}px,0) rotateX(${lerp(16, 7, ein) - push * 2}deg) rotateY(${lerp(-24, -12, ein) + push * 6}deg) rotateZ(${lerp(4, 1, ein)}deg) scale(${lerp(.98, 1.04, push)})`);
+  $('s5kick').style.opacity = seg(t, b(23.5), b(24)); $('s5kick').textContent = typed('Control the shot — without leaving OBS', t, b(23.5), b(24.75));
+  // connect
+  const cp = ease(seg(t, b(24.6), b(25.9)));
+  const connected = t >= b(25.9);
+  $('cprog').style.width = (connected ? 0 : cp * 100) + '%';
+  $('cbtxt').textContent = connected ? 'Connected ✓' : cp > 0 ? `Connecting ${Math.round(cp * 100)}%` : 'Connect / retry';
+  $('cbtn').style.color = !connected && cp > .45 ? 'var(--ink)' : '#fff';
+  $('cbtn').style.background = connected ? '#1f3a24' : '#212121';
+  $('cbtn').style.borderColor = connected ? 'var(--green)' : '#474747';
+  $('cstat').innerHTML = connected ? '<span style="color:var(--green)">●</span> Connected' : cp > 0 ? '<span style="color:var(--sig)">◌</span> Pairing…' : '<span style="color:#777">○</span> Searching…';
+  tf($('cbtn'), `scale(${1 - .06 * Math.exp(-(t - b(24.5)) * 14) * (t > b(24.5))})`);
+  // zoom drag: knob track spans 0..1 for 1.0x..3.0x (track inside card at x≈ 554..1058)
+  const zoom = lerp(1, 1.8, ease(seg(t, b(26.5), b(27.75))));
+  const zf = (zoom - 1) / 2;
+  $('zfill').style.width = zf * 100 + '%'; $('zknob').style.left = zf * 100 + '%';
+  $('zval').textContent = zoom.toFixed(1) + '×';
+  // cursor (card-local coords)
+  const cp2 = cursorAt(t);
+  const press = (t > b(24.4) && t < b(24.7)) || (t > b(26.4) && t < b(27.8));
+  tf($('cursor'), `translate(${cp2.x}px, ${cp2.y}px) scale(${press ? .86 : 1})`);
+  $('cursor').style.opacity = seg(t, b(23.4), b(23.8));
+  // toast
+  const tp = spring(t - b(27.25), 16, .68);
+  tf($('toast'), `translateX(${(1 - tp) * 700}px)`);
+  const wipe = easeIn(seg(t, b(28.45), b(29))) * 1080;
+  $('s5wipe').style.height = wipe + 'px';
+}
+
+function s6(t) {
+  if (!show($('s6'), t >= b(29) && t < b(33.02))) return;
+  $('s6kick').style.opacity = seg(t, b(29), b(29.4)); $('s6kick').textContent = typed('V1.0.1 defaults — straight from the release', t, b(29), b(30.25));
+  const col = ease(seg(t, b(31.9), b(32.5)));
+  rowEls.forEach((el, i) => {
+    const st = b(29) + i * B / 2, p = spring(t - st, 18, .62);
+    tf(el, `translateX(${(1 - p) * -1700}px) scaleY(${1 - col}) translateY(${col * (540 - (190 + i * 195 + 97)) * 2}px)`);
+    el.style.opacity = t >= st ? 1 : 0;
+    const r = ROWS[i]; el.querySelector('.sval').textContent = r.v(lerp(r.a, r.z, easeOut(seg(t, st, st + b(1.6)))));
+  });
+  tf($('s6kick'), `translateY(${-col * 100}px)`); $('s6kick').style.opacity *= 1 - col;
+  const ir = easeIn(seg(t, b(32.5), b(33))) * 2300;
+  const iris = $('s6iris'); iris.style.width = iris.style.height = ir + 'px'; tf(iris, `translate(${-ir / 2}px, ${-ir / 2}px)`);
+}
+
+function s7(t) {
+  if (!show($('s7'), t >= b(33))) return;
+  // lockup geometry: centred row, measured once
+  const lk = $('lockup'); const lw = lk.offsetWidth + 50;
+  const lx = 960 - lw / 2, ly = 360;
+  lk.style.left = lx + 'px'; lk.style.top = ly + 'px';
+  const dotEnd = { x: lx + lw - 34, y: ly + 140 - 50 };
+  const mv = ease(seg(t, b(34), b(34.6)));
+  const dp = spring(t - b(33), 20, .55);
+  const d = $('edot');
+  const dx = lerp(960 - 17, dotEnd.x, mv), dy = lerp(540 - 17, dotEnd.y, mv) - Math.sin(mv * Math.PI) * 120;
+  tf(d, `translate(${dx}px, ${dy}px) scale(${dp * (1 + .5 * Math.exp(-(t - b(34.6)) * 10) * (t > b(34.6)))})`);
+  const rp = seg(t, b(33.1), b(34.4)), rr = easeOut(rp) * 420;
+  const ring = $('ring'); ring.style.width = ring.style.height = rr * 2 + 'px'; tf(ring, `translate(${960 - rr}px, ${540 - rr}px)`); ring.style.opacity = (1 - rp) * (rp > 0);
+  const mk = spring(t - b(34), 16, .6); tf($('emark'), `scale(${mk}) rotate(${(1 - mk) * -30}deg)`);
+  tf($('ename'), `translateY(${(1 - spring(t - b(34.25), 16, .75)) * 110}%)`);
+  tf($('etag').firstElementChild.firstElementChild, `translateY(${(1 - spring(t - b(35), 13, .82)) * 105}%)`);
+  tf($('erule'), `scaleX(${ease(seg(t, b(35.5), b(36.5)))})`);
+  const url = typed('OPENSTREAM.PAGES.DEV', t, b(36), b(37.6));
+  $('eurl').innerHTML = url + `<span style="opacity:${t > b(36) && Math.floor(t * 3.2) % 2 === 0 ? 1 : 0}">▌</span>`;
+  tf($('s7'), `scale(${lerp(1.04, 1, ease(seg(t, b(33), b(40))))})`);
+}
+
+function sceneAt(t) { for (let i = SCENES.length - 1; i >= 0; i--) if (t >= SCENES[i].a) return i; return 0; }
+function seek(t) {
+  t = ((t % VIDEO.duration) + VIDEO.duration) % VIDEO.duration;
+  const si = sceneAt(t), S = SCENES[si];
+  let bg = S.bg, dark = S.dark;
+  if (si === 2) { const k = t < b(10) ? 0 : t < b(12) ? 1 : t < b(14) ? 2 : 3; bg = T3[k].bg; dark = T3[k].dark; if (t >= b(16.75)) dark = 1; }
+  if (si === 0 && t > b(3.75)) dark = 0;
+  if (si === 1 && t > b(7.7)) dark = 1;
+  if (si === 3 && t > b(22.7)) dark = 0;
+  if (si === 4 && t > b(28.8)) dark = 0;
+  if (si === 5 && t > b(32.75)) dark = 1;
+  stage.style.background = bg;
+  s1(t); s2(t); s3(t); s4(t); s5(t); s6(t); s7(t);
+  show($('flood'), false);
+  // camera: tiny beat bounce on downbeats
+  const bt = t / B, ph = bt - Math.floor(bt);
+  const bump = (t > b(4) && t < b(33)) ? .006 * Math.exp(-ph * 9) : 0;
+  tf($('cam'), `scale(${1 + bump})`);
+  // HUD
+  const hud = $('hud'); hud.style.color = dark ? 'rgba(255,255,255,.55)' : 'rgba(17,17,15,.55)';
+  $('hscene').textContent = `Scene ${String(si + 1).padStart(2, '0')} / 07`;
+  $('hcat').textContent = S.cat;
+  const fr = Math.floor(t * 30); $('htc').textContent = `00:00:${String(Math.floor(fr / 30)).padStart(2, '0')}:${String(fr % 30).padStart(2, '0')}`;
+  // grain
+  const tile = grainTiles[Math.floor(t * 24) % 4];
+  gctx.globalCompositeOperation = 'copy';
+  for (let y = 0; y < H; y += 256) for (let x = 0; x < W; x += 256) gctx.drawImage(tile, x, y);
+  $('vig').style.opacity = dark ? 1 : .55;
+}
+window.seek = seek;
+
+// ---------- sound ----------
+window.buildAudio = async function (ctx) {
+  const sr = ctx.sampleRate, R = rng(42);
+  const nb = ctx.createBuffer(1, sr * 2, sr), nd = nb.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = R() * 2 - 1;
+  const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4; comp.attack.value = .003; comp.release.value = .12;
+  const master = ctx.createGain(); master.gain.value = .8; comp.connect(master); master.connect(ctx.destination);
+  const music = ctx.createGain(); music.gain.value = .55; music.connect(comp);
+  const fx = ctx.createGain(); fx.gain.value = .9; fx.connect(comp);
+  const env = (g, t, a, peak, d, end = .0001) => { g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(end, t + a + d); };
+  const noise = (t, dur, type, f, q, peak, a, d, out, f2) => { const s = ctx.createBufferSource(); s.buffer = nb; const fl = ctx.createBiquadFilter(); fl.type = type; fl.frequency.setValueAtTime(f, t); if (f2) fl.frequency.exponentialRampToValueAtTime(f2, t + dur); fl.Q.value = q; const g = ctx.createGain(); env(g, t, a, peak, d); s.connect(fl); fl.connect(g); g.connect(out); s.start(t, R() * 1); s.stop(t + dur + .05); };
+  const osc = (t, type, f0, f1, a, d, peak, out, glide = d) => { const o = ctx.createOscillator(); o.type = type; o.frequency.setValueAtTime(f0, t); if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + glide); const g = ctx.createGain(); env(g, t, a, peak, d); o.connect(g); g.connect(out); o.start(t); o.stop(t + a + d + .05); };
+  const kick = t => { osc(t, 'sine', 160, 42, .002, .38, .95, music, .11); noise(t, .02, 'highpass', 3000, .7, .25, .001, .02, music); };
+  const clap = t => { for (let k = 0; k < 3; k++) noise(t + k * .011, .14, 'bandpass', 1400, 1.4, .5, .001, .1 + k * .02, music); };
+  const hat = (t, v = .14) => noise(t, .05, 'highpass', 8500, .7, v, .001, .04, music);
+  const sub = (t, f, d) => { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 220; const g = ctx.createGain(); g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.32, t + .01); g.gain.setValueAtTime(.32, t + d * .7); g.gain.exponentialRampToValueAtTime(.0001, t + d); o.connect(lp); lp.connect(g); g.connect(music); o.start(t); o.stop(t + d + .05); };
+  const pad = (t, fs, d, v = .05) => fs.forEach(f => [-7, 7].forEach(dt => { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = dt; const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.setValueAtTime(700, t); lp.frequency.linearRampToValueAtTime(1800, t + d); const g = ctx.createGain(); g.gain.setValueAtTime(.0001, t); g.gain.linearRampToValueAtTime(v, t + .08); for (let k = 0; k < d / B; k++) { const tk = t + k * B; g.gain.setValueAtTime(v * .35, tk + .01); g.gain.linearRampToValueAtTime(v, tk + B * .8); } g.gain.linearRampToValueAtTime(.0001, t + d); o.connect(lp); lp.connect(g); g.connect(music); o.start(t); o.stop(t + d + .05); }));
+  const riser = (t0, t1, v = .35) => { const d = t1 - t0; noise(t0, d, 'bandpass', 300, 2.5, v, d * .95, .03, fx, 7000); osc(t0, 'sawtooth', 110, 880, d * .95, .03, v * .15, fx, d); };
+  const impact = t => { osc(t, 'sine', 90, 28, .002, 1.1, 1, fx, .5); noise(t, .5, 'lowpass', 2500, .7, .5, .001, .45, fx, 300); };
+  const whoosh = (t, d = .45, v = .4) => { noise(t, d, 'bandpass', 400, 1.6, v, d * .6, d * .4, fx, 3500); };
+  const blip = (t, f = 1320, v = .18) => osc(t, 'square', f, f, .002, .07, v, fx);
+  const tick = (t, v = .12) => osc(t, 'sine', 2400, 2400, .001, .03, v, fx);
+  const ding = t => [1, 2.01, 3.02].forEach((m, i) => osc(t, 'sine', 1046 * m, 1046 * m, .003, .6 - i * .15, .14 / (i + 1), fx));
+  const click = t => { noise(t, .02, 'bandpass', 4000, 3, .4, .001, .02, fx); osc(t, 'sine', 900, 600, .001, .03, .15, fx); };
+  const ringOut = t => [[1, .22], [2.76, .1], [5.4, .05], [.5, .12]].forEach(([m, v]) => osc(t, 'sine', 523.25 * m, 523.25 * m, .004, 3.4, v, fx));
+
+  // --- music: Am | F | C | G  (roots per bar of 4 beats)
+  const roots = [55, 43.65, 65.41, 49.0], chords = [[220, 261.6, 329.6], [174.6, 220, 261.6], [196, 261.6, 329.6], [196, 246.9, 293.7]];
+  // intro (b0-b4): pulses + riser
+  [0, 1, 2].forEach(k => tick(b(k), .2));
+  pad(0, chords[0].map(f => f / 2), b(4), .03);
+  riser(b(2), b(4), .4); whoosh(b(1.9), .35, .25);
+  for (let k = 0; k < 15; k++) blip(b(2.2) + k * (b(3.1) - b(2.2)) / 15, 2000 + (k % 3) * 300, .05);
+  // drums b4..b33 with a drop before the pipeline (b16.5-b17)
+  for (let n = 4; n < 33; n++) {
+    const t = b(n), bar = Math.floor(n / 4) % 4;
+    if (!(n === 16)) kick(t);
+    if (n % 2 === 1 && n !== 17) clap(t);
+    if (n >= 8 && n !== 16) { hat(t + B / 2); hat(t + B / 4, .06); hat(t + 3 * B / 4, .06); }
+    if (n % 4 === 0) { sub(t, roots[bar], b(4) - .02); pad(t, chords[bar], b(4) - .01, n >= 8 ? .045 : .035); }
+  }
+  // brand slam
+  impact(b(4)); for (let i = 0; i < 10; i++) tick(b(4.25) + i * B / 4, .1); blip(b(6.75), 880, .2);
+  whoosh(b(7.2), b(.8), .45); impact(b(8));
+  // triplet
+  [8, 10, 12].forEach((n, i) => { blip(b(n), [660, 784, 988][i], .16); whoosh(b(n) - .05, .25, .2); });
+  blip(b(14), 1174, .14); noise(b(15.2), b(.7), 'bandpass', 900, 1.2, .25, .05, b(.6), fx, 2600); // highlighter swish
+  riser(b(15), b(16.5), .2); whoosh(b(16.4), b(.6), .5);
+  // pipeline
+  impact(b(17)); for (let k = 0; k < 3; k++) blip(b(17) + k * B / 2, 523 * (1 + k * .25), .12);
+  riser(b(19.5), b(21), .25); ding(b(20.75));
+  impact(b(22)); whoosh(b(22.2), b(.8), .45);
+  // product
+  whoosh(b(23), .3, .25); click(b(24.5)); for (let k = 0; k < 6; k++) tick(b(24.6) + k * (b(25.9) - b(24.6)) / 6, .08);
+  ding(b(25.9)); click(b(26.5)); for (let k = 0; k < 8; k++) tick(b(26.5) + k * (b(27.75) - b(26.5)) / 8, .07); click(b(27.8));
+  blip(b(27.25), 1568, .12); blip(b(27.35), 2093, .1); whoosh(b(28.4), b(.6), .45);
+  // data
+  impact(b(29)); [29, 29.5, 30, 30.5].forEach((n, i) => { blip(b(n), 880 + i * 220, .15); });
+  riser(b(31.5), b(33), .35); whoosh(b(32.45), b(.55), .35);
+  // end
+  impact(b(33)); ringOut(b(33)); pad(b(33), chords[0], b(6.5), .04); sub(b(33), 55, b(3));
+  ding(b(34.6)); for (let k = 0; k < 20; k++) tick(b(36) + k * (b(37.6) - b(36)) / 20, .05);
+};
+
+// ---------- preview / render mode ----------
+function fit() { if (RENDER) return; const s = Math.min(innerWidth / W, (innerHeight - 50) / H); stage.style.transform = `scale(${s})`; }
+if (RENDER) { $('ctl').remove(); document.body.style.background = 'transparent'; } else { addEventListener('resize', fit); fit(); }
+seek(0);
+if (!RENDER) {
+  let buf, ac, src, startAt = 0, offset = 0, playing = false;
+  async function play() { ac ??= new AudioContext(); if (!buf) { const off = new OfflineAudioContext(2, Math.ceil(48000 * VIDEO.duration), 48000); await buildAudio(off); buf = await off.startRendering(); } src = ac.createBufferSource(); src.buffer = buf; src.connect(ac.destination); src.start(0, offset % VIDEO.duration); startAt = ac.currentTime; playing = true; $('pp').textContent = 'Pause'; }
+  function pause() { if (!playing) return; offset += ac.currentTime - startAt; src.stop(); playing = false; $('pp').textContent = 'Play'; }
+  const now = () => playing ? (offset + ac.currentTime - startAt) % VIDEO.duration : offset;
+  $('pp').onclick = () => playing ? pause() : play();
+  $('scrub').oninput = e => { const was = playing; pause(); offset = e.target.value / 1000 * VIDEO.duration; if (was) play(); };
+  (function loop() { const t = now(); seek(t); $('tt').textContent = t.toFixed(2); if (playing) $('scrub').value = t / VIDEO.duration * 1000; requestAnimationFrame(loop); })();
+}
+</script>
+</body>
+</html>
