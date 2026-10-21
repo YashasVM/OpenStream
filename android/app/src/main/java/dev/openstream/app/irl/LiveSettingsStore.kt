@@ -22,7 +22,11 @@ class LiveSettingsStore internal constructor(
 
     fun load(platform: LivePlatform): LiveSettings = LiveSettings(
         platform = platform,
-        server = preferences.getString("server.${platform.name}", platform.server) ?: platform.server,
+        server = if (platform.serverHoldsSecrets) {
+            keys.loadSecret("server.${platform.name}") ?: platform.server
+        } else {
+            preferences.getString("server.${platform.name}", platform.server) ?: platform.server
+        },
         key = keys.load(platform),
         quality = LiveQuality.entries.firstOrNull { it.name == preferences.getString("quality", null) }
             ?: LiveQuality.P720,
@@ -30,10 +34,19 @@ class LiveSettingsStore internal constructor(
 
     fun save(settings: LiveSettings) {
         val editor = preferences.edit()
+        val serverName = "server.${settings.platform.name}"
         keys.write(editor, settings.platform, settings.key)
+        if (settings.platform.serverHoldsSecrets) {
+            keys.writeSecret(editor, serverName, settings.server)
+        } else {
+            editor.putString(serverName, settings.server)
+        }
         editor.putString("platform", settings.platform.name)
-            .putString("server.${settings.platform.name}", settings.server)
             .putString("quality", settings.quality.name)
             .apply()
     }
+
+    // Custom SRT URLs carry passphrase/streamid and custom RTMP URLs may embed the key.
+    private val LivePlatform.serverHoldsSecrets: Boolean
+        get() = this == LivePlatform.CUSTOM_RTMP || this == LivePlatform.CUSTOM_SRT
 }

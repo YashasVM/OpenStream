@@ -52,6 +52,37 @@ class LiveSettingsStoreTest {
     }
 
     @Test
+    fun customServersAreEncryptedBecauseTheyCarryCredentials() {
+        val srt = LiveSettings(LivePlatform.CUSTOM_SRT, "srt://ingest.example:9000?streamid=publish:secret-sid", "")
+        val rtmp = LiveSettings(LivePlatform.CUSTOM_RTMP, "rtmp://ingest.example/live/secret-path-key", "")
+        store.save(srt)
+        store.save(rtmp)
+
+        val reloaded = LiveSettingsStore(preferences, cipher)
+        assertEquals(srt, reloaded.load(LivePlatform.CUSTOM_SRT))
+        assertEquals(rtmp, reloaded.load())
+        assertFalse(preferences.all.values.any { it.toString().contains("secret-") })
+        assertFalse(preferences.all.values.any { it.toString().contains("ingest.example") })
+    }
+
+    @Test
+    fun plaintextCustomServerFromAnEarlierBuildIsDiscarded() {
+        preferences.edit().putString("server.CUSTOM_SRT", "srt://ingest.example:9000?streamid=sid").apply()
+
+        assertEquals(LiveSettings(LivePlatform.CUSTOM_SRT, ""), store.load(LivePlatform.CUSTOM_SRT))
+        assertFalse(preferences.contains("server.CUSTOM_SRT"))
+    }
+
+    @Test
+    fun blankCustomServerClearsItsCiphertext() {
+        store.save(LiveSettings(LivePlatform.CUSTOM_RTMP, "rtmp://ingest.example/live/key"))
+        store.save(LiveSettings(LivePlatform.CUSTOM_RTMP, " "))
+
+        assertFalse(preferences.contains("server.CUSTOM_RTMP"))
+        assertEquals("", store.load(LivePlatform.CUSTOM_RTMP).server)
+    }
+
+    @Test
     fun unknownEnumsFallBackWithoutDiscardingOtherSettings() {
         preferences.edit().putString("platform", "FUTURE_PLATFORM")
             .putString("quality", "FUTURE_QUALITY")

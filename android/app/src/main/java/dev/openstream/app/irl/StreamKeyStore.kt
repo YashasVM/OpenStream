@@ -19,21 +19,26 @@ internal class StreamKeyStore(
     private val preferences: SharedPreferences,
     private val cipher: StreamKeyCipher,
 ) {
-    fun load(platform: LivePlatform): String {
-        val name = "key.${platform.name}"
-        val encrypted = preferences.getString(name, null) ?: return ""
+    fun load(platform: LivePlatform): String = loadSecret("key.${platform.name}") ?: ""
+
+    fun write(editor: SharedPreferences.Editor, platform: LivePlatform, key: String) =
+        writeSecret(editor, "key.${platform.name}", key)
+
+    /** Decrypted value of preference [name], or null when absent or unreadable. */
+    fun loadSecret(name: String): String? {
+        val encrypted = preferences.getString(name, null) ?: return null
         return try {
             cipher.decrypt(encrypted)
         } catch (_: Exception) {
-            // Backups can restore ciphertext without its device-bound Keystore key.
+            // Backups can restore ciphertext without its device-bound Keystore key;
+            // a plaintext value from an earlier build is dropped the same way.
             preferences.edit().remove(name).apply()
-            ""
+            null
         }
     }
 
-    fun write(editor: SharedPreferences.Editor, platform: LivePlatform, key: String) {
-        val name = "key.${platform.name}"
-        if (key.isBlank()) editor.remove(name) else editor.putString(name, cipher.encrypt(key))
+    fun writeSecret(editor: SharedPreferences.Editor, name: String, value: String) {
+        if (value.isBlank()) editor.remove(name) else editor.putString(name, cipher.encrypt(value))
     }
 }
 
