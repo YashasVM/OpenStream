@@ -1,6 +1,6 @@
 {
   "updated": "2026-10-21",
-  "summary": "OpenStream-IRL APK builds, Android checks pass, and all eight relay/browser checks pass. The disk-backed relay is running on the Linux box without cloud storage or a credit card. Its private HTTPS route needs one admin command. Real-phone feedback is pending.",
+  "summary": "OpenStream-IRL APK builds, Android checks pass, and all eight relay/browser checks pass. The disk-backed relay and private Tailscale HTTPS endpoint are running on the Linux box without cloud storage or a credit card. Real-phone feedback is pending.",
   "items": [
     {
       "title": "Separate Android app",
@@ -46,8 +46,8 @@
     },
     {
       "title": "Enable private HTTPS access",
-      "detail": "One Linux-box admin command remains: sudo tailscale serve --bg --https=8443 http://127.0.0.1:8796. Existing port-443 service is preserved.",
-      "status": "pending",
+      "detail": "Private Tailscale Serve HTTPS on port 8443 returns HTTP 200 and proxies to the running relay. Existing port-443 service is preserved.",
+      "status": "implemented",
       "deviceTested": false
     },
     {
