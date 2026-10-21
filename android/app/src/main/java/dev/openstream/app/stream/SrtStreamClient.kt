@@ -22,7 +22,7 @@ data class SrtSendResult(
     val recoveryRequired: Boolean = false,
 )
 
-class SrtStreamClient {
+class SrtStreamClient : EncodedMediaSink {
     @Volatile private var connected = false
     private val sessionGeneration = AtomicLong()
     private val operationLock = Any()
@@ -70,7 +70,7 @@ class SrtStreamClient {
         }
     }
 
-    fun sendVideoAccessUnit(accessUnit: EncodedAccessUnit): SrtSendResult {
+    override fun sendVideoAccessUnit(accessUnit: EncodedAccessUnit): SrtSendResult {
         // Snapshot session state under lock; do not hold stateLock across the
         // JNI sendVideo() call so a concurrent disconnect() never blocks behind
         // a slow native mux/send. Stats are committed under lock only if the
@@ -117,7 +117,7 @@ class SrtStreamClient {
         return SrtSendResult(sent, generation, recoveryRequired = !sent)
     }
 
-    fun sendAudioAccessUnit(accessUnit: EncodedAccessUnit): SrtSendResult {
+    override fun sendAudioAccessUnit(accessUnit: EncodedAccessUnit): SrtSendResult {
         // Same lock discipline as video: snapshot under lock, native call
         // unlocked, stats commit under lock. Never hold stateLock across JNI.
         val generation: Long

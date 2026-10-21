@@ -164,7 +164,7 @@ class MainActivity : Activity() {
             channelCount = streamConfig.audioChannelCount,
             bitrate = streamConfig.audioBitrate,
             onEncodedAccessUnit = { accessUnit ->
-                val result = streamClient.sendAudioAccessUnit(accessUnit)
+                val result = encodedMediaSink.sendAudioAccessUnit(accessUnit)
                 if (result.recoveryRequired &&
                     streamClient.isCurrentSessionGeneration(result.sessionGeneration)
                 ) {
@@ -384,6 +384,9 @@ class MainActivity : Activity() {
         screenOffOverlay.setOnClickListener { toggleDisplayOff() }
     }
 
+    private val encodedMediaSink: dev.openstream.app.stream.EncodedMediaSink
+        get() = streamClient
+
     private fun createVideoEncoder(bitrate: Int): MediaCodecVideoEncoder {
         return MediaCodecVideoEncoder(
             preference = streamConfig.codecPreference,
@@ -393,7 +396,7 @@ class MainActivity : Activity() {
             bitrate = bitrate,
             keyframeIntervalSeconds = streamConfig.keyframeIntervalSeconds,
             onEncodedAccessUnit = { accessUnit ->
-                val result = streamClient.sendVideoAccessUnit(accessUnit)
+                val result = encodedMediaSink.sendVideoAccessUnit(accessUnit)
                 if (result.recoveryRequired &&
                     streamClient.isCurrentSessionGeneration(result.sessionGeneration)
                 ) {
