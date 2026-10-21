@@ -116,6 +116,8 @@ class IrlActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Server URLs may contain credentials; protect Recents and screenshots, including the live HUD.
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         setContentView(R.layout.activity_irl)
         // Translucent system bars stop adjustResize from working; pan keeps the focused field visible.
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN)
@@ -146,7 +148,7 @@ class IrlActivity : Activity() {
     }
 
     override fun onPause() {
-        // Mask before the recents snapshot and persist whatever the form holds.
+        // Hide revealed keys when leaving and persist whatever the form holds.
         setKeyVisible(false)
         runCatching { settingsStore.save(formSettings()) }
         // MainActivity.onStart reopens its camera before this onStop runs; free ours first when leaving idle.
@@ -188,12 +190,17 @@ class IrlActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode != PERMISSIONS_REQUEST_CODE) return
         if (!granted(Manifest.permission.CAMERA)) {
-            showFormError(getString(R.string.irl_camera_required), null)
+            val message = if (shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)) {
+                R.string.irl_camera_required
+            } else {
+                R.string.irl_camera_settings_required
+            }
+            showFormError(getString(message), null)
             return
         }
         attachPreviewIfReady()
         render(hud)
-        requestGoLive()
+        requestGoLive(askPermissions = false)
     }
 
     // ─────────────────────────── Views ───────────────────────────
@@ -263,8 +270,16 @@ class IrlActivity : Activity() {
 
     private fun selectPlatform(next: LivePlatform) {
         if (next == platform) return
-        serverInput.setText(IrlUi.serverForPlatformSwitch(serverInput.text.toString(), next))
-        platform = next
+        val current = formSettings()
+        val destination = runCatching {
+            settingsStore.save(current)
+            settingsStore.load(next)
+        }.getOrElse {
+            showFormError(getString(R.string.irl_profile_unavailable), null)
+            return
+        }
+        setKeyVisible(false)
+        loadSettings(IrlUi.settingsForPlatformSwitch(current, destination))
         clearFormError()
         renderForm()
     }
@@ -315,7 +330,7 @@ class IrlActivity : Activity() {
 
     // ─────────────────────────── Go live / stop ───────────────────────────
 
-    private fun requestGoLive() {
+    private fun requestGoLive(askPermissions: Boolean = true) {
         if (IrlUi.isActive(hud.status)) return
         val settings = formSettings()
         val validation = IrlUi.validate(settings)
@@ -326,8 +341,8 @@ class IrlActivity : Activity() {
         }
         clearFormError()
         runCatching { settingsStore.save(settings) }
-        val missing = requiredPermissions().filterNot(::granted)
-        if (missing.isNotEmpty()) {
+        val missing = requestedPermissions().filterNot(::granted)
+        if (askPermissions && missing.isNotEmpty()) {
             requestPermissions(missing.toTypedArray(), PERMISSIONS_REQUEST_CODE)
             return
         }
@@ -381,7 +396,8 @@ class IrlActivity : Activity() {
         }
     }
 
-    private fun requiredPermissions(): List<String> = buildList {
+    // Camera is required; denied microphone/notification requests still proceed to confirmation.
+    private fun requestedPermissions(): List<String> = buildList {
         add(Manifest.permission.CAMERA)
         add(Manifest.permission.RECORD_AUDIO)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)

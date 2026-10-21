@@ -85,6 +85,8 @@
     <string name="irl_confirm_stop">End stream</string>
     <string name="irl_cancel">Cancel</string>
     <string name="irl_camera_required">Camera access is required to go live.</string>
+    <string name="irl_camera_settings_required">Camera access is required to go live. Enable Camera in Settings → Apps → OpenStream → Permissions.</string>
+    <string name="irl_profile_unavailable">Could not save or load this platform\'s settings. Try again.</string>
     <string name="irl_service_unavailable">IRL streaming is not available in this build.</string>
     <string name="irl_continues_in_notification">Still live. Control the stream from the notification.</string>
 </resources>
