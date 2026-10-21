@@ -55,4 +55,36 @@
     <string name="screen_off_overlay_description">Screen dimmed. Tap to restore controls.</string>
     <string name="settings_save_connect">Save &amp; Connect</string>
     <string name="settings_save">Save Settings</string>
+
+    <!-- IRL Live (Beta): phone streams straight to a platform, no PC. -->
+    <string name="irl_entry">IRL Live · Beta</string>
+    <string name="irl_entry_description">Open IRL Live (Beta): stream directly to Twitch, YouTube, Kick, Facebook or a custom server</string>
+    <string name="irl_title">IRL Live</string>
+    <string name="irl_beta">BETA</string>
+    <string name="irl_back_to_obs">‹ OBS</string>
+    <string name="irl_back_to_obs_description">Back to OBS mode</string>
+    <string name="irl_label_platform">PLATFORM</string>
+    <string name="irl_label_server">SERVER</string>
+    <string name="irl_label_key">STREAM KEY</string>
+    <string name="irl_label_quality">QUALITY</string>
+    <string name="irl_key_show">Show</string>
+    <string name="irl_key_hide">Hide</string>
+    <string name="irl_key_show_description">Show or hide the stream key</string>
+    <string name="irl_go_live">Go Live</string>
+    <string name="irl_stop">Stop</string>
+    <string name="irl_mute">Mic on</string>
+    <string name="irl_muted">Muted</string>
+    <string name="irl_no_mic">No mic</string>
+    <string name="irl_dim">Dim</string>
+    <string name="irl_thermal_warning">Phone is running hot. Quality may drop to protect it.</string>
+    <string name="irl_screen_off_hint">Still live · tap to wake</string>
+    <string name="irl_confirm_go_live_title">Go live on %1$s?</string>
+    <string name="irl_confirm_go_live">Go live</string>
+    <string name="irl_confirm_stop_title">End the stream?</string>
+    <string name="irl_confirm_stop_message">Viewers will see the stream end.</string>
+    <string name="irl_confirm_stop">End stream</string>
+    <string name="irl_cancel">Cancel</string>
+    <string name="irl_camera_required">Camera access is required to go live.</string>
+    <string name="irl_service_unavailable">IRL streaming is not available in this build.</string>
+    <string name="irl_continues_in_notification">Still live. Control the stream from the notification.</string>
 </resources>

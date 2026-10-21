@@ -35,4 +35,9 @@
     <dimen name="os_border_thin">1dp</dimen>
     
     <dimen name="os_preview_height">0dp</dimen>
+
+    <!-- ── IRL Live ── -->
+    <dimen name="irl_go_live_height">64dp</dimen>
+    <dimen name="irl_status_dot">8dp</dimen>
+    <dimen name="irl_label_gap">8dp</dimen>
 </resources>
