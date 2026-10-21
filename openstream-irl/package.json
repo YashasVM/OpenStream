@@ -1,0 +1,23 @@
+{
+  "name": "openstream-irl",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node self-hosted/server.mjs",
+    "start": "node self-hosted/server.mjs",
+    "selfhost": "node self-hosted/server.mjs",
+    "vendor": "node self-hosted/vendor.mjs",
+    "build": "npm run vendor && node self-hosted/check.mjs",
+    "test": "node --test self-hosted/*.test.mjs tests/watch.test.mjs"
+  },
+  "dependencies": {
+    "hls.js": "1.6.16"
+  },
+  "devDependencies": {
+    "wrangler": "4.151.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

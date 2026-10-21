@@ -1,0 +1,90 @@
+{
+  "updated": "2026-10-21",
+  "summary": "OpenStream-IRL APK builds, Android checks pass, and all eight relay/browser checks pass. The disk-backed relay is running on the Linux box without cloud storage or a credit card. Its private HTTPS route needs one admin command. Real-phone feedback is pending.",
+  "items": [
+    {
+      "title": "Separate Android app",
+      "detail": "OpenStream-IRL installs as dev.openstream.irl alongside OpenStream. APK build, JVM checks, and Android lint pass.",
+      "status": "implemented",
+      "deviceTested": false
+    },
+    {
+      "title": "Camera and microphone segments",
+      "detail": "H.264/AAC MPEG-TS segments with keyframes. Native mux output decodes with FFmpeg; phone capture awaits feedback.",
+      "status": "implemented",
+      "deviceTested": false
+    },
+    {
+      "title": "Disk queue and upload retries",
+      "detail": "Phone saves closed segments, retries lost acknowledgements, and drains backlogs in bursts. Capture stops at the queue limit.",
+      "status": "implemented",
+      "deviceTested": false
+    },
+    {
+      "title": "Saved private pairing",
+      "detail": "Pair once with separate publish and viewing credentials. The phone saves its connection.",
+      "status": "implemented",
+      "deviceTested": false
+    },
+    {
+      "title": "OBS browser receiver",
+      "detail": "HLS playback with a 6\u201330 second recovery delay. Synthetic video decoded in a browser; initial connection retry is covered.",
+      "status": "implemented",
+      "deviceTested": false
+    },
+    {
+      "title": "Disk-backed authenticated relay",
+      "detail": "Node relay authenticates ordered uploads, persists pairing and video on disk, and prunes idle video. Five real-HTTP checks pass.",
+      "status": "implemented",
+      "deviceTested": false
+    },
+    {
+      "title": "Linux box hosting",
+      "detail": "Persistent user service is active and serves the pairing page. Session creation works on Node 22; no R2 or credit card is needed.",
+      "status": "implemented",
+      "deviceTested": false
+    },
+    {
+      "title": "Enable private HTTPS access",
+      "detail": "One Linux-box admin command remains: sudo tailscale serve --bg --https=8443 http://127.0.0.1:8796. Existing port-443 service is preserved.",
+      "status": "pending",
+      "deviceTested": false
+    },
+    {
+      "title": "Wi-Fi and mobile-data handoffs",
+      "detail": "User to verify continuous picture, automatic recovery, and queued uploads on real mobile networks.",
+      "status": "pending",
+      "deviceTested": false
+    },
+    {
+      "title": "Real-phone picture and audio",
+      "detail": "Verify camera start, framing, microphone audio, and lip-sync in OBS on the user's Android phone.",
+      "status": "pending",
+      "deviceTested": false
+    },
+    {
+      "title": "Long-session reliability",
+      "detail": "Measure temperature, battery use, storage growth, and audio drift over an extended real session.",
+      "status": "pending",
+      "deviceTested": false
+    },
+    {
+      "title": "Background and screen-off capture",
+      "detail": "Current build requires the camera screen open. A foreground capture service is not implemented.",
+      "status": "pending",
+      "deviceTested": false
+    },
+    {
+      "title": "Automatic bitrate adaptation",
+      "detail": "Manual 1\u201312 Mbps selection is implemented. Automatic changes based on mobile bandwidth are pending.",
+      "status": "pending",
+      "deviceTested": false
+    },
+    {
+      "title": "Automatic orientation",
+      "detail": "Video uses the sensor's native orientation. Rotate in OBS as needed; automatic pixel rotation is pending.",
+      "status": "pending",
+      "deviceTested": false
+    }
+  ]
+}

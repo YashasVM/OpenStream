@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Implementation progress and outstanding real-phone verification for OpenStream-IRL.">
+  <title>OpenStream-IRL progress</title>
+  <link rel="stylesheet" href="/irl/style.css">
+  <script type="module" src="/irl/app.js"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">Development status</p>
+      <h1>OpenStream-IRL</h1>
+      <p class="intro">A separate OpenStream product for sending a phone's camera to OBS over the internet. No Tailscale or VPN required.</p>
+      <p><a href="https://github.com/YashasVM/OpenStream/pull/87">Follow implementation in PR #87 ↗</a></p>
+    </header>
+    <aside aria-label="Verification notice">
+      <strong>Real-phone verification pending</strong>
+      <p id="summary">Implementation is underway. Build verification and real-phone feedback are still pending. No field reliability or streaming success has been verified.</p>
+      <p>Android emulator testing is excluded. Device checks will use the user's real phone.</p>
+    </aside>
+    <section aria-labelledby="counts-title">
+      <h2 id="counts-title">At a glance</h2>
+      <p id="load-status" role="status">Loading status data…</p>
+      <dl class="counts" id="counts" hidden></dl>
+      <p class="muted">Implemented, in progress, and pending are separate states. “Not device tested” overlaps those states and does not imply a working feature.</p>
+    </section>
+    <section aria-labelledby="work-title">
+      <h2 id="work-title">Implementation checklist</h2>
+      <p class="muted">Implemented means the code and build checks have been verified. It does not establish real-world reliability.</p>
+      <ul id="items" class="items"></ul>
+      <noscript><p>JavaScript is needed to show the checklist and counts. <a href="/irl/status.json">Read the status JSON</a>.</p></noscript>
+    </section>
+    <footer><p>Last status update: <time id="updated">loading</time> · <a href="/irl/status.json">Status JSON</a></p></footer>
+  </main>
+</body>
+</html>
