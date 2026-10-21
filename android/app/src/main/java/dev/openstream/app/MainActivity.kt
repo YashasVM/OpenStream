@@ -33,6 +33,7 @@ import dev.openstream.app.discovery.ObsDiscoveryClient
 import dev.openstream.app.discovery.PhoneDiscoveryAdvertiser
 import dev.openstream.app.encoder.MediaCodecAudioEncoder
 import dev.openstream.app.encoder.MediaCodecVideoEncoder
+import dev.openstream.app.irl.IrlActivity
 import dev.openstream.app.stream.ConnectionTarget
 import dev.openstream.app.stream.StreamConfig
 import dev.openstream.app.stream.SrtStreamClient
@@ -373,6 +374,10 @@ class MainActivity : Activity() {
             val intent = Intent(this, SettingsActivity::class.java)
             @Suppress("DEPRECATION")
             startActivityForResult(intent, SETTINGS_REQUEST_CODE)
+        }
+        // IRL Live is its own screen; this activity's onStop tears down OBS mode while it is on top.
+        findViewById<View>(R.id.btnIrlLive).setOnClickListener {
+            startActivity(Intent(this, IrlActivity::class.java))
         }
         btnStop.setOnClickListener {
             stopPhoneServer(clearReservation = true)
