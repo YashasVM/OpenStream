@@ -39,6 +39,26 @@ import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 
 /**
+ * Tracks the latest IRL run started by the service (main thread only). A
+ * session end only releases foreground when it belongs to that run, so an end
+ * from a replaced run, delivered late, cannot drop a newer stream's protection.
+ */
+internal class LiveRunTracker {
+    private var current = IrlSession.NO_RUN
+
+    fun begin(run: Long) {
+        current = run
+    }
+
+    /** True when [run] is the current run, which is then over. */
+    fun end(run: Long): Boolean {
+        if (run == IrlSession.NO_RUN || run != current) return false
+        current = IrlSession.NO_RUN
+        return true
+    }
+}
+
+/**
  * Foreground service owning IRL capture, encoding and publishing. It is both
  * started and bound: the activity binds for control, and the started state keeps
  * a live session running after the activity unbinds (screen off, background).
@@ -62,6 +82,8 @@ class IrlStreamService : Service() {
     private var foreground = false
     private var endpointLabel = ""
     private var notifiedText: String? = null
+    // Main thread: only the latest run's end may drop foreground.
+    private val runs = LiveRunTracker()
 
     // Camera state; Camera2Controller is internally synchronized, these fields use cameraLock.
     private val cameraLock = Any()
@@ -113,6 +135,7 @@ class IrlStreamService : Service() {
             clock = SystemClock::elapsedRealtime,
             mediaClock = { MediaClockSample(System.nanoTime() / 1000, SystemClock.elapsedRealtimeNanos() / 1000) },
             onHud = ::onSessionHud,
+            onRunEnded = ::onSessionRunEnded,
         )
         session.setLens(lens)
         networkMonitor = NetworkMonitor(this) { id, label -> session.onNetworkChanged(id, label) }
@@ -190,20 +213,26 @@ class IrlStreamService : Service() {
             onSessionHud(hud.copy(status = LiveStatus.Error(error)))
             return
         }
-        session.start(settings)
+        runs.begin(session.start(settings))
     }
 
+    /** HUDs only update the UI and notification; foreground follows run ends. */
     private fun onSessionHud(next: LiveHud) {
         hud = next
         mainHandler.post {
             hudListeners.toList().forEach { it(next) }
-            when (next.status) {
-                is LiveStatus.Idle, is LiveStatus.Error -> {
-                    leaveForeground()
-                    if (!bound) stopSelf()
-                }
-                else -> if (foreground) updateNotification(next.status)
+            if (foreground && next.status !is LiveStatus.Idle && next.status !is LiveStatus.Error) {
+                updateNotification(next.status)
             }
+        }
+    }
+
+    /** Posted after the run's final HUD; an end from a replaced run is ignored. */
+    private fun onSessionRunEnded(run: Long) {
+        mainHandler.post {
+            if (!runs.end(run)) return@post
+            leaveForeground()
+            if (!bound) stopSelf()
         }
     }
 
