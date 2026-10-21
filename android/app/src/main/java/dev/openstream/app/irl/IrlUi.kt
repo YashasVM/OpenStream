@@ -72,12 +72,12 @@ object IrlUi {
 
     fun showsKey(platform: LivePlatform): Boolean = platform != LivePlatform.CUSTOM_SRT
 
-    /** Swap in the new preset unless the user typed their own server. */
-    fun serverForPlatformSwitch(currentServer: String, newPlatform: LivePlatform): String {
-        val current = currentServer.trim()
-        val untouched = current.isEmpty() || LivePlatform.entries.any { it.server.isNotEmpty() && it.server == current }
-        return if (untouched) newPlatform.server else currentServer
-    }
+    /** Typed servers belong to their saved platform; only quality carries across platforms. */
+    fun settingsForPlatformSwitch(current: LiveSettings, destination: LiveSettings): LiveSettings =
+        destination.copy(
+            server = destination.server.ifBlank { destination.platform.server },
+            quality = current.quality,
+        )
 
     fun qualityDetail(quality: LiveQuality, platform: LivePlatform): String {
         val effective = quality.bitrate(platform)

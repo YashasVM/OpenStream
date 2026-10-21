@@ -76,12 +76,32 @@ class IrlUiTest {
     }
 
     @Test
-    fun platformSwitchReplacesPresetsButKeepsTypedServers() {
-        assertEquals(LivePlatform.YOUTUBE.server, IrlUi.serverForPlatformSwitch(LivePlatform.TWITCH.server, LivePlatform.YOUTUBE))
-        assertEquals(LivePlatform.FACEBOOK.server, IrlUi.serverForPlatformSwitch("  ", LivePlatform.FACEBOOK))
-        assertEquals("", IrlUi.serverForPlatformSwitch(LivePlatform.TWITCH.server, LivePlatform.KICK))
-        val typed = "rtmp://my.box/live"
-        assertEquals(typed, IrlUi.serverForPlatformSwitch(typed, LivePlatform.CUSTOM_SRT))
+    fun platformSwitchLoadsDestinationCredentialsAndKeepsQuality() {
+        val twitch = LiveSettings(LivePlatform.TWITCH, "rtmps://custom.twitch/app", "twitch-key", LiveQuality.P1080)
+        val youtube = LiveSettings(LivePlatform.YOUTUBE, "rtmps://custom.youtube/live2", "youtube-key", LiveQuality.P480)
+
+        assertEquals(
+            LiveSettings(LivePlatform.YOUTUBE, "rtmps://custom.youtube/live2", "youtube-key", LiveQuality.P1080),
+            IrlUi.settingsForPlatformSwitch(twitch, youtube),
+        )
+        assertEquals(
+            LiveSettings(LivePlatform.TWITCH, "rtmps://custom.twitch/app", "twitch-key", LiveQuality.P480),
+            IrlUi.settingsForPlatformSwitch(youtube, twitch),
+        )
+    }
+
+    @Test
+    fun platformSwitchUsesDestinationPresetWithoutCopyingOutgoingCredentials() {
+        val current = LiveSettings(LivePlatform.CUSTOM_RTMP, "rtmps://my.box/live/secret", "outgoing-key", LiveQuality.P720_60)
+        val destination = LiveSettings(LivePlatform.YOUTUBE, "  ", "", LiveQuality.P480)
+        assertEquals(
+            LiveSettings(LivePlatform.YOUTUBE, LivePlatform.YOUTUBE.server, "", LiveQuality.P720_60),
+            IrlUi.settingsForPlatformSwitch(current, destination),
+        )
+        assertEquals(
+            LiveSettings(LivePlatform.CUSTOM_SRT, "", "", LiveQuality.P720_60),
+            IrlUi.settingsForPlatformSwitch(current, LiveSettings(LivePlatform.CUSTOM_SRT, "", "", LiveQuality.P480)),
+        )
     }
 
     @Test
