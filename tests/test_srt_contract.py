@@ -34,6 +34,8 @@ def test_kotlin_native_methods_match_jni_exports():
         "nativeSendVideo",
         "nativeSendAudio",
         "nativeDisconnect",
+        "nativeConnectError",
+        "nativeStats",
     }
     assert native_methods == kotlin_methods
 
@@ -300,7 +302,10 @@ def test_media_send_cannot_cross_disconnect_or_reconnect_boundary():
     # Disconnect invalidates the Kotlin generation and passes that new generation
     # to native teardown while holding the same lock used by both media send paths.
     disconnect_locked = block_after(disconnect, "synchronized(stateLock)")
-    assert "val generation = sessionGeneration.incrementAndGet()" in disconnect_locked
+    # Generations come from a process-wide allocator: the native session is
+    # global and rejects generations older than its current one.
+    assert "val generation = nextSessionGeneration()" in disconnect_locked
+    assert "sessionGeneration.set(generation)" in disconnect_locked
     assert "connected = false" in disconnect_locked
     assert "SrtNativeBridge.disconnect(generation)" in disconnect_locked
 
@@ -308,7 +313,7 @@ def test_media_send_cannot_cross_disconnect_or_reconnect_boundary():
     # native generation before connect/listen can publish any socket.
     establish_locked = block_after(establish, "synchronized(stateLock)")
     assert "connected = false" in establish_locked
-    assert establish_locked.index("connected = false") < establish_locked.index("sessionGeneration.incrementAndGet()")
+    assert establish_locked.index("connected = false") < establish_locked.index("nextSessionGeneration()")
     assert "SrtNativeBridge.beginSession(generation)" in establish_locked
     native_operation_index = establish.index("val didConnect = nativeOperation(generation)")
     assert establish.index("val generation = synchronized(stateLock)") < native_operation_index

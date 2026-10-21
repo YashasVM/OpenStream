@@ -436,7 +436,29 @@ struct SrtUrl {
   std::string port;
   uint16_t portNumber = 0;
   int latencyMs = 120;
+  bool irl = false;
+  std::optional<std::string> streamId;
+  std::optional<std::string> passphrase;
+  int pbkeylen = 16;
 };
+
+std::optional<std::string> percentDecode(const std::string &value) {
+  std::string decoded;
+  for (size_t i = 0; i < value.size(); ++i) {
+    char byte = value[i];
+    if (byte == '%') {
+      if (i + 2 >= value.size()) return std::nullopt;
+      unsigned int hex = 0;
+      const auto result = std::from_chars(value.data() + i + 1, value.data() + i + 3, hex, 16);
+      if (result.ec != std::errc{} || result.ptr != value.data() + i + 3) return std::nullopt;
+      byte = static_cast<char>(hex);
+      i += 2;
+    }
+    if (byte == '\0') return std::nullopt;
+    decoded.push_back(byte); // A literal '+' is not a form-encoded space.
+  }
+  return decoded;
+}
 
 std::optional<SrtUrl> parseSrtUrl(const std::string &url) {
   constexpr const char *scheme = "srt://";
@@ -470,6 +492,55 @@ std::optional<SrtUrl> parseSrtUrl(const std::string &url) {
 
   if (queryStart != std::string::npos) {
     const std::string query = url.substr(queryStart + 1);
+    // Detect the opt-in before applying stricter IRL validation. OBS URLs keep
+    // their original permissive parser, defaults, and 80–200 ms latency clamp.
+    std::vector<std::pair<std::string, std::string>> options;
+    size_t start = 0;
+    while (start < query.size()) {
+      const size_t end = query.find('&', start);
+      const std::string part = query.substr(start, end == std::string::npos ? end : end - start);
+      const size_t equals = part.find('=');
+      if (!part.empty()) {
+        const std::string key = part.substr(0, equals);
+        const std::string value = equals == std::string::npos ? "" : part.substr(equals + 1);
+        options.emplace_back(key, value);
+        if (key == "irl" && percentDecode(value) == std::optional<std::string>("1")) parsed.irl = true;
+      }
+      if (end == std::string::npos) break;
+      start = end + 1;
+    }
+    if (parsed.irl) {
+      parsed.latencyMs = 2000;
+      std::map<std::string, std::string> values;
+      for (const auto &[key, rawValue] : options) {
+        if (key != "irl" && key != "mode" && key != "latency" && key != "streamid" &&
+            key != "passphrase" && key != "pbkeylen") return std::nullopt;
+        const auto value = percentDecode(rawValue);
+        if (!value || !values.emplace(key, *value).second) return std::nullopt;
+      }
+      if (values["irl"] != "1" ||
+          (values.count("mode") && values["mode"] != "caller")) return std::nullopt;
+      for (const char *key : {"latency", "pbkeylen"}) {
+        const auto entry = values.find(key);
+        if (entry == values.end()) continue;
+        const std::string &value = entry->second;
+        int number = 0;
+        const auto result = std::from_chars(value.data(), value.data() + value.size(), number);
+        if (result.ec != std::errc{} || result.ptr != value.data() + value.size()) return std::nullopt;
+        if (std::strcmp(key, "latency") == 0) parsed.latencyMs = std::clamp(number, 500, 5000);
+        else parsed.pbkeylen = number;
+      }
+      if (parsed.pbkeylen != 16 && parsed.pbkeylen != 24 && parsed.pbkeylen != 32) return std::nullopt;
+      if (values.count("streamid")) {
+        parsed.streamId = values["streamid"];
+        if (parsed.streamId->size() > 512) return std::nullopt;
+      }
+      if (values.count("passphrase")) {
+        parsed.passphrase = values["passphrase"];
+        if (parsed.passphrase->size() < 10 || parsed.passphrase->size() > 79) return std::nullopt;
+      }
+      return parsed;
+    }
     size_t offset = 0;
     while (offset < query.size()) {
       const size_t amp = query.find('&', offset);
@@ -494,6 +565,52 @@ std::optional<SrtUrl> parseSrtUrl(const std::string &url) {
 
   return parsed;
 }
+
+#if OPENSTREAM_HAVE_LIBSRT
+bool configureIrlSocket(SRTSOCKET socket, const SrtUrl &url, std::string &error) {
+  const auto set = [&](SRT_SOCKOPT option, const void *value, int size, const char *name) {
+    if (srt_setsockopt(socket, 0, option, value, size) == 0) return true;
+    error = std::string("CONFIG: Could not set SRT ") + name;
+    return false;
+  };
+  const int yes = 1, type = SRTT_LIVE, payload = 188 * 7, sendTimeout = 120;
+  const int connectTimeout = 5000, idleTimeout = 10000;
+  if (!set(SRTO_TRANSTYPE, &type, sizeof type, "transport type") ||
+      !set(SRTO_SENDER, &yes, sizeof yes, "sender mode") ||
+      !set(SRTO_PAYLOADSIZE, &payload, sizeof payload, "payload size") ||
+      !set(SRTO_SNDTIMEO, &sendTimeout, sizeof sendTimeout, "send timeout") ||
+      !set(SRTO_TLPKTDROP, &yes, sizeof yes, "late packet dropping") ||
+      !set(SRTO_CONNTIMEO, &connectTimeout, sizeof connectTimeout, "connect timeout") ||
+      !set(SRTO_PEERIDLETIMEO, &idleTimeout, sizeof idleTimeout, "peer idle timeout") ||
+      !set(SRTO_LATENCY, &url.latencyMs, sizeof url.latencyMs, "latency") ||
+      !set(SRTO_PEERLATENCY, &url.latencyMs, sizeof url.latencyMs, "peer latency")) return false;
+  if (url.streamId && !set(SRTO_STREAMID, url.streamId->data(),
+                          static_cast<int>(url.streamId->size()), "stream ID")) return false;
+  // The parser already bounds pbkeylen and passphrase length, so a failure here
+  // means this libsrt build lacks encryption support (SRT_ENABLE_ENCRYPTION).
+  if (url.passphrase &&
+      (srt_setsockopt(socket, 0, SRTO_PBKEYLEN, &url.pbkeylen, sizeof url.pbkeylen) != 0 ||
+       srt_setsockopt(socket, 0, SRTO_PASSPHRASE, url.passphrase->data(),
+                      static_cast<int>(url.passphrase->size())) != 0)) {
+    error = "CONFIG: SRT passphrase encryption is not supported by this build";
+    return false;
+  }
+  return true;
+}
+
+std::string irlConnectFailure(int rejectReason) {
+  const std::string suffix = " (reject reason " + std::to_string(rejectReason) + ")";
+  if (rejectReason == SRT_REJ_BADSECRET || rejectReason == SRT_REJ_UNSECURE)
+    return "AUTH: SRT passphrase rejected" + suffix;
+  if (rejectReason == SRT_REJ_PEER || rejectReason == 1401 || rejectReason == 1403 || rejectReason >= 2000)
+    return "AUTH: SRT publishing rejected; check stream ID and credentials" + suffix;
+  if (rejectReason == SRT_REJ_VERSION || rejectReason == SRT_REJ_MESSAGEAPI ||
+      rejectReason == SRT_REJ_CONGESTION || rejectReason == SRT_REJ_FILTER ||
+      rejectReason == SRT_REJ_GROUP || (rejectReason >= 1000 && rejectReason < 1500 && rejectReason != 1402))
+    return "CONFIG: SRT ingest options rejected" + suffix;
+  return "TRANSIENT: SRT connection failed or timed out" + suffix;
+}
+#endif
 
 class NativeSender {
  public:
@@ -531,14 +648,17 @@ class NativeSender {
   }
 
   bool connect(const std::string &url, uint64_t expectedLifecycleGeneration) {
+    setConnectError("TRANSIENT: SRT connection failed");
 #if OPENSTREAM_HAVE_LIBSRT
     disconnect();
     const auto parsed = parseSrtUrl(url);
     if (!parsed) {
+      setConnectError("CONFIG: Invalid SRT publish URL");
       logError("Invalid SRT URL");
       return false;
     }
     if (!srtStarted_) {
+      setConnectError("CONFIG: libsrt runtime unavailable");
       logError("libsrt runtime is unavailable");
       return false;
     }
@@ -554,6 +674,14 @@ class NativeSender {
       return false;
     }
 
+    if (parsed->irl) {
+      std::string error;
+      if (!configureIrlSocket(socket, *parsed, error)) {
+        setConnectError(error);
+        disconnect();
+        return false;
+      }
+    } else {
     int yes = 1;
     int transportType = SRTT_LIVE;
     int payloadSize = 188 * 7;
@@ -571,6 +699,7 @@ class NativeSender {
     const int latency = parsed->latencyMs;
     srt_setsockopt(socket, 0, SRTO_LATENCY, &latency, sizeof latency);
     srt_setsockopt(socket, 0, SRTO_PEERLATENCY, &latency, sizeof latency);
+    }
 
     addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
@@ -592,6 +721,11 @@ class NativeSender {
     freeaddrinfo(result);
 
     if (!connected) {
+      if (parsed->irl) {
+        setConnectError(irlConnectFailure(srt_getrejectreason(socket)));
+        disconnect();
+        return false;
+      }
       __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT connect failed: %s", srt_getlasterror_str());
       disconnect();
       return false;
@@ -600,9 +734,34 @@ class NativeSender {
     return true;
 #else
     (void)url;
+    setConnectError("CONFIG: Native SRT library built without libsrt");
     logError("openstream_srt was built without libsrt. Rebuild with OPENSTREAM_ENABLE_LIBSRT=ON.");
     return false;
 #endif
+  }
+
+  std::string connectError() {
+    std::lock_guard<std::mutex> lock(connectErrorMutex_);
+    return connectError_;
+  }
+
+  std::array<jlong, 5> publisherStats() {
+    std::array<jlong, 5> result{};
+#if OPENSTREAM_HAVE_LIBSRT
+    {
+      std::lock_guard<std::mutex> lock(socketMutex_);
+      SRT_TRACEBSTATS perf{};
+      if (socket_ != SRT_INVALID_SOCK && srt_bistats(socket_, &perf, 0, 1) == 0) {
+        result[0] = static_cast<jlong>(perf.byteSentUniqueTotal);
+        result[1] = perf.pktSndDropTotal;
+        result[2] = perf.pktSndBuf;
+        result[3] = perf.msSndBuf;
+      }
+    }
+    std::lock_guard<std::mutex> lock(sendQueueMutex_);
+    result[4] = static_cast<jlong>(sendQueue_.size());
+#endif
+    return result;
   }
 
   bool listen(const std::string &url, uint64_t expectedLifecycleGeneration) {
@@ -843,6 +1002,14 @@ class NativeSender {
   }
 
  private:
+  void setConnectError(const std::string &error) {
+    std::lock_guard<std::mutex> lock(connectErrorMutex_);
+    connectError_ = error;
+  }
+
+  std::mutex connectErrorMutex_;
+  std::string connectError_;
+
   struct PendingSend {
     uint64_t generation;
     std::vector<uint8_t> bytes;
@@ -1071,9 +1238,33 @@ Java_dev_openstream_app_stream_SrtNativeBridge_nativeConnect(
     }
   }
   if (published) {
+    if (const auto parsed = parseSrtUrl(urlString); parsed && parsed->irl) {
+      logInfo("Connected IRL SRT MPEG-TS publisher");
+      return JNI_TRUE;
+    }
     __android_log_print(ANDROID_LOG_INFO, kTag, "Connected SRT MPEG-TS sender to %s", urlString.c_str());
   }
   return published ? JNI_TRUE : JNI_FALSE;
+}
+
+// OBS and IRL intentionally share one process-global native session. The app
+// must stop the current mode before starting the other.
+extern "C" JNIEXPORT jstring JNICALL
+Java_dev_openstream_app_stream_SrtNativeBridge_nativeConnectError(JNIEnv *env, jobject) {
+  return env->NewStringUTF(g_state.sender.connectError().c_str());
+}
+
+extern "C" JNIEXPORT jlongArray JNICALL
+Java_dev_openstream_app_stream_SrtNativeBridge_nativeStats(
+    JNIEnv *env, jobject, jlong session_generation) {
+  std::lock_guard<std::mutex> lock(g_state.mediaMutex);
+  std::array<jlong, 5> values{};
+  if (static_cast<uint64_t>(session_generation) == g_state.mediaSessionGeneration && g_state.connected) {
+    values = g_state.sender.publisherStats();
+  }
+  jlongArray result = env->NewLongArray(values.size());
+  if (result) env->SetLongArrayRegion(result, 0, values.size(), values.data());
+  return result;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
