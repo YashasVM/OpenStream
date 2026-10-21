@@ -11,7 +11,13 @@ import dev.openstream.app.encoder.EncodedAccessUnit
 
 data class LiveVideoParams(val width: Int, val height: Int, val fps: Int, val bitrate: Int, val keyframeIntervalSeconds: Int = 2)
 
-data class LiveAudioParams(val sampleRate: Int = 48_000, val channelCount: Int = 2, val bitrate: Int = 128_000)
+/** [enabled] is false when the stream is video-only (e.g. microphone permission denied). */
+data class LiveAudioParams(
+    val sampleRate: Int = 48_000,
+    val channelCount: Int = 2,
+    val bitrate: Int = 128_000,
+    val enabled: Boolean = true,
+)
 
 data class LiveTransportStats(
     val sentBitrate: Long = 0,

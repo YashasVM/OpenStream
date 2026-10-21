@@ -76,11 +76,16 @@ class IrlStreamService : Service() {
     private var sink: PreviewSink? = null
     @Volatile private var muted = false
 
+    // Enumeration queries every camera's characteristics; the UI asks often, from the main thread.
+    private val lenses: List<CameraLens> by lazy {
+        Camera2Controller(this, previewSurfaceProvider = { error("Enumeration only") }).availableLenses()
+    }
+
     private val api = object : IrlServiceApi {
         override fun goLive(settings: LiveSettings) = this@IrlStreamService.goLive(settings)
         override fun stopLive() = session.stop()
         override fun attachPreview(surface: Surface?) = this@IrlStreamService.attachPreview(surface)
-        override fun availableLenses(): List<CameraLens> = synchronized(cameraLock) { controller().availableLenses() }
+        override fun availableLenses(): List<CameraLens> = lenses
         override fun switchLens(lens: CameraLens) = this@IrlStreamService.switchLens(lens)
         override fun setMuted(muted: Boolean) {
             this@IrlStreamService.muted = muted
@@ -336,6 +341,8 @@ class IrlStreamService : Service() {
             previewSurfaceProvider = { previewSurface?.takeIf { it.isValid } ?: previewSink().surface },
             lensProvider = { lens },
             targetFps = fps,
+            // MainActivity releases the camera on a background thread after IrlActivity opens.
+            inUseRetryDelaysMs = CAMERA_IN_USE_RETRY_MS,
         ).also { camera = it }
     }
 
@@ -409,6 +416,7 @@ class IrlStreamService : Service() {
             onAudio: (EncodedAccessUnit) -> Unit,
         ): LiveAudioParams? {
             stop()
+            isLive = true
             val encoder = MediaCodecVideoEncoder(
                 preference = CodecPreference.ForceAvc,
                 width = video.width,
@@ -471,6 +479,7 @@ class IrlStreamService : Service() {
             video = null
             audio?.stop()
             audio = null
+            isLive = false
         }
 
         override fun setVideoBitrate(bitrate: Int) {
@@ -494,6 +503,16 @@ class IrlStreamService : Service() {
         private const val DEFAULT_FPS = 30
         private const val SHUTDOWN_TIMEOUT_MS = 3_000L
         private val FALLBACK_SINK = Size(640, 480)
+        private val CAMERA_IN_USE_RETRY_MS = listOf(100L, 200L, 400L, 800L, 1_600L)
+
+        /**
+         * True while an IRL session owns the camera and encoders (from pipeline
+         * start until it stops). MainActivity checks it so OBS mode never takes
+         * the camera or the process-global native SRT session from a live stream.
+         */
+        @Volatile
+        var isLive: Boolean = false
+            private set
 
         /** Starts (not yet foreground) so the activity can bind; call while visible. */
         fun intent(context: Context): Intent = Intent(context, IrlStreamService::class.java)

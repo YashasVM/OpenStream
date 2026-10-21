@@ -165,16 +165,17 @@ class IrlSession(
                 onVideo = { onVideoUnit(mediaGen, it) },
                 onAudio = { onAudioUnit(mediaGen, it) },
             )
-        } catch (error: Exception) {
+        } catch (_: Exception) {
             mediaGeneration++
             runCatching { media.stop() }
-            publish(hud.copy(status = LiveStatus.Error("Could not start camera or encoder: ${error.message ?: error.javaClass.simpleName}")))
+            // Fixed text: HUD errors are shown on screen and must never echo free-form exception text.
+            publish(hud.copy(status = LiveStatus.Error(START_FAILED)))
             return
         }
         settings = next
         publishUrl = url
         videoParams = video
-        audioParams = audio ?: requestedAudio
+        audioParams = audio ?: requestedAudio.copy(enabled = false)
         bitrate = AdaptiveBitratePolicy(video.bitrate, clock)
         appliedBitrate = video.bitrate
         liveSinceMs = null
@@ -388,5 +389,6 @@ class IrlSession(
         const val KEYFRAME_SECONDS = 2
         const val TICK_MS = 1000L
         const val CONNECT_TIMEOUT_MS = 20_000L
+        const val START_FAILED = "Could not start the camera or encoder."
     }
 }

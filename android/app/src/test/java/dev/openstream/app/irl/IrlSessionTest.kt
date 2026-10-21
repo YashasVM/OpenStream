@@ -41,6 +41,7 @@ class IrlSessionTest {
         var listener: LiveTransportListener? = null
         var url: String? = null
         var videoParams: LiveVideoParams? = null
+        var audioParams: LiveAudioParams? = null
         val video = mutableListOf<EncodedAccessUnit>()
         val audio = mutableListOf<EncodedAccessUnit>()
         var stats = LiveTransportStats()
@@ -49,6 +50,7 @@ class IrlSessionTest {
         override fun connect(publishUrl: String, video: LiveVideoParams, audio: LiveAudioParams, listener: LiveTransportListener) {
             url = publishUrl
             videoParams = video
+            audioParams = audio
             this.listener = listener
         }
         override fun sendVideo(accessUnit: EncodedAccessUnit) { if (!disconnected) video += accessUnit }
@@ -65,12 +67,15 @@ class IrlSessionTest {
         var keyframeRequests = 0
         val bitrates = mutableListOf<Int>()
         var mutedState = false
+        var microphone = true
+        var startError: Exception? = null
 
-        override fun start(video: LiveVideoParams, audio: LiveAudioParams, onVideo: (EncodedAccessUnit) -> Unit, onAudio: (EncodedAccessUnit) -> Unit): LiveAudioParams {
+        override fun start(video: LiveVideoParams, audio: LiveAudioParams, onVideo: (EncodedAccessUnit) -> Unit, onAudio: (EncodedAccessUnit) -> Unit): LiveAudioParams? {
             started++
+            startError?.let { throw it }
             this.onVideo = onVideo
             this.onAudio = onAudio
-            return audio
+            return audio.takeIf { microphone }
         }
         override fun stop() { stopped++ }
         override fun setVideoBitrate(bitrate: Int) { bitrates += bitrate }
@@ -385,6 +390,42 @@ class IrlSessionTest {
         scheduler.advance()
         assertTrue(media.mutedState)
         assertTrue(huds.last().muted)
+    }
+
+    @Test
+    fun missingMicrophoneStreamsVideoOnly() {
+        media.microphone = false
+        val transport = goLive()
+        assertTrue(status is LiveStatus.Live)
+        assertFalse(transport.audioParams!!.enabled)
+        media.onVideo!!(keyframe)
+        assertEquals(1, transport.video.media().size)
+    }
+
+    @Test
+    fun startFailureShowsFixedTextWithoutExceptionDetails() {
+        media.startError = IllegalStateException("rtmps://ingest.example/app/live_secret")
+        session.start(settings)
+        scheduler.advance()
+        assertEquals(LiveStatus.Error(IrlSession.START_FAILED), status)
+        assertTrue(transports.isEmpty())
+    }
+
+    @Test
+    fun everyAttemptUsesAFreshTransport() {
+        session.onNetworkChanged(100, "Wi-Fi")
+        goLive()
+        transports.last().listener!!.onFailed("reset", LiveFailure.TRANSIENT)
+        scheduler.advance(1_000)
+        transports.last().listener!!.onConnected()
+        scheduler.advance()
+        session.onNetworkChanged(200, "Cellular")
+        scheduler.advance()
+        scheduler.advance(IrlSession.CONNECT_TIMEOUT_MS)
+        scheduler.advance(2_000)
+        assertTrue(transports.size >= 4)
+        assertEquals(transports.size, transports.toSet().size)
+        assertTrue(transports.dropLast(1).all { it.disconnected })
     }
 
     @Test

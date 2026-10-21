@@ -51,6 +51,8 @@ class RtmpLiveTransport : LiveTransport {
                 setVideoResolution(video.width, video.height)
                 setFps(video.fps)
                 setAudioInfo(audio.sampleRate, audio.channelCount > 1)
+                // Keeps AAC out of onMetaData so ingests do not wait for audio that never comes.
+                setOnlyVideo(!audio.enabled)
                 // RootEncoder otherwise ignores read errors on an established connection.
                 shouldFailOnRead = true
             }
