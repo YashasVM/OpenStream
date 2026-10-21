@@ -4,6 +4,7 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaFormat
+import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
@@ -49,6 +50,8 @@ class MediaCodecVideoEncoder(
     private val fps: Int,
     private val bitrate: Int,
     private val keyframeIntervalSeconds: Int,
+    /** Optional MediaCodecInfo.CodecProfileLevel AVC profile, applied only with optional tuning. */
+    private val avcProfile: Int? = null,
     private val onEncodedAccessUnit: (EncodedAccessUnit) -> Unit,
 ) {
     private var mimeType = preference.advertisedMimeType()
@@ -64,6 +67,22 @@ class MediaCodecVideoEncoder(
         get() = mimeType
 
     fun inputSurface(): Surface = checkNotNull(surface) { "Encoder input surface is not ready" }
+
+    /** Changes the target bitrate of a running encoder; returns false when not running. */
+    fun setBitrate(bitrate: Int): Boolean = synchronized(lifecycleLock) {
+        val encoder = codec ?: return false
+        runCatching {
+            encoder.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bitrate) })
+        }.isSuccess
+    }
+
+    /** Asks a running encoder for an IDR frame as soon as possible. */
+    fun requestKeyframe(): Boolean = synchronized(lifecycleLock) {
+        val encoder = codec ?: return false
+        runCatching {
+            encoder.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0) })
+        }.isSuccess
+    }
 
     fun start() = synchronized(lifecycleLock) {
         // Re-evaluate the codec at every start because bitrate can change per OBS reservation
@@ -246,6 +265,9 @@ class MediaCodecVideoEncoder(
             }
             if (applyOptionalTuning && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                 setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
+            }
+            if (applyOptionalTuning && avcProfile != null) {
+                setInteger(MediaFormat.KEY_PROFILE, avcProfile)
             }
         }
     }
