@@ -648,17 +648,23 @@ class NativeSender {
   }
 
   bool connect(const std::string &url, uint64_t expectedLifecycleGeneration) {
-    setConnectError("TRANSIENT: SRT connection failed");
 #if OPENSTREAM_HAVE_LIBSRT
-    disconnect();
+    // Every native side effect of this attempt is scoped to its lifecycle and
+    // to the socket it publishes. A cancelled attempt can still be running
+    // here (blocked in DNS or srt_connect) after a replacement attempt from
+    // another client installed its own socket; it must never tear that down.
+    if (!disconnectLifecycle(expectedLifecycleGeneration)) {
+      return false;
+    }
+    setConnectErrorForLifecycle(expectedLifecycleGeneration, "TRANSIENT: SRT connection failed");
     const auto parsed = parseSrtUrl(url);
     if (!parsed) {
-      setConnectError("CONFIG: Invalid SRT publish URL");
+      setConnectErrorForLifecycle(expectedLifecycleGeneration, "CONFIG: Invalid SRT publish URL");
       logError("Invalid SRT URL");
       return false;
     }
     if (!srtStarted_) {
-      setConnectError("CONFIG: libsrt runtime unavailable");
+      setConnectErrorForLifecycle(expectedLifecycleGeneration, "CONFIG: libsrt runtime unavailable");
       logError("libsrt runtime is unavailable");
       return false;
     }
@@ -666,10 +672,12 @@ class NativeSender {
     const SRTSOCKET socket = srt_create_socket();
     if (socket == SRT_INVALID_SOCK) {
       logError("Could not create SRT socket");
-      disconnect();
       return false;
     }
-    if (!setSocketForLifecycle(socket, expectedLifecycleGeneration)) {
+    // From here on, disconnect() cancels this attempt by taking and closing
+    // the published socket, after which the attempt owns nothing.
+    const uint64_t attempt = setSocketForLifecycle(socket, expectedLifecycleGeneration);
+    if (attempt == 0) {
       srt_close(socket);
       return false;
     }
@@ -677,8 +685,8 @@ class NativeSender {
     if (parsed->irl) {
       std::string error;
       if (!configureIrlSocket(socket, *parsed, error)) {
-        setConnectError(error);
-        disconnect();
+        setConnectErrorForLifecycle(expectedLifecycleGeneration, error);
+        releaseAttemptSocket(socket, attempt);
         return false;
       }
     } else {
@@ -707,12 +715,16 @@ class NativeSender {
     addrinfo *result = nullptr;
     if (getaddrinfo(parsed->host.c_str(), parsed->port.c_str(), &hints, &result) != 0) {
       logError("Could not resolve SRT host");
-      disconnect();
+      releaseAttemptSocket(socket, attempt);
       return false;
     }
 
+    // Resolution cannot be interrupted, and a cancelled srt_connect returns
+    // quickly once disconnect() closed the socket; stop before the next
+    // address instead of retrying on a socket this attempt no longer owns.
     bool connected = false;
     for (addrinfo *candidate = result; candidate != nullptr; candidate = candidate->ai_next) {
+      if (!ownsAttemptSocket(socket, attempt)) break;
       if (srt_connect(socket, candidate->ai_addr, static_cast<int>(candidate->ai_addrlen)) == 0) {
         connected = true;
         break;
@@ -722,16 +734,20 @@ class NativeSender {
 
     if (!connected) {
       if (parsed->irl) {
-        setConnectError(irlConnectFailure(srt_getrejectreason(socket)));
-        disconnect();
+        int rejectReason = SRT_REJ_UNKNOWN;
+        if (releaseAttemptSocket(socket, attempt, &rejectReason)) {
+          setConnectErrorForLifecycle(expectedLifecycleGeneration, irlConnectFailure(rejectReason));
+        }
         return false;
       }
       __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT connect failed: %s", srt_getlasterror_str());
-      disconnect();
+      releaseAttemptSocket(socket, attempt);
       return false;
     }
 
-    return true;
+    // A connect that completed just as it was cancelled has already lost its
+    // socket to disconnect(), which closed it.
+    return ownsAttemptSocket(socket, attempt);
 #else
     (void)url;
     setConnectError("CONFIG: Native SRT library built without libsrt");
@@ -1070,36 +1086,94 @@ class NativeSender {
     return socket_;
   }
 
-  bool setSocketForLifecycle(SRTSOCKET socket, uint64_t expectedLifecycleGeneration) {
+  // Returns the token that identifies this publication of socket_, or 0 when
+  // the lifecycle has moved on. Tokens are never reused, so a stale attempt
+  // cannot mistake a replacement (even one reusing a socket id) for its own.
+  uint64_t setSocketForLifecycle(SRTSOCKET socket, uint64_t expectedLifecycleGeneration) {
     std::lock_guard<std::mutex> lock(socketMutex_);
     if (lifecycleGeneration_ != expectedLifecycleGeneration) {
-      return false;
+      return 0;
     }
     socket_ = socket;
+    socketAttempt_ = ++lastSocketAttempt_;
     connectionGeneration_.fetch_add(1, std::memory_order_acq_rel);
     healthy_.store(true, std::memory_order_release);
-    return true;
+    return socketAttempt_;
   }
 
   SRTSOCKET takeSocket() {
     std::lock_guard<std::mutex> lock(socketMutex_);
+    return takeSocketLocked();
+  }
+
+  SRTSOCKET takeSocketLocked() {
     const SRTSOCKET socket = socket_;
     socket_ = SRT_INVALID_SOCK;
+    socketAttempt_ = 0;
     return socket;
   }
 
-  void closeSocket(SRTSOCKET socket) {
-    bool ownsSocket = false;
+  bool ownsAttemptSocketLocked(SRTSOCKET socket, uint64_t attempt) const {
+    return attempt != 0 && socketAttempt_ == attempt && socket_ == socket;
+  }
+
+  bool ownsAttemptSocket(SRTSOCKET socket, uint64_t attempt) const {
+    std::lock_guard<std::mutex> lock(socketMutex_);
+    return ownsAttemptSocketLocked(socket, attempt);
+  }
+
+  void retireConnectionLocked() {
+    healthy_ = false;
+    connectionGeneration_.fetch_add(1, std::memory_order_acq_rel);
+    std::lock_guard<std::mutex> queueLock(sendQueueMutex_);
+    sendQueue_.clear();
+    sendQueueBytes_ = 0;
+  }
+
+  // Closes a connect attempt's socket only while that attempt still owns it.
+  // Otherwise disconnect() already took and closed it, and socket_ may now
+  // belong to a replacement attempt; neither may be touched again. The IRL
+  // reject reason is read while ownership guarantees the socket is open.
+  bool releaseAttemptSocket(SRTSOCKET socket, uint64_t attempt, int *rejectReason = nullptr) {
+    std::lock_guard<std::mutex> ioLock(ioMutex_);
     {
       std::lock_guard<std::mutex> lock(socketMutex_);
-      if (socket_ == socket) {
-        socket_ = SRT_INVALID_SOCK;
-        healthy_ = false;
-        ownsSocket = true;
+      if (!ownsAttemptSocketLocked(socket, attempt)) {
+        return false;
       }
+      if (rejectReason != nullptr) {
+        *rejectReason = srt_getrejectreason(socket);
+      }
+      takeSocketLocked();
+      retireConnectionLocked();
     }
-    if (ownsSocket) {
+    srt_close(socket);
+    return true;
+  }
+
+  // disconnect() for one lifecycle only. Returns false, touching nothing, when
+  // a newer lifecycle owns the sender.
+  bool disconnectLifecycle(uint64_t expectedLifecycleGeneration) {
+    std::lock_guard<std::mutex> ioLock(ioMutex_);
+    SRTSOCKET socket = SRT_INVALID_SOCK;
+    {
+      std::lock_guard<std::mutex> lock(socketMutex_);
+      if (lifecycleGeneration_ != expectedLifecycleGeneration) {
+        return false;
+      }
+      socket = takeSocketLocked();
+      retireConnectionLocked();
+    }
+    if (socket != SRT_INVALID_SOCK) {
       srt_close(socket);
+    }
+    return true;
+  }
+
+  void setConnectErrorForLifecycle(uint64_t expectedLifecycleGeneration, const std::string &error) {
+    std::lock_guard<std::mutex> lock(socketMutex_);
+    if (lifecycleGeneration_ == expectedLifecycleGeneration) {
+      setConnectError(error);
     }
   }
 
@@ -1135,6 +1209,8 @@ class NativeSender {
   std::mutex ioMutex_;
   SRTSOCKET socket_ = SRT_INVALID_SOCK;
   SRTSOCKET listener_socket_ = SRT_INVALID_SOCK;
+  uint64_t socketAttempt_ = 0;
+  uint64_t lastSocketAttempt_ = 0;
   uint64_t lifecycleGeneration_ = 0;
   bool srtStarted_ = false;
 #endif
@@ -1226,7 +1302,8 @@ Java_dev_openstream_app_stream_SrtNativeBridge_nativeConnect(
     g_state.audioCodecConfig.clear();
     g_state.connected = false;
   }
-  g_state.sender.disconnect();
+  // connect() tears down only this generation's previous socket; an
+  // unconditional disconnect() here could close a newer client's socket.
   const bool connected =
       g_state.sender.connect(urlString, static_cast<uint64_t>(session_generation));
   bool published = false;
