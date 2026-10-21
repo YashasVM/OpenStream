@@ -75,7 +75,7 @@ object PublishUrl {
             }
         } catch (_: Exception) { throw IllegalArgumentException("Invalid or unsupported SRT query option.") }
         require(values["mode"] == null || values["mode"] == "caller") { "IRL SRT supports caller mode only." }
-        val latency = values["latency"]?.let { it.toIntOrNull() ?: error("Latency must be milliseconds.") }
+        val latency = values["latency"]?.let { requireNotNull(it.toIntOrNull()) { "Latency must be milliseconds." } }
             ?.coerceIn(500, 5000) ?: 2000
         val passphrase = values["passphrase"]
         require(passphrase == null || passphrase.toByteArray(StandardCharsets.UTF_8).size in 10..79) { "SRT passphrase must be 10–79 UTF-8 bytes." }

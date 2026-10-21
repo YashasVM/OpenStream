@@ -52,7 +52,7 @@ class AdaptiveBitratePolicy(val target: Int, private val clock: () -> Long = Sys
         if (congested || growing || newDrops > 0) {
             healthySince = now
             if (now - lastDrop >= 2000) {
-                current = (current * 0.7).toInt().coerceAtLeast(minimum)
+                current = (current * 7L / 10).toInt().coerceAtLeast(minimum)
                 lastDrop = now
             }
         } else if (now - healthySince >= 15_000 && queuedFrames <= 5) {
