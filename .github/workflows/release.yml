@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag, for example v1.0.1
+        description: Release tag, for example v1.1.0 or v1.1.0-beta.1
         required: true
         type: string
 
@@ -72,11 +72,12 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "::error::Release tag must be vMAJOR.MINOR.PATCH (for example v1.0.1)."
+          RELEASE_TAG_PATTERN='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(beta|rc)\.[1-9][0-9]*)?$'
+          if [[ ! "$RELEASE_TAG" =~ $RELEASE_TAG_PATTERN ]]; then
+            echo "::error::Release tag must be vMAJOR.MINOR.PATCH, optionally followed by -beta.N or -rc.N (N >= 1)."
             exit 1
           fi
-          TAG_VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+          TAG_VERSION="${RELEASE_TAG#v}"
           TAG_COMMIT=$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")
           CHECKED_OUT_COMMIT=$(git rev-parse HEAD)
           test "$TAG_COMMIT" = "$CHECKED_OUT_COMMIT" || {
@@ -103,7 +104,7 @@ jobs:
           # that value for historical tags that predate the canonical property.
           MAX_PREVIOUS_CODE=0
           while IFS= read -r existing_tag; do
-            [[ "$existing_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+            [[ "$existing_tag" =~ $RELEASE_TAG_PATTERN ]] || continue
             [[ "$existing_tag" == "$RELEASE_TAG" ]] && continue
             old_properties=$(git show "${existing_tag}:android/gradle.properties" 2>/dev/null || true)
             old_code=$(sed -n 's/^openstream.versionCode=//p' <<< "$old_properties")
@@ -355,6 +356,10 @@ jobs:
           set -euo pipefail
           TAG_NAME="${INPUT_TAG:-${GITHUB_REF_NAME}}"
           RELEASE_COMMIT=$(git rev-parse HEAD)
+          RELEASE_FLAGS=(--latest)
+          case "$TAG_NAME" in
+            *-beta.*|*-rc.*) RELEASE_FLAGS=(--prerelease --latest=false) ;;
+          esac
           gh release create "$TAG_NAME" \
             dist/openstream-android.apk \
             dist/openstream-android.apk.sha256 \
@@ -366,4 +371,4 @@ jobs:
             dist/openstream-obs-linux-x86_64.tar.gz.sha256 \
             --target "$RELEASE_COMMIT" \
             --title "OpenStream ${TAG_NAME}" \
-            --generate-notes
+            --generate-notes "${RELEASE_FLAGS[@]}"

@@ -33,6 +33,8 @@ import dev.openstream.app.discovery.ObsDiscoveryClient
 import dev.openstream.app.discovery.PhoneDiscoveryAdvertiser
 import dev.openstream.app.encoder.MediaCodecAudioEncoder
 import dev.openstream.app.encoder.MediaCodecVideoEncoder
+import dev.openstream.app.irl.IrlActivity
+import dev.openstream.app.irl.IrlStreamService
 import dev.openstream.app.stream.ConnectionTarget
 import dev.openstream.app.stream.StreamConfig
 import dev.openstream.app.stream.SrtStreamClient
@@ -82,6 +84,7 @@ class MainActivity : Activity() {
     @Volatile private var pendingListenerStart = false
     @Volatile private var listenerGeneration = 0L
     @Volatile private var activityStarted = false
+    private var showingIrlLive = false
     private val lifecycleStartGate = LifecycleStartGate()
     private var keepScreenOn = false
     private var displayOff = false
@@ -164,7 +167,7 @@ class MainActivity : Activity() {
             channelCount = streamConfig.audioChannelCount,
             bitrate = streamConfig.audioBitrate,
             onEncodedAccessUnit = { accessUnit ->
-                val result = streamClient.sendAudioAccessUnit(accessUnit)
+                val result = encodedMediaSink.sendAudioAccessUnit(accessUnit)
                 if (result.recoveryRequired &&
                     streamClient.isCurrentSessionGeneration(result.sessionGeneration)
                 ) {
@@ -238,6 +241,7 @@ class MainActivity : Activity() {
 
     private fun startActivityServices() {
         if (!activityStarted || !lifecycleStartGate.canStart()) return
+        if (blockedByIrlLive()) return
         phoneAdvertiser.start()
         obsDiscoveryClient.start()
         controlServer.start()
@@ -257,6 +261,30 @@ class MainActivity : Activity() {
         startPendingConnectIfReady()
     }
 
+    /**
+     * The IRL service owns the camera and the process-global native SRT session
+     * while live. Show that instead of starting OBS mode, and resume OBS mode
+     * once the IRL stream ends.
+     */
+    private fun blockedByIrlLive(): Boolean {
+        mainHandler.removeCallbacks(irlLiveRecheck)
+        if (!IrlStreamService.isLive) {
+            if (showingIrlLive) {
+                showingIrlLive = false
+                statusText.text = getString(R.string.status_ready)
+                statusDetail.text = getString(R.string.status_waiting)
+            }
+            return false
+        }
+        showingIrlLive = true
+        statusText.text = "IRL stream is live"
+        statusDetail.text = "Stop it in IRL Live to use OBS mode"
+        mainHandler.postDelayed(irlLiveRecheck, IRL_LIVE_RECHECK_MS)
+        return true
+    }
+
+    private val irlLiveRecheck = Runnable { startActivityServices() }
+
     private fun startPendingConnectIfReady() {
         if (!pendingConnectAfterSettings || !activityStarted || !lifecycleStartGate.canStart()) return
         pendingConnectAfterSettings = false
@@ -265,6 +293,7 @@ class MainActivity : Activity() {
 
     override fun onStop() {
         activityStarted = false
+        mainHandler.removeCallbacks(irlLiveRecheck)
         lifecycleStartGate.onStop()
         cancelLensRestart()
         stopLiveDotAnimation()
@@ -374,6 +403,10 @@ class MainActivity : Activity() {
             @Suppress("DEPRECATION")
             startActivityForResult(intent, SETTINGS_REQUEST_CODE)
         }
+        // IRL Live is its own screen; this activity's onStop tears down OBS mode while it is on top.
+        findViewById<View>(R.id.btnIrlLive).setOnClickListener {
+            startActivity(Intent(this, IrlActivity::class.java))
+        }
         btnStop.setOnClickListener {
             stopPhoneServer(clearReservation = true)
             startPreviewIfAllowed()
@@ -384,6 +417,9 @@ class MainActivity : Activity() {
         screenOffOverlay.setOnClickListener { toggleDisplayOff() }
     }
 
+    private val encodedMediaSink: dev.openstream.app.stream.EncodedMediaSink
+        get() = streamClient
+
     private fun createVideoEncoder(bitrate: Int): MediaCodecVideoEncoder {
         return MediaCodecVideoEncoder(
             preference = streamConfig.codecPreference,
@@ -393,7 +429,7 @@ class MainActivity : Activity() {
             bitrate = bitrate,
             keyframeIntervalSeconds = streamConfig.keyframeIntervalSeconds,
             onEncodedAccessUnit = { accessUnit ->
-                val result = streamClient.sendVideoAccessUnit(accessUnit)
+                val result = encodedMediaSink.sendVideoAccessUnit(accessUnit)
                 if (result.recoveryRequired &&
                     streamClient.isCurrentSessionGeneration(result.sessionGeneration)
                 ) {
@@ -494,6 +530,8 @@ class MainActivity : Activity() {
 
     private fun selectLens(lens: CameraLens) {
         if (lens == currentLens) return
+        // switchLens reopens the camera, which would evict a live IRL stream.
+        if (IrlStreamService.isLive) return
         // Turn off torch when switching cameras
         if (torchOn) {
             torchOn = false
@@ -736,6 +774,7 @@ class MainActivity : Activity() {
     }
 
     private fun startStream(target: ConnectionTarget) {
+        if (blockedByIrlLive()) return
         stopStream(updateStatus = false)
         // Caller mode and listener mode share one native SRT transport. Fully
         // stop the listener before opening a manual caller connection.
@@ -805,6 +844,7 @@ class MainActivity : Activity() {
 
     private fun startPhoneServerIfAllowed() {
         if (!activityStarted || !lifecycleStartGate.canStart()) return
+        if (IrlStreamService.isLive) return
         if (phoneServerRunning) return
         if (listenerThread?.isAlive == true) {
             pendingListenerStart = true
@@ -1208,7 +1248,7 @@ class MainActivity : Activity() {
     // ─────────────────────────── Utilities ───────────────────────────
 
     private fun startPreviewIfAllowed() {
-        if (activityStarted && lifecycleStartGate.canStart() &&
+        if (activityStarted && lifecycleStartGate.canStart() && !IrlStreamService.isLive &&
             checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
             cameraPreview.holder.surface.isValid
         ) {
@@ -1363,6 +1403,7 @@ class MainActivity : Activity() {
         private const val RECONNECT_RESERVATION_MS = 45_000L
         private const val IDENTIFY_OVERLAY_MS = 3_000L
         private const val LENS_RESTART_DELAY_MS = 500L
+        private const val IRL_LIVE_RECHECK_MS = 1_000L
         private const val LISTENER_POLL_MS = 250L
         private const val LISTENER_RETRY_MS = 750L
         private const val LISTENER_STOP_TIMEOUT_MS = 2_000L

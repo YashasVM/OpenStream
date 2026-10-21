@@ -34,6 +34,8 @@ def test_kotlin_native_methods_match_jni_exports():
         "nativeSendVideo",
         "nativeSendAudio",
         "nativeDisconnect",
+        "nativeConnectError",
+        "nativeStats",
     }
     assert native_methods == kotlin_methods
 
@@ -96,11 +98,14 @@ def test_srt_runtime_lifetime_is_process_scoped_and_disconnect_safe():
     assert connect.count("if (!srtStarted_)") == 1
     assert listen.count("if (!srtStarted_)") == 1
 
-    # Post-startup failures close their sockets/session state via disconnect,
-    # without changing the process-scoped libsrt runtime ownership.
-    assert "Could not create SRT socket\");\n      disconnect();\n      return false;" in connect
-    assert "Could not resolve SRT host\");\n      disconnect();\n      return false;" in connect
-    assert "SRT connect failed: %s\", srt_getlasterror_str());\n      disconnect();\n      return false;" in connect
+    # Post-startup caller failures close only the socket this attempt published
+    # (a cancelled attempt may return after a replacement installed its own),
+    # without changing the process-scoped libsrt runtime ownership. Behaviour is
+    # exercised in test_native_srt_ownership.py.
+    assert "disconnect();" not in connect
+    assert "Could not create SRT socket\");\n      return false;" in connect
+    assert "Could not resolve SRT host\");\n      releaseAttemptSocket(socket, attempt);\n      return false;" in connect
+    assert "SRT connect failed: %s\", srt_getlasterror_str());\n      releaseAttemptSocket(socket, attempt);\n      return false;" in connect
     assert "Could not create SRT listener socket\");\n      disconnect();\n      return false;" in listen
     assert "SRT bind failed: %s\", srt_getlasterror_str());\n      closeListenerSocket(listenerSocket);\n      return false;" in listen
     assert "SRT listen failed: %s\", srt_getlasterror_str());\n      closeListenerSocket(listenerSocket);\n      return false;" in listen
@@ -117,7 +122,7 @@ def test_native_connect_and_listen_publish_only_current_generation():
     assert "SrtNativeBridge.connect(candidateUrl, codecMime, width, height, fps, generation)" in kotlin
     assert "SrtNativeBridge.listen(url, codecMime, width, height, fps, generation)" in kotlin
 
-    publish = block_after(native, "bool setSocketForLifecycle")
+    publish = block_after(native, "uint64_t setSocketForLifecycle")
     assert "std::lock_guard<std::mutex> lock(socketMutex_)" in publish
     assert publish.index("lifecycleGeneration_ != expectedLifecycleGeneration") < publish.index("socket_ = socket")
 
@@ -127,6 +132,9 @@ def test_native_connect_and_listen_publish_only_current_generation():
 
     connect = block_after(native, "bool connect(const std::string &url, uint64_t expectedLifecycleGeneration)")
     assert connect.index("setSocketForLifecycle(socket, expectedLifecycleGeneration)") < connect.index("srt_connect(")
+    assert connect.index("disconnectLifecycle(expectedLifecycleGeneration)") < connect.index("srt_create_socket()")
+    jni_connect = block_after(native, "Java_dev_openstream_app_stream_SrtNativeBridge_nativeConnect(")
+    assert "g_state.sender.disconnect()" not in jni_connect
 
     listen = block_after(native, "bool listen(const std::string &url, uint64_t expectedLifecycleGeneration)")
     assert "setListenerSocketForLifecycle(listenerSocket, expectedLifecycleGeneration)" in listen
@@ -300,7 +308,10 @@ def test_media_send_cannot_cross_disconnect_or_reconnect_boundary():
     # Disconnect invalidates the Kotlin generation and passes that new generation
     # to native teardown while holding the same lock used by both media send paths.
     disconnect_locked = block_after(disconnect, "synchronized(stateLock)")
-    assert "val generation = sessionGeneration.incrementAndGet()" in disconnect_locked
+    # Generations come from a process-wide allocator: the native session is
+    # global and rejects generations older than its current one.
+    assert "val generation = nextSessionGeneration()" in disconnect_locked
+    assert "sessionGeneration.set(generation)" in disconnect_locked
     assert "connected = false" in disconnect_locked
     assert "SrtNativeBridge.disconnect(generation)" in disconnect_locked
 
@@ -308,7 +319,7 @@ def test_media_send_cannot_cross_disconnect_or_reconnect_boundary():
     # native generation before connect/listen can publish any socket.
     establish_locked = block_after(establish, "synchronized(stateLock)")
     assert "connected = false" in establish_locked
-    assert establish_locked.index("connected = false") < establish_locked.index("sessionGeneration.incrementAndGet()")
+    assert establish_locked.index("connected = false") < establish_locked.index("nextSessionGeneration()")
     assert "SrtNativeBridge.beginSession(generation)" in establish_locked
     native_operation_index = establish.index("val didConnect = nativeOperation(generation)")
     assert establish.index("val generation = synchronized(stateLock)") < native_operation_index

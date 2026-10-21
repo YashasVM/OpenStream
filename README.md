@@ -82,6 +82,19 @@ OpenStream provides a comprehensive OBS Studio plugin for streaming integration.
 
 The Android version provides native streaming capabilities with minimal latency.
 
+### IRL Live (Beta)
+
+Go live directly from your phone to Twitch, YouTube, Kick, Facebook, custom RTMP(S), or custom SRT. No PC is required. OBS mode remains the default.
+
+1. Open the app and select **IRL Live (Beta)**.
+2. Pick a platform, paste your stream key and any required server URL, and choose a quality. For custom SRT, enter the full SRT URL instead of a stream key.
+3. Tap **Go Live**. Streaming continues with the screen locked.
+4. Tap **Stop** in the app or the streaming notification to end the stream.
+
+The default is 720p at 30 fps with about 3.5 Mbps video, 2-second keyframes, and AAC audio at 128 kbps. Auto-reconnect, adaptive bitrate, and network handover help keep the stream running as mobile connectivity changes.
+
+This mode is beta. It supports one destination at a time and H.264 video only. Chat, OAuth sign-in, and SRTLA bonding are not supported. Custom SRT is unencrypted: this beta's SRT library has no encryption, so URLs with `passphrase=` are rejected; use a stream ID and a trusted network or ingest. YouTube and Kick may require setup in their streaming dashboards before you can go live.
+
 ### Building Android
 
 ```bash

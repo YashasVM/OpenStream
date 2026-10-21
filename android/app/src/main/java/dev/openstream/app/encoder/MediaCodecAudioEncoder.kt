@@ -36,6 +36,9 @@ class MediaCodecAudioEncoder(
     private val lifecycleLock = Any()
     private val deliveryLock = Any()
 
+    /** When true, captured PCM is replaced with silence so the AAC stream stays continuous. */
+    @Volatile var muted: Boolean = false
+
     fun start() = synchronized(lifecycleLock) {
         check(context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
             "Microphone permission is not granted"
@@ -108,6 +111,7 @@ class MediaCodecAudioEncoder(
                             recorder.read(pcmBuffer, 0, pcmBuffer.size)
                         }
                         if (captureGeneration != generation) break
+                        if (bytesRead > 0 && muted) pcmBuffer.fill(0, 0, bytesRead)
                         if (bytesRead > 0) {
                             val samplesRead = bytesRead / bytesPerSampleFrame()
                             val inputIndex = encoder.dequeueInputBuffer(10_000)
