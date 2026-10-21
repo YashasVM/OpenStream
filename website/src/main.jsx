@@ -2,12 +2,12 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
-const release = "https://github.com/YashasVM/OpenStream/releases/latest/download";
+const release = "https://github.com/YashasVM/OpenStream/releases/download/v1.1.0-beta.1";
 const links = {
   apk: `${release}/openstream-android.apk`,
   installer: `${release}/openstream-obs-plugin-installer-windows-x64.exe`,
   zip: `${release}/openstream-obs-windows-x64.zip`,
-  release: "https://github.com/YashasVM/OpenStream/releases/latest",
+  release: "https://github.com/YashasVM/OpenStream/releases/tag/v1.1.0-beta.1",
   repo: "https://github.com/YashasVM/OpenStream",
   issues: "https://github.com/YashasVM/OpenStream/issues",
   setup: "#setup",
@@ -16,14 +16,14 @@ const links = {
 function Header() {
   return (
     <header className="site-header">
-      <a className="brand" href="#top" aria-label="OpenStream home"><span className="mark" aria-hidden="true">Os</span><strong>OPENSTREAM</strong><span>V1.0.1</span></a>
+      <a className="brand" href="#top" aria-label="OpenStream home"><span className="mark" aria-hidden="true">Os</span><strong>OPENSTREAM</strong><span>V1.1.0-beta.1</span></a>
       <nav aria-label="Main navigation">
         <a href="#features">Features</a>
         <a href="#downloads">Downloads</a>
         <a href="#setup">Setup</a>
         <a href={links.repo}>GitHub</a>
       </nav>
-      <a className="button button-dark header-cta" href="#downloads">Download V1.0.1</a>
+      <a className="button button-dark header-cta" href="#downloads">Download V1.1.0-beta.1</a>
     </header>
   );
 }
@@ -104,11 +104,11 @@ function Features() {
 function Downloads() {
   return (
     <section className="section downloads" id="downloads">
-      <div><h2>Install both sides.<br/>Start shooting.</h2><p>Install OpenStream on your phone and the native plugin on your OBS computer from the same verified V1.0.1 release.</p><a className="text-link" href={links.release}>View V1.0.1 release notes →</a></div>
+      <div><h2>Install both sides.<br/>Start shooting.</h2><p>Install OpenStream on your phone and the native plugin on your OBS computer from the same verified V1.1.0-beta.1 release.</p><a className="text-link" href={links.release}>View V1.1.0-beta.1 release notes →</a></div>
       <div className="download-stack">
         <article className="download-row"><span className="icon" aria-hidden="true">◆</span><div><h3>OpenStream for Android</h3><p>Android 10+ · Signed release APK</p></div><div className="download-actions"><a className="button button-dark" href={links.apk}>Download signed APK</a></div></article>
         <article className="download-row"><span className="icon" aria-hidden="true">⊞</span><div><h3>OpenStream OBS Plugin</h3><p>Windows x64 · OBS Studio</p></div><div className="download-actions"><a className="button button-dark" href={links.installer}>Download installer</a><a className="button button-light" href={links.zip}>Manual ZIP</a></div></article>
-        <div className="trust-note"><span className="icon" aria-hidden="true">◇</span><p><strong>Release integrity included.</strong><br/>SHA-256 checksums are published alongside the V1.0.1 release.</p></div>
+        <div className="trust-note"><span className="icon" aria-hidden="true">◇</span><p><strong>Release integrity included.</strong><br/>SHA-256 checksums are published alongside the V1.1.0-beta.1 release.</p></div>
       </div>
     </section>
   );
@@ -145,14 +145,14 @@ function Compatibility() {
   return (
     <section className="section compatibility">
       <div><h2>Built for a strong LAN.</h2><p>Use 5 GHz or Wi-Fi 6, keep both devices on the same subnet, and disable VPN or client isolation during first setup.</p></div>
-      <ul><li><strong>Phone</strong><span>Android 10+ with Camera2 and hardware MediaCodec</span></li><li><strong>Computer</strong><span>Windows x64 with OBS Studio</span></li><li><strong>Network</strong><span>Same LAN; guest networks may block discovery</span></li><li><strong>Current limits</strong><span>V1.0.1 supports Android and Windows; macOS/Linux packages and adaptive bitrate are not included</span></li></ul>
+      <ul><li><strong>Phone</strong><span>Android 10+ with Camera2 and hardware MediaCodec</span></li><li><strong>Computer</strong><span>Windows x64 with OBS Studio</span></li><li><strong>Network</strong><span>Same LAN; guest networks may block discovery</span></li><li><strong>Current limits</strong><span>IRL Live is beta; OBS mode requires a computer on the same network</span></li></ul>
     </section>
   );
 }
 
 function Footer() {
   return (
-    <footer><a className="brand" href="#top"><span className="mark" aria-hidden="true">Os</span><strong>OPENSTREAM</strong></a><p>Open-source phone camera streaming for OBS.</p><nav aria-label="Footer links"><a href={links.repo}>Source</a><a href={links.release}>Releases</a><a href={links.issues}>Issues</a><a href={links.setup}>Setup</a></nav><p className="copyright">Made by YashasVM · V1.0.1</p></footer>
+    <footer><a className="brand" href="#top"><span className="mark" aria-hidden="true">Os</span><strong>OPENSTREAM</strong></a><p>Open-source phone camera streaming for OBS.</p><nav aria-label="Footer links"><a href={links.repo}>Source</a><a href={links.release}>Releases</a><a href={links.issues}>Issues</a><a href={links.setup}>Setup</a></nav><p className="copyright">Made by YashasVM · V1.1.0-beta.1</p></footer>
   );
 }
 
