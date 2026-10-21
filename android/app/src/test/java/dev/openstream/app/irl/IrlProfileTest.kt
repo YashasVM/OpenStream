@@ -39,7 +39,7 @@ class IrlProfileTest {
 
     @Test
     fun srtDecodesAndReencodesStreamIdAndPassphraseWithoutTreatingPlusAsSpace() {
-        val result = PublishUrl.srt("srt://[::1]:9000?streamid=%23!%3A%3Ar%3Dlive%2Fa%20b%2Bc&passphrase=pass%20word%2B123&pbkeylen=32")
+        val result = PublishUrl.srt("srt://[::1]:9000?streamid=%23!%3A%3Ar%3Dlive%2Fa%20b%2Bc&passphrase=pass%20word%2B123&pbkeylen=32", encryptionSupported = true)
 
         assertEquals("#!::r=live/a b+c", result.streamId)
         assertEquals("pass word+123", result.passphrase)
@@ -50,6 +50,22 @@ class IrlProfileTest {
             result.url,
         )
         assertEquals("a+b", PublishUrl.srt("srt://live.example:9000?streamid=a+b").streamId)
+    }
+
+    @Test
+    fun srtRejectsPassphrasesUpFrontWhileTheBundledLibsrtHasNoEncryption() {
+        assertFalse(PublishUrl.SRT_ENCRYPTION_SUPPORTED)
+        listOf("passphrase=long-enough-secret", "passphrase=short", "streamid=live&passphrase=long-enough-secret&pbkeylen=32").forEach { query ->
+            val error = assertThrows(IllegalArgumentException::class.java) { PublishUrl.srt("srt://live.example:9000?$query") }
+            assertEquals(PublishUrl.SRT_PASSPHRASE_UNSUPPORTED, error.message)
+        }
+        val settings = LiveSettings(LivePlatform.CUSTOM_SRT, "srt://live.example:9000?passphrase=long-enough-secret", "")
+        val validation = IrlUi.validate(settings)
+        assertFalse(validation.valid)
+        assertEquals(IrlUi.Field.SERVER, validation.field)
+        assertEquals(PublishUrl.SRT_PASSPHRASE_UNSUPPORTED, validation.message)
+        // An unencrypted stream id still works.
+        assertEquals("live", PublishUrl.srt("srt://live.example:9000?streamid=live").streamId)
     }
 
     @Test
@@ -78,12 +94,12 @@ class IrlProfileTest {
     fun srtPassphraseLimitsCountUtf8BytesAndPbkeylenAllowsOnlyAesSizes() {
         listOf(10, 79).forEach { length ->
             val passphrase = "a".repeat(length)
-            assertEquals(passphrase, PublishUrl.srt("srt://live.example:9000?passphrase=$passphrase").passphrase)
+            assertEquals(passphrase, PublishUrl.srt("srt://live.example:9000?passphrase=$passphrase", encryptionSupported = true).passphrase)
         }
         listOf("", "a".repeat(9), "a".repeat(80), "%C3%A9".repeat(40)).forEach { passphrase ->
-            assertThrows(IllegalArgumentException::class.java) { PublishUrl.srt("srt://live.example:9000?passphrase=$passphrase") }
+            assertThrows(IllegalArgumentException::class.java) { PublishUrl.srt("srt://live.example:9000?passphrase=$passphrase", encryptionSupported = true) }
         }
-        assertEquals("é".repeat(5), PublishUrl.srt("srt://live.example:9000?passphrase=${"%C3%A9".repeat(5)}").passphrase)
+        assertEquals("é".repeat(5), PublishUrl.srt("srt://live.example:9000?passphrase=${"%C3%A9".repeat(5)}", encryptionSupported = true).passphrase)
         assertEquals(16, PublishUrl.srt("srt://live.example:9000").pbkeylen)
         listOf(16, 24, 32).forEach { length ->
             assertEquals(length, PublishUrl.srt("srt://live.example:9000?pbkeylen=$length").pbkeylen)

@@ -41,6 +41,10 @@ data class LiveSettings(
 data class SrtPublishUrl(val url: String, val streamId: String?, val passphrase: String?, val latencyMs: Int, val pbkeylen: Int)
 
 object PublishUrl {
+    /** The bundled libsrt is built without HaiCrypt (SRT_ENABLE_ENCRYPTION off). */
+    const val SRT_ENCRYPTION_SUPPORTED = false
+    const val SRT_PASSPHRASE_UNSUPPORTED = "This beta's SRT doesn't support passphrases yet. Remove passphrase= from the URL."
+
     private fun uri(value: String): URI {
         val uri = try { URI(value.trim()) } catch (_: Exception) {
             throw IllegalArgumentException("Enter a valid server URL.")
@@ -61,7 +65,7 @@ object PublishUrl {
         return "${uri.scheme}://${uri.rawAuthority}$path" + (uri.rawQuery?.let { "?$it" } ?: "")
     }
 
-    fun srt(server: String): SrtPublishUrl {
+    fun srt(server: String, encryptionSupported: Boolean = SRT_ENCRYPTION_SUPPORTED): SrtPublishUrl {
         val uri = uri(server)
         require(uri.scheme == "srt" && uri.port in 1..65535 && uri.path.isNullOrEmpty()) { "Use srt://host:port?streamid=…" }
         val values = linkedMapOf<String, String>()
@@ -78,6 +82,8 @@ object PublishUrl {
         val latency = values["latency"]?.let { requireNotNull(it.toIntOrNull()) { "Latency must be milliseconds." } }
             ?.coerceIn(500, 5000) ?: 2000
         val passphrase = values["passphrase"]
+        // Reject before connecting; the native CONFIG error remains the backstop.
+        require(passphrase == null || encryptionSupported) { SRT_PASSPHRASE_UNSUPPORTED }
         require(passphrase == null || passphrase.toByteArray(StandardCharsets.UTF_8).size in 10..79) { "SRT passphrase must be 10–79 UTF-8 bytes." }
         val pbkeylen = values["pbkeylen"]?.toIntOrNull() ?: if (values.containsKey("pbkeylen")) 0 else 16
         require(pbkeylen in listOf(16, 24, 32)) { "SRT pbkeylen must be 16, 24 or 32." }

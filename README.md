@@ -93,7 +93,7 @@ Go live directly from your phone to Twitch, YouTube, Kick, Facebook, custom RTMP
 
 The default is 720p at 30 fps with about 3.5 Mbps video, 2-second keyframes, and AAC audio at 128 kbps. Auto-reconnect, adaptive bitrate, and network handover help keep the stream running as mobile connectivity changes.
 
-This mode is beta. It supports one destination at a time and H.264 video only. Chat, OAuth sign-in, and SRTLA bonding are not supported. YouTube and Kick may require setup in their streaming dashboards before you can go live.
+This mode is beta. It supports one destination at a time and H.264 video only. Chat, OAuth sign-in, and SRTLA bonding are not supported. Custom SRT is unencrypted: this beta's SRT library has no encryption, so URLs with `passphrase=` are rejected; use a stream ID and a trusted network or ingest. YouTube and Kick may require setup in their streaming dashboards before you can go live.
 
 ### Building Android
 
