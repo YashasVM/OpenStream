@@ -79,6 +79,7 @@ class IrlSessionTest {
     }
 
     private val clock = FakeClock()
+    private var bootAheadUs = 0L
     private val scheduler = ManualScheduler(clock)
     private val media = FakeMedia()
     private val transports = mutableListOf<FakeTransport>()
@@ -88,6 +89,7 @@ class IrlSessionTest {
         media = media,
         scheduler = scheduler,
         clock = { clock.now },
+        mediaClock = { MediaClockSample(clock.now * 1000, clock.now * 1000 + bootAheadUs) },
         onHud = { huds += it },
         random = { 0.5 },
     )
@@ -143,8 +145,38 @@ class IrlSessionTest {
         media.onVideo!!(keyframe)
         media.onVideo!!(delta)
         val frames = transport.video.filter { it.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0 }
-        assertEquals(listOf(keyframe, delta), frames)
+        // Rebased onto the connection timeline: the keyframe is the origin.
+        assertEquals(listOf(keyframe.copy(presentationTimeUs = 0), delta.copy(presentationTimeUs = 10)), frames)
     }
+
+    @Test
+    fun everyConnectionRestartsTheTimelineWithAudioAlignedToVideo() {
+        val first = goLive()
+        // Camera PTS use BOOTTIME, an hour ahead of MONOTONIC after deep sleep; audio uses MONOTONIC.
+        val boot = 3_600_000_000L
+        bootAheadUs = boot
+        val now = clock.now * 1000
+        media.onAudio!!(unit(byteArrayOf(9), 0, now - 30_000)) // before any keyframe: dropped
+        media.onVideo!!(unit(byteArrayOf(1), MediaCodec.BUFFER_FLAG_KEY_FRAME, now + boot - 50_000))
+        media.onAudio!!(unit(byteArrayOf(9), 0, now - 20_000))
+        media.onVideo!!(unit(byteArrayOf(2), 0, now + boot - 16_667))
+        assertEquals(listOf(0L, 33_333L), first.video.media().map { it.presentationTimeUs })
+        assertEquals(listOf(30_000L), first.audio.media().map { it.presentationTimeUs })
+
+        first.listener!!.onFailed("reset", LiveFailure.TRANSIENT)
+        scheduler.advance(1_000)
+        val second = transports.last()
+        second.listener!!.onConnected()
+        scheduler.advance()
+        val later = clock.now * 1000
+        media.onVideo!!(unit(byteArrayOf(2), 0, later + boot - 10_000)) // delta before keyframe: dropped
+        media.onVideo!!(unit(byteArrayOf(1), MediaCodec.BUFFER_FLAG_KEY_FRAME, later + boot))
+        media.onAudio!!(unit(byteArrayOf(9), 0, later + 5_000))
+        assertEquals(listOf(0L), second.video.media().map { it.presentationTimeUs })
+        assertEquals(listOf(5_000L), second.audio.media().map { it.presentationTimeUs })
+    }
+
+    private fun List<EncodedAccessUnit>.media() = filter { it.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0 }
 
     @Test
     fun configIsReplayedToNewTransportAfterReconnect() {
@@ -290,8 +322,8 @@ class IrlSessionTest {
         assertEquals(2, transports.size)
 
         media.onVideo!!(keyframe)
-        assertTrue(second.video.contains(keyframe))
-        assertFalse(first.video.contains(keyframe))
+        assertTrue(second.video.any { it.data.contentEquals(keyframe.data) })
+        assertFalse(first.video.any { it.data.contentEquals(keyframe.data) })
     }
 
     @Test

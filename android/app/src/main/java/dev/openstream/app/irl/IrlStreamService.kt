@@ -106,6 +106,7 @@ class IrlStreamService : Service() {
             media = Pipeline(),
             scheduler = ExecutorSessionScheduler(executor),
             clock = SystemClock::elapsedRealtime,
+            mediaClock = { MediaClockSample(System.nanoTime() / 1000, SystemClock.elapsedRealtimeNanos() / 1000) },
             onHud = ::onSessionHud,
         )
         session.setLens(lens)

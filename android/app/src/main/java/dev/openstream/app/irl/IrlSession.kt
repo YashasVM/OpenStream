@@ -56,13 +56,15 @@ interface IrlMediaPipeline {
  * Each transport instance gets a generation; callbacks from an older generation
  * are ignored, so a late failure from a replaced connection cannot tear down the
  * current one. Media is forwarded on encoder threads directly to the current
- * live transport; everything else is serialized on [scheduler].
+ * live transport, rebased onto that connection's [LiveTimeline]; everything else
+ * is serialized on [scheduler].
  */
 class IrlSession(
     private val transportFactory: (LiveSettings) -> LiveTransport,
     private val media: IrlMediaPipeline,
     private val scheduler: SessionScheduler,
     private val clock: () -> Long,
+    private val mediaClock: () -> MediaClockSample,
     private val onHud: (LiveHud) -> Unit,
     random: () -> Double = { kotlin.random.Random.nextDouble() },
 ) {
@@ -89,9 +91,10 @@ class IrlSession(
     private var lastNetworkId: Long? = null
     private var hud = LiveHud()
 
-    // Shared with encoder threads.
-    @Volatile private var liveTransport: LiveTransport? = null
-    @Volatile private var awaitingKeyframe = true
+    // Shared with encoder threads. Transport and timeline swap together.
+    private class LiveLink(val transport: LiveTransport, val timeline: LiveTimeline)
+    @Volatile private var link: LiveLink? = null
+    private val liveTransport: LiveTransport? get() = link?.transport
     @Volatile private var videoConfig: EncodedAccessUnit? = null
     @Volatile private var audioConfig: EncodedAccessUnit? = null
     @Volatile private var mediaGeneration = 0L
@@ -154,7 +157,6 @@ class IrlSession(
         val mediaGen = ++mediaGeneration
         videoConfig = null
         audioConfig = null
-        awaitingKeyframe = true
         videoFrames.set(0)
         val audio = try {
             media.start(
@@ -245,9 +247,9 @@ class IrlSession(
         val connected = transport ?: return
         cancelConnectTimeout?.invoke(); cancelConnectTimeout = null
         reconnect.reset()
-        awaitingKeyframe = true
         replayConfig(connected)
-        liveTransport = connected
+        // Every connection starts its own timeline at the next keyframe.
+        link = LiveLink(connected, LiveTimeline(mediaClock))
         media.requestKeyframe()
         val started = liveSinceMs ?: clock().also { liveSinceMs = it }
         publish(hud.copy(status = LiveStatus.Live(started)))
@@ -284,7 +286,7 @@ class IrlSession(
 
     private fun dropTransport() {
         cancelConnectTimeout?.invoke(); cancelConnectTimeout = null
-        liveTransport = null
+        link = null
         val old = transport ?: return
         transport = null
         generation++
@@ -308,12 +310,10 @@ class IrlSession(
             return
         }
         videoFrames.incrementAndGet()
-        val target = liveTransport ?: return
-        if (awaitingKeyframe) {
-            if (unit.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME == 0) return
-            awaitingKeyframe = false
-        }
-        target.sendVideo(unit)
+        val target = link ?: return
+        val keyframe = unit.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0
+        val pts = target.timeline.video(unit.presentationTimeUs, keyframe) ?: return
+        target.transport.sendVideo(unit.copy(presentationTimeUs = pts))
     }
 
     private fun onAudioUnit(mediaGen: Long, unit: EncodedAccessUnit) {
@@ -324,8 +324,12 @@ class IrlSession(
         }
         if (unit.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
             audioConfig = unit
+            liveTransport?.sendAudio(unit)
+            return
         }
-        liveTransport?.sendAudio(unit)
+        val target = link ?: return
+        val pts = target.timeline.audio(unit.presentationTimeUs) ?: return
+        target.transport.sendAudio(unit.copy(presentationTimeUs = pts))
     }
 
     private fun scheduleTick() {
