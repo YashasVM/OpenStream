@@ -53,6 +53,11 @@ interface IrlMediaPipeline {
  * IRL publishing state machine: Idle -> Connecting -> Live <-> Reconnecting,
  * ending in Idle (user stop) or Error (auth/config/local failure).
  *
+ * Every [start] is a run with its own id. [onRunEnded] fires once when a run
+ * ends (stop or terminal error), after its final HUD; a run replaced by a newer
+ * [start] never ends on its own and publishes no Idle in between. Lifecycle
+ * owners (the foreground service) must key on these events, not on HUD status.
+ *
  * Each transport instance gets a generation; callbacks from an older generation
  * are ignored, so a late failure from a replaced connection cannot tear down the
  * current one. Media is forwarded on encoder threads directly to the current
@@ -66,11 +71,15 @@ class IrlSession(
     private val clock: () -> Long,
     private val mediaClock: () -> MediaClockSample,
     private val onHud: (LiveHud) -> Unit,
+    private val onRunEnded: (run: Long) -> Unit = {},
     random: () -> Double = { kotlin.random.Random.nextDouble() },
 ) {
     private val reconnect = ReconnectPolicy(clock, random)
 
+    private val runs = AtomicLong()
+
     // Session-thread state.
+    private var run = NO_RUN
     private var settings: LiveSettings? = null
     private var publishUrl: String? = null
     private var videoParams: LiveVideoParams? = null
@@ -90,6 +99,9 @@ class IrlSession(
     private var networkId: Long? = null
     private var lastNetworkId: Long? = null
     private var hud = LiveHud()
+    // Config units already handed to the current transport (identity compared).
+    private var sentVideoConfig: EncodedAccessUnit? = null
+    private var sentAudioConfig: EncodedAccessUnit? = null
 
     // Shared with encoder threads. Transport and timeline swap together.
     private class LiveLink(val transport: LiveTransport, val timeline: LiveTimeline)
@@ -103,9 +115,14 @@ class IrlSession(
     private val active: Boolean
         get() = settings != null
 
-    fun start(settings: LiveSettings) = scheduler.execute { startOnSession(settings) }
+    /** Starts a new run, replacing any active one; returns the run id passed to [onRunEnded]. */
+    fun start(settings: LiveSettings): Long {
+        val next = runs.incrementAndGet()
+        scheduler.execute { startOnSession(settings, next) }
+        return next
+    }
 
-    fun stop() = scheduler.execute { stopOnSession(LiveStatus.Idle) }
+    fun stop() = scheduler.execute { end(LiveStatus.Idle) }
 
     fun setMuted(muted: Boolean) = scheduler.execute {
         media.setMuted(muted)
@@ -143,17 +160,31 @@ class IrlSession(
         }
     }
 
-    private fun startOnSession(next: LiveSettings) {
-        if (active) stopOnSession(LiveStatus.Idle)
+    private fun startOnSession(next: LiveSettings, nextRun: Long) {
+        // A replaced run is superseded, not ended: no Idle HUD or end event in between.
+        teardown()
+        run = nextRun
         val url = try {
             next.publishUrl()
         } catch (error: IllegalArgumentException) {
-            publish(hud.copy(status = LiveStatus.Error(error.message ?: "Invalid stream settings.")))
+            end(LiveStatus.Error(error.message ?: "Invalid stream settings."))
             return
         }
         val quality = next.quality
         val video = LiveVideoParams(quality.width, quality.height, quality.fps, quality.bitrate(next.platform), KEYFRAME_SECONDS)
         val requestedAudio = LiveAudioParams(sampleRate = 48_000, channelCount = 2, bitrate = 128_000)
+        // Connecting replaces the previous status before media starts, so no
+        // HUD of this run ever carries the old Idle/Error.
+        publish(
+            hud.copy(
+                status = LiveStatus.Connecting,
+                targetBitrate = video.bitrate,
+                currentBitrate = video.bitrate,
+                sentBitrate = 0,
+                fps = 0,
+                droppedFrames = 0,
+            ),
+        )
         val mediaGen = ++mediaGeneration
         videoConfig = null
         audioConfig = null
@@ -169,7 +200,7 @@ class IrlSession(
             mediaGeneration++
             runCatching { media.stop() }
             // Fixed text: HUD errors are shown on screen and must never echo free-form exception text.
-            publish(hud.copy(status = LiveStatus.Error(START_FAILED)))
+            end(LiveStatus.Error(START_FAILED))
             return
         }
         settings = next
@@ -183,12 +214,20 @@ class IrlSession(
         lastNetworkId = networkId
         lastFrameCount = 0
         lastTickMs = clock()
-        publish(hud.copy(targetBitrate = video.bitrate, currentBitrate = video.bitrate, sentBitrate = 0, fps = 0, droppedFrames = 0))
         connect()
         scheduleTick()
     }
 
-    private fun stopOnSession(status: LiveStatus) {
+    /** Tears down, publishes the final [status] and reports the end of the active run. */
+    private fun end(status: LiveStatus) {
+        teardown()
+        publish(hud.copy(status = status, sentBitrate = 0, fps = 0))
+        val ended = run
+        run = NO_RUN
+        if (ended != NO_RUN) onRunEnded(ended)
+    }
+
+    private fun teardown() {
         cancelRetry?.invoke(); cancelRetry = null
         cancelConnectTimeout?.invoke(); cancelConnectTimeout = null
         cancelTick?.invoke(); cancelTick = null
@@ -204,7 +243,6 @@ class IrlSession(
         liveSinceMs = null
         videoConfig = null
         audioConfig = null
-        publish(hud.copy(status = status, sentBitrate = 0, fps = 0))
     }
 
     private fun connect() {
@@ -221,6 +259,8 @@ class IrlSession(
             return
         }
         transport = next
+        sentVideoConfig = null
+        sentAudioConfig = null
         lastDropped = 0
         val status = hud.status
         publish(hud.copy(status = if (status is LiveStatus.Reconnecting) status.copy(retryInSeconds = 0) else LiveStatus.Connecting))
@@ -239,8 +279,9 @@ class IrlSession(
             onTransportFailed(gen, FailureClassifier.classify(error.message.orEmpty()))
             return
         }
-        // RTMP needs codec info before its publish handshake completes.
-        replayConfig(next)
+        // RTMP needs codec info before its publish handshake completes; config
+        // arriving later is delivered by deliverConfig().
+        deliverConfig(next)
     }
 
     private fun onTransportConnected(gen: Long) {
@@ -248,6 +289,7 @@ class IrlSession(
         val connected = transport ?: return
         cancelConnectTimeout?.invoke(); cancelConnectTimeout = null
         reconnect.reset()
+        // Transports may drop units sent before they connect (SRT), so replay.
         replayConfig(connected)
         // Every connection starts its own timeline at the next keyframe.
         link = LiveLink(connected, LiveTimeline(mediaClock))
@@ -275,7 +317,7 @@ class IrlSession(
             LiveFailure.CONFIG -> "Server settings rejected. Check the server URL."
             LiveFailure.TRANSIENT -> "Connection failed."
         }
-        stopOnSession(LiveStatus.Error(message))
+        end(LiveStatus.Error(message))
     }
 
     private fun reconnectNow(reason: String) {
@@ -295,19 +337,43 @@ class IrlSession(
     }
 
     private fun replayConfig(target: LiveTransport) {
-        videoConfig?.let { runCatching { target.sendVideo(it) } }
-        audioConfig?.let { runCatching { target.sendAudio(it) } }
+        sentVideoConfig = null
+        sentAudioConfig = null
+        deliverConfig(target)
+    }
+
+    /** Sends cached config units [target] has not received yet; idempotent per unit. */
+    private fun deliverConfig(target: LiveTransport) {
+        val video = videoConfig
+        if (video != null && video !== sentVideoConfig) {
+            sentVideoConfig = video
+            runCatching { target.sendVideo(video) }
+        }
+        val audio = audioConfig
+        if (audio != null && audio !== sentAudioConfig) {
+            sentAudioConfig = audio
+            runCatching { target.sendAudio(audio) }
+        }
+    }
+
+    /**
+     * Config from encoder threads goes through the session so a pending
+     * transport gets it too: RTMP cannot finish connecting without SPS/PPS.
+     */
+    private fun onConfigUnit(mediaGen: Long) = scheduler.execute {
+        if (mediaGen != mediaGeneration || !active) return@execute
+        transport?.let(::deliverConfig)
     }
 
     private fun onVideoUnit(mediaGen: Long, unit: EncodedAccessUnit) {
         if (mediaGen != mediaGeneration) return
         if (unit.encoderFailure) {
-            scheduler.execute { if (mediaGen == mediaGeneration && active) stopOnSession(LiveStatus.Error("Video encoder failed.")) }
+            scheduler.execute { if (mediaGen == mediaGeneration && active) end(LiveStatus.Error("Video encoder failed.")) }
             return
         }
         if (unit.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
             videoConfig = unit
-            liveTransport?.sendVideo(unit)
+            onConfigUnit(mediaGen)
             return
         }
         videoFrames.incrementAndGet()
@@ -320,12 +386,12 @@ class IrlSession(
     private fun onAudioUnit(mediaGen: Long, unit: EncodedAccessUnit) {
         if (mediaGen != mediaGeneration) return
         if (unit.encoderFailure) {
-            scheduler.execute { if (mediaGen == mediaGeneration && active) stopOnSession(LiveStatus.Error("Microphone or audio encoder failed.")) }
+            scheduler.execute { if (mediaGen == mediaGeneration && active) end(LiveStatus.Error("Microphone or audio encoder failed.")) }
             return
         }
         if (unit.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
             audioConfig = unit
-            liveTransport?.sendAudio(unit)
+            onConfigUnit(mediaGen)
             return
         }
         val target = link ?: return
@@ -386,6 +452,7 @@ class IrlSession(
     }
 
     companion object {
+        const val NO_RUN = 0L
         const val KEYFRAME_SECONDS = 2
         const val TICK_MS = 1000L
         const val CONNECT_TIMEOUT_MS = 20_000L

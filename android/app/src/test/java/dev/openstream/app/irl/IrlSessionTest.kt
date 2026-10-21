@@ -69,9 +69,11 @@ class IrlSessionTest {
         var mutedState = false
         var microphone = true
         var startError: Exception? = null
+        var onStart: () -> Unit = {}
 
         override fun start(video: LiveVideoParams, audio: LiveAudioParams, onVideo: (EncodedAccessUnit) -> Unit, onAudio: (EncodedAccessUnit) -> Unit): LiveAudioParams? {
             started++
+            onStart()
             startError?.let { throw it }
             this.onVideo = onVideo
             this.onAudio = onAudio
@@ -89,6 +91,11 @@ class IrlSessionTest {
     private val media = FakeMedia()
     private val transports = mutableListOf<FakeTransport>()
     private val huds = mutableListOf<LiveHud>()
+    private val ended = mutableListOf<Long>()
+    // Stand-in for the service's main looper, where run ends are handled.
+    private val main = ArrayDeque<() -> Unit>()
+    private val runs = LiveRunTracker()
+    private var foreground = false
     private val session = IrlSession(
         transportFactory = { FakeTransport().also { transports += it } },
         media = media,
@@ -96,6 +103,7 @@ class IrlSessionTest {
         clock = { clock.now },
         mediaClock = { MediaClockSample(clock.now * 1000, clock.now * 1000 + bootAheadUs) },
         onHud = { huds += it },
+        onRunEnded = { run -> ended += run; main += { if (runs.end(run)) foreground = false } },
         random = { 0.5 },
     )
     private val settings = LiveSettings(LivePlatform.TWITCH, LivePlatform.TWITCH.server, "live_secret", LiveQuality.P720)
@@ -435,5 +443,142 @@ class IrlSessionTest {
         scheduler.advance()
         assertTrue(status is LiveStatus.Error)
         assertEquals(1, media.stopped)
+    }
+
+    /** Mirrors IrlStreamService.goLive on the main thread: foreground first, then the run. */
+    private fun serviceGoLive(next: LiveSettings = settings): Long {
+        foreground = true
+        return session.start(next).also(runs::begin)
+    }
+
+    private fun drainMain() {
+        while (main.isNotEmpty()) main.removeFirst()()
+    }
+
+    @Test
+    fun startPublishesConnectingBeforeMediaStartsAfterAnError() {
+        session.start(settings.copy(key = ""))
+        scheduler.advance()
+        assertTrue(status is LiveStatus.Error)
+        val before = huds.size
+        var statusAtMediaStart: LiveStatus? = null
+        media.onStart = { statusAtMediaStart = status }
+
+        val run = serviceGoLive()
+        scheduler.advance()
+        assertEquals(LiveStatus.Connecting, statusAtMediaStart)
+        val published = huds.drop(before)
+        assertEquals(LiveStatus.Connecting, published.first().status)
+        assertTrue(published.none { it.status is LiveStatus.Idle || it.status is LiveStatus.Error })
+        assertEquals(listOf(1L), ended) // only the invalid run ended
+        assertEquals(2L, run)
+
+        drainMain()
+        assertTrue(foreground)
+        transports.single().listener!!.onConnected()
+        scheduler.advance()
+        drainMain()
+        assertTrue(status is LiveStatus.Live)
+        assertTrue(foreground)
+    }
+
+    @Test
+    fun restartingAnActiveRunPublishesNoIdleAndEndsNothing() {
+        serviceGoLive()
+        scheduler.advance()
+        val before = huds.size
+        serviceGoLive()
+        scheduler.advance()
+        assertTrue(huds.drop(before).none { it.status is LiveStatus.Idle })
+        assertTrue(ended.isEmpty())
+        assertTrue(transports.first().disconnected)
+        drainMain()
+        assertTrue(foreground)
+    }
+
+    @Test
+    fun lateEndOfAReplacedRunKeepsForeground() {
+        val first = serviceGoLive()
+        scheduler.advance()
+        session.stop()
+        scheduler.advance()
+        // The user goes live again before the main thread handles the stop.
+        val second = serviceGoLive()
+        scheduler.advance()
+        assertEquals(listOf(first), ended)
+        drainMain()
+        assertTrue(foreground)
+
+        session.stop()
+        scheduler.advance()
+        drainMain()
+        assertEquals(listOf(first, second), ended)
+        assertFalse(foreground)
+    }
+
+    @Test
+    fun terminalErrorOfCurrentRunLeavesForeground() {
+        serviceGoLive()
+        scheduler.advance()
+        transports.single().listener!!.onFailed("BadName", LiveFailure.AUTH)
+        scheduler.advance()
+        drainMain()
+        assertTrue(status is LiveStatus.Error)
+        assertFalse(foreground)
+    }
+
+    @Test
+    fun startFailureEndsTheRun() {
+        media.startError = IllegalStateException("camera")
+        val run = serviceGoLive()
+        scheduler.advance()
+        drainMain()
+        assertEquals(listOf(run), ended)
+        assertFalse(foreground)
+    }
+
+    @Test
+    fun runTrackerOnlyEndsTheCurrentRun() {
+        val tracker = LiveRunTracker()
+        assertFalse(tracker.end(IrlSession.NO_RUN))
+        tracker.begin(1)
+        tracker.begin(2)
+        assertFalse(tracker.end(1))
+        assertTrue(tracker.end(2))
+        assertFalse(tracker.end(2))
+    }
+
+    @Test
+    fun configArrivingAfterConnectReachesThePendingTransport() {
+        session.start(settings)
+        scheduler.advance()
+        val transport = transports.single()
+        assertTrue(transport.video.isEmpty())
+
+        media.onVideo!!(videoConfig)
+        media.onAudio!!(audioConfig)
+        scheduler.advance()
+        // Delivered before onConnected, exactly once.
+        assertEquals(listOf(videoConfig), transport.video)
+        assertEquals(listOf(audioConfig), transport.audio)
+        scheduler.advance(1_000)
+        assertEquals(listOf(videoConfig), transport.video)
+
+        transport.listener!!.onConnected()
+        scheduler.advance()
+        assertTrue(status is LiveStatus.Live)
+        assertEquals(1, transports.size)
+    }
+
+    @Test
+    fun configFromStoppedMediaIsNotDelivered() {
+        session.start(settings)
+        scheduler.advance()
+        val onVideo = media.onVideo!!
+        val transport = transports.single()
+        session.stop()
+        onVideo(videoConfig)
+        scheduler.advance()
+        assertTrue(transport.video.isEmpty())
     }
 }
