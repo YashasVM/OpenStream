@@ -83,6 +83,9 @@ class SrtStreamClient : EncodedMediaSink {
                         didConnect = true
                         break
                     }
+                    // The native error slot is process-global; once superseded it
+                    // describes the replacement attempt, not this one.
+                    if (!isCurrentSessionGeneration(generation)) break
                     val detail = SrtNativeBridge.connectError()
                     if (detail.startsWith("AUTH:") || detail.startsWith("CONFIG:")) {
                         throw SrtPublisherException(detail)
