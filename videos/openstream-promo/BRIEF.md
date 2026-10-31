@@ -70,3 +70,17 @@ User: "clean, professional", "colors like beige", "high energy beat", "just crea
 - One continuous composition (tools/build_v6.py → index.html): lens dive, logo drop, cursor demo with camera chase,
   dive into the preview, extruded 3D type, Go-live climax. Final audio loudnorm'd to -14 LUFS after render.
 - v5 entry archived at archive/index-v5.html.
+
+## v7 direction (current request, 2026-10-04)
+
+Use os.yash0.in itself in the film; preserve its visual identity and animate real website plates. Full creative discretion and direct finished-file delivery authorized. Professional smooth 60fps with music and voiceover. Instagram, YouTube and other social destinations.
+
+Deliver 33.5s in independently composed 1920×1080 and 1080×1920 formats. HeyGen Ewan narrator, phrase captions, Car Ad Energy music, light transition SFX. Source generator: tools/build_v7.py. Landscape: index.html. Portrait: formats/portrait/index.html. Preserve all previous renders and archive v6 entry.
+
+## v8 direction (latest correction)
+
+Vertical website-only animation. Remove all custom phone props, added branding/title cards, and caption bands. Use actual captured website DOM, source CSS and original website marks only. Elements drop into their real page positions. A single 3D camera smoothly scrolls, tilts, and pushes into the website. Narration explains the product in website order over upbeat music. 39.5s, 1080×1920 at 60 fps. All further operations use the CLI at the user's request. Source: tools/build_website_v8.py; composition: formats/website-vertical/index.html.
+
+## v9 revision (2026-10-04)
+
+Keep the accepted vertical website animation. Remove opening headroom with a closer camera and compact hero spacing. Let feature rows fill orange with deterministic versions of the original hover effect, timed to narration. Extend the website footer with an orange “Star this on GitHub” panel and animated star, plus matching Ewan closing narration. 44 seconds, 1080×1920 at 60fps; source tools/build_website_v9.py, composition formats/website-vertical-v9/index.html. Preserve v8.
