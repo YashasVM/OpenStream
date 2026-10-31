@@ -1,0 +1,181 @@
+{
+  "files": [
+    {
+      "file": "inter-cyrillic-ext-wght-normal-BOeWTOD4.woff2",
+      "family": "Inter",
+      "rawFamily": "Inter",
+      "subfamily": "Regular",
+      "postscript": "Inter-Regular",
+      "weight": 400,
+      "style": "normal",
+      "variationAxes": [
+        "wght"
+      ],
+      "identified": true,
+      "isIcon": false
+    },
+    {
+      "file": "inter-cyrillic-wght-normal-DqGufNeO.woff2",
+      "family": "Inter",
+      "rawFamily": "Inter",
+      "subfamily": "Regular",
+      "postscript": "Inter-Regular",
+      "weight": 400,
+      "style": "normal",
+      "variationAxes": [
+        "wght"
+      ],
+      "identified": true,
+      "isIcon": false
+    },
+    {
+      "file": "inter-greek-ext-wght-normal-DlzME5K_.woff2",
+      "family": "Inter",
+      "rawFamily": "Inter",
+      "subfamily": "Regular",
+      "postscript": "Inter-Regular",
+      "weight": 400,
+      "style": "normal",
+      "variationAxes": [
+        "wght"
+      ],
+      "identified": true,
+      "isIcon": false
+    },
+    {
+      "file": "inter-greek-wght-normal-CkhJZR-_.woff2",
+      "family": "Inter",
+      "rawFamily": "Inter",
+      "subfamily": "Regular",
+      "postscript": "Inter-Regular",
+      "weight": 400,
+      "style": "normal",
+      "variationAxes": [
+        "wght"
+      ],
+      "identified": true,
+      "isIcon": false
+    },
+    {
+      "file": "inter-latin-ext-wght-normal-DO1Apj_S.woff2",
+      "family": "Inter",
+      "rawFamily": "Inter",
+      "subfamily": "Regular",
+      "postscript": "Inter-Regular",
+      "weight": 400,
+      "style": "normal",
+      "variationAxes": [
+        "wght"
+      ],
+      "identified": true,
+      "isIcon": false
+    },
+    {
+      "file": "inter-latin-wght-normal-Dx4kXJAl.woff2",
+      "family": "Inter",
+      "rawFamily": "Inter",
+      "subfamily": "Regular",
+      "postscript": "Inter-Regular",
+      "weight": 400,
+      "style": "normal",
+      "variationAxes": [
+        "wght"
+      ],
+      "identified": true,
+      "isIcon": false
+    },
+    {
+      "file": "unbounded-cyrillic-wght-normal-C627f1f8.woff2",
+      "family": "Unbounded",
+      "rawFamily": "Unbounded",
+      "subfamily": "Regular",
+      "postscript": "Unbounded-Regular",
+      "weight": 400,
+      "style": "normal",
+      "variationAxes": [
+        "wght"
+      ],
+      "identified": true,
+      "isIcon": false
+    },
+    {
+      "file": "unbounded-latin-ext-wght-normal-D6H-S6MW.woff2",
+      "family": "Unbounded",
+      "rawFamily": "Unbounded",
+      "subfamily": "Regular",
+      "postscript": "Unbounded-Regular",
+      "weight": 400,
+      "style": "normal",
+      "variationAxes": [
+        "wght"
+      ],
+      "identified": true,
+      "isIcon": false
+    },
+    {
+      "file": "unbounded-latin-wght-normal-D5afBTBx.woff2",
+      "family": "Unbounded",
+      "rawFamily": "Unbounded",
+      "subfamily": "Regular",
+      "postscript": "Unbounded-Regular",
+      "weight": 400,
+      "style": "normal",
+      "variationAxes": [
+        "wght"
+      ],
+      "identified": true,
+      "isIcon": false
+    },
+    {
+      "file": "unbounded-vietnamese-wght-normal-rat7GD3o.woff2",
+      "family": "Unbounded",
+      "rawFamily": "Unbounded",
+      "subfamily": "Regular",
+      "postscript": "Unbounded-Regular",
+      "weight": 400,
+      "style": "normal",
+      "variationAxes": [
+        "wght"
+      ],
+      "identified": true,
+      "isIcon": false
+    }
+  ],
+  "families": [
+    {
+      "family": "Inter",
+      "weights": [
+        400
+      ],
+      "variable": true,
+      "fileCount": 6,
+      "files": [
+        "inter-cyrillic-ext-wght-normal-BOeWTOD4.woff2",
+        "inter-cyrillic-wght-normal-DqGufNeO.woff2",
+        "inter-greek-ext-wght-normal-DlzME5K_.woff2",
+        "inter-greek-wght-normal-CkhJZR-_.woff2",
+        "inter-latin-ext-wght-normal-DO1Apj_S.woff2",
+        "inter-latin-wght-normal-Dx4kXJAl.woff2"
+      ]
+    },
+    {
+      "family": "Unbounded",
+      "weights": [
+        400
+      ],
+      "variable": true,
+      "fileCount": 4,
+      "files": [
+        "unbounded-cyrillic-wght-normal-C627f1f8.woff2",
+        "unbounded-latin-ext-wght-normal-D6H-S6MW.woff2",
+        "unbounded-latin-wght-normal-D5afBTBx.woff2",
+        "unbounded-vietnamese-wght-normal-rat7GD3o.woff2"
+      ]
+    }
+  ],
+  "unidentified": [],
+  "meta": {
+    "generatedAt": "2026-10-04T15:18:10.640Z",
+    "tool": "fontkit"
+  }
+}

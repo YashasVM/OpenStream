@@ -1,0 +1,154 @@
+[span] OpenStream
+[span] Android → OBS Studio
+[a] GitHub ↗
+[textpath] FREE · OPEN SOURCE · LOCAL ONLY ·
+[p] Stream any Android camera into OBS over local Wi-Fi. Every lens, hardware-encoded, zero cloud.
+[a] Download
+[a] How it works
+[span] 1080p60
+[span] Every lens
+[span] H.264 + AAC
+[span] SRT over Wi-Fi
+[span] Camera Control dock
+[span] Auto-discovery
+[span] Zero cloud
+[span] Open source
+[span] 1080p60
+[span] Every lens
+[span] H.264 + AAC
+[span] SRT over Wi-Fi
+[span] Camera Control dock
+[span] Auto-discovery
+[span] Zero cloud
+[span] Open source
+[span] (01) The idea
+[span] Your
+[span] phone
+[span] already
+[span] has
+[span] better
+[span] camera
+[span] than
+[span] your
+[span] webcam.
+[span] OpenStream
+[span] sends
+[span] straight
+[span] into
+[span] OBS
+[span] over
+[span] your
+[span] own
+[span] Wi-Fi
+[span] capture
+[span] card,
+[span] screen
+[span] mirroring,
+[span] account,
+[span] cloud.
+[span] 120
+[span] SRT latency buffer
+[span] 1080
+[span] up to 60 fps
+[span] cloud servers involved
+[small] Mbps
+[span] max bitrate
+[span] (02) How it works
+[h2] FOUR HOPS.
+[span] ONE NETWORK.
+[b] Media
+[span] SRT :9100
+[b] Discovery
+[span] UDP :51615
+[b] Camera control
+[span] HTTP :9101
+[span] capture
+[h3] Camera2
+[p] The app opens your phone's real camera hardware — every lens it exposes, plus the front camera and microphone.
+[span] encode
+[h3] Hardware encode
+[p] The phone's own encoder compresses to H.264 video and AAC audio. Your computer does zero encoding work.
+[span] transmit
+[h3] SRT over Wi-Fi
+[p] Packed into MPEG-TS and sent over SRT — a protocol built for live video on imperfect networks.
+[span] receive
+[h3] Native OBS source
+[p] The plugin decodes straight into an OBS source that behaves like any webcam in your scenes.
+[span] (03) Features
+[h3] Every lens
+[p] Ultra-wide, main, telephoto and front. Switch on the phone or from OBS.
+[h3] Control from OBS
+[p] A Camera Control dock inside OBS for lens, zoom and torch. Hands off the phone.
+[h3] Finds your PC
+[p] OBS computers on your network appear in the app. Tap one. No IP addresses.
+[h3] Reconnects itself
+[p] Brief Wi-Fi drops recover on their own. The source stays put in your scene.
+[h3] Real audio
+[p] AAC audio from the phone mic, synced with the video and on its own track.
+[h3] Local only
+[p] No accounts, no relay, no telemetry. Video never leaves your network.
+[span] (04) Quality modes
+[span] Data saver
+[strong] 720p
+[span] FPS
+[span] 8 Mbps
+[span] Crowded or 2.4 GHz Wi-Fi
+[span] Balanced
+[span] (default)
+[strong] 1080p
+[span] FPS
+[span] 12 Mbps
+[span] The default. Right for most setups
+[span] High
+[strong] 1080p
+[span] FPS
+[span] 50 Mbps
+[span] Strong 5 GHz or Wi-Fi 6
+[span] (05) Install
+[span] Android
+[span] Phone
+[span] Windows
+[span] OBS
+[span] Linux
+[span] OBS
+[span] Needs:
+[span] Windows 10/11 x64 · OBS Studio 30+
+[strong] OBS plugin installer
+[small] exe
+[small] Recommended — finds OBS for you
+[strong] Manual ZIP
+[small] zip
+[small] For custom OBS install paths
+[p] Using the ZIP? Extract everything, then right-click install-openstream-plugin.bat → Run as administrator.
+[a] All files & release notes ↗
+[h4] Close OBS
+[p] The plugin can't be replaced while OBS has it loaded.
+[h4] Run the installer
+[p] It asks for admin rights once and installs into your OBS folder.
+[h4] Reopen OBS
+[p] The OpenStream source and Camera Control dock are ready.
+[span] (06) Go live
+[h2] FIVE MOVES.
+[span] THEN YOU'RE ON.
+[h4] Same network
+[p] Phone and computer on the same Wi-Fi. 5 GHz or Wi-Fi 6 if you have it.
+[h4] Add the source
+[p] In OBS: Sources → + → OpenStream. One source per phone.
+[h4] Pick your computer
+[p] Open the app — your PC appears under “Choose your OBS computer”. Tap it.
+[h4] Frame the shot
+[p] Choose a lens and quality. Turn on Stay to keep the screen awake.
+[h4] Go live
+[p] Stream or record as usual. Fine-tune from the Camera Control dock.
+[span] (07) FAQ
+[span] My computer doesn't show up in the app.
+[span] The picture stutters or freezes.
+[span] Does it work over the internet?
+[span] Is there an iPhone app or a macOS plugin?
+[span] Windows warns me about the installer.
+[span] What does it cost?
+[p] Still stuck?
+[a] Open an issue ↗
+[a] Get OpenStream
+[span] © OpenStream — made by
+[a] Releases

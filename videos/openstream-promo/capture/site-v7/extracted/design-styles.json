@@ -1,0 +1,315 @@
+{
+  "typography": [
+    {
+      "role": "display",
+      "fontFamily": "Unbounded Variable",
+      "fontSize": "168px",
+      "fontWeight": "800",
+      "lineHeight": "147.84px",
+      "letterSpacing": "-9.24px",
+      "color": "#F2EDE4",
+      "sampleText": "YOURPHONEISNOWANFREE · OPEN SOURCE · LOCAL ONLY · OBSCAMERA."
+    },
+    {
+      "role": "heading",
+      "fontFamily": "Unbounded Variable",
+      "fontSize": "96px",
+      "fontWeight": "700",
+      "lineHeight": "91.2px",
+      "letterSpacing": "-3.84px",
+      "color": "#F2EDE4",
+      "sampleText": "FOUR HOPS.ONE NETWORK."
+    },
+    {
+      "role": "heading-3",
+      "fontFamily": "Unbounded Variable",
+      "fontSize": "68px",
+      "fontWeight": "700",
+      "lineHeight": "64.6px",
+      "letterSpacing": "-3.06px",
+      "color": "#0E0E0C",
+      "sampleText": "Camera2"
+    },
+    {
+      "role": "body",
+      "fontFamily": "Unbounded Variable",
+      "fontSize": "68px",
+      "fontWeight": "600",
+      "lineHeight": "73.44px",
+      "letterSpacing": "-2.72px",
+      "color": "#F2EDE4",
+      "sampleText": "Your phone already has a better camera than your webcam. Ope"
+    },
+    {
+      "role": "heading-3",
+      "fontFamily": "Unbounded Variable",
+      "fontSize": "48px",
+      "fontWeight": "700",
+      "lineHeight": "48px",
+      "letterSpacing": "-1.92px",
+      "color": "#F2EDE4",
+      "sampleText": "Every lens"
+    },
+    {
+      "role": "body-small",
+      "fontFamily": "Unbounded Variable",
+      "fontSize": "35.84px",
+      "fontWeight": "800",
+      "lineHeight": "32.256px",
+      "letterSpacing": "-0.7168px",
+      "color": "#0E0E0C",
+      "sampleText": "ms"
+    },
+    {
+      "role": "heading-4",
+      "fontFamily": "Unbounded Variable",
+      "fontSize": "22px",
+      "fontWeight": "700",
+      "lineHeight": "normal",
+      "letterSpacing": "-0.66px",
+      "color": "#0E0E0C",
+      "sampleText": "Close OBS"
+    },
+    {
+      "role": "link",
+      "fontFamily": "Inter Variable",
+      "fontSize": "16px",
+      "fontWeight": "400",
+      "lineHeight": "24px",
+      "letterSpacing": "normal",
+      "color": "#F2EDE4",
+      "sampleText": "OBS plugin installer.exe — Recommended — finds OBS for you↓"
+    },
+    {
+      "role": "label",
+      "fontFamily": "Inter Variable",
+      "fontSize": "13px",
+      "fontWeight": "500",
+      "lineHeight": "normal",
+      "letterSpacing": "0.26px",
+      "color": "#8A857B",
+      "sampleText": "(01) The idea"
+    }
+  ],
+  "spacing": {
+    "observed": [
+      1,
+      6,
+      8,
+      10,
+      12,
+      16,
+      18,
+      22,
+      24,
+      26,
+      28,
+      30,
+      32,
+      34,
+      48
+    ],
+    "baseUnit": 4
+  },
+  "radius": [
+    "20px",
+    "28px",
+    "32px",
+    "50%",
+    "99px"
+  ],
+  "shadows": [
+    {
+      "value": "rgba(0, 0, 0, 0.35) 0px -20px 60px 0px",
+      "count": 3
+    },
+    {
+      "value": "rgb(14, 14, 12) 0px 0px 0px 2px inset",
+      "count": 2
+    },
+    {
+      "value": "rgb(242, 237, 228) 0px 0px 0px 1.5px inset",
+      "count": 1
+    },
+    {
+      "value": "rgba(242, 237, 228, 0.14) 0px 0px 0px 1px inset, rgba(0, 0, 0, 0.35) 0px -20px 60px 0px",
+      "count": 1
+    }
+  ],
+  "buttons": [
+    {
+      "label": "Download ↓",
+      "background": "#FF5B14",
+      "backgroundImage": "",
+      "backdropFilter": "",
+      "color": "#0E0E0C",
+      "padding": "0px 30px",
+      "borderRadius": "99px",
+      "border": "0px none rgb(14, 14, 12)",
+      "boxShadow": "none",
+      "fontSize": "16px",
+      "fontWeight": "600",
+      "height": "60px"
+    },
+    {
+      "label": "How it works",
+      "background": "transparent",
+      "backgroundImage": "",
+      "backdropFilter": "",
+      "color": "#F2EDE4",
+      "padding": "0px 30px",
+      "borderRadius": "99px",
+      "border": "0px none rgb(242, 237, 228)",
+      "boxShadow": "rgb(242, 237, 228) 0px 0px 0px 1.5px inset",
+      "fontSize": "16px",
+      "fontWeight": "600",
+      "height": "60px"
+    },
+    {
+      "label": "Data saver720p30 FPS8 MbpsCrowded or 2.4",
+      "background": "#1A1A17",
+      "backgroundImage": "",
+      "backdropFilter": "",
+      "color": "#F2EDE4",
+      "padding": "32px 28px",
+      "borderRadius": "28px",
+      "border": "0px none rgb(242, 237, 228)",
+      "boxShadow": "none",
+      "fontSize": "16px",
+      "fontWeight": "400",
+      "height": "420px"
+    },
+    {
+      "label": "Balanced (default)1080p30 FPS12 MbpsThe ",
+      "background": "#F2EDE4",
+      "backgroundImage": "",
+      "backdropFilter": "",
+      "color": "#0E0E0C",
+      "padding": "32px 28px",
+      "borderRadius": "28px",
+      "border": "0px none rgb(14, 14, 12)",
+      "boxShadow": "none",
+      "fontSize": "16px",
+      "fontWeight": "400",
+      "height": "420px"
+    },
+    {
+      "label": "AndroidPhone",
+      "background": "transparent",
+      "backgroundImage": "",
+      "backdropFilter": "",
+      "color": "#0E0E0C",
+      "padding": "1px 6px 18px",
+      "borderRadius": "0px",
+      "border": "0px none rgba(14, 14, 12, 0.35)",
+      "boxShadow": "none",
+      "fontSize": "16px",
+      "fontWeight": "400",
+      "height": "91px"
+    },
+    {
+      "label": "WindowsOBS",
+      "background": "transparent",
+      "backgroundImage": "",
+      "backdropFilter": "",
+      "color": "#0E0E0C",
+      "padding": "1px 6px 18px",
+      "borderRadius": "0px",
+      "border": "0px none rgb(14, 14, 12)",
+      "boxShadow": "none",
+      "fontSize": "16px",
+      "fontWeight": "400",
+      "height": "91px"
+    }
+  ],
+  "cards": [
+    {
+      "label": "card",
+      "background": "#F2EDE4",
+      "backgroundImage": "",
+      "backdropFilter": "",
+      "color": "#0E0E0C",
+      "padding": "56px",
+      "borderRadius": "32px",
+      "border": "0px none rgb(14, 14, 12)",
+      "boxShadow": "rgba(0, 0, 0, 0.35) 0px -20px 60px 0px",
+      "fontSize": "16px",
+      "fontWeight": "400",
+      "height": "560px"
+    },
+    {
+      "label": "card",
+      "background": "#FF5B14",
+      "backgroundImage": "",
+      "backdropFilter": "",
+      "color": "#0E0E0C",
+      "padding": "56px",
+      "borderRadius": "32px",
+      "border": "0px none rgb(14, 14, 12)",
+      "boxShadow": "rgba(0, 0, 0, 0.35) 0px -20px 60px 0px",
+      "fontSize": "16px",
+      "fontWeight": "400",
+      "height": "560px"
+    },
+    {
+      "label": "card",
+      "background": "#1A1A17",
+      "backgroundImage": "",
+      "backdropFilter": "",
+      "color": "#F2EDE4",
+      "padding": "56px",
+      "borderRadius": "32px",
+      "border": "0px none rgb(242, 237, 228)",
+      "boxShadow": "rgba(242, 237, 228, 0.14) 0px 0px 0px 1px inset, rgba(0, 0, 0, 0.35) 0px -20px 60px 0px",
+      "fontSize": "16px",
+      "fontWeight": "400",
+      "height": "560px"
+    },
+    {
+      "label": "card",
+      "background": "#E4DDD0",
+      "backgroundImage": "",
+      "backdropFilter": "",
+      "color": "#0E0E0C",
+      "padding": "56px",
+      "borderRadius": "32px",
+      "border": "0px none rgb(14, 14, 12)",
+      "boxShadow": "rgba(0, 0, 0, 0.35) 0px -20px 60px 0px",
+      "fontSize": "16px",
+      "fontWeight": "400",
+      "height": "560px"
+    }
+  ],
+  "nav": {
+    "label": "navigation",
+    "background": "transparent",
+    "backgroundImage": "",
+    "backdropFilter": "",
+    "color": "#F2EDE4",
+    "padding": "28px 0px 0px",
+    "borderRadius": "0px",
+    "border": "0px none rgb(242, 237, 228)",
+    "boxShadow": "none",
+    "fontSize": "16px",
+    "fontWeight": "400",
+    "height": "1080px"
+  },
+  "chips": [
+    {
+      "label": "Android → OBS Studio",
+      "background": "transparent",
+      "color": "#8A857B",
+      "padding": "0px",
+      "borderRadius": "0px",
+      "border": "0px none rgb(138, 133, 123)",
+      "boxShadow": "none",
+      "fontSize": "14px",
+      "fontWeight": "400",
+      "height": "21px"
+    }
+  ],
+  "statCells": [],
+  "tabs": [],
+  "backgrounds": [],
+  "glass": []
+}

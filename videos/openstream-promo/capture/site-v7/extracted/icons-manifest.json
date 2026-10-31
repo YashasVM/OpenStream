@@ -1,0 +1,32 @@
+{
+  "schema": "hyperframes.capture.icons.v1",
+  "headline": {
+    "file": "assets/favicon.png",
+    "source": "assets/icon-apple-touch-icon-unsized.png",
+    "rank": 0,
+    "shape": "bare-mark",
+    "reason": "the only candidate is a bare mark"
+  },
+  "icons": [
+    {
+      "file": "assets/icon-apple-touch-icon-unsized.png",
+      "url": "https://os.yash0.in/logo.png",
+      "rel": "apple-touch-icon",
+      "sizes": null,
+      "type": null,
+      "rank": 0,
+      "shape": "bare-mark",
+      "shapeReason": "0 of 4 edge midpoints are opaque, so the drawing has transparent margins"
+    },
+    {
+      "file": "assets/icon-icon-unsized.png",
+      "url": "https://os.yash0.in/favicon.png",
+      "rel": "icon",
+      "sizes": null,
+      "type": "image/png",
+      "rank": 1,
+      "shape": "bare-mark",
+      "shapeReason": "0 of 4 edge midpoints are opaque, so the drawing has transparent margins"
+    }
+  ]
+}

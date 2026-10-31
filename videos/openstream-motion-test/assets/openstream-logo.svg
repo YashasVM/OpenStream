@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="52 60 90 68" width="900" height="680">
+  <!-- OpenStream mark, vectorised from android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png -->
+  <g fill="none" stroke="#F3EFE8" stroke-width="5.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 110.6 78.6 A 29.6 29.6 0 1 0 108.6 112.6"/>
+    <path d="M 137 87 L 103.5 87 A 8.7 8.7 0 0 0 103.5 104.4 L 127.6 104.4 A 8.7 8.7 0 0 1 127.6 121.8 L 107.5 121.8"/>
+  </g>
+</svg>

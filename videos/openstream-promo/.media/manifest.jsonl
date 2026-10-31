@@ -1,2 +1,44 @@
 {"id":"image_001","type":"image","path":".media/images/image_001.jpg","source":"search","description":"young content creator streamer at desk facing camera, smiling, warm cinematic lighting, shallow depth of field bokeh background, landscape 16:9, photo","width":608,"height":342,"transparent":false,"provenance":{"provider":"heygen.asset.search","prompt":"young content creator streamer at desk facing camera, smiling, warm cinematic lighting, shallow depth of field bokeh background, landscape 16:9, photo","authMethod":"oauth","asset_id":"7b043337d3a081ac76c17a50a815b6ff4812acb1f33d8762d76aba0e9b60d0b4.jpg"}}
 {"id":"image_002","type":"image","path":".media/images/image_002.png","source":"generated","description":"Photorealistic 16:9 webcam frame of a confident young female tech streamer at her desk looking straight into the camera and smiling, modern dark studio room, warm orange practical lights and soft key light, creamy bokeh background with subtle orange neon accent, ultra sharp 4K detail, cinematic color grade, no text, no logos","provenance":{"provider":"codex.image_gen","prompt":"Photorealistic 16:9 webcam frame of a confident young female tech streamer at her desk looking straight into the camera and smiling, modern dark studio room, warm orange practical lights and soft key light, creamy bokeh background with subtle orange neon accent, ultra sharp 4K detail, cinematic color grade, no text, no logos"}}
+{"id":"bgm_001","type":"bgm","path":"assets/bgm/car-ad-energy-120bpm.mp3","source":"existing","description":"car ad energy 120bpm","duration":60,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_002","type":"bgm","path":"assets/bgm/openstream-128bpm.wav","source":"existing","description":"openstream 128bpm","duration":30,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_003","type":"bgm","path":"assets/bgm/openstream-v5-bed.wav","source":"existing","description":"openstream v5 bed","duration":45.6,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_004","type":"bgm","path":"assets/bgm/openstream2-120bpm.wav","source":"existing","description":"openstream2 120bpm","duration":40,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_005","type":"bgm","path":"assets/bgm/openstream2-v4-128bpm.wav","source":"existing","description":"openstream2 v4 128bpm","duration":37.5,"provenance":{"provider":"local","adopted":true}}
+{"id":"image_003","type":"image","path":"assets/feed-creator.png","source":"existing","description":"feed creator","width":1672,"height":941,"provenance":{"provider":"local","adopted":true}}
+{"id":"image_004","type":"image","path":"assets/obs-dock-panel.png","source":"existing","description":"obs dock panel","width":462,"height":660,"provenance":{"provider":"local","adopted":true}}
+{"id":"image_005","type":"image","path":"assets/obs-live.png","source":"existing","description":"obs live","width":1911,"height":1038,"provenance":{"provider":"local","adopted":true}}
+{"id":"icon_001","type":"icon","path":"assets/openstream-logo.svg","source":"existing","description":"openstream logo","provenance":{"provider":"local","adopted":true}}
+{"id":"image_006","type":"image","path":"assets/phone-app.jpg","source":"existing","description":"phone app","width":740,"height":1530,"provenance":{"provider":"local","adopted":true}}
+{"id":"image_007","type":"image","path":"assets/phone-live.jpg","source":"existing","description":"phone live","width":740,"height":1526,"provenance":{"provider":"local","adopted":true}}
+{"id":"sfx_001","type":"sfx","path":"assets/sfx/click-soft.mp3","source":"existing","description":"click soft","duration":0.4,"provenance":{"provider":"local","adopted":true}}
+{"id":"sfx_002","type":"sfx","path":"assets/sfx/click.mp3","source":"existing","description":"click","duration":0.4,"provenance":{"provider":"local","adopted":true}}
+{"id":"sfx_003","type":"sfx","path":"assets/sfx/glitch-3.mp3","source":"existing","description":"glitch 3","duration":3.1,"provenance":{"provider":"local","adopted":true}}
+{"id":"sfx_004","type":"sfx","path":"assets/sfx/impact-bass-1.mp3","source":"existing","description":"impact bass 1","duration":2.1,"provenance":{"provider":"local","adopted":true}}
+{"id":"sfx_005","type":"sfx","path":"assets/sfx/impact-bass-2.mp3","source":"existing","description":"impact bass 2","duration":2.6,"provenance":{"provider":"local","adopted":true}}
+{"id":"sfx_006","type":"sfx","path":"assets/sfx/ping.mp3","source":"existing","description":"ping","duration":1.3,"provenance":{"provider":"local","adopted":true}}
+{"id":"sfx_007","type":"sfx","path":"assets/sfx/pop.mp3","source":"existing","description":"pop","duration":0.7,"provenance":{"provider":"local","adopted":true}}
+{"id":"sfx_008","type":"sfx","path":"assets/sfx/sparkle.mp3","source":"existing","description":"sparkle","duration":1.8,"provenance":{"provider":"local","adopted":true}}
+{"id":"sfx_009","type":"sfx","path":"assets/sfx/whoosh-short.mp3","source":"existing","description":"whoosh short","duration":0.6,"provenance":{"provider":"local","adopted":true}}
+{"id":"sfx_010","type":"sfx","path":"assets/sfx/whoosh.mp3","source":"existing","description":"whoosh","duration":0.6,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_006","type":"bgm","path":"assets/vo-v5/l1.wav","source":"existing","description":"l1","duration":3.1,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_007","type":"bgm","path":"assets/vo-v5/l10.wav","source":"existing","description":"l10","duration":2.7,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_008","type":"bgm","path":"assets/vo-v5/l2.wav","source":"existing","description":"l2","duration":2.8,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_009","type":"bgm","path":"assets/vo-v5/l3.wav","source":"existing","description":"l3","duration":4.5,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_010","type":"bgm","path":"assets/vo-v5/l4.wav","source":"existing","description":"l4","duration":4.1,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_011","type":"bgm","path":"assets/vo-v5/l5.wav","source":"existing","description":"l5","duration":2.3,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_012","type":"bgm","path":"assets/vo-v5/l6.wav","source":"existing","description":"l6","duration":3.2,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_013","type":"bgm","path":"assets/vo-v5/l7.wav","source":"existing","description":"l7","duration":5.9,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_014","type":"bgm","path":"assets/vo-v5/l8.wav","source":"existing","description":"l8","duration":4.5,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_015","type":"bgm","path":"assets/vo-v5/l9.wav","source":"existing","description":"l9","duration":3.5,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_016","type":"bgm","path":"assets/vo-v6/l1.wav","source":"existing","description":"l1","duration":2.7,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_017","type":"bgm","path":"assets/vo-v6/l10.wav","source":"existing","description":"l10","duration":3.6,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_018","type":"bgm","path":"assets/vo-v6/l2.wav","source":"existing","description":"l2","duration":2.9,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_019","type":"bgm","path":"assets/vo-v6/l3.wav","source":"existing","description":"l3","duration":1.3,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_020","type":"bgm","path":"assets/vo-v6/l4.wav","source":"existing","description":"l4","duration":3.1,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_021","type":"bgm","path":"assets/vo-v6/l5.wav","source":"existing","description":"l5","duration":4.4,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_022","type":"bgm","path":"assets/vo-v6/l6.wav","source":"existing","description":"l6","duration":5.1,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_023","type":"bgm","path":"assets/vo-v6/l7.wav","source":"existing","description":"l7","duration":4.2,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_024","type":"bgm","path":"assets/vo-v6/l8.wav","source":"existing","description":"l8","duration":5.5,"provenance":{"provider":"local","adopted":true}}
+{"id":"bgm_025","type":"bgm","path":"assets/vo-v6/l9.wav","source":"existing","description":"l9","duration":3.1,"provenance":{"provider":"local","adopted":true}}
+{"id": "voice_github_closing_v9", "type": "tts", "path": "assets/v8/github-closing.wav", "source": "generated", "description": "OpenStream GitHub closing narration", "duration": 6.32, "provenance": {"provider": "heygen", "voiceId": "5f9c155f4108437f970c308c95b06e11", "speed": 0.93}}
