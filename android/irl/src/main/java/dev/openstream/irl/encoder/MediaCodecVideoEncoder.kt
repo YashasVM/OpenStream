@@ -1,0 +1,340 @@
+package dev.openstream.irl.encoder
+
+import android.media.MediaCodec
+import android.media.MediaCodecInfo
+import android.media.MediaCodecList
+import android.media.MediaFormat
+import android.os.Handler
+import android.os.HandlerThread
+import android.util.Log
+import android.view.Surface
+import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
+
+enum class CodecPreference {
+    ForceAvc,
+}
+
+fun CodecPreference.advertisedMimeType(): String {
+    return MediaFormat.MIMETYPE_VIDEO_AVC
+}
+
+data class EncodedAccessUnit(
+    val data: ByteArray,
+    val presentationTimeUs: Long,
+    val flags: Int,
+    val encoderFailure: Boolean = false,
+)
+
+/** Concatenates csd-0..2 from an encoder output format; shared by audio/video encoders. */
+internal fun MediaFormat.codecConfigBytes(): ByteArray? {
+    val output = ByteArrayOutputStream()
+    for (index in 0..2) {
+        val key = "csd-$index"
+        if (!containsKey(key)) continue
+        val buffer = getByteBuffer(key) ?: continue
+        val duplicate = buffer.duplicate()
+        duplicate.position(0)
+        val bytes = ByteArray(duplicate.remaining())
+        duplicate.get(bytes)
+        output.write(bytes)
+    }
+    return output.toByteArray().takeIf { it.isNotEmpty() }
+}
+
+class MediaCodecVideoEncoder(
+    private val preference: CodecPreference,
+    private val width: Int,
+    private val height: Int,
+    private val fps: Int,
+    private val bitrate: Int,
+    private val keyframeIntervalSeconds: Int,
+    private val onEncodedAccessUnit: (EncodedAccessUnit) -> Unit,
+) {
+    private var mimeType = preference.advertisedMimeType()
+    private var codec: MediaCodec? = null
+    private var callbackThread: HandlerThread? = null
+    private var surface: Surface? = null
+    @Volatile private var streamGeneration = 0L
+    private val lifecycleLock = Any()
+    private val deliveryLock = Any()
+    private val callbackLock = Any()
+
+    val codecName: String
+        get() = mimeType
+
+    fun inputSurface(): Surface = checkNotNull(surface) { "Encoder input surface is not ready" }
+
+    fun start() = synchronized(lifecycleLock) {
+        // Re-evaluate the codec at every start because bitrate can change per OBS reservation
+        // and vendor codec availability may change after a codec failure/restart.
+        if (codec != null || callbackThread != null) {
+            stop()
+        }
+        val (resolvedMime, resolvedCodecName) = chooseEncoder(width, height, fps, bitrate)
+        mimeType = resolvedMime
+        Log.i(
+            "shinEncoder",
+            "Using hardware encoder $resolvedCodecName for $mimeType " +
+                "${width}x${height}@${fps} (${bitrate / 1_000_000} Mbps)",
+        )
+        val encoder = createConfiguredEncoder(resolvedCodecName)
+        codec = encoder
+
+        val thread = HandlerThread("shinEncoder").apply { start() }
+        callbackThread = thread
+        val handler = Handler(thread.looper)
+        val generation = synchronized(deliveryLock) {
+            val nextGeneration = streamGeneration + 1
+            streamGeneration = nextGeneration
+            nextGeneration
+        }
+        try {
+            encoder.setCallback(object : MediaCodec.Callback() {
+                override fun onInputBufferAvailable(codec: MediaCodec, index: Int) = Unit
+
+                override fun onOutputBufferAvailable(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
+                    val accessUnit = synchronized(callbackLock) {
+                        if (streamGeneration != generation) {
+                            runCatching { codec.releaseOutputBuffer(index, false) }
+                            return@synchronized null
+                        }
+                        val buffer: ByteBuffer = codec.getOutputBuffer(index) ?: run {
+                            runCatching { codec.releaseOutputBuffer(index, false) }
+                            return@synchronized null
+                        }
+                        if (info.size <= 0) {
+                            runCatching { codec.releaseOutputBuffer(index, false) }
+                            return@synchronized null
+                        }
+                        val bytes = ByteArray(info.size)
+                        buffer.position(info.offset)
+                        buffer.limit(info.offset + info.size)
+                        buffer.get(bytes)
+                        runCatching { codec.releaseOutputBuffer(index, false) }
+                        EncodedAccessUnit(
+                            data = bytes,
+                            presentationTimeUs = info.presentationTimeUs,
+                            flags = info.flags,
+                        )
+                    } ?: return
+                    deliverIfCurrent(generation, accessUnit)
+                }
+
+                override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
+                    if (streamGeneration != generation) return
+                    Log.e("shinEncoder", "MediaCodec encoder error", e)
+                    // Route a fatal asynchronous codec failure through the same generation-bound
+                    // delivery path as media. SrtStreamClient recognizes this sentinel and marks
+                    // the active session failed without attempting to mux an invalid access unit.
+                    deliverIfCurrent(
+                        generation,
+                        EncodedAccessUnit(
+                            data = ByteArray(0),
+                            presentationTimeUs = 0,
+                            flags = 0,
+                            encoderFailure = true,
+                        ),
+                    )
+                }
+
+                override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
+                    if (streamGeneration != generation) return
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
+                        format.containsKey(MediaFormat.KEY_LATENCY)
+                    ) {
+                        Log.i(
+                            "shinEncoder",
+                            "Encoder accepted latency=${format.getInteger(MediaFormat.KEY_LATENCY)} frame(s)",
+                        )
+                    }
+                    format.codecConfigBytes()?.let { config ->
+                        deliverIfCurrent(
+                            generation,
+                            EncodedAccessUnit(
+                                data = config,
+                                presentationTimeUs = 0,
+                                flags = MediaCodec.BUFFER_FLAG_CODEC_CONFIG,
+                            ),
+                        )
+                    }
+                }
+            }, handler)
+            encoder.start()
+        } catch (error: Throwable) {
+            synchronized(deliveryLock) {
+                if (streamGeneration == generation) {
+                    streamGeneration += 1
+                }
+            }
+            codec = null
+            runCatching { surface?.release() }
+            surface = null
+            synchronized(callbackLock) {
+                runCatching { encoder.stop() }
+                runCatching { encoder.release() }
+            }
+            stopCallbackThread()
+            throw error
+        }
+    }
+
+    fun stop() = synchronized(lifecycleLock) {
+        synchronized(deliveryLock) {
+            streamGeneration += 1
+        }
+        val encoder = codec
+        codec = null
+        runCatching { surface?.release() }
+        surface = null
+        if (encoder != null) {
+            synchronized(callbackLock) {
+                runCatching { encoder.stop() }
+                runCatching { encoder.release() }
+            }
+        }
+        stopCallbackThread()
+    }
+
+    private fun createConfiguredEncoder(codecName: String): MediaCodec {
+        var firstError: Throwable? = null
+        for (applyOptionalTuning in listOf(true, false)) {
+            val encoder = MediaCodec.createByCodecName(codecName)
+            try {
+                encoder.configure(
+                    createVideoFormat(applyOptionalTuning),
+                    null,
+                    null,
+                    MediaCodec.CONFIGURE_FLAG_ENCODE,
+                )
+                surface = encoder.createInputSurface()
+                if (!applyOptionalTuning && firstError != null) {
+                    Log.w(
+                        "shinEncoder",
+                        "Encoder rejected optional low-latency hints; using core profile",
+                        firstError,
+                    )
+                }
+                return encoder
+            } catch (error: Throwable) {
+                runCatching { surface?.release() }
+                surface = null
+                runCatching { encoder.release() }
+                if (!applyOptionalTuning) {
+                    firstError?.let { error.addSuppressed(it) }
+                    throw error
+                }
+                firstError = error
+            }
+        }
+        error("Encoder configuration retry exhausted")
+    }
+
+    private fun createVideoFormat(applyOptionalTuning: Boolean): MediaFormat {
+        return MediaFormat.createVideoFormat(mimeType, width, height).apply {
+            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+            setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
+            setInteger(MediaFormat.KEY_FRAME_RATE, fps)
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, keyframeIntervalSeconds)
+            setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
+            if (applyOptionalTuning && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                setInteger(MediaFormat.KEY_PRIORITY, 0)
+                setFloat(MediaFormat.KEY_OPERATING_RATE, fps.toFloat())
+            }
+            if (applyOptionalTuning && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                setInteger(MediaFormat.KEY_LATENCY, 0)
+            }
+            if (applyOptionalTuning && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
+            }
+        }
+    }
+
+    private fun stopCallbackThread() {
+        val thread = callbackThread ?: return
+        callbackThread = null
+        thread.quitSafely()
+        if (Thread.currentThread() != thread) {
+            runCatching { thread.join(CALLBACK_THREAD_JOIN_TIMEOUT_MS) }
+            if (thread.isAlive) {
+                Log.w("shinEncoder", "Encoder callback thread did not exit within timeout")
+                thread.quit()
+            }
+        }
+    }
+
+    private fun deliverIfCurrent(generation: Long, accessUnit: EncodedAccessUnit): Boolean {
+        synchronized(deliveryLock) {
+            if (streamGeneration != generation) return false
+            onEncodedAccessUnit(accessUnit)
+            return true
+        }
+    }
+
+    private fun chooseEncoder(
+        width: Int,
+        height: Int,
+        fps: Int,
+        bitrate: Int,
+    ): Pair<String, String> {
+        val mime = MediaFormat.MIMETYPE_VIDEO_AVC
+        val infos = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
+        val candidates = infos.mapNotNull { candidate ->
+            if (!candidate.isEncoder ||
+                !candidate.isHardwareAccelerated ||
+                candidate.isSoftwareOnly ||
+                candidate.supportedTypes.none { it.equals(mime, true) }
+            ) {
+                return@mapNotNull null
+            }
+
+            val capabilities = runCatching {
+                candidate.getCapabilitiesForType(mime)
+            }.getOrNull() ?: return@mapNotNull null
+            if (!capabilities.colorFormats.contains(
+                    MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface,
+                )
+            ) {
+                return@mapNotNull null
+            }
+            if (!capabilities.encoderCapabilities.isBitrateModeSupported(
+                    MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR,
+                )
+            ) {
+                Log.d("shinEncoder", "Skipping ${candidate.name}: CBR is unsupported")
+                return@mapNotNull null
+            }
+
+            val videoCapabilities = capabilities.videoCapabilities
+            val supportsTarget = runCatching {
+                videoCapabilities.areSizeAndRateSupported(width, height, fps.toDouble()) &&
+                    videoCapabilities.bitrateRange.contains(bitrate)
+            }.getOrDefault(false)
+            if (!supportsTarget) {
+                Log.d(
+                    "shinEncoder",
+                    "Skipping ${candidate.name}: cannot sustain ${width}x${height}@${fps} " +
+                        "at ${bitrate / 1_000_000} Mbps",
+                )
+                return@mapNotNull null
+            }
+
+            mime to candidate.name
+        }
+
+        return candidates.firstOrNull() ?: run {
+            Log.e(
+                "shinEncoder",
+                "No hardware surface encoder can satisfy ${width}x${height}@${fps} " +
+                    "at ${bitrate / 1_000_000} Mbps",
+            )
+            throw IllegalStateException(
+                "OpenStream needs a hardware AVC encoder that supports the selected stream profile",
+            )
+        }
+    }
+
+    companion object {
+        private const val CALLBACK_THREAD_JOIN_TIMEOUT_MS = 500L
+    }
+}
