@@ -18,8 +18,8 @@ SOURCE = (ROOT / "obs-plugin/src/openstream-source.cpp").read_text(encoding="utf
 class OpenStreamPluginContractTests(unittest.TestCase):
     def test_dock_is_minimal_and_has_no_ui_thread_update_networking(self) -> None:
         for required in (
-            '"Test / connect"',
-            '"Disconnect / release"',
+            '"Connect"',
+            '"Disconnect"',
             '"openstreamZoom"',
             '"openstreamLensOptions"',
             '"openstreamSourceName"',

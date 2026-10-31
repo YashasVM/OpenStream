@@ -111,6 +111,9 @@ constexpr uint64_t kReconnectRecoveryVideoFrames = 30;
 // installed release as V1 in the OBS UI and logs.
 constexpr const char *kOpenStreamSourceName = "OpenStream Camera";
 constexpr const char *kDiscoveryMulticastAddress = "239.255.43.99";
+constexpr const char *kNoPhonesStatus =
+    "No phones detected. Open OpenStream on the phone and make sure this computer's "
+    "firewall allows incoming UDP port 51615 from the local network.";
 constexpr const char *kPhoneDiscoveryPrefix = "SHIN_PHONE/1 ";
 // Legacy 1.x phones used the OpenStream namespace. Keep this adapter at the
 // discovery boundary; the engine continues to use one PhoneDevice model.
@@ -915,6 +918,7 @@ struct OpenStreamSource {
   double camera_zoom = 1.0;
   double camera_zoom_min = 1.0;
   double camera_zoom_max = 10.0;
+  double battery_temperature = NAN;
   bool camera_torch_available = false;
   bool camera_torch_enabled = false;
   bool camera_status_fetch_pending = false;
@@ -1290,6 +1294,8 @@ bool queue_camera_status_request(const std::shared_ptr<OpenStreamSource> &ctx) {
           ctx->active_phone->control_port != port) return;
       ctx->available_camera_lenses = received ? std::move(labels) : std::vector<std::string>{};
       ctx->current_camera_lens = received ? current : std::string{};
+      const auto temperature = control_json_value(response, "batteryTemperatureC");
+      ctx->battery_temperature = received && temperature.isDouble() ? temperature.toDouble() : NAN;
       if (received && torch_available_value.isBool()) {
         ctx->camera_torch_available = torch_available_value.toBool();
       } else if (!received) {
@@ -1328,6 +1334,28 @@ std::string phone_label(const PhoneDevice &phone) {
     label << "  Available";
   }
   return label.str();
+}
+
+// Fills the "Discovered phones" combo. An empty discovery list almost always
+// means inbound UDP beacons are blocked (host firewall or AP isolation), so
+// say that instead of leaving the user staring at a list with no phones.
+void populate_phone_list(obs_property_t *list,
+                         const std::string &selected,
+                         const std::vector<PhoneDevice> &phones) {
+  obs_property_list_add_string(list, "Pair from the phone app", PhoneDiscoveryReceiver::kAutoPhoneId);
+  bool selected_listed = selected.empty() || selected == PhoneDiscoveryReceiver::kAutoPhoneId;
+  for (const PhoneDevice &phone : phones) {
+    obs_property_list_add_string(list, phone_label(phone).c_str(), phone.instance_id.c_str());
+    selected_listed = selected_listed || phone.instance_id == selected;
+  }
+  if (!selected_listed) {
+    obs_property_list_add_string(list, "Selected phone unavailable", selected.c_str());
+  }
+  if (phones.empty()) {
+    const size_t hint = obs_property_list_add_string(
+        list, "No phones found (allow UDP 51615 in firewall)", "");
+    obs_property_list_item_disable(list, hint, true);
+  }
 }
 
 bool reserve_phone(OpenStreamSource *ctx, PhoneDevice &phone) {
@@ -2079,6 +2107,11 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
           reservation_acquired = true;
           break;
         }
+        if (!phone.has_value() && ctx->phone_discovery.devices().empty()) {
+          set_slot_status(ctx, kNoPhonesStatus);
+        } else if (!phone.has_value()) {
+          set_slot_status(ctx, "Waiting");
+        }
         if (auto_phone_selection && !reconnect_phone_id.empty()) {
           blog(LOG_INFO, "[OpenStream] Waiting for previously connected Android phone");
         } else if (auto_phone_selection) {
@@ -2540,7 +2573,8 @@ obs_properties_t *openstream_properties(void *data) {
   if (ctx) {
     if (slot_status_snapshot == "Reconnecting" ||
         slot_status_snapshot == "Offline" ||
-        slot_status_snapshot == "Waiting for phone") {
+        slot_status_snapshot == "Waiting for phone" ||
+        slot_status_snapshot == kNoPhonesStatus) {
       obs_property_text_set_info_type(slot_status, OBS_TEXT_INFO_WARNING);
     }
   }
@@ -2557,20 +2591,10 @@ obs_properties_t *openstream_properties(void *data) {
   obs_property_set_long_description(
       phone_list,
       "Choose a specific Android phone, or let any available phone connect from the app.");
-  obs_property_list_add_string(phone_list, "Pair from the phone app", PhoneDiscoveryReceiver::kAutoPhoneId);
   if (ctx) {
-    bool selected_listed = selected_phone_id_snapshot.empty() ||
-                           selected_phone_id_snapshot == PhoneDiscoveryReceiver::kAutoPhoneId;
-    for (const PhoneDevice &phone : ctx->phone_discovery.devices()) {
-      obs_property_list_add_string(phone_list, phone_label(phone).c_str(), phone.instance_id.c_str());
-      if (phone.instance_id == selected_phone_id_snapshot) {
-        selected_listed = true;
-      }
-    }
-    if (!selected_listed) {
-      obs_property_list_add_string(
-          phone_list, "Selected phone unavailable", selected_phone_id_snapshot.c_str());
-    }
+    populate_phone_list(phone_list, selected_phone_id_snapshot, ctx->phone_discovery.devices());
+  } else {
+    obs_property_list_add_string(phone_list, "Pair from the phone app", PhoneDiscoveryReceiver::kAutoPhoneId);
   }
   obs_property_t *refresh_button =
       obs_properties_add_button(slot_group, "refresh_devices", "Refresh Phones", [](obs_properties_t *properties, obs_property_t *, void *data) {
@@ -2583,15 +2607,7 @@ obs_properties_t *openstream_properties(void *data) {
       selected = owned->selected_phone_id;
     }
     obs_property_list_clear(list);
-    obs_property_list_add_string(list, "Pair from the phone app", PhoneDiscoveryReceiver::kAutoPhoneId);
-    bool selected_listed = selected.empty() || selected == PhoneDiscoveryReceiver::kAutoPhoneId;
-    for (const auto &phone : owned->phone_discovery.devices()) {
-      obs_property_list_add_string(list, phone_label(phone).c_str(), phone.instance_id.c_str());
-      selected_listed = selected_listed || phone.instance_id == selected;
-    }
-    if (!selected_listed) {
-      obs_property_list_add_string(list, "Selected phone unavailable", selected.c_str());
-    }
+    populate_phone_list(list, selected, owned->phone_discovery.devices());
     return true;
   });
   obs_property_set_long_description(
@@ -2911,6 +2927,8 @@ const char *openstream_source_status(obs_source_t *source) {
       });
 }
 
+void openstream_register_rounded_filter();
+
 bool obs_module_load(void) {
 #ifdef _WIN32
   WSADATA data = {};
@@ -2921,6 +2939,7 @@ bool obs_module_load(void) {
   }
 #endif
   obs_register_source(&openstream_source_info);
+  openstream_register_rounded_filter();
 #if defined(__linux__)
   openstream_register_dock();
 #endif
@@ -2938,4 +2957,12 @@ void obs_module_unload(void) {
     g_winsock_started = false;
   }
 #endif
+}
+
+double openstream_camera_temperature(obs_source_t *source) {
+  return forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) -> double {
+    if (!owned) return NAN;
+    std::lock_guard<std::mutex> lock(owned->settings_mutex);
+    return owned->battery_temperature;
+  });
 }

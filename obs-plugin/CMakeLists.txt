@@ -26,6 +26,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_library(openstream-obs MODULE
     src/async-control-client.cpp
     src/openstream-source.cpp
+    src/rounded-filter.cpp
 )
 
 if (BUILD_TESTING)
@@ -223,7 +224,7 @@ endif()
 
 if (BUILD_TESTING AND UNIX AND NOT APPLE)
     add_executable(openstream-source-settings-tests
-        tests/test_source_settings.cpp src/async-control-client.cpp)
+        tests/test_source_settings.cpp src/async-control-client.cpp src/rounded-filter.cpp)
     get_target_property(_plugin_includes openstream-obs INCLUDE_DIRECTORIES)
     get_target_property(_plugin_libraries openstream-obs LINK_LIBRARIES)
     target_include_directories(openstream-source-settings-tests PRIVATE ${_plugin_includes})
