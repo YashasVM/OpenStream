@@ -1,0 +1,47 @@
+name: OpenStream-IRL
+
+on:
+  pull_request:
+    paths:
+      - 'android/irl/**'
+      - 'android/settings.gradle.kts'
+      - 'android/build.gradle.kts'
+      - 'openstream-irl/**'
+      - '.github/workflows/openstream-irl.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install native toolchain
+        run: sdkmanager 'platforms;android-35' 'ndk;27.1.12297006' 'cmake;3.22.1'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build separate Android app
+        working-directory: android
+        run: ./gradlew --configure-on-demand :irl:testDebugUnitTest :irl:lintDebug :irl:assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OpenStream-IRL-debug
+          path: android/irl/build/outputs/apk/debug/irl-debug.apk
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: openstream-irl/package-lock.json
+      - name: Verify relay and receiver bundle
+        working-directory: openstream-irl
+        run: |
+          npm ci
+          npm test
+          npm run build
+          node progress/check.mjs
