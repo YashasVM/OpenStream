@@ -187,6 +187,11 @@ class MainActivity : Activity() {
             targetFps = streamConfig.fps,
         )
         controlServer = CameraControlServer(
+            batteryTemperatureProvider = {
+                val battery = registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+                battery?.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
+                    ?.takeIf { it != Int.MIN_VALUE }?.div(10.0)
+            },
             cameraProvider = { camera },
             lensListProvider = { availableLenses },
             currentLensProvider = { currentLens },
@@ -1109,8 +1114,10 @@ class MainActivity : Activity() {
                         reservationState.confirmedReservation == null
                     ) {
                         selectedObsHost = null
-                        statusText.text = "Connection timed out"
-                        statusDetail.text = "Choose an OBS slot to try again"
+                        // The phone can see OBS but OBS never reserved it: OBS is
+                        // not receiving our beacons, almost always a PC firewall.
+                        statusText.text = "OBS didn't respond"
+                        statusDetail.text = "Allow UDP 51615 in the computer's firewall, then tap the slot again"
                     }
                 }
             }

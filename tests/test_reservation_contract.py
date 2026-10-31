@@ -98,8 +98,8 @@ def test_android_disconnect_clears_selection_without_restarting_listener() -> No
 
 def test_android_reservation_timeouts_update_the_visible_state() -> None:
     source = read("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
-    assert 'statusText.text = "Connection timed out"' in source
-    assert 'statusDetail.text = "Choose an OBS slot to try again"' in source
+    assert 'statusText.text = "OBS didn\'t respond"' in source
+    assert "Allow UDP 51615 in the computer's firewall" in source
     assert 'statusText.text = "Disconnected"' in source
 
 

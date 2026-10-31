@@ -30,6 +30,7 @@ internal fun torchCommandAllowed(enabled: Boolean, torchAvailable: Boolean): Boo
  * - GET  /status     Returns current camera state
  */
 class CameraControlServer(
+    private val batteryTemperatureProvider: () -> Double? = { null },
     private val port: Int = CONTROL_PORT,
     private val cameraProvider: () -> Camera2Controller,
     private val lensListProvider: () -> List<CameraLens>,
@@ -290,6 +291,7 @@ class CameraControlServer(
     private fun handleStatus(): String {
         val camera = cameraProvider()
         val json = JSONObject()
+            .put("batteryTemperatureC", batteryTemperatureProvider() ?: JSONObject.NULL)
             .put("zoom", camera.zoomRatio.toDouble())
             .put("zoomMin", camera.zoomRange.start.toDouble())
             .put("zoomMax", camera.zoomRange.endInclusive.toDouble())
