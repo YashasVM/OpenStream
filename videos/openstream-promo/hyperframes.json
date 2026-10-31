@@ -15,6 +15,11 @@
       "name": "mesh-gradient-bg",
       "type": "hyperframes:component",
       "target": "compositions/components/mesh-gradient-bg.html"
+    },
+    {
+      "name": "ui-3d-reveal",
+      "type": "hyperframes:block",
+      "target": "compositions/ui-3d-reveal.html"
     }
   ]
 }
