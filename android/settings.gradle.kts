@@ -16,3 +16,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "openstream-android"
 include(":app")
+
+include(":irl")
