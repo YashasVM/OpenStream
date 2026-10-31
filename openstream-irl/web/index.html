@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>OpenStream-IRL · Connect your camera</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <header><a class="brand" href="/">OpenStream<span>-IRL</span></a><span class="tag">PHONE → OBS</span></header>
+    <div class="intro"><p class="eyebrow">YOUR CAMERA. ANY NETWORK.</p><h1>Take the stream<br>outside.</h1><p>Your phone sends video here. OBS plays it with enough delay to absorb short network interruptions.</p></div>
+    <section aria-labelledby="connect-title">
+      <p class="step">01 / PAIR ONCE</p><h2 id="connect-title">Create a camera connection</h2>
+      <form id="create-form"><label for="admin-token">Relay access key</label><input id="admin-token" type="password" autocomplete="off" required placeholder="The key configured by your relay owner"><button id="create" type="submit">Create connection</button></form>
+      <p id="message" role="status" aria-live="polite">The relay access key stays in this tab and is cleared after pairing.</p>
+    </section>
+    <section id="connection" hidden aria-labelledby="camera-title">
+      <p class="step">02 / ON YOUR PHONE</p><h2 id="camera-title">Open your camera</h2>
+      <p>Install the OpenStream-IRL APK, then open this pairing link on your phone. You can also paste it into the app.</p>
+      <label for="pairing">Private camera pairing link</label><input id="pairing" type="password" readonly autocomplete="off"><div class="actions"><button id="copy-pairing" type="button">Copy pairing link</button><a id="open-phone" class="button secondary">Open Android app</a></div>
+      <p class="note">This link lets a phone publish to your camera connection. Keep it private.</p>
+      <hr><p class="step">03 / IN OBS</p><h2>Add your camera to a scene</h2><p>Add a Browser Source in OBS. Paste this receiver URL, set the canvas to 1920 × 1080, and enable <strong>Control audio via OBS</strong>.</p>
+      <label for="delay">Recovery delay <output id="delay-value">10 seconds</output></label><input id="delay" type="range" min="6" max="30" step="1" value="10">
+      <p class="note">More delay gives uploads time to catch up after a handoff. It also delays the picture and sound in OBS.</p>
+      <label for="receiver">Private OBS receiver URL</label><input id="receiver" type="password" readonly autocomplete="off"><div class="actions"><button id="copy-receiver" type="button">Copy OBS URL</button><a id="preview" class="button secondary" target="_blank" rel="noreferrer">Preview feed</a></div>
+      <p id="feed-status" role="status">Waiting for your phone.</p>
+    </section>
+    <footer>OpenStream-IRL · An independent camera-to-OBS product.<br>Connect Tailscale on the phone and OBS computer. Keep the phone app open while streaming. Longer outages can still interrupt playback.</footer>
+  </main><script type="module" src="/pair.js"></script>
+</body></html>
