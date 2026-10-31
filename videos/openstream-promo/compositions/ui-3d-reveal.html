@@ -1,0 +1,2265 @@
+<!DOCTYPE html><!-- hyperframes-registry-item: ui-3d-reveal -->
+
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1920, height=1080">
+    <title>ui-3d-reveal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=block" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background-color: #0a0a0f;
+      }
+    </style>
+  </head>
+  <body>
+    <div data-hf-id="hf-2q2p" data-composition-id="ui-3d-reveal" data-width="1920" data-height="1080" data-start="0" data-duration="13">
+      <!-- Background: Figma outer canvas dark -->
+      <div data-hf-id="hf-7v19" class="bg-base"></div>
+      <div data-hf-id="hf-vp49" class="bg-glow" id="bgGlow"></div>
+
+      <!-- ══════════════════════════════════════════
+         INTRO: Figma logo stroke draw + fill
+    ══════════════════════════════════════════ -->
+      <div data-hf-id="hf-zsp1" class="intro-layer" id="introLayer">
+        <svg data-hf-id="hf-npju" class="intro-svg" viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+          <g data-hf-id="hf-vzwb" class="intro-logo" transform="translate(865, 397.5)">
+            <!-- Fill layer -->
+            <path data-hf-id="hf-ydo0" class="il-fill il-fill-1" d="M95 0H47.5C21.27 0 0 21.27 0 47.5S21.27 95 47.5 95H95V0Z" fill="#F24E1E" opacity="0" />
+            <path data-hf-id="hf-oigp" class="il-fill il-fill-2" d="M95 0V95H142.5C168.73 95 190 73.73 190 47.5S168.73 0 142.5 0H95Z" fill="#FF7262" opacity="0" />
+            <path data-hf-id="hf-aqht" class="il-fill il-fill-3" d="M95 95H47.5C21.27 95 0 116.27 0 142.5S21.27 190 47.5 190H95V95Z" fill="#A259FF" opacity="0" />
+            <circle data-hf-id="hf-olr9" class="il-fill il-fill-4" cx="142.5" cy="142.5" r="47.5" fill="#1ABCFE" opacity="0" />
+            <path data-hf-id="hf-kwx4" class="il-fill il-fill-5" d="M47.5 190C21.27 190 0 211.27 0 237.5S21.27 285 47.5 285 95 263.73 95 237.5V190H47.5Z" fill="#0ACF83" opacity="0" />
+            <!-- Stroke layer -->
+            <path data-hf-id="hf-okf9" class="il-stroke il-stroke-1" d="M95 0H47.5C21.27 0 0 21.27 0 47.5S21.27 95 47.5 95H95V0Z" fill="none" stroke="#F24E1E" stroke-width="2" />
+            <path data-hf-id="hf-ev4a" class="il-stroke il-stroke-2" d="M95 0V95H142.5C168.73 95 190 73.73 190 47.5S168.73 0 142.5 0H95Z" fill="none" stroke="#FF7262" stroke-width="2" />
+            <path data-hf-id="hf-xjnu" class="il-stroke il-stroke-3" d="M95 95H47.5C21.27 95 0 116.27 0 142.5S21.27 190 47.5 190H95V95Z" fill="none" stroke="#A259FF" stroke-width="2" />
+            <circle data-hf-id="hf-2y1i" class="il-stroke il-stroke-4" cx="142.5" cy="142.5" r="47.5" fill="none" stroke="#1ABCFE" stroke-width="2" />
+            <path data-hf-id="hf-z3f9" class="il-stroke il-stroke-5" d="M47.5 190C21.27 190 0 211.27 0 237.5S21.27 285 47.5 285 95 263.73 95 237.5V190H47.5Z" fill="none" stroke="#0ACF83" stroke-width="2" />
+          </g>
+        </svg>
+      </div>
+
+      <!-- 3D scene -->
+      <div data-hf-id="hf-lmbi" class="scene" id="scene">
+        <div data-hf-id="hf-9qaj" class="card-glow" id="cardGlow"></div>
+
+        <div data-hf-id="hf-abcp" class="card-wrapper" id="cardWrapper">
+          <!-- ═══════════════════════════════════════
+             FRONT FACE — Figma Interface
+        ═══════════════════════════════════════ -->
+          <div data-hf-id="hf-rosv" class="ui-card" id="uiCard">
+            <!-- ── TOOLBAR ── -->
+            <div data-hf-id="hf-j3u1" class="fig-toolbar" id="figToolbar">
+              <!-- Left: logo + tools -->
+              <div data-hf-id="hf-cyyw" class="tb-left">
+                <div data-hf-id="hf-frge" class="fig-logo">
+                  <svg data-hf-id="hf-nf36" width="18" height="26" viewBox="0 0 18 26" fill="none">
+                    <rect data-hf-id="hf-6qw8" x="0" y="0" width="9" height="9" rx="4.5" fill="#F24E1E" />
+                    <rect data-hf-id="hf-2srt" x="9" y="0" width="9" height="9" rx="4.5" fill="#FF7262" />
+                    <rect data-hf-id="hf-jwvz" x="0" y="8.5" width="9" height="9" rx="4.5" fill="#A259FF" />
+                    <circle data-hf-id="hf-fryf" cx="13.5" cy="13" r="4.5" fill="#1ABCFE" />
+                    <rect data-hf-id="hf-o6gy" x="0" y="17" width="9" height="9" rx="4.5" fill="#0ACF83" />
+                  </svg>
+                </div>
+                <div data-hf-id="hf-olaa" class="tool-divider"></div>
+                <div data-hf-id="hf-yxbg" class="tool-group">
+                  <div data-hf-id="hf-0v3g" class="tool-btn active" title="Move (V)">
+                    <svg data-hf-id="hf-u74e" viewBox="0 0 16 16" fill="none" width="14" height="14">
+                      <path data-hf-id="hf-watz" d="M2 2l5 12 2-4 4-2L2 2z" fill="currentColor" />
+                    </svg>
+                  </div>
+                  <div data-hf-id="hf-xigu" class="tool-btn" title="Scale (K)">
+                    <svg data-hf-id="hf-2sgi" viewBox="0 0 16 16" fill="none" width="14" height="14">
+                      <path data-hf-id="hf-gl30" d="M3 3l10 10M10 3h3v3M3 10H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                    </svg>
+                  </div>
+                  <div data-hf-id="hf-ym92" class="tool-divider"></div>
+                  <div data-hf-id="hf-aez8" class="tool-btn" title="Frame (F)">
+                    <svg data-hf-id="hf-36rj" viewBox="0 0 16 16" fill="none" width="14" height="14">
+                      <rect data-hf-id="hf-qt4h" x="2" y="5" width="12" height="9" rx="1" stroke="currentColor" stroke-width="1.4" />
+                      <path data-hf-id="hf-1uwj" d="M5 5V3M11 5V3M5 14v2M11 14v2M2 8H0M14 8h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                    </svg>
+                  </div>
+                  <div data-hf-id="hf-h180" class="tool-btn" title="Rectangle (R)">
+                    <svg data-hf-id="hf-3l2k" viewBox="0 0 16 16" fill="none" width="14" height="14">
+                      <rect data-hf-id="hf-5hzf" x="2" y="4" width="12" height="9" rx="1.5" stroke="currentColor" stroke-width="1.4" />
+                    </svg>
+                  </div>
+                  <div data-hf-id="hf-8ygs" class="tool-btn" title="Text (T)">
+                    <svg data-hf-id="hf-3zdl" viewBox="0 0 16 16" fill="none" width="14" height="14">
+                      <path data-hf-id="hf-vwcj" d="M2 4h12M8 4v9M5 13h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                    </svg>
+                  </div>
+                  <div data-hf-id="hf-xxvg" class="tool-btn" title="Pen (P)">
+                    <svg data-hf-id="hf-4dom" viewBox="0 0 16 16" fill="none" width="14" height="14">
+                      <path data-hf-id="hf-azke" d="M3 13L8 3l5 10M5.5 8.5h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Center: file breadcrumb -->
+              <div data-hf-id="hf-k2gs" class="tb-center">
+                <span data-hf-id="hf-zsq7" class="file-name">App Redesign</span>
+                <span data-hf-id="hf-dhrx" class="file-chevron">›</span>
+                <span data-hf-id="hf-dl4c" class="file-page">Design System</span>
+                <svg data-hf-id="hf-oxtb" class="file-arrow" viewBox="0 0 10 6" width="10" height="6" fill="none">
+                  <path data-hf-id="hf-wqz8" d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                </svg>
+              </div>
+
+              <!-- Right: mode tabs + share + avatars -->
+              <div data-hf-id="hf-sxp3" class="tb-right">
+                <div data-hf-id="hf-mgve" class="mode-tabs">
+                  <span data-hf-id="hf-q564" class="mode-tab">Design</span>
+                  <span data-hf-id="hf-ycnf" class="mode-tab active">Dev</span>
+                </div>
+                <div data-hf-id="hf-rdyx" class="share-btn">
+                  <svg data-hf-id="hf-og6u" viewBox="0 0 16 16" fill="none" width="12" height="12">
+                    <path data-hf-id="hf-faf8" d="M4 8H12M9 5l3 3-3 3" stroke="white" stroke-width="1.5" stroke-linecap="round" />
+                  </svg>
+                  Share
+                </div>
+                <div data-hf-id="hf-k10i" class="avatar-cluster">
+                  <div data-hf-id="hf-shde" class="fig-avatar" style="background: #a259ff; z-index: 3">S</div>
+                  <div data-hf-id="hf-9wjc" class="fig-avatar" style="background: #f24e1e; z-index: 2; margin-left: -8px">
+                    J
+                  </div>
+                  <div data-hf-id="hf-ix4r" class="fig-avatar" style="background: #1abcfe; z-index: 1; margin-left: -8px">
+                    K
+                  </div>
+                </div>
+                <div data-hf-id="hf-rv1w" class="present-btn">▶</div>
+              </div>
+            </div>
+
+            <!-- ── BODY ── -->
+            <div data-hf-id="hf-nn5j" class="fig-body">
+              <!-- LAYERS PANEL -->
+              <div data-hf-id="hf-fdb9" class="fig-layers" id="figLayers">
+                <div data-hf-id="hf-ixer" class="panel-tabs">
+                  <span data-hf-id="hf-vuz0" class="ptab active">Layers</span>
+                  <span data-hf-id="hf-e8t1" class="ptab">Assets</span>
+                </div>
+
+                <div data-hf-id="hf-1a84" class="layer-search">
+                  <svg data-hf-id="hf-dky2" viewBox="0 0 14 14" fill="none" width="12" height="12">
+                    <circle data-hf-id="hf-d0dy" cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.3" />
+                    <path data-hf-id="hf-h3ag" d="M9.5 9.5l2.5 2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+                  </svg>
+                  <span data-hf-id="hf-cz0p" class="search-placeholder">Search layers</span>
+                </div>
+
+                <div data-hf-id="hf-sobc" class="layer-list">
+                  <div data-hf-id="hf-09em" class="layer-item page-item">
+                    <svg data-hf-id="hf-855g" class="li-icon" viewBox="0 0 12 12" fill="none" width="12" height="12">
+                      <rect data-hf-id="hf-bvk3" x="1" y="1" width="8" height="10" rx="1" stroke="currentColor" stroke-width="1.2" />
+                      <path data-hf-id="hf-7qaj" d="M3 4h5M3 7h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+                    </svg>
+                    <span data-hf-id="hf-yqad">Page 1</span>
+                  </div>
+
+                  <div data-hf-id="hf-aq5d" class="layer-item frame-item expanded">
+                    <svg data-hf-id="hf-qvz6" class="li-collapse" viewBox="0 0 8 8" width="8" height="8" fill="none">
+                      <path data-hf-id="hf-7w0v" d="M2 3l2 2 2-2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+                    </svg>
+                    <svg data-hf-id="hf-qrth" class="li-icon frame-icon" viewBox="0 0 12 12" fill="none" width="12" height="12">
+                      <rect data-hf-id="hf-d3q5" x="2" y="3" width="8" height="6" stroke="currentColor" stroke-width="1.2" />
+                      <path data-hf-id="hf-ee8x" d="M4 3V1M8 3V1M4 9v2M8 9v2M2 6H0M10 6h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+                    </svg>
+                    <span data-hf-id="hf-92gs">HeyGen — Home</span>
+                  </div>
+
+                  <div data-hf-id="hf-30xw" class="layer-item group-item indent-1">
+                    <svg data-hf-id="hf-lhdy" class="li-collapse" viewBox="0 0 8 8" width="8" height="8" fill="none">
+                      <path data-hf-id="hf-6t0f" d="M2 3l2 2 2-2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+                    </svg>
+                    <svg data-hf-id="hf-t5bg" class="li-icon" viewBox="0 0 12 12" fill="none" width="12" height="12">
+                      <rect data-hf-id="hf-jui8" x="1" y="1" width="10" height="10" rx="1" stroke="currentColor" stroke-width="1.2" />
+                    </svg>
+                    <span data-hf-id="hf-68vz">Navigation</span>
+                  </div>
+
+                  <div data-hf-id="hf-ljcl" class="layer-item comp-item indent-2">
+                    <svg data-hf-id="hf-8ugb" class="li-icon comp-icon" viewBox="0 0 12 12" fill="none" width="12" height="12">
+                      <path data-hf-id="hf-yibd" d="M6 1L11 6 6 11 1 6z" fill="none" stroke="#A259FF" stroke-width="1.2" />
+                    </svg>
+                    <span data-hf-id="hf-k4sw">Logo / Mark</span>
+                  </div>
+
+                  <div data-hf-id="hf-dhqp" class="layer-item text-item indent-2">
+                    <svg data-hf-id="hf-ryed" class="li-icon" viewBox="0 0 12 12" fill="none" width="12" height="12">
+                      <path data-hf-id="hf-i1us" d="M2 3h8M6 3v7M3 10h6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+                    </svg>
+                    <span data-hf-id="hf-q923">Nav Links</span>
+                  </div>
+
+                  <div data-hf-id="hf-hgp4" class="layer-item comp-item indent-2 selected-layer" id="selectedLayer">
+                    <svg data-hf-id="hf-1lor" class="li-icon comp-icon" viewBox="0 0 12 12" fill="none" width="12" height="12">
+                      <path data-hf-id="hf-t3pp" d="M6 1L11 6 6 11 1 6z" fill="none" stroke="#A259FF" stroke-width="1.2" />
+                    </svg>
+                    <span data-hf-id="hf-upx1">Create Card</span>
+                  </div>
+
+                  <div data-hf-id="hf-oxvz" class="layer-item group-item indent-1 collapsed">
+                    <svg data-hf-id="hf-1nfi" class="li-collapse" viewBox="0 0 8 8" width="8" height="8" fill="none" style="transform: rotate(-90deg)">
+                      <path data-hf-id="hf-6epe" d="M2 3l2 2 2-2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+                    </svg>
+                    <svg data-hf-id="hf-scpe" class="li-icon" viewBox="0 0 12 12" fill="none" width="12" height="12">
+                      <rect data-hf-id="hf-n8qw" x="1" y="1" width="10" height="10" rx="1" stroke="currentColor" stroke-width="1.2" />
+                    </svg>
+                    <span data-hf-id="hf-3ug5">Hero</span>
+                  </div>
+
+                  <div data-hf-id="hf-fc1b" class="layer-item group-item indent-1 collapsed">
+                    <svg data-hf-id="hf-c1c2" class="li-collapse" viewBox="0 0 8 8" width="8" height="8" fill="none" style="transform: rotate(-90deg)">
+                      <path data-hf-id="hf-60ed" d="M2 3l2 2 2-2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+                    </svg>
+                    <svg data-hf-id="hf-uc8j" class="li-icon" viewBox="0 0 12 12" fill="none" width="12" height="12">
+                      <rect data-hf-id="hf-m1tt" x="1" y="1" width="10" height="10" rx="1" stroke="currentColor" stroke-width="1.2" />
+                    </svg>
+                    <span data-hf-id="hf-wj9b">Feature Grid</span>
+                  </div>
+
+                  <div data-hf-id="hf-exqa" class="layer-item group-item indent-1 collapsed">
+                    <svg data-hf-id="hf-cfn3" class="li-collapse" viewBox="0 0 8 8" width="8" height="8" fill="none" style="transform: rotate(-90deg)">
+                      <path data-hf-id="hf-8sjk" d="M2 3l2 2 2-2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+                    </svg>
+                    <svg data-hf-id="hf-uqjk" class="li-icon" viewBox="0 0 12 12" fill="none" width="12" height="12">
+                      <rect data-hf-id="hf-mg4u" x="1" y="1" width="10" height="10" rx="1" stroke="currentColor" stroke-width="1.2" />
+                    </svg>
+                    <span data-hf-id="hf-j5ae">Footer</span>
+                  </div>
+                </div>
+
+                <div data-hf-id="hf-ugzl" class="page-bar">
+                  <div data-hf-id="hf-0epg" class="pbar-tab active">Design System</div>
+                  <div data-hf-id="hf-0z90" class="pbar-tab">Landing</div>
+                  <div data-hf-id="hf-h32e" class="pbar-add">+</div>
+                </div>
+              </div>
+
+              <!-- CANVAS -->
+              <div data-hf-id="hf-hevh" class="fig-canvas" id="figCanvas">
+                <div data-hf-id="hf-ipo0" class="canvas-frame-label">HeyGen — Home</div>
+
+                <!-- The artboard / HeyGen app.heygen.com — light mode -->
+                <div data-hf-id="hf-4ac2" class="artboard" id="artboard">
+                  <!-- ══ LEFT ICON NAV (56px) ══ -->
+                  <div data-hf-id="hf-2l8v" class="hg-icnav">
+                    <div data-hf-id="hf-1l7h" class="hg-iclogo">
+                      <img data-hf-id="hf-mdlf" src="data:image/png;base64,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" width="30" height="30" style="display: block" alt="HeyGen">
+                    </div>
+                    <div data-hf-id="hf-6u4t" class="hg-icitem">
+                      <svg data-hf-id="hf-tpku" viewBox="0 0 16 16" fill="none" width="16" height="16">
+                        <circle data-hf-id="hf-wzr5" cx="8" cy="5.5" r="2.8" stroke="currentColor" stroke-width="1.3" />
+                        <path data-hf-id="hf-j08i" d="M2 14.5c0-3.31 2.69-6 6-6s6 2.69 6 6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+                      </svg>
+                      <span data-hf-id="hf-w6uo">Avatar</span>
+                    </div>
+                    <div data-hf-id="hf-z0zz" class="hg-icitem hg-icactive">
+                      <div data-hf-id="hf-s32p" class="hg-icbg">
+                        <svg data-hf-id="hf-hnc0" viewBox="0 0 16 16" fill="none" width="15" height="15">
+                          <circle data-hf-id="hf-glir" cx="8" cy="5.5" r="2.5" stroke="white" stroke-width="1.3" />
+                          <path data-hf-id="hf-xe0p" d="M2.5 14c0-3.04 2.46-5.5 5.5-5.5s5.5 2.46 5.5 5.5" stroke="white" stroke-width="1.3" stroke-linecap="round" />
+                        </svg>
+                      </div>
+                      <span data-hf-id="hf-str5">Video Agent</span>
+                    </div>
+                    <div data-hf-id="hf-ik3l" class="hg-icitem">
+                      <svg data-hf-id="hf-q9b6" viewBox="0 0 16 16" fill="none" width="16" height="16">
+                        <path data-hf-id="hf-um7o" d="M3 4l3 8M10 4l3 8M6 10h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                      </svg>
+                      <span data-hf-id="hf-y57r">Motion Cut</span>
+                    </div>
+                    <div data-hf-id="hf-jr0o" class="hg-icitem">
+                      <svg data-hf-id="hf-qnm7" viewBox="0 0 16 16" fill="none" width="16" height="16">
+                        <path data-hf-id="hf-ry8i" d="M2 4h12M8 4v9M5 13h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                        <circle data-hf-id="hf-uk60" cx="12" cy="3" r="1.5" fill="#3B82F6" />
+                      </svg>
+                      <span data-hf-id="hf-0sqp">Translate</span>
+                    </div>
+                    <div data-hf-id="hf-jcpn" class="hg-icitem">
+                      <svg data-hf-id="hf-r1x8" viewBox="0 0 16 16" fill="none" width="16" height="16">
+                        <rect data-hf-id="hf-r9yq" x="2" y="2" width="5" height="5" rx="1.5" fill="currentColor" opacity="0.45" />
+                        <rect data-hf-id="hf-s269" x="9" y="2" width="5" height="5" rx="1.5" fill="currentColor" opacity="0.45" />
+                        <rect data-hf-id="hf-vw95" x="2" y="9" width="5" height="5" rx="1.5" fill="currentColor" opacity="0.45" />
+                        <rect data-hf-id="hf-4koq" x="9" y="9" width="5" height="5" rx="1.5" fill="currentColor" opacity="0.45" />
+                      </svg>
+                      <span data-hf-id="hf-toqx">Apps</span>
+                    </div>
+                    <div data-hf-id="hf-hd6i" class="hg-icitem">
+                      <svg data-hf-id="hf-rg89" viewBox="0 0 16 16" fill="none" width="16" height="16">
+                        <path data-hf-id="hf-lhre" d="M2 6a2 2 0 012-2h2l2 2h4a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" stroke="currentColor" stroke-width="1.3" />
+                      </svg>
+                      <span data-hf-id="hf-jxej">Projects</span>
+                    </div>
+                    <div data-hf-id="hf-38yh" class="hg-icuser">J</div>
+                  </div>
+
+                  <!-- ══ HISTORY PANEL (105px) ══ -->
+                  <div data-hf-id="hf-knsu" class="hg-histpanel">
+                    <div data-hf-id="hf-i476" class="hg-histhead">
+                      <span data-hf-id="hf-n25x">Video Agent</span>
+                      <svg data-hf-id="hf-1atq" viewBox="0 0 14 14" fill="none" width="12" height="12">
+                        <rect data-hf-id="hf-ngxm" x="1" y="1" width="4.5" height="12" rx="1" stroke="currentColor" stroke-width="1.2" />
+                        <rect data-hf-id="hf-137c" x="8.5" y="1" width="4.5" height="12" rx="1" stroke="currentColor" stroke-width="1.2" />
+                      </svg>
+                    </div>
+                    <div data-hf-id="hf-xm7o" class="hg-newitem">
+                      <svg data-hf-id="hf-x8s8" viewBox="0 0 12 12" fill="none" width="11" height="11">
+                        <path data-hf-id="hf-x4ue" d="M1 6.5L6 1.5l5 5V11H7.5V8H4.5v3H1V6.5Z" fill="#3B82F6" fill-opacity="0.85" />
+                      </svg>
+                      New video
+                    </div>
+                    <div data-hf-id="hf-pdzg" class="hg-histcat">YESTERDAY</div>
+                    <div data-hf-id="hf-c7jp" class="hg-histrow">AI Skills Gap: Alien</div>
+                    <div data-hf-id="hf-70b3" class="hg-histcat">PREVIOUS 3 DAYS</div>
+                    <div data-hf-id="hf-iw6h" class="hg-histrow">AI Skills Gap: Alien</div>
+                    <div data-hf-id="hf-sjyp" class="hg-histrow">Product Strategy: An AI...</div>
+                    <div data-hf-id="hf-2p3k" class="hg-histrow">S9</div>
+                    <div data-hf-id="hf-x4t6" class="hg-histrow">S7</div>
+                    <div data-hf-id="hf-xxf8" class="hg-histrow">S5</div>
+                    <div data-hf-id="hf-yq1a" class="hg-histrow">S3</div>
+                    <div data-hf-id="hf-c6z7" class="hg-histcat">PREVIOUS 7 DAYS</div>
+                    <div data-hf-id="hf-0j9y" class="hg-histrow">S8 lock</div>
+                    <div data-hf-id="hf-xj47" class="hg-histrow">S4</div>
+                    <div data-hf-id="hf-ybq9" class="hg-histrow">S2</div>
+                    <div data-hf-id="hf-jnl4" class="hg-histrow">Moody t2</div>
+                  </div>
+
+                  <!-- ══ MAIN CONTENT (359px) ══ -->
+                  <div data-hf-id="hf-e448" class="hg-maincnt">
+                    <!-- Top-right icon cluster -->
+                    <div data-hf-id="hf-hku5" class="hg-toprighticons">
+                      <div data-hf-id="hf-ugsn" class="hg-ticon">
+                        <svg data-hf-id="hf-wjiw" viewBox="0 0 14 14" fill="none" width="11" height="11">
+                          <circle data-hf-id="hf-s522" cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.3" />
+                          <path data-hf-id="hf-dvxc" d="M9.5 9.5l2.5 2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+                        </svg>
+                      </div>
+                      <div data-hf-id="hf-sfbq" class="hg-ticon hg-notifico">
+                        <svg data-hf-id="hf-q0q8" viewBox="0 0 14 14" fill="none" width="11" height="11">
+                          <path data-hf-id="hf-ujp4" d="M7 1.5a4 4 0 00-4 4v3l-1 2h10l-1-2v-3a4 4 0 00-4-4z" stroke="currentColor" stroke-width="1.2" />
+                          <path data-hf-id="hf-a0ml" d="M5.5 10.5a1.5 1.5 0 003 0" stroke="currentColor" stroke-width="1.2" />
+                        </svg>
+                        <div data-hf-id="hf-819m" class="hg-notifbadge">99+</div>
+                      </div>
+                      <div data-hf-id="hf-lztz" class="hg-ticon">
+                        <svg data-hf-id="hf-ott5" viewBox="0 0 14 14" fill="none" width="11" height="11">
+                          <path data-hf-id="hf-4fmk" d="M7 2l1.2 3.8H12L9 8.2l1.2 3.8L7 9.5l-3.2 2.5L5 8.2 2 5.8h3.8z" stroke="currentColor" stroke-width="1.1" />
+                        </svg>
+                      </div>
+                    </div>
+
+                    <!-- Hero heading -->
+                    <div data-hf-id="hf-1exc" class="hg-herotitle">Turn your ideas into<br data-hf-id="hf-x5px">production-ready video</div>
+
+                    <!-- ─ Create card ─ -->
+                    <div data-hf-id="hf-qchd" class="hg-createcard" id="hgCreateCard">
+                      <!-- Selector row: Avatar | Voice | Style -->
+                      <div data-hf-id="hf-nwz8" class="hg-selrow">
+                        <div data-hf-id="hf-t8nc" class="hg-sel">
+                          <span data-hf-id="hf-ewpw" class="hg-sellbl">Avatar</span>
+                          <div data-hf-id="hf-j677" class="hg-selbox">
+                            <div data-hf-id="hf-jnm3" class="hg-avphoto"></div>
+                            <span data-hf-id="hf-ooax" class="hg-seltxt">Jordan</span>
+                          </div>
+                        </div>
+                        <div data-hf-id="hf-pom9" class="hg-seldiv"></div>
+                        <div data-hf-id="hf-jam8" class="hg-sel">
+                          <span data-hf-id="hf-cxjt" class="hg-sellbl">Voice</span>
+                          <div data-hf-id="hf-0obn" class="hg-selbox">
+                            <div data-hf-id="hf-7bww" class="hg-voicebars">
+                              <div data-hf-id="hf-023d" class="hg-vbar" style="height: 5px"></div>
+                              <div data-hf-id="hf-qclh" class="hg-vbar" style="height: 9px"></div>
+                              <div data-hf-id="hf-cfqj" class="hg-vbar" style="height: 7px"></div>
+                              <div data-hf-id="hf-0ugm" class="hg-vbar" style="height: 11px"></div>
+                              <div data-hf-id="hf-58j1" class="hg-vbar" style="height: 5px"></div>
+                            </div>
+                            <span data-hf-id="hf-hses" class="hg-seltxt">Auto</span>
+                          </div>
+                        </div>
+                        <div data-hf-id="hf-hqt1" class="hg-seldiv"></div>
+                        <div data-hf-id="hf-i3p5" class="hg-sel">
+                          <span data-hf-id="hf-p86u" class="hg-sellbl">Style</span>
+                          <div data-hf-id="hf-0a0m" class="hg-selbox">
+                            <div data-hf-id="hf-1rgq" class="hg-styleico">
+                              <svg data-hf-id="hf-1p4r" viewBox="0 0 14 14" fill="none" width="12" height="12">
+                                <rect data-hf-id="hf-4ypr" x="1" y="1" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.2" />
+                                <path data-hf-id="hf-vvcq" d="M4.5 7l2 2 3-3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+                              </svg>
+                            </div>
+                            <span data-hf-id="hf-uaek" class="hg-seltxt">Auto</span>
+                          </div>
+                        </div>
+                        <div data-hf-id="hf-0fir" class="hg-settico">
+                          <svg data-hf-id="hf-vehg" viewBox="0 0 14 14" fill="none" width="13" height="13">
+                            <circle data-hf-id="hf-7dri" cx="7" cy="7" r="2" stroke="currentColor" stroke-width="1.2" />
+                            <path data-hf-id="hf-ulwf" d="M7 1.5V3M7 11v1.5M1.5 7H3M11 7h1.5M3.4 3.4l1 1M9.6 9.6l1 1M3.4 10.6l1-1M9.6 4.4l1-1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+                          </svg>
+                        </div>
+                      </div>
+                      <!-- Input -->
+                      <div data-hf-id="hf-zkct" class="hg-cinput">Describe your video idea ...</div>
+                      <!-- Bottom bar -->
+                      <div data-hf-id="hf-kbpu" class="hg-cbottom">
+                        <div data-hf-id="hf-z08k" class="hg-cbleft">
+                          <div data-hf-id="hf-b0bl" class="hg-cbtn">
+                            <svg data-hf-id="hf-c4nk" viewBox="0 0 12 12" fill="none" width="11" height="11">
+                              <path data-hf-id="hf-tdca" d="M6 2v8M2 6h8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                            </svg>
+                          </div>
+                          <div data-hf-id="hf-g12t" class="hg-cbtn">
+                            <svg data-hf-id="hf-axqh" viewBox="0 0 12 12" fill="none" width="11" height="11">
+                              <path data-hf-id="hf-512q" d="M6 1.5l1 3H10L7.5 6.5l1 3L6 8 3.5 9.5l1-3L2 4.5H5z" fill="#9CA3AF" />
+                            </svg>
+                          </div>
+                          <div data-hf-id="hf-h7zw" class="hg-cbtn">
+                            <svg data-hf-id="hf-bc1i" viewBox="0 0 12 12" fill="none" width="11" height="11">
+                              <path data-hf-id="hf-apuw" d="M1.5 3h9M1.5 6h9M1.5 9h6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+                            </svg>
+                          </div>
+                        </div>
+                        <div data-hf-id="hf-2izv" class="hg-cbright">
+                          <div data-hf-id="hf-i3fp" class="hg-genbtn">
+                            <svg data-hf-id="hf-hfm8" viewBox="0 0 10 10" fill="none" width="9" height="9">
+                              <path data-hf-id="hf-tyzy" d="M5 1l1 3h3L7 6l1 3L5 7.5 2 9l1-3L1 4h3z" fill="#6B7280" />
+                            </svg>
+                            Generate
+                            <svg data-hf-id="hf-oz5i" viewBox="0 0 8 6" fill="none" width="8" height="6">
+                              <path data-hf-id="hf-w7nl" d="M1 1l3 3 3-3" stroke="#6B7280" stroke-width="1.3" stroke-linecap="round" />
+                            </svg>
+                          </div>
+                          <div data-hf-id="hf-y1x4" class="hg-submitbtn">
+                            <svg data-hf-id="hf-ljk6" viewBox="0 0 12 12" fill="none" width="10" height="10">
+                              <path data-hf-id="hf-svww" d="M6 9V3M3 6l3-3 3 3" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Styles from community -->
+                    <div data-hf-id="hf-e2p5" class="hg-stylessec">
+                      <div data-hf-id="hf-ues1" class="hg-stitle">Styles from the community</div>
+                      <div data-hf-id="hf-izcd" class="hg-spills">
+                        <div data-hf-id="hf-odaa" class="hg-spill hg-spactive">All Styles</div>
+                        <div data-hf-id="hf-idca" class="hg-spill">Retro Tech</div>
+                        <div data-hf-id="hf-fxcq" class="hg-spill">Iconic Artist</div>
+                        <div data-hf-id="hf-j8df" class="hg-spill">Pop Culture</div>
+                        <div data-hf-id="hf-mg7x" class="hg-spill">Print</div>
+                        <div data-hf-id="hf-p24f" class="hg-spill">Cinematic</div>
+                      </div>
+                      <div data-hf-id="hf-136w" class="hg-scards">
+                        <div data-hf-id="hf-65z5" class="hg-sc" style="background: linear-gradient(135deg, #1b2a5e, #2d4a9a)">
+                          <span data-hf-id="hf-i976" class="hg-sclbl">IMPLEMENTATION DEPTH</span>
+                        </div>
+                        <div data-hf-id="hf-mva8" class="hg-sc" style="background: linear-gradient(160deg, #c9ad88, #b89668)">
+                          <span data-hf-id="hf-1v3m" class="hg-sclbl" style="font-style: italic; color: #3d2810; font-size: 5.5px">Strategy means saying NO</span>
+                        </div>
+                        <div data-hf-id="hf-rjjm" class="hg-sc" style="
+                            background: #ede9e0;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                          ">
+                          <span data-hf-id="hf-1g52" style="color: #cc4422; font-size: 14px; font-weight: 700">?</span>
+                        </div>
+                        <div data-hf-id="hf-lb78" class="hg-sc" style="background: linear-gradient(135deg, #8b1515, #c92020)">
+                          <span data-hf-id="hf-i8gn" class="hg-sclbl" style="color: #ffd9a0; font-size: 5px">THINK BIG.<br data-hf-id="hf-rsrt">START SMALL.</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Figma selection handles on the first video card -->
+                <div data-hf-id="hf-q1xl" class="selection-ring" id="selectionRing">
+                  <div data-hf-id="hf-cv29" class="sel-handle tl"></div>
+                  <div data-hf-id="hf-vmvz" class="sel-handle tr"></div>
+                  <div data-hf-id="hf-0gjb" class="sel-handle bl"></div>
+                  <div data-hf-id="hf-wlwp" class="sel-handle br"></div>
+                  <div data-hf-id="hf-u926" class="sel-label">Create Card · W 322 H 110</div>
+                </div>
+              </div>
+
+              <!-- DESIGN PROPERTIES PANEL -->
+              <div data-hf-id="hf-i8r9" class="fig-props" id="figProps">
+                <div data-hf-id="hf-052b" class="panel-tabs">
+                  <span data-hf-id="hf-05jg" class="ptab active">Design</span>
+                  <span data-hf-id="hf-29ky" class="ptab">Prototype</span>
+                  <span data-hf-id="hf-waow" class="ptab">Inspect</span>
+                </div>
+
+                <!-- Alignment row -->
+                <div data-hf-id="hf-2zzf" class="prop-align">
+                  <div data-hf-id="hf-a6ah" class="align-btn">⬓</div>
+                  <div data-hf-id="hf-akli" class="align-btn">⬒</div>
+                  <div data-hf-id="hf-ovc2" class="align-btn active-align">⬔</div>
+                  <div data-hf-id="hf-l6qj" class="align-divider"></div>
+                  <div data-hf-id="hf-9dof" class="align-btn">⬕</div>
+                  <div data-hf-id="hf-8l2d" class="align-btn">⬗</div>
+                </div>
+
+                <!-- Frame section -->
+                <div data-hf-id="hf-2xeh" class="prop-section">
+                  <div data-hf-id="hf-2ltp" class="prop-row-2">
+                    <div data-hf-id="hf-a214" class="prop-field">
+                      <span data-hf-id="hf-2cnr" class="prop-pre">W</span>
+                      <span data-hf-id="hf-4gkf" class="prop-val">108</span>
+                    </div>
+                    <div data-hf-id="hf-miww" class="prop-field">
+                      <span data-hf-id="hf-0d4m" class="prop-pre">H</span>
+                      <span data-hf-id="hf-knxf" class="prop-val">34</span>
+                    </div>
+                  </div>
+                  <div data-hf-id="hf-dyq9" class="prop-row-2">
+                    <div data-hf-id="hf-lbzt" class="prop-field">
+                      <span data-hf-id="hf-6q12" class="prop-pre">X</span>
+                      <span data-hf-id="hf-mod3" class="prop-val">1244</span>
+                    </div>
+                    <div data-hf-id="hf-lqau" class="prop-field">
+                      <span data-hf-id="hf-6bq1" class="prop-pre">Y</span>
+                      <span data-hf-id="hf-mv8l" class="prop-val">18</span>
+                    </div>
+                  </div>
+                  <div data-hf-id="hf-f5nc" class="prop-row-2">
+                    <div data-hf-id="hf-kjdr" class="prop-field">
+                      <span data-hf-id="hf-vrsw" class="prop-pre">↺</span>
+                      <span data-hf-id="hf-41x0" class="prop-val">0°</span>
+                    </div>
+                    <div data-hf-id="hf-kxos" class="prop-field">
+                      <span data-hf-id="hf-pixq" class="prop-pre">⌐</span>
+                      <span data-hf-id="hf-jxes" class="prop-val">8</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Auto layout -->
+                <div data-hf-id="hf-ckml" class="prop-section">
+                  <div data-hf-id="hf-im6s" class="prop-section-head">
+                    <span data-hf-id="hf-96xc" class="prop-section-label">Auto layout</span>
+                    <span data-hf-id="hf-etjo" class="prop-section-icon">−</span>
+                  </div>
+                  <div data-hf-id="hf-ercb" class="prop-row-2">
+                    <div data-hf-id="hf-jqrp" class="prop-field">
+                      <span data-hf-id="hf-btko" class="prop-pre">→</span>
+                      <span data-hf-id="hf-fa07" class="prop-val">12px</span>
+                    </div>
+                    <div data-hf-id="hf-k52q" class="prop-field">
+                      <span data-hf-id="hf-acqp" class="prop-pre">⊡</span>
+                      <span data-hf-id="hf-d0sc" class="prop-val">14 / 8</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Fill -->
+                <div data-hf-id="hf-drjo" class="prop-section">
+                  <div data-hf-id="hf-6zu4" class="prop-section-head">
+                    <span data-hf-id="hf-y8h0" class="prop-section-label">Fill</span>
+                    <span data-hf-id="hf-5kxr" class="prop-section-icon">+</span>
+                  </div>
+                  <div data-hf-id="hf-qspc" class="fill-row">
+                    <div data-hf-id="hf-6du9" class="fill-preview" style="background: #ffffff"></div>
+                    <span data-hf-id="hf-iyrq" class="fill-hex">FFFFFF</span>
+                    <span data-hf-id="hf-ttfq" class="fill-pct">100%</span>
+                  </div>
+                </div>
+
+                <!-- Stroke -->
+                <div data-hf-id="hf-dd8n" class="prop-section">
+                  <div data-hf-id="hf-5sx1" class="prop-section-head">
+                    <span data-hf-id="hf-ondd" class="prop-section-label">Stroke</span>
+                    <span data-hf-id="hf-9em7" class="prop-section-icon">+</span>
+                  </div>
+                  <div data-hf-id="hf-5cp1" class="fill-row muted">
+                    <span data-hf-id="hf-ffp4" class="prop-empty">No strokes</span>
+                  </div>
+                </div>
+
+                <!-- Effects -->
+                <div data-hf-id="hf-ek5q" class="prop-section">
+                  <div data-hf-id="hf-6782" class="prop-section-head">
+                    <span data-hf-id="hf-di49" class="prop-section-label">Effects</span>
+                    <span data-hf-id="hf-90b6" class="prop-section-icon">+</span>
+                  </div>
+                  <div data-hf-id="hf-h5v4" class="effect-row">
+                    <div data-hf-id="hf-0p89" class="effect-dot"></div>
+                    <span data-hf-id="hf-ahll" class="effect-name">Drop shadow</span>
+                  </div>
+                </div>
+
+                <!-- Export -->
+                <div data-hf-id="hf-e5up" class="prop-section">
+                  <div data-hf-id="hf-86r7" class="prop-section-head">
+                    <span data-hf-id="hf-8j1r" class="prop-section-label">Export</span>
+                    <span data-hf-id="hf-8m05" class="prop-section-icon">+</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- /fig-body -->
+          </div>
+          <!-- /ui-card -->
+
+          <!-- RIGHT DEPTH FACE -->
+          <div data-hf-id="hf-0rn7" class="depth-right" id="depthRight"></div>
+        </div>
+        <!-- /card-wrapper -->
+      </div>
+      <!-- /scene -->
+
+      <!-- ══════════════════════════════════════════
+         OUTRO: Logo rebuild + tagline + URL pill
+    ══════════════════════════════════════════ -->
+      <div data-hf-id="hf-a6f7" class="outro-layer" id="outroLayer">
+        <svg data-hf-id="hf-4ya7" class="outro-svg" viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+          <g data-hf-id="hf-h8pt" class="outro-logo" transform="translate(880, 310)">
+            <!-- Fill layer -->
+            <path data-hf-id="hf-0wq7" class="ol-fill ol-fill-1" d="M80 0H40C17.9 0 0 17.9 0 40S17.9 80 40 80H80V0Z" fill="#F24E1E" opacity="0" />
+            <path data-hf-id="hf-5uww" class="ol-fill ol-fill-2" d="M80 0V80H120C142.1 80 160 62.1 160 40S142.1 0 120 0H80Z" fill="#FF7262" opacity="0" />
+            <path data-hf-id="hf-uqs8" class="ol-fill ol-fill-3" d="M80 80H40C17.9 80 0 97.9 0 120S17.9 160 40 160H80V80Z" fill="#A259FF" opacity="0" />
+            <circle data-hf-id="hf-xok3" class="ol-fill ol-fill-4" cx="120" cy="120" r="40" fill="#1ABCFE" opacity="0" />
+            <path data-hf-id="hf-qins" class="ol-fill ol-fill-5" d="M40 160C17.9 160 0 177.9 0 200S17.9 240 40 240 80 222.1 80 200V160H40Z" fill="#0ACF83" opacity="0" />
+            <!-- Stroke layer -->
+            <path data-hf-id="hf-7amg" class="ol-stroke ol-stroke-1" d="M80 0H40C17.9 0 0 17.9 0 40S17.9 80 40 80H80V0Z" fill="none" stroke="#F24E1E" stroke-width="2" />
+            <path data-hf-id="hf-3skl" class="ol-stroke ol-stroke-2" d="M80 0V80H120C142.1 80 160 62.1 160 40S142.1 0 120 0H80Z" fill="none" stroke="#FF7262" stroke-width="2" />
+            <path data-hf-id="hf-s9tp" class="ol-stroke ol-stroke-3" d="M80 80H40C17.9 80 0 97.9 0 120S17.9 160 40 160H80V80Z" fill="none" stroke="#A259FF" stroke-width="2" />
+            <circle data-hf-id="hf-snfc" class="ol-stroke ol-stroke-4" cx="120" cy="120" r="40" fill="none" stroke="#1ABCFE" stroke-width="2" />
+            <path data-hf-id="hf-8el9" class="ol-stroke ol-stroke-5" d="M40 160C17.9 160 0 177.9 0 200S17.9 240 40 240 80 222.1 80 200V160H40Z" fill="none" stroke="#0ACF83" stroke-width="2" />
+          </g>
+
+          <!-- Tagline — individual tspan letters for stagger -->
+          <text data-hf-id="hf-rk13" class="outro-tagline" x="960" y="648" text-anchor="middle">
+            <tspan data-hf-id="hf-0z3g" class="otl">N</tspan>
+            <tspan data-hf-id="hf-dalb" class="otl">o</tspan>
+            <tspan data-hf-id="hf-3cxm" class="otl">t</tspan>
+            <tspan data-hf-id="hf-ehie" class="otl">h</tspan>
+            <tspan data-hf-id="hf-e37d" class="otl">i</tspan>
+            <tspan data-hf-id="hf-dowc" class="otl">n</tspan>
+            <tspan data-hf-id="hf-a453" class="otl">g</tspan>
+            <tspan data-hf-id="hf-xzze" class="otl" />
+            <tspan data-hf-id="hf-y1kn" class="otl">g</tspan>
+            <tspan data-hf-id="hf-5qrs" class="otl">r</tspan>
+            <tspan data-hf-id="hf-9bj1" class="otl">e</tspan>
+            <tspan data-hf-id="hf-awr5" class="otl">a</tspan>
+            <tspan data-hf-id="hf-aace" class="otl">t</tspan>
+            <tspan data-hf-id="hf-ku9a" class="otl" />
+            <tspan data-hf-id="hf-gtjh" class="otl">i</tspan>
+            <tspan data-hf-id="hf-5cgr" class="otl">s</tspan>
+            <tspan data-hf-id="hf-l8kb" class="otl" />
+            <tspan data-hf-id="hf-chz9" class="otl">m</tspan>
+            <tspan data-hf-id="hf-rao5" class="otl">a</tspan>
+            <tspan data-hf-id="hf-9pu2" class="otl">d</tspan>
+            <tspan data-hf-id="hf-1a5t" class="otl">e</tspan>
+            <tspan data-hf-id="hf-lmvc" class="otl" />
+            <tspan data-hf-id="hf-shl8" class="otl">a</tspan>
+            <tspan data-hf-id="hf-cwaa" class="otl">l</tspan>
+            <tspan data-hf-id="hf-hwm7" class="otl">o</tspan>
+            <tspan data-hf-id="hf-42n8" class="otl">n</tspan>
+            <tspan data-hf-id="hf-6j20" class="otl">e</tspan>
+            <tspan data-hf-id="hf-o9ak" class="otl">.</tspan>
+          </text>
+
+          <!-- URL pill -->
+          <rect data-hf-id="hf-0b3p" class="url-border" x="885" y="688" width="150" height="40" rx="20" fill="none" stroke="#3C3C3C" stroke-width="1.5" />
+          <rect data-hf-id="hf-wwqm" class="url-bg" x="885" y="688" width="150" height="40" rx="20" fill="#2C2C2C" opacity="0" />
+          <text data-hf-id="hf-fzof" class="url-text" x="960" y="713" text-anchor="middle" fill="#868686" font-size="16" font-weight="400" opacity="0">
+            figma.com
+          </text>
+        </svg>
+      </div>
+
+      <!-- Fade to black -->
+      <div data-hf-id="hf-f33x" class="outro-fade" id="outroFade"></div>
+
+      <style>
+        @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap");
+
+        /*
+        Figma palette:
+        canvas-bg:    #1E1E1E
+        panel-bg:     #2C2C2C
+        panel-dark:   #252525
+        toolbar:      #2C2C2C
+        divider:      rgba(255,255,255,0.1)
+        text:         #E8E8E8
+        text-muted:   #868686
+        text-dim:     #555555
+        selected-bg:  rgba(24,160,251,0.14)
+        blue:         #18A0FB
+        purple:       #A259FF
+        green:        #0ACF83
+        red:          #F24E1E
+        orange:       #FF7262
+      */
+
+        [data-composition-id="ui-3d-reveal"] {
+          position: relative;
+          width: 1920px;
+          height: 1080px;
+          overflow: hidden;
+          font-family: "Inter", sans-serif;
+          background: #111111;
+        }
+
+        /* ── Background ── */
+        [data-composition-id="ui-3d-reveal"] .bg-base {
+          position: absolute;
+          inset: 0;
+          background: #111111;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .bg-glow {
+          position: absolute;
+          inset: 0;
+          background:
+            radial-gradient(
+              ellipse 900px 600px at 50% 52%,
+              rgba(24, 160, 251, 0.06) 0%,
+              transparent 65%
+            ),
+            radial-gradient(
+              ellipse 500px 300px at 20% 75%,
+              rgba(162, 89, 255, 0.04) 0%,
+              transparent 60%
+            );
+          pointer-events: none;
+        }
+
+        /* ── Scene ── */
+        [data-composition-id="ui-3d-reveal"] .scene {
+          position: absolute;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          perspective: 2800px;
+          perspective-origin: 50% 50%;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .card-glow {
+          position: absolute;
+          width: 1200px;
+          height: 780px;
+          border-radius: 24px;
+          background: radial-gradient(
+            ellipse at 50% 50%,
+            rgba(24, 160, 251, 0.18) 0%,
+            transparent 65%
+          );
+          filter: blur(50px);
+          pointer-events: none;
+          opacity: 0;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .card-wrapper {
+          position: relative;
+          transform-style: preserve-3d;
+          will-change: transform;
+        }
+
+        /* ── Front face ── */
+        [data-composition-id="ui-3d-reveal"] .ui-card {
+          width: 1100px;
+          height: 680px;
+          background: #1e1e1e;
+          border-radius: 12px;
+          overflow: hidden;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          position: relative;
+          box-shadow:
+            inset -1px 0 0 rgba(24, 160, 251, 0.2),
+            0 40px 120px rgba(0, 0, 0, 0.7);
+        }
+
+        /* ── Depth face ── */
+        [data-composition-id="ui-3d-reveal"] .depth-right {
+          position: absolute;
+          top: 12px;
+          left: 1100px;
+          width: 10px;
+          height: 656px;
+          transform-origin: 0% 50%;
+          transform: rotateY(90deg);
+          background: linear-gradient(
+            to right,
+            rgba(80, 160, 255, 0.4) 0%,
+            rgba(40, 100, 200, 0.2) 40%,
+            rgba(10, 20, 50, 0.9) 100%
+          );
+          border-radius: 3px 2px 2px 3px;
+        }
+
+        /* ═══════════════════════════
+         TOOLBAR
+      ═══════════════════════════ */
+        [data-composition-id="ui-3d-reveal"] .fig-toolbar {
+          height: 48px;
+          background: #2c2c2c;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+          display: flex;
+          align-items: center;
+          padding: 0 12px;
+          gap: 0;
+          flex-shrink: 0;
+          position: relative;
+          z-index: 2;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .tb-left {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex: 0 0 auto;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .fig-logo {
+          width: 32px;
+          height: 32px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 6px;
+          cursor: default;
+          flex-shrink: 0;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .fig-logo:hover {
+          background: rgba(255, 255, 255, 0.08);
+        }
+
+        [data-composition-id="ui-3d-reveal"] .tool-divider {
+          width: 1px;
+          height: 20px;
+          background: rgba(255, 255, 255, 0.12);
+          flex-shrink: 0;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .tool-group {
+          display: flex;
+          align-items: center;
+          gap: 2px;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .tool-btn {
+          width: 30px;
+          height: 30px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 5px;
+          color: #868686;
+          cursor: default;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .tool-btn.active {
+          background: rgba(24, 160, 251, 0.18);
+          color: #18a0fb;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .tb-center {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 5px;
+          font-size: 12px;
+          color: #e8e8e8;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .file-name {
+          font-weight: 500;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .file-chevron {
+          color: #555;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .file-page {
+          color: #868686;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .file-arrow {
+          color: #868686;
+          margin-left: 2px;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .tb-right {
+          flex: 0 0 auto;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .mode-tabs {
+          display: flex;
+          background: rgba(255, 255, 255, 0.06);
+          border-radius: 6px;
+          padding: 2px;
+          gap: 2px;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .mode-tab {
+          font-size: 11px;
+          font-weight: 500;
+          color: #868686;
+          padding: 4px 10px;
+          border-radius: 4px;
+          cursor: default;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .mode-tab.active {
+          background: #3c3c3c;
+          color: #e8e8e8;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .share-btn {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          background: #18a0fb;
+          color: white;
+          font-size: 11px;
+          font-weight: 600;
+          padding: 6px 12px;
+          border-radius: 6px;
+          cursor: default;
+          white-space: nowrap;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .avatar-cluster {
+          display: flex;
+          align-items: center;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .fig-avatar {
+          width: 26px;
+          height: 26px;
+          border-radius: 50%;
+          font-size: 9px;
+          font-weight: 700;
+          color: white;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border: 2px solid #2c2c2c;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .present-btn {
+          width: 28px;
+          height: 28px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 5px;
+          background: rgba(255, 255, 255, 0.06);
+          color: #868686;
+          font-size: 9px;
+          cursor: default;
+        }
+
+        /* ═══════════════════════════
+         BODY LAYOUT
+      ═══════════════════════════ */
+        [data-composition-id="ui-3d-reveal"] .fig-body {
+          display: flex;
+          height: 632px; /* 680 - 48 toolbar */
+        }
+
+        /* ═══════════════════════════
+         LAYERS PANEL
+      ═══════════════════════════ */
+        [data-composition-id="ui-3d-reveal"] .fig-layers {
+          width: 210px;
+          flex-shrink: 0;
+          background: #2c2c2c;
+          border-right: 1px solid rgba(255, 255, 255, 0.08);
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .panel-tabs {
+          display: flex;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+          flex-shrink: 0;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .ptab {
+          flex: 1;
+          text-align: center;
+          font-size: 11px;
+          font-weight: 500;
+          color: #868686;
+          padding: 9px 0 8px;
+          cursor: default;
+          border-bottom: 2px solid transparent;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .ptab.active {
+          color: #e8e8e8;
+          border-bottom-color: #18a0fb;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .layer-search {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 7px 10px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+          color: #555;
+          flex-shrink: 0;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .search-placeholder {
+          font-size: 11px;
+          color: #555;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .layer-list {
+          flex: 1;
+          overflow: hidden;
+          padding: 4px 0;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .layer-item {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          padding: 4px 8px;
+          font-size: 11px;
+          color: #868686;
+          cursor: default;
+          height: 26px;
+          white-space: nowrap;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .layer-item.page-item {
+          color: #e8e8e8;
+          font-weight: 500;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .layer-item.frame-item {
+          color: #e8e8e8;
+          font-weight: 500;
+          padding-left: 6px;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .layer-item.indent-1 {
+          padding-left: 18px;
+        }
+        [data-composition-id="ui-3d-reveal"] .layer-item.indent-2 {
+          padding-left: 30px;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .layer-item.comp-item {
+          color: #c9a0ff;
+        }
+        [data-composition-id="ui-3d-reveal"] .frame-icon {
+          color: #6ca9ff !important;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .selected-layer {
+          background: rgba(24, 160, 251, 0.15);
+          border-radius: 4px;
+          color: #18a0fb !important;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .li-collapse {
+          color: #555;
+          flex-shrink: 0;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .li-icon {
+          flex-shrink: 0;
+          color: #868686;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .comp-icon {
+          color: #a259ff !important;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .page-bar {
+          display: flex;
+          align-items: center;
+          border-top: 1px solid rgba(255, 255, 255, 0.08);
+          padding: 0 4px;
+          height: 34px;
+          flex-shrink: 0;
+          gap: 2px;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .pbar-tab {
+          font-size: 10px;
+          color: #868686;
+          padding: 4px 8px;
+          border-radius: 4px;
+          white-space: nowrap;
+          cursor: default;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .pbar-tab.active {
+          background: rgba(255, 255, 255, 0.08);
+          color: #e8e8e8;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .pbar-add {
+          font-size: 14px;
+          color: #555;
+          padding: 2px 6px;
+          cursor: default;
+          margin-left: auto;
+        }
+
+        /* ═══════════════════════════
+         CANVAS
+      ═══════════════════════════ */
+        [data-composition-id="ui-3d-reveal"] .fig-canvas {
+          flex: 1;
+          background: #1e1e1e;
+          position: relative;
+          overflow: hidden;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .canvas-frame-label {
+          position: absolute;
+          top: 18px;
+          left: 50%;
+          transform: translateX(-50%);
+          font-size: 10px;
+          color: #555;
+          white-space: nowrap;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .artboard {
+          width: 520px;
+          height: 360px;
+          background: #ffffff;
+          border-radius: 4px;
+          overflow: hidden;
+          position: relative;
+          display: flex;
+          box-shadow:
+            0 8px 40px rgba(0, 0, 0, 0.5),
+            0 0 0 1px rgba(0, 0, 0, 0.08);
+          margin-top: 20px;
+        }
+
+        /* ── Selection handles ── */
+        [data-composition-id="ui-3d-reveal"] .selection-ring {
+          position: absolute;
+          width: 322px;
+          height: 110px;
+          border: 1px solid #18a0fb;
+          pointer-events: none;
+          /* positioned over the create card in main content */
+          top: calc(50% - 40px);
+          left: calc(50% + 86px);
+          transform: translate(-50%, -50%);
+        }
+
+        [data-composition-id="ui-3d-reveal"] .sel-handle {
+          position: absolute;
+          width: 7px;
+          height: 7px;
+          background: white;
+          border: 1.5px solid #18a0fb;
+          border-radius: 1px;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .sel-handle.tl {
+          top: -4px;
+          left: -4px;
+        }
+        [data-composition-id="ui-3d-reveal"] .sel-handle.tr {
+          top: -4px;
+          right: -4px;
+        }
+        [data-composition-id="ui-3d-reveal"] .sel-handle.bl {
+          bottom: -4px;
+          left: -4px;
+        }
+        [data-composition-id="ui-3d-reveal"] .sel-handle.br {
+          bottom: -4px;
+          right: -4px;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .sel-label {
+          position: absolute;
+          top: -22px;
+          left: -1px;
+          font-size: 9px;
+          color: #18a0fb;
+          white-space: nowrap;
+          font-family: "Inter", sans-serif;
+          font-weight: 500;
+        }
+
+        /* ═══════════════════════════
+         PROPERTIES PANEL
+      ═══════════════════════════ */
+        [data-composition-id="ui-3d-reveal"] .fig-props {
+          width: 240px;
+          flex-shrink: 0;
+          background: #2c2c2c;
+          border-left: 1px solid rgba(255, 255, 255, 0.08);
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .prop-align {
+          display: flex;
+          align-items: center;
+          gap: 3px;
+          padding: 8px 12px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+          flex-shrink: 0;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .align-btn {
+          width: 24px;
+          height: 24px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 4px;
+          color: #868686;
+          font-size: 14px;
+          cursor: default;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .active-align {
+          background: rgba(255, 255, 255, 0.08);
+          color: #e8e8e8;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .align-divider {
+          width: 1px;
+          height: 16px;
+          background: rgba(255, 255, 255, 0.1);
+          margin: 0 2px;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .prop-section {
+          padding: 10px 12px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+          flex-shrink: 0;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .prop-section-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 8px;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .prop-section-label {
+          font-size: 11px;
+          font-weight: 500;
+          color: #e8e8e8;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .prop-section-icon {
+          font-size: 14px;
+          color: #555;
+          cursor: default;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .prop-row-2 {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 6px;
+          margin-bottom: 5px;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .prop-field {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          background: rgba(255, 255, 255, 0.06);
+          border-radius: 4px;
+          padding: 5px 7px;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .prop-pre {
+          font-size: 10px;
+          color: #555;
+          flex-shrink: 0;
+          font-family: "Inter", sans-serif;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .prop-val {
+          font-size: 11px;
+          color: #e8e8e8;
+          font-family: "Inter", sans-serif;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .fill-row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .fill-preview {
+          width: 18px;
+          height: 18px;
+          border-radius: 3px;
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          flex-shrink: 0;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .fill-hex {
+          font-size: 11px;
+          color: #e8e8e8;
+          font-family: "Inter", sans-serif;
+          flex: 1;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .fill-pct {
+          font-size: 11px;
+          color: #868686;
+          font-family: "Inter", sans-serif;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .prop-empty {
+          font-size: 11px;
+          color: #555;
+          font-style: italic;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .effect-row {
+          display: flex;
+          align-items: center;
+          gap: 7px;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .effect-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: rgba(255, 255, 255, 0.2);
+          flex-shrink: 0;
+        }
+
+        [data-composition-id="ui-3d-reveal"] .effect-name {
+          font-size: 11px;
+          color: #868686;
+        }
+
+        /* ═══════════════════════════
+         HEYGEN APP UI — LIGHT MODE
+      ═══════════════════════════ */
+
+        /* ── Icon nav (56px) ── */
+        [data-composition-id="ui-3d-reveal"] .hg-icnav {
+          width: 56px;
+          flex-shrink: 0;
+          height: 360px;
+          background: #ffffff;
+          border-right: 1px solid #ebebeb;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          padding-top: 0;
+          position: relative;
+          overflow: hidden;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-iclogo {
+          width: 56px;
+          height: 50px;
+          flex-shrink: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-bottom: 1px solid #f0f0f0;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-icitem {
+          width: 100%;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 3px;
+          padding: 8px 0;
+          color: #9ca3af;
+          cursor: default;
+          flex-shrink: 0;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-icitem span {
+          font-size: 7px;
+          color: inherit;
+          font-family: "Inter", sans-serif;
+          text-align: center;
+          line-height: 1;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-icactive {
+          color: #10b8a9 !important;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-icactive span {
+          color: #10b8a9 !important;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-icbg {
+          width: 34px;
+          height: 34px;
+          border-radius: 9px;
+          background: #10b8a9;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-icuser {
+          position: absolute;
+          bottom: 10px;
+          width: 26px;
+          height: 26px;
+          border-radius: 50%;
+          background: #1a1a1a;
+          font-size: 9px;
+          font-weight: 700;
+          color: white;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-family: "Inter", sans-serif;
+        }
+
+        /* ── History panel (120px) ── */
+        [data-composition-id="ui-3d-reveal"] .hg-histpanel {
+          width: 120px;
+          flex-shrink: 0;
+          height: 360px;
+          background: #f7f7f8;
+          border-right: 1px solid #ebebeb;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-histhead {
+          height: 44px;
+          flex-shrink: 0;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 0 10px;
+          font-size: 10px;
+          font-weight: 600;
+          color: #111;
+          border-bottom: 1px solid #efefef;
+          font-family: "Inter", sans-serif;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-newitem {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 7px 8px;
+          margin: 6px 6px 0;
+          background: #e8f0fe;
+          border-radius: 7px;
+          font-size: 9.5px;
+          font-weight: 500;
+          color: #1a1a1a;
+          flex-shrink: 0;
+          font-family: "Inter", sans-serif;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-histcat {
+          font-size: 7px;
+          font-weight: 600;
+          color: #b0b0b0;
+          letter-spacing: 0.06em;
+          padding: 9px 10px 3px;
+          flex-shrink: 0;
+          font-family: "Inter", sans-serif;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-histrow {
+          padding: 3.5px 10px;
+          font-size: 9px;
+          color: #444;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          flex-shrink: 0;
+          font-family: "Inter", sans-serif;
+        }
+
+        /* ── Main content (359px) ── */
+        [data-composition-id="ui-3d-reveal"] .hg-maincnt {
+          flex: 1;
+          height: 360px;
+          background: #ffffff;
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          padding: 10px 14px 10px;
+          overflow: hidden;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-toprighticons {
+          position: absolute;
+          top: 9px;
+          right: 10px;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-ticon {
+          width: 26px;
+          height: 26px;
+          border-radius: 50%;
+          border: 1px solid #e5e7eb;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #6b7280;
+          cursor: default;
+          position: relative;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-notifico {
+          position: relative;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-notifbadge {
+          position: absolute;
+          top: -5px;
+          right: -7px;
+          background: #ef4444;
+          color: white;
+          font-size: 5.5px;
+          font-weight: 700;
+          padding: 1.5px 3px;
+          border-radius: 8px;
+          font-family: "Inter", sans-serif;
+          border: 1.5px solid white;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-herotitle {
+          font-size: 15px;
+          font-weight: 800;
+          color: #111111;
+          line-height: 1.22;
+          letter-spacing: -0.04em;
+          margin-bottom: 12px;
+          font-family: "Inter", sans-serif;
+          padding-right: 84px;
+          margin-top: 2px;
+        }
+
+        /* ── Create card ── */
+        [data-composition-id="ui-3d-reveal"] .hg-createcard {
+          border: 2px solid #7dd4cf;
+          border-radius: 12px;
+          overflow: hidden;
+          background: #ffffff;
+          flex-shrink: 0;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-selrow {
+          display: flex;
+          align-items: stretch;
+          border-bottom: 1px solid #f3f4f6;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-sel {
+          flex: 1;
+          padding: 8px 10px;
+          display: flex;
+          flex-direction: column;
+          gap: 5px;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-seldiv {
+          width: 1px;
+          background: #f0f0f0;
+          flex-shrink: 0;
+          margin: 8px 0;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-settico {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0 10px;
+          color: #9ca3af;
+          flex-shrink: 0;
+          border-left: 1px solid #f0f0f0;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-sellbl {
+          font-size: 8px;
+          color: #9ca3af;
+          font-weight: 500;
+          font-family: "Inter", sans-serif;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-selbox {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          background: #f4f4f5;
+          border-radius: 7px;
+          padding: 5px 7px;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-avphoto {
+          width: 30px;
+          height: 26px;
+          border-radius: 5px;
+          flex-shrink: 0;
+          background: linear-gradient(170deg, #7a4b2a 0%, #b07540 45%, #d4a070 100%);
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-seltxt {
+          font-size: 9px;
+          font-weight: 500;
+          color: #1a1a1a;
+          font-family: "Inter", sans-serif;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-voicebars {
+          display: flex;
+          align-items: center;
+          gap: 2px;
+          width: 22px;
+          justify-content: center;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-vbar {
+          width: 2.5px;
+          background: #c4c4c4;
+          border-radius: 1.5px;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-styleico {
+          width: 22px;
+          height: 22px;
+          background: #e8e8e8;
+          border-radius: 5px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #888;
+          flex-shrink: 0;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-cinput {
+          padding: 10px 12px 8px;
+          font-size: 10px;
+          color: #c4c4c4;
+          font-family: "Inter", sans-serif;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-cbottom {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 6px 10px;
+          border-top: 1px solid #f3f4f6;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-cbleft {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-cbtn {
+          width: 24px;
+          height: 24px;
+          border: 1px solid #e4e4e7;
+          border-radius: 6px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #6b7280;
+          cursor: default;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-cbright {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-genbtn {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          background: #f4f4f5;
+          border: 1px solid #e4e4e7;
+          border-radius: 8px;
+          padding: 5px 9px;
+          font-size: 9px;
+          font-weight: 500;
+          color: #374151;
+          font-family: "Inter", sans-serif;
+          cursor: default;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-submitbtn {
+          width: 26px;
+          height: 26px;
+          border-radius: 50%;
+          background: #111111;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: default;
+        }
+
+        /* ── Styles from community ── */
+        [data-composition-id="ui-3d-reveal"] .hg-stylessec {
+          margin-top: 10px;
+          flex: 1;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-stitle {
+          font-size: 10.5px;
+          font-weight: 600;
+          color: #111;
+          margin-bottom: 7px;
+          flex-shrink: 0;
+          font-family: "Inter", sans-serif;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-spills {
+          display: flex;
+          gap: 5px;
+          margin-bottom: 8px;
+          flex-shrink: 0;
+          overflow: hidden;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-spill {
+          font-size: 8.5px;
+          font-weight: 500;
+          white-space: nowrap;
+          padding: 4px 9px;
+          border: 1.5px solid #e0e0e3;
+          border-radius: 20px;
+          color: #555;
+          font-family: "Inter", sans-serif;
+          cursor: default;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-spactive {
+          border-color: #10b8a9;
+          color: #10b8a9;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-scards {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 6px;
+          flex: 1;
+          overflow: hidden;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-sc {
+          border-radius: 6px;
+          overflow: hidden;
+          display: flex;
+          align-items: flex-end;
+          padding: 5px;
+          position: relative;
+        }
+        [data-composition-id="ui-3d-reveal"] .hg-sclbl {
+          font-size: 6px;
+          font-weight: 700;
+          color: rgba(255, 255, 255, 0.85);
+          font-family: "Inter", sans-serif;
+          letter-spacing: 0.04em;
+          line-height: 1.3;
+          text-transform: uppercase;
+        }
+
+        /* ══ INTRO LAYER ══ */
+        [data-composition-id="ui-3d-reveal"] .intro-layer {
+          position: absolute;
+          inset: 0;
+          z-index: 10;
+          pointer-events: none;
+        }
+        [data-composition-id="ui-3d-reveal"] .intro-svg {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 1920px;
+          height: 1080px;
+        }
+        [data-composition-id="ui-3d-reveal"] .il-stroke {
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+
+        /* ══ OUTRO LAYER ══ */
+        [data-composition-id="ui-3d-reveal"] .outro-layer {
+          position: absolute;
+          inset: 0;
+          z-index: 10;
+          pointer-events: none;
+          opacity: 0;
+        }
+        [data-composition-id="ui-3d-reveal"] .outro-svg {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 1920px;
+          height: 1080px;
+        }
+        [data-composition-id="ui-3d-reveal"] .ol-stroke {
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+        [data-composition-id="ui-3d-reveal"] .outro-tagline {
+          font-family: "Inter", sans-serif;
+          font-size: 42px;
+          font-weight: 500;
+          fill: #fff;
+          letter-spacing: -0.5px;
+        }
+        [data-composition-id="ui-3d-reveal"] .otl {
+          opacity: 0;
+        }
+        [data-composition-id="ui-3d-reveal"] .url-border {
+          stroke-dasharray: 500;
+          stroke-dashoffset: 500;
+        }
+
+        /* ══ OUTRO FADE OVERLAY ══ */
+        [data-composition-id="ui-3d-reveal"] .outro-fade {
+          position: absolute;
+          inset: 0;
+          background: #000;
+          opacity: 0;
+          z-index: 20;
+          pointer-events: none;
+        }
+      </style>
+
+      <script>
+        (function () {
+          var S = '[data-composition-id="ui-3d-reveal"]';
+          var tl = gsap.timeline({ paused: true });
+
+          var wrapper = document.querySelector(S + " .card-wrapper");
+          var scene = document.querySelector(S + " .scene");
+          var cardGlow = document.querySelector(S + " .card-glow");
+
+          // ── Calculate intro stroke lengths ──
+          document.querySelectorAll(S + " .il-stroke").forEach(function (el) {
+            var len =
+              el.tagName === "circle"
+                ? 2 * Math.PI * parseFloat(el.getAttribute("r"))
+                : el.getTotalLength();
+            el.style.strokeDasharray = len;
+            el.style.strokeDashoffset = len;
+          });
+
+          // ── Calculate outro stroke lengths ──
+          document.querySelectorAll(S + " .ol-stroke").forEach(function (el) {
+            var len =
+              el.tagName === "circle"
+                ? 2 * Math.PI * parseFloat(el.getAttribute("r"))
+                : el.getTotalLength();
+            el.style.strokeDasharray = len;
+            el.style.strokeDashoffset = len;
+          });
+
+          // ─────────────────────────────────────────────────────
+          // INITIAL STATE
+          // ─────────────────────────────────────────────────────
+          gsap.set(wrapper, { opacity: 0, scale: 0.74, rotationY: 0, y: 24 });
+          gsap.set(
+            [
+              S + " .fig-toolbar",
+              S + " .fig-layers",
+              S + " .fig-props",
+              S + " .fig-canvas",
+              S + " .layer-item",
+              S + " .selection-ring",
+            ],
+            { opacity: 0 },
+          );
+          gsap.set(S + " .fig-toolbar", { y: -10 });
+          gsap.set(S + " .fig-layers", { x: -16 });
+          gsap.set(S + " .fig-props", { x: 16 });
+          gsap.set(S + " .layer-item", { x: -8 });
+          gsap.set(S + " .artboard", { scale: 0.94, opacity: 0 });
+
+          // ═════════════════════════════════════════════════════
+          // PHASE 0 — LOGO INTRO  (0 – 1.35s)
+          // Stroke draw cascade → color fill flash → scale to 0
+          // ═════════════════════════════════════════════════════
+
+          tl.to(
+            S + " .il-stroke-1",
+            { strokeDashoffset: 0, duration: 0.4, ease: "power1.inOut" },
+            0.0,
+          );
+          tl.to(
+            S + " .il-stroke-2",
+            { strokeDashoffset: 0, duration: 0.4, ease: "power1.inOut" },
+            0.06,
+          );
+          tl.to(
+            S + " .il-stroke-3",
+            { strokeDashoffset: 0, duration: 0.4, ease: "power1.inOut" },
+            0.12,
+          );
+          tl.to(
+            S + " .il-stroke-4",
+            { strokeDashoffset: 0, duration: 0.4, ease: "power1.inOut" },
+            0.18,
+          );
+          tl.to(
+            S + " .il-stroke-5",
+            { strokeDashoffset: 0, duration: 0.4, ease: "power1.inOut" },
+            0.24,
+          );
+
+          tl.to(S + " .il-fill-1", { opacity: 1, duration: 0.08 }, 0.5);
+          tl.to(S + " .il-fill-2", { opacity: 1, duration: 0.08 }, 0.54);
+          tl.to(S + " .il-fill-3", { opacity: 1, duration: 0.08 }, 0.58);
+          tl.to(S + " .il-fill-4", { opacity: 1, duration: 0.08 }, 0.62);
+          tl.to(S + " .il-fill-5", { opacity: 1, duration: 0.08 }, 0.66);
+          tl.to(S + " .il-stroke", { opacity: 0.3, duration: 0.15 }, 0.6);
+
+          // Scale the logo down to nothing
+          tl.to(S + " .il-stroke", { opacity: 0, duration: 0.2 }, 1.0);
+          tl.to(
+            S + " .intro-logo",
+            {
+              scale: 0,
+              transformOrigin: "95px 142.5px",
+              duration: 0.35,
+              ease: "power2.in",
+            },
+            1.0,
+          );
+
+          // ═════════════════════════════════════════════════════
+          // PHASE 1 — FLAT REVEAL  (1.5 – 3.4s)
+          // ═════════════════════════════════════════════════════
+          var T = 1.5;
+
+          tl.to(
+            wrapper,
+            {
+              opacity: 1,
+              scale: 0.79,
+              y: 0,
+              duration: 0.55,
+              ease: "expo.out",
+            },
+            T + 0.0,
+          );
+
+          tl.to(
+            cardGlow,
+            {
+              opacity: 0.5,
+              duration: 0.8,
+              ease: "power2.out",
+            },
+            T + 0.05,
+          );
+
+          tl.to(
+            S + " .fig-toolbar",
+            {
+              opacity: 1,
+              y: 0,
+              duration: 0.4,
+              ease: "power2.out",
+            },
+            T + 0.23,
+          );
+
+          tl.to(
+            S + " .fig-layers",
+            {
+              opacity: 1,
+              x: 0,
+              duration: 0.45,
+              ease: "expo.out",
+            },
+            T + 0.35,
+          );
+
+          tl.to(
+            S + " .fig-props",
+            {
+              opacity: 1,
+              x: 0,
+              duration: 0.45,
+              ease: "expo.out",
+            },
+            T + 0.37,
+          );
+
+          tl.to(
+            S + " .fig-canvas",
+            {
+              opacity: 1,
+              duration: 0.4,
+              ease: "power2.out",
+            },
+            T + 0.45,
+          );
+
+          tl.to(
+            S + " .artboard",
+            {
+              opacity: 1,
+              scale: 1,
+              duration: 0.55,
+              ease: "back.out(1.4)",
+            },
+            T + 0.5,
+          );
+
+          tl.to(
+            S + " .layer-item",
+            {
+              opacity: 1,
+              x: 0,
+              duration: 0.35,
+              stagger: { each: 0.045, ease: "power1.in" },
+              ease: "power2.out",
+            },
+            T + 0.57,
+          );
+
+          tl.to(
+            S + " .selection-ring",
+            {
+              opacity: 1,
+              duration: 0.25,
+              ease: "power2.out",
+            },
+            T + 1.25,
+          );
+
+          // ═════════════════════════════════════════════════════
+          // PHASE 2 — CAMERA PUSH  (3.5 – 4.8s)
+          // Bigger zoom: 0.79 → 1.15 so the UI fills the frame
+          // ═════════════════════════════════════════════════════
+
+          tl.to(
+            wrapper,
+            {
+              scale: 1.15,
+              duration: 1.3,
+              ease: "power3.inOut",
+            },
+            3.5,
+          );
+
+          tl.to(
+            cardGlow,
+            {
+              opacity: 0.85,
+              scale: 1.25,
+              duration: 1.2,
+              ease: "power2.inOut",
+            },
+            3.5,
+          );
+
+          // ═════════════════════════════════════════════════════
+          // PHASE 3 — 3D TILT  (4.2 – 5.55s)
+          // Steeper angle (-34°) for more dramatic depth reveal
+          // ═════════════════════════════════════════════════════
+
+          tl.to(
+            wrapper,
+            {
+              rotationY: -34,
+              duration: 1.35,
+              ease: "expo.out",
+            },
+            4.2,
+          );
+
+          tl.to(
+            wrapper,
+            {
+              y: -16,
+              duration: 1.1,
+              ease: "power2.out",
+            },
+            4.3,
+          );
+
+          // ═════════════════════════════════════════════════════
+          // PHASE 4 — 3D HOLD  (5.55 – 7.3s)
+          // ═════════════════════════════════════════════════════
+
+          tl.to(
+            wrapper,
+            {
+              y: -8,
+              rotationY: -31,
+              duration: 0.9,
+              ease: "sine.inOut",
+            },
+            5.55,
+          );
+
+          tl.to(
+            wrapper,
+            {
+              y: -20,
+              rotationY: -35,
+              duration: 0.9,
+              ease: "sine.inOut",
+            },
+            6.45,
+          );
+
+          tl.to(
+            cardGlow,
+            {
+              opacity: 0.7,
+              duration: 0.9,
+              ease: "sine.inOut",
+              yoyo: true,
+              repeat: 1,
+            },
+            5.55,
+          );
+
+          // ═════════════════════════════════════════════════════
+          // SLIDE OFF — 3D depth fly-away  (7.3 – 7.85s)
+          // Scene x exits left. Wrapper z shrinks into distance.
+          // Deeper z (-4000) + steeper rotation (-55°) = very
+          // dramatic 3D exit — card turns away and vanishes.
+          // ═════════════════════════════════════════════════════
+
+          tl.to(
+            scene,
+            {
+              x: -2200,
+              duration: 0.55,
+              ease: "power4.in",
+            },
+            7.3,
+          );
+
+          tl.to(
+            wrapper,
+            {
+              z: -7500,
+              rotationY: -65,
+              duration: 0.55,
+              ease: "power4.in",
+            },
+            7.3,
+          );
+
+          tl.to(
+            cardGlow,
+            {
+              opacity: 0,
+              duration: 0.3,
+              ease: "power3.in",
+            },
+            7.3,
+          );
+
+          // ═════════════════════════════════════════════════════
+          // OUTRO — LOGO BUILD + TAGLINE + PILL  (7.9 – 13s)
+          // ═════════════════════════════════════════════════════
+          var O = 7.9;
+
+          tl.set(S + " .outro-layer", { opacity: 1 }, O);
+
+          // Stroke draw cascade
+          tl.to(
+            S + " .ol-stroke-1",
+            { strokeDashoffset: 0, duration: 0.8, ease: "power1.inOut" },
+            O + 0.0,
+          );
+          tl.to(
+            S + " .ol-stroke-2",
+            { strokeDashoffset: 0, duration: 0.8, ease: "power1.inOut" },
+            O + 0.15,
+          );
+          tl.to(
+            S + " .ol-stroke-3",
+            { strokeDashoffset: 0, duration: 0.8, ease: "power1.inOut" },
+            O + 0.3,
+          );
+          tl.to(
+            S + " .ol-stroke-4",
+            { strokeDashoffset: 0, duration: 0.8, ease: "power1.inOut" },
+            O + 0.45,
+          );
+          tl.to(
+            S + " .ol-stroke-5",
+            { strokeDashoffset: 0, duration: 0.8, ease: "power1.inOut" },
+            O + 0.6,
+          );
+
+          // Color fill cascade
+          tl.to(S + " .ol-fill-1", { opacity: 1, duration: 0.15, ease: "power1.out" }, O + 1.4);
+          tl.to(S + " .ol-fill-2", { opacity: 1, duration: 0.15, ease: "power1.out" }, O + 1.55);
+          tl.to(S + " .ol-fill-3", { opacity: 1, duration: 0.15, ease: "power1.out" }, O + 1.7);
+          tl.to(S + " .ol-fill-4", { opacity: 1, duration: 0.15, ease: "power1.out" }, O + 1.85);
+          tl.to(S + " .ol-fill-5", { opacity: 1, duration: 0.15, ease: "power1.out" }, O + 2.0);
+          tl.to(S + " .ol-stroke", { opacity: 0.3, duration: 0.4, ease: "none" }, O + 1.8);
+
+          // Subtle scale settle
+          tl.fromTo(
+            S + " .outro-logo",
+            { scale: 1, transformOrigin: "80px 120px" },
+            { scale: 1.04, duration: 0.2, ease: "power2.out" },
+            O + 2.3,
+          );
+          tl.to(
+            S + " .outro-logo",
+            {
+              scale: 1,
+              transformOrigin: "80px 120px",
+              duration: 0.2,
+              ease: "power2.inOut",
+            },
+            O + 2.5,
+          );
+
+          // Tagline letter stagger
+          var letters = document.querySelectorAll(S + " .otl");
+          for (var k = 0; k < letters.length; k++) {
+            tl.fromTo(
+              letters[k],
+              { opacity: 0, y: 8 },
+              { opacity: 1, y: 0, duration: 0.12, ease: "power2.out" },
+              O + 2.8 + k * 0.025,
+            );
+          }
+
+          // URL pill: stroke draw → fill → text
+          tl.to(
+            S + " .url-border",
+            {
+              strokeDashoffset: 0,
+              duration: 0.35,
+              ease: "power1.inOut",
+            },
+            O + 3.8,
+          );
+          tl.to(S + " .url-bg", { opacity: 1, duration: 0.15 }, O + 4.15);
+          tl.to(S + " .url-text", { opacity: 1, duration: 0.2 }, O + 4.2);
+
+          // Fade to black
+          tl.to(
+            S + " .outro-fade",
+            {
+              opacity: 1,
+              duration: 0.6,
+              ease: "none",
+            },
+            O + 4.8,
+          );
+
+          window.__timelines = window.__timelines || {};
+          window.__timelines["ui-3d-reveal"] = tl;
+        })();
+      </script>
+    </div>
+  </body>
+</html>
