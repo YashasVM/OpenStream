@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "roast": {
+      "source": "petr-korobeinikov/skills",
+      "sourceType": "github",
+      "skillPath": "skills/roast/SKILL.md",
+      "computedHash": "d2bff3b327810a54f72d4b92aef066e22a8ccc414f12ab77c39efdd287f832ce"
+    }
+  }
+}
