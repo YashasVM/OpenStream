@@ -1,10 +1,17 @@
 """Compile the production SRT parser/options without the Android runtime."""
+import os
 import shutil
 import subprocess
 
 import pytest
 
 from _helpers import read_text
+
+
+pytestmark = pytest.mark.skipif(
+    os.name == "nt",
+    reason="Android native sender harness uses POSIX headers; exercised by Linux Android CI",
+)
 
 
 LEGACY_PARSER = r"""std::optional<SrtUrl> legacyParseSrtUrl(const std::string &url) {

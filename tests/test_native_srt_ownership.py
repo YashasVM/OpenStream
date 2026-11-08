@@ -4,12 +4,19 @@ IRL cancels a connect attempt and starts a replacement on another thread. The
 cancelled attempt can return from DNS or srt_connect() after the replacement
 published its socket; its cleanup must only ever touch the socket it created.
 """
+import os
 import shutil
 import subprocess
 
 import pytest
 
 from _helpers import read_text
+
+
+pytestmark = pytest.mark.skipif(
+    os.name == "nt",
+    reason="Android native sender harness uses POSIX headers; exercised by Linux Android CI",
+)
 
 
 HARNESS_PRELUDE = r"""
