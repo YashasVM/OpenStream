@@ -302,7 +302,7 @@ def test_release_build_fails_without_signing_and_keystores_are_ignored() -> None
     gradle_properties = read("android/gradle.properties")
     version_code = re.search(r"^openstream\.versionCode=(\d+)$", gradle_properties, re.MULTILINE)
     assert version_code is not None
-    assert int(version_code.group(1)) > 0
+    assert 1790441644 < int(version_code.group(1)) <= 2100000000
     assert "*.keystore" in gitignore
     assert "*.jks" in gitignore
 
@@ -313,7 +313,9 @@ def test_legacy_android_and_restored_obs_metadata_are_explicit() -> None:
     installer = read("tools/installer/openstream-obs-plugin.iss")
 
     gradle_properties = read("android/gradle.properties")
-    assert "openstream.versionName=1.0.2" in gradle_properties
+    assert "openstream.versionName=1.1.0-beta.1" in gradle_properties
+    assert 'versionName = openStreamVersionName' in app_gradle
+    assert 'versionNameSuffix = "-dev"' in app_gradle
     assert "project(openstream_obs_plugin VERSION 1.0.2" in cmake
     assert '#define OpenStreamVersion "1.0.2"' in installer
 

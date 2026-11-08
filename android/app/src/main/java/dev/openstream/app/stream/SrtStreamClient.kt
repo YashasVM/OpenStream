@@ -22,7 +22,19 @@ data class SrtSendResult(
     val recoveryRequired: Boolean = false,
 )
 
-class SrtStreamClient {
+/** Socket counters, rather than the encoded bytes accepted into the native queue. */
+data class SrtPublisherStats(
+    val sentBytes: Long = 0,
+    val droppedPackets: Long = 0,
+    val bufferedPackets: Int = 0,
+    val bufferedMs: Int = 0,
+    val queuedAccessUnits: Int = 0,
+)
+
+/** The message comes from fixed native diagnostics and contains no URL or credentials. */
+class SrtPublisherException(message: String) : IllegalStateException(message)
+
+class SrtStreamClient : EncodedMediaSink {
     @Volatile private var connected = false
     private val sessionGeneration = AtomicLong()
     private val operationLock = Any()
@@ -47,6 +59,57 @@ class SrtStreamClient {
     private val sendFailures = AtomicLong()
     private val lastPresentationTimeUs = AtomicLong()
 
+    /**
+     * Blocking IRL caller connect; run off the UI thread. OBS and IRL share one
+     * process-global native session and must never run at the same time.
+     */
+    fun connectPublisher(
+        url: String,
+        width: Int,
+        height: Int,
+        fps: Int,
+        shouldConnect: () -> Boolean = { true },
+    ) {
+        val uri = runCatching { URI(url) }.getOrNull()
+        require(uri?.scheme == "srt" && !uri.host.isNullOrBlank() && uri.port in 1..65535 &&
+            uri.rawQuery.orEmpty().split('&').contains("irl=1")) { "Invalid IRL SRT publish URL" }
+        synchronized(operationLock) {
+            if (!shouldConnect()) return
+            establishSession("publish") { generation ->
+                var didConnect = false
+                for (candidate in resolvedConnectUrls(url)) {
+                    if (!shouldConnect() || !isCurrentSessionGeneration(generation)) break
+                    if (SrtNativeBridge.connect(candidate, "video/avc", width, height, fps, generation)) {
+                        didConnect = true
+                        break
+                    }
+                    // The native error slot is process-global; once superseded it
+                    // describes the replacement attempt, not this one.
+                    if (!isCurrentSessionGeneration(generation)) break
+                    val detail = SrtNativeBridge.connectError()
+                    if (detail.startsWith("AUTH:") || detail.startsWith("CONFIG:")) {
+                        throw SrtPublisherException(detail)
+                    }
+                }
+                if (!didConnect && isCurrentSessionGeneration(generation)) {
+                    throw SrtPublisherException(SrtNativeBridge.connectError())
+                }
+                didConnect
+            }
+        }
+    }
+
+    /** Native socket counters for the current IRL session; zero when disconnected. */
+    fun publisherStats(): SrtPublisherStats {
+        // Snapshot under lock, query native unlocked (same discipline as sends).
+        val generation = synchronized(stateLock) {
+            if (!connected) return SrtPublisherStats()
+            sessionGeneration.get()
+        }
+        val values = SrtNativeBridge.stats(generation) ?: return SrtPublisherStats()
+        return SrtPublisherStats(values[0], values[1], values[2].toInt(), values[3].toInt(), values[4].toInt())
+    }
+
     fun connect(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
         require(url.startsWith("srt://")) { "shin V1 expects an SRT URL" }
         synchronized(operationLock) {
@@ -70,7 +133,7 @@ class SrtStreamClient {
         }
     }
 
-    fun sendVideoAccessUnit(accessUnit: EncodedAccessUnit): SrtSendResult {
+    override fun sendVideoAccessUnit(accessUnit: EncodedAccessUnit): SrtSendResult {
         // Snapshot session state under lock; do not hold stateLock across the
         // JNI sendVideo() call so a concurrent disconnect() never blocks behind
         // a slow native mux/send. Stats are committed under lock only if the
@@ -117,7 +180,7 @@ class SrtStreamClient {
         return SrtSendResult(sent, generation, recoveryRequired = !sent)
     }
 
-    fun sendAudioAccessUnit(accessUnit: EncodedAccessUnit): SrtSendResult {
+    override fun sendAudioAccessUnit(accessUnit: EncodedAccessUnit): SrtSendResult {
         // Same lock discipline as video: snapshot under lock, native call
         // unlocked, stats commit under lock. Never hold stateLock across JNI.
         val generation: Long
@@ -152,11 +215,17 @@ class SrtStreamClient {
 
     fun disconnect() {
         synchronized(stateLock) {
-            val generation = sessionGeneration.incrementAndGet()
+            val previous = sessionGeneration.get()
+            val generation = nextSessionGeneration()
+            sessionGeneration.set(generation)
             connected = false
             // Native generation invalidation and socket teardown are ordered before
-            // any stale connect/listen can publish a replacement socket.
-            SrtNativeBridge.disconnect(generation)
+            // any stale connect/listen can publish a replacement socket. A client
+            // whose session was superseded by another client (e.g. a previous IRL
+            // transport) must not tear down the newer native session.
+            if (nativeSessionOwner.compareAndSet(previous, generation)) {
+                SrtNativeBridge.disconnect(generation)
+            }
         }
     }
 
@@ -202,7 +271,9 @@ class SrtStreamClient {
         }
         val generation = synchronized(stateLock) {
             connected = false
-            sessionGeneration.incrementAndGet().also { generation ->
+            nextSessionGeneration().also { generation ->
+                sessionGeneration.set(generation)
+                nativeSessionOwner.accumulateAndGet(generation, ::maxOf)
                 SrtNativeBridge.beginSession(generation)
             }
         }
@@ -255,6 +326,13 @@ class SrtStreamClient {
     }
 
     companion object {
+        // The native session is process-global and rejects generations older than
+        // its current one, so generations must be unique across client instances
+        // (IRL creates one client per connect attempt; activities can be recreated).
+        private val sessionGenerations = AtomicLong()
+        private val nativeSessionOwner = AtomicLong()
+        private fun nextSessionGeneration(): Long = sessionGenerations.incrementAndGet()
+
         private const val BUFFER_FLAG_KEY_FRAME = 1
         private const val BUFFER_FLAG_CODEC_CONFIG = 2
     }
@@ -330,6 +408,11 @@ private object SrtNativeBridge {
     fun disconnect(sessionGeneration: Long) {
         guardOr(Unit) { nativeDisconnect(sessionGeneration) }
     }
+    /** "AUTH:", "CONFIG:" or "TRANSIENT:" prefixed; never contains the URL or credentials. */
+    fun connectError(): String =
+        guardOr("CONFIG: Native SRT library unavailable") { nativeConnectError() }
+    fun stats(sessionGeneration: Long): LongArray? =
+        guardOr(null) { nativeStats(sessionGeneration)?.takeIf { it.size == 5 } }
 
     private external fun nativeBeginSession(sessionGeneration: Long)
     private external fun nativeConnect(
@@ -361,4 +444,6 @@ private object SrtNativeBridge {
         sessionGeneration: Long,
     ): Boolean
     private external fun nativeDisconnect(sessionGeneration: Long)
+    private external fun nativeConnectError(): String
+    private external fun nativeStats(sessionGeneration: Long): LongArray?
 }

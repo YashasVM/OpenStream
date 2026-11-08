@@ -1,0 +1,37 @@
+:root { color-scheme: light; font-family: system-ui, sans-serif; color: #19242b; background: #f5f6f4; line-height: 1.6; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { max-width: 960px; margin: 0 auto; padding: 48px 24px 28px; }
+h1 { font-size: clamp(2rem, 6vw, 3.5rem); line-height: 1.15; letter-spacing: -.045em; margin: 10px 0 20px; }
+h2 { font-size: 1.25rem; margin: 0 0 16px; }
+p { margin: 10px 0; }
+a { color: #125b65; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+a:focus-visible { outline: 3px solid #126370; outline-offset: 4px; }
+.eyebrow { color: #46636a; text-transform: uppercase; letter-spacing: .12em; font-size: .8rem; font-weight: 700; }
+.intro { max-width: 690px; font-size: 1.1rem; }
+aside { border-left: 4px solid #9a6a09; background: #fff7e4; padding: 18px 22px; margin: 30px 0; }
+section { margin: 32px 0; }
+.muted, footer { color: #536269; font-size: .9rem; }
+.counts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; border: 1px solid #cdd5d5; background: #cdd5d5; margin: 0 0 12px; }
+.counts[hidden] { display: none; }
+.counts div { padding: 18px; background: #fff; display: flex; flex-direction: column-reverse; }
+dt { font-size: .9rem; }
+dd { font-size: 2.5rem; line-height: 1.2; margin: 0 0 8px; font-variant-numeric: tabular-nums; font-weight: 650; }
+.items { list-style: none; padding: 0; border-top: 1px solid #cdd5d5; }
+.items li { display: grid; grid-template-columns: 1fr auto; gap: 12px 24px; padding: 20px 0; border-bottom: 1px solid #cdd5d5; }
+h3 { font-size: 1rem; margin: 0; }
+.items p { margin: 5px 0 0; color: #536269; }
+.labels { text-align: right; }
+.badge { display: inline-block; font-size: .8rem; font-weight: 650; background: #e4ebee; color: #294951; border-radius: 4px; padding: 3px 9px; white-space: nowrap; }
+.badge.implemented { background: #e1eee6; color: #215234; }
+.badge.pending { background: #eee9dc; color: #665018; }
+.device { font-size: .78rem; }
+footer { padding-top: 6px; }
+@media (max-width: 600px) {
+  main { padding: 28px 18px; }
+  .counts { grid-template-columns: repeat(2, 1fr); }
+  .items li { grid-template-columns: 1fr; gap: 10px; }
+  .labels { text-align: left; }
+  .device { display: inline; margin-left: 8px !important; }
+}

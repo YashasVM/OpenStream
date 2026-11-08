@@ -1,4 +1,37 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import com.android.build.api.instrumentation.AsmClassVisitorFactory
+import com.android.build.api.instrumentation.ClassContext
+import com.android.build.api.instrumentation.ClassData
+import com.android.build.api.instrumentation.InstrumentationParameters
+import com.android.build.api.instrumentation.InstrumentationScope
+import org.objectweb.asm.ClassVisitor
+import org.objectweb.asm.MethodVisitor
+import org.objectweb.asm.Opcodes
+import org.objectweb.asm.Type
+
+// RootEncoder logs AMF publish commands, including the key, even with setLogs(false).
+// Remove its Android Log calls in both debug and release dependency bytecode.
+abstract class QuietTransportLogs : AsmClassVisitorFactory<InstrumentationParameters.None> {
+    override fun isInstrumentable(classData: ClassData) = classData.className.startsWith("com.pedro.")
+
+    override fun createClassVisitor(classContext: ClassContext, nextClassVisitor: ClassVisitor): ClassVisitor =
+        object : ClassVisitor(Opcodes.ASM9, nextClassVisitor) {
+            override fun visitMethod(access: Int, name: String, descriptor: String, signature: String?, exceptions: Array<out String>?): MethodVisitor {
+                val next = super.visitMethod(access, name, descriptor, signature, exceptions)
+                return object : MethodVisitor(Opcodes.ASM9, next) {
+                    override fun visitMethodInsn(opcode: Int, owner: String, name: String, descriptor: String, isInterface: Boolean) {
+                        if (opcode == Opcodes.INVOKESTATIC && owner == "android/util/Log") {
+                            Type.getArgumentTypes(descriptor).reversed().forEach {
+                                super.visitInsn(if (it.size == 2) Opcodes.POP2 else Opcodes.POP)
+                            }
+                            if (Type.getReturnType(descriptor).sort == Type.INT) super.visitInsn(Opcodes.ICONST_0)
+                        } else super.visitMethodInsn(opcode, owner, name, descriptor, isInterface)
+                    }
+                }
+            }
+        }
+}
+
 
 plugins {
     id("com.android.application")
@@ -32,6 +65,7 @@ val developmentVersionCode = maxOf(
 android {
     namespace = "dev.openstream.app"
     compileSdk = 35
+    ndkVersion = "27.1.12297006"
 
     defaultConfig {
         // Keep the published OpenStream identity so existing installs update
@@ -101,6 +135,9 @@ android {
 }
 
 androidComponents {
+    onVariants { variant ->
+        variant.instrumentation.transformClassesWith(QuietTransportLogs::class.java, InstrumentationScope.ALL) {}
+    }
     onVariants(selector().withBuildType("debug")) { variant ->
         variant.outputs.forEach { output ->
             output.versionCode.set(developmentVersionCode)
@@ -130,6 +167,7 @@ kotlin {
 }
 
 dependencies {
+    implementation("com.github.pedroSG94.RootEncoder:rtmp:2.8.1")
     testImplementation("junit:junit:4.13.2")
     // Unit tests run on the local JVM against android.jar stubs, where
     // org.json.JSONObject methods throw "not mocked". Ship the real

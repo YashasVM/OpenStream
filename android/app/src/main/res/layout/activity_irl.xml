@@ -1,0 +1,471 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- OpenStream — IRL Live (Beta).
+     Full-bleed preview; setup form when idle, live HUD while streaming. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/os_black">
+
+    <!-- ====== CAMERA PREVIEW ====== -->
+    <FrameLayout
+        android:id="@+id/irlPreviewContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <SurfaceView
+            android:id="@+id/irlPreview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_gravity="center" />
+    </FrameLayout>
+
+    <!-- ====== BOTTOM: setup form or live controls ====== -->
+    <ScrollView
+        android:id="@+id/irlBottomScroll"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="bottom"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:id="@+id/irlBottom"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/irl_bg_panel"
+                android:orientation="vertical"
+                android:paddingStart="@dimen/os_spacing_lg"
+                android:paddingEnd="@dimen/os_spacing_lg"
+                android:paddingTop="@dimen/os_spacing_xxl"
+                android:paddingBottom="@dimen/os_spacing_xl">
+
+                <!-- Lens selector (buttons added programmatically) -->
+                <LinearLayout
+                    android:id="@+id/irlLensRow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="@dimen/os_spacing_lg"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:visibility="gone" />
+
+                <!-- ====== SETUP PANEL (Idle / Error) ====== -->
+                <LinearLayout
+                    android:id="@+id/irlSetupPanel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="@dimen/irl_label_gap"
+                        android:letterSpacing="0.1"
+                        android:text="@string/irl_label_platform"
+                        android:textColor="@color/os_text_secondary"
+                        android:textSize="@dimen/os_text_tiny" />
+
+                    <HorizontalScrollView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="@dimen/os_spacing_md"
+                        android:clipToPadding="false"
+                        android:scrollbars="none">
+
+                        <LinearLayout
+                            android:id="@+id/irlPlatformRow"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal" />
+                    </HorizontalScrollView>
+
+                    <TextView
+                        android:id="@+id/irlServerLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="@dimen/irl_label_gap"
+                        android:labelFor="@id/irlServer"
+                        android:letterSpacing="0.1"
+                        android:text="@string/irl_label_server"
+                        android:textColor="@color/os_text_secondary"
+                        android:textSize="@dimen/os_text_tiny" />
+
+                    <EditText
+                        android:id="@+id/irlServer"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/os_input_height"
+                        android:layout_marginBottom="@dimen/os_spacing_md"
+                        android:autofillHints=""
+                        android:background="@drawable/bg_minimal_input"
+                        android:fontFamily="sans-serif"
+                        android:importantForAutofill="no"
+                        android:inputType="textUri|textNoSuggestions"
+                        android:paddingStart="@dimen/os_spacing_md"
+                        android:paddingEnd="@dimen/os_spacing_md"
+                        android:singleLine="true"
+                        android:textColor="@color/os_text_primary"
+                        android:textColorHint="@color/os_text_tertiary"
+                        android:textSize="@dimen/os_text_caption" />
+
+                    <LinearLayout
+                        android:id="@+id/irlKeyGroup"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="@dimen/os_spacing_md"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginBottom="@dimen/irl_label_gap"
+                            android:labelFor="@id/irlKey"
+                            android:letterSpacing="0.1"
+                            android:text="@string/irl_label_key"
+                            android:textColor="@color/os_text_secondary"
+                            android:textSize="@dimen/os_text_tiny" />
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <EditText
+                                android:id="@+id/irlKey"
+                                android:layout_width="0dp"
+                                android:layout_height="@dimen/os_input_height"
+                                android:layout_weight="1"
+                                android:autofillHints=""
+                                android:background="@drawable/bg_minimal_input"
+                                android:fontFamily="sans-serif"
+                                android:importantForAutofill="no"
+                                android:inputType="textPassword|textNoSuggestions"
+                                android:paddingStart="@dimen/os_spacing_md"
+                                android:paddingEnd="@dimen/os_spacing_md"
+                                android:singleLine="true"
+                                android:textColor="@color/os_text_primary"
+                                android:textColorHint="@color/os_text_tertiary"
+                                android:textSize="@dimen/os_text_caption" />
+
+                            <TextView
+                                android:id="@+id/irlKeyToggle"
+                                android:layout_width="wrap_content"
+                                android:layout_height="@dimen/os_input_height"
+                                android:layout_marginStart="@dimen/os_spacing_sm"
+                                android:background="@drawable/bg_minimal_pill"
+                                android:contentDescription="@string/irl_key_show_description"
+                                android:gravity="center"
+                                android:minWidth="72dp"
+                                android:paddingStart="@dimen/os_spacing_md"
+                                android:paddingEnd="@dimen/os_spacing_md"
+                                android:text="@string/irl_key_show"
+                                android:textColor="@color/os_text_primary"
+                                android:textSize="@dimen/os_text_tiny" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="@dimen/irl_label_gap"
+                        android:letterSpacing="0.1"
+                        android:text="@string/irl_label_quality"
+                        android:textColor="@color/os_text_secondary"
+                        android:textSize="@dimen/os_text_tiny" />
+
+                    <HorizontalScrollView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="@dimen/os_spacing_sm"
+                        android:clipToPadding="false"
+                        android:scrollbars="none">
+
+                        <LinearLayout
+                            android:id="@+id/irlQualityRow"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal" />
+                    </HorizontalScrollView>
+
+                    <TextView
+                        android:id="@+id/irlQualityDetail"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="@dimen/os_spacing_md"
+                        android:fontFamily="sans-serif"
+                        android:textColor="@color/os_text_tertiary"
+                        android:textSize="@dimen/os_text_tiny" />
+
+                    <TextView
+                        android:id="@+id/irlFormError"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="@dimen/os_spacing_md"
+                        android:accessibilityLiveRegion="polite"
+                        android:fontFamily="sans-serif"
+                        android:textColor="@color/os_destructive"
+                        android:textSize="@dimen/os_text_caption"
+                        android:visibility="gone" />
+
+                    <TextView
+                        android:id="@+id/irlGoLive"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/irl_go_live_height"
+                        android:background="@drawable/bg_minimal_btn"
+                        android:gravity="center"
+                        android:text="@string/irl_go_live"
+                        android:textColor="@color/os_black"
+                        android:textSize="@dimen/os_text_title" />
+                </LinearLayout>
+
+                <!-- ====== LIVE CONTROLS (Connecting / Live / Reconnecting) ====== -->
+                <LinearLayout
+                    android:id="@+id/irlLiveControls"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:id="@+id/irlMute"
+                        android:layout_width="0dp"
+                        android:layout_height="@dimen/irl_go_live_height"
+                        android:layout_marginEnd="@dimen/os_spacing_sm"
+                        android:layout_weight="1"
+                        android:background="@drawable/bg_minimal_pill"
+                        android:gravity="center"
+                        android:text="@string/irl_mute"
+                        android:textColor="@color/os_text_primary"
+                        android:textSize="@dimen/os_text_caption" />
+
+                    <TextView
+                        android:id="@+id/irlDim"
+                        android:layout_width="0dp"
+                        android:layout_height="@dimen/irl_go_live_height"
+                        android:layout_marginEnd="@dimen/os_spacing_sm"
+                        android:layout_weight="1"
+                        android:background="@drawable/bg_minimal_pill"
+                        android:gravity="center"
+                        android:text="@string/irl_dim"
+                        android:textColor="@color/os_text_primary"
+                        android:textSize="@dimen/os_text_caption" />
+
+                    <TextView
+                        android:id="@+id/irlStop"
+                        android:layout_width="0dp"
+                        android:layout_height="@dimen/irl_go_live_height"
+                        android:layout_weight="1.6"
+                        android:background="@drawable/bg_minimal_btn_danger"
+                        android:gravity="center"
+                        android:text="@string/irl_stop"
+                        android:textColor="@color/os_text_primary"
+                        android:textSize="@dimen/os_text_title" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- ====== TOP: navigation, status and HUD ====== -->
+    <LinearLayout
+        android:id="@+id/irlTopBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:background="@drawable/scrim_top"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/os_spacing_lg"
+        android:paddingEnd="@dimen/os_spacing_lg"
+        android:paddingTop="56dp"
+        android:paddingBottom="@dimen/os_spacing_xl">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/irlBack"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_minimal_pill"
+                android:contentDescription="@string/irl_back_to_obs_description"
+                android:gravity="center"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:text="@string/irl_back_to_obs"
+                android:textColor="@color/os_text_primary"
+                android:textSize="@dimen/os_text_tiny" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/os_spacing_md"
+                android:text="@string/irl_title"
+                android:textColor="@color/os_text_primary"
+                android:textSize="@dimen/os_text_title" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/os_spacing_sm"
+                android:letterSpacing="0.1"
+                android:text="@string/irl_beta"
+                android:textColor="@color/os_text_tertiary"
+                android:textSize="10sp" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <!-- Status pill -->
+            <LinearLayout
+                android:id="@+id/irlStatusPill"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_minimal_pill"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="12dp"
+                android:paddingEnd="14dp"
+                android:visibility="gone">
+
+                <View
+                    android:id="@+id/irlStatusDot"
+                    android:layout_width="@dimen/irl_status_dot"
+                    android:layout_height="@dimen/irl_status_dot"
+                    android:background="@drawable/irl_status_dot" />
+
+                <TextView
+                    android:id="@+id/irlStatusText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/os_spacing_sm"
+                    android:accessibilityLiveRegion="polite"
+                    android:ellipsize="end"
+                    android:fontFamily="sans-serif-medium"
+                    android:maxWidth="200dp"
+                    android:singleLine="true"
+                    android:textColor="@color/os_text_primary"
+                    android:textSize="@dimen/os_text_tiny" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- HUD stats -->
+        <LinearLayout
+            android:id="@+id/irlStatsRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/os_spacing_md"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/irlStatBitrate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="@dimen/os_spacing_sm"
+                android:background="@drawable/bg_minimal_pill"
+                android:fontFamily="sans-serif-medium"
+                android:paddingStart="12dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="6dp"
+                android:textColor="@color/os_text_secondary"
+                android:textSize="@dimen/os_text_tiny" />
+
+            <TextView
+                android:id="@+id/irlStatFps"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="@dimen/os_spacing_sm"
+                android:background="@drawable/bg_minimal_pill"
+                android:fontFamily="sans-serif-medium"
+                android:paddingStart="12dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="6dp"
+                android:textColor="@color/os_text_secondary"
+                android:textSize="@dimen/os_text_tiny" />
+
+            <TextView
+                android:id="@+id/irlStatDropped"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="@dimen/os_spacing_sm"
+                android:background="@drawable/bg_minimal_pill"
+                android:fontFamily="sans-serif-medium"
+                android:paddingStart="12dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="6dp"
+                android:textColor="@color/os_text_secondary"
+                android:textSize="@dimen/os_text_tiny" />
+
+            <TextView
+                android:id="@+id/irlStatNetwork"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="@dimen/os_spacing_sm"
+                android:background="@drawable/bg_minimal_pill"
+                android:fontFamily="sans-serif-medium"
+                android:paddingStart="12dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="6dp"
+                android:textColor="@color/os_text_secondary"
+                android:textSize="@dimen/os_text_tiny"
+                android:ellipsize="end"
+                android:maxWidth="120dp"
+                android:singleLine="true" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/irlThermalBanner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/os_spacing_sm"
+            android:accessibilityLiveRegion="polite"
+            android:background="@drawable/irl_bg_banner_warning"
+            android:fontFamily="sans-serif"
+            android:paddingStart="@dimen/os_spacing_md"
+            android:paddingTop="10dp"
+            android:paddingEnd="@dimen/os_spacing_md"
+            android:paddingBottom="10dp"
+            android:text="@string/irl_thermal_warning"
+            android:textColor="@color/os_warning"
+            android:textSize="@dimen/os_text_tiny"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- Last child so dim mode covers everything. -->
+    <FrameLayout
+        android:id="@+id/irlScreenOffOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/os_black"
+        android:clickable="true"
+        android:contentDescription="@string/screen_off_overlay_description"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:fontFamily="sans-serif"
+            android:text="@string/irl_screen_off_hint"
+            android:textColor="@color/os_text_tertiary"
+            android:textSize="@dimen/os_text_tiny" />
+    </FrameLayout>
+</FrameLayout>

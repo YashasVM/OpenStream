@@ -1,0 +1,20 @@
+{
+  "name": "openstream-irl-progress",
+  "account_id": "bb13c5aed893f0140aacff72cab0747b",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-21",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    { "pattern": "a.yash0.in/irl", "zone_name": "yash0.in" },
+    { "pattern": "a.yash0.in/irl/*", "zone_name": "yash0.in" }
+  ],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "html_handling": "none",
+    "not_found_handling": "none"
+  },
+  "observability": { "enabled": true, "traces": { "enabled": true } }
+}

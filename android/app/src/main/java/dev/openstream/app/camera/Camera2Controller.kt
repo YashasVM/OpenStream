@@ -31,6 +31,8 @@ class Camera2Controller(
     private val previewSurfaceProvider: () -> Surface,
     private val lensProvider: () -> CameraLens = { CameraLens.Back },
     private val targetFps: Int = 30,
+    /** Extra reopen attempts after an in-use error (e.g. another screen still releasing the camera). */
+    private val inUseRetryDelaysMs: List<Long> = emptyList(),
 ) {
     private val appContext = context.applicationContext
     private val cameraManager: CameraManager? =
@@ -48,6 +50,7 @@ class Camera2Controller(
     private var lifecycleGeneration = 0L
     private var desiredRunning = false
     private var recoveryCallback: CameraManager.AvailabilityCallback? = null
+    private var inUseRetries = 0
 
     // Zoom state
     private var currentZoomRatio = 1.0f
@@ -158,6 +161,7 @@ class Camera2Controller(
         synchronized(lifecycleLock) {
             if (!desiredRunning) {
                 lifecycleGeneration += 1
+                inUseRetries = 0
             }
             desiredRunning = true
             startPreviewLocked()
@@ -204,6 +208,7 @@ class Camera2Controller(
                             return
                         }
                         cancelCameraRecoveryLocked()
+                        inUseRetries = 0
                         camera = device
                         loadZoomCapabilities(desiredId)
                         createSession()
@@ -243,6 +248,11 @@ class Camera2Controller(
                         if (error != CameraDevice.StateCallback.ERROR_CAMERA_DISABLED) {
                             watchForCameraAvailability(desiredId)
                         }
+                        if (error == CameraDevice.StateCallback.ERROR_CAMERA_IN_USE ||
+                            error == CameraDevice.StateCallback.ERROR_MAX_CAMERAS_IN_USE
+                        ) {
+                            scheduleInUseRetryLocked(desiredId)
+                        }
                     }
                 }
             }, handler)
@@ -253,6 +263,12 @@ class Camera2Controller(
             Log.e(TAG, "Could not open camera $desiredId", error)
             closeCamera()
             watchForCameraAvailability(desiredId)
+            if (error is CameraAccessException &&
+                (error.reason == CameraAccessException.CAMERA_IN_USE ||
+                    error.reason == CameraAccessException.MAX_CAMERAS_IN_USE)
+            ) {
+                scheduleInUseRetryLocked(desiredId)
+            }
         }
     }
 
@@ -398,6 +414,33 @@ class Camera2Controller(
                 Log.w(TAG, "Could not watch camera $cameraId availability", error)
             }
         }
+    }
+
+    /**
+     * Availability callbacks are not guaranteed when the holder is this same
+     * process, so in-use errors also retry on a short backoff when configured.
+     */
+    private fun scheduleInUseRetryLocked(cameraId: String) {
+        val delayMs = inUseRetryDelaysMs.getOrNull(inUseRetries) ?: return
+        val retryHandler = handler ?: return
+        inUseRetries += 1
+        val expectedLifecycleGeneration = lifecycleGeneration
+        val expectedCameraGeneration = cameraGeneration.get()
+        retryHandler.postDelayed({
+            synchronized(lifecycleLock) {
+                if (!desiredRunning ||
+                    lifecycleGeneration != expectedLifecycleGeneration ||
+                    cameraGeneration.get() != expectedCameraGeneration ||
+                    activeCameraId != cameraId ||
+                    camera != null
+                ) {
+                    return@synchronized
+                }
+                Log.i(TAG, "Retrying camera $cameraId after in-use error")
+                cancelCameraRecoveryLocked()
+                startPreviewLocked()
+            }
+        }, delayMs)
     }
 
     private fun cancelCameraRecoveryLocked() {
