@@ -6,6 +6,7 @@ import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Bundle
 import android.os.Handler
+import android.os.Bundle
 import android.os.HandlerThread
 import android.util.Log
 import android.view.Surface
@@ -196,6 +197,17 @@ class MediaCodecVideoEncoder(
             stopCallbackThread()
             throw error
         }
+    }
+
+    /** Changes rate without replacing the input surface or media timestamps. */
+    fun setBitrate(bitsPerSecond: Int): Boolean = synchronized(lifecycleLock) {
+        require(bitsPerSecond > 0 && bitsPerSecond <= bitrate)
+        val encoder = codec ?: return false
+        runCatching {
+            encoder.setParameters(Bundle().apply {
+                putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bitsPerSecond)
+            })
+        }.onFailure { Log.w("shinEncoder", "Runtime bitrate change rejected", it) }.isSuccess
     }
 
     fun stop() = synchronized(lifecycleLock) {
