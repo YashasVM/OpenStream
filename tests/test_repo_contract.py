@@ -218,7 +218,7 @@ def test_android_control_server_supports_source_reservations() -> None:
 def test_camera_controller_supports_preview_before_streaming() -> None:
     camera = read("android/app/src/main/java/dev/openstream/app/camera/Camera2Controller.kt")
     assert "fun startPreview()" in camera
-    assert "fun startStreaming(encodedSurface: Surface)" in camera
+    assert "fun startStreaming(encodedSurface: Surface, hdr: Boolean = false, exclusiveOutput: Boolean = false)" in camera
     assert "fun stopStreaming()" in camera
     assert "TEMPLATE_PREVIEW" in camera
     assert "TEMPLATE_RECORD" in camera

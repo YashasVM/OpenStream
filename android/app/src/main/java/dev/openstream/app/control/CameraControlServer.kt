@@ -61,6 +61,9 @@ class CameraControlServer(
     private val onToggleTorch: (Boolean) -> Unit,
     private val reservationProvider: () -> String?,
     private val onReserve: (String, String, Int?) -> Boolean,
+    private val onNegotiate: (JSONObject?, String, Int?) -> Boolean = { _, _, _ -> true },
+    private val onReservationCommitted: () -> Unit = {},
+    private val sessionProvider: () -> JSONObject = { JSONObject() },
     private val onRelease: (String) -> Boolean,
     private val onIdentify: (String, String) -> Unit,
     private val onError: ((String) -> Unit)? = null,
@@ -543,6 +546,9 @@ class CameraControlServer(
                 StreamConfig.MAX_BITRATE_MBPS,
             )
         } else null
+        if (!onNegotiate(json.optJSONObject("receiverCapabilities"), controllerAddress, bitrateMbps)) {
+            return 409 to JSONObject().put("ok", false).put("error", "Selected mode requires compatible receiver, camera and verified USB peer").toString()
+        }
         val sameReservationConfig = currentReservation == sourceInstanceId &&
             activeReservationSlotLabel == slotLabel &&
             activeReservationBitrateMbps == bitrateMbps
@@ -558,10 +564,12 @@ class CameraControlServer(
             }
             activeReservationToken = reservationToken
             activeControllerAddress = controllerAddress.ifEmpty { null }
+            onReservationCommitted()
             return 200 to JSONObject()
                 .put("ok", true)
                 .put("reservedBy", sourceInstanceId)
                 .apply { if (rebindAck != null) put("rebindAck", rebindAck) }
+                .put("session", sessionProvider())
                 .toString()
         }
         val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)
@@ -579,10 +587,12 @@ class CameraControlServer(
             activeControllerAddress = controllerAddress.ifEmpty { null }
             activeReservationSlotLabel = slotLabel
             activeReservationBitrateMbps = bitrateMbps
+            onReservationCommitted()
             200 to JSONObject()
                 .put("ok", true)
                 .put("reservedBy", sourceInstanceId)
                 .apply { if (rebindAck != null) put("rebindAck", rebindAck) }
+                .put("session", sessionProvider())
                 .toString()
         } else {
             busyReservationResponse(reservationProvider().orEmpty()).let { 403 to it }

@@ -41,6 +41,11 @@ import dev.openstream.app.stream.AdaptiveBitrateController
 import dev.openstream.app.stream.ConnectionTarget
 import dev.openstream.app.stream.StreamConfig
 import dev.openstream.app.stream.SrtStreamClient
+import dev.openstream.app.stream.VideoQuality
+import dev.openstream.app.stream.ReceiverCapabilities
+import dev.openstream.app.network.UsbStreamRoute
+import dev.openstream.app.network.HighQualityCapabilities
+import org.json.JSONObject
 
 class MainActivity : Activity() {
 
@@ -110,6 +115,9 @@ class MainActivity : Activity() {
     private val callerLifecycleLock = Any()
     private lateinit var screenCapture: ScreenCaptureController
     @Volatile private var screenCaptureActive = false
+    @Volatile private var highRoute: UsbStreamRoute.Verified? = null
+    private var pendingHighRoute: UsbStreamRoute.Verified? = null
+    @Volatile private var highModeError: String? = null
     private var screenConsentPending = false
     private var adaptiveController: AdaptiveBitrateController? = null
     private var adaptiveSession = -1L
@@ -195,6 +203,27 @@ class MainActivity : Activity() {
             lensProvider = { currentLens },
             targetFps = streamConfig.fps,
         )
+        camera.onStreamingStarted = {
+            mainHandler.post {
+                if (phoneConnected && phoneServerRunning) {
+                    showLiveState(activeTargetName ?: "OBS")
+                    mainHandler.removeCallbacks(statsTicker)
+                    mainHandler.post(statsTicker)
+                    if (streamConfig.requiresUsb) statusDetail.text = "${streamConfig.dynamicRange.uppercase()} over USB · local preview paused"
+                }
+            }
+        }
+        camera.onStreamingFailure = { message ->
+            streamClient.disconnect()
+            phoneConnected = false
+            highRoute = null
+            highModeError = message
+            mainHandler.post {
+                stopStream(updateStatus = false)
+                statusText.text = "Camera session failed"
+                statusDetail.text = "$message. Stop and select an SDR profile to retry."
+            }
+        }
         controlServer = CameraControlServer(
             cameraProvider = { camera },
             lensListProvider = { availableLenses },
@@ -206,6 +235,21 @@ class MainActivity : Activity() {
                 setTorchUi(enabled)
             }},
             reservationProvider = { reservedBy },
+            onNegotiate = { capabilities, peer, bitrate -> prepareHighMode(capabilities, peer, bitrate) },
+            onReservationCommitted = {
+                synchronized(this) {
+                    if (reservedBy != null && streamConfig.requiresUsb) {
+                        pendingHighRoute?.let { route ->
+                            streamClient.requiredLocalAddress = route.localAddress
+                            streamClient.requiredInterfaceName = route.interfaceName
+                            streamClient.requiredPeerAddress = route.targetAddress
+                            highRoute = route
+                        }
+                    }
+                    pendingHighRoute = null
+                }
+            },
+            sessionProvider = { ReceiverCapabilities.session(streamConfig) },
             onReserve = { sourceInstanceId, slotLabel, bitrateMbps ->
                 reserveForSource(sourceInstanceId, slotLabel, bitrateMbps).also { accepted ->
                     if (accepted) {
@@ -445,6 +489,10 @@ class MainActivity : Activity() {
     private fun setupButtons() {
         findViewById<View>(R.id.btnProControls).setOnClickListener { showProCameraControls(this, camera) }
         findViewById<View>(R.id.btnStreamSource).setOnClickListener {
+            if (streamConfig.requiresUsb) {
+                statusDetail.text = "Select an SDR profile before screen sharing"
+                return@setOnClickListener
+            }
             if (screenCaptureActive) {
                 screenCapture.stop()
                 screenCaptureActive = false
@@ -473,7 +521,7 @@ class MainActivity : Activity() {
                 statusDetail.text = "Stop screen sharing before changing settings"
                 return@setOnClickListener
             }
-            val intent = Intent(this, SettingsActivity::class.java)
+            val intent = Intent(this, SettingsActivity::class.java).putExtra("cameraId", camera.selectedCameraId())
             @Suppress("DEPRECATION")
             startActivityForResult(intent, SETTINGS_REQUEST_CODE)
         }
@@ -622,8 +670,13 @@ class MainActivity : Activity() {
         if (lens == currentLens) return
         // switchLens reopens the camera, which would evict a live IRL stream.
         if (IrlStreamService.isLive) return
-        // Turn off torch when switching cameras
-        if (torchOn) {
+        if (streamConfig.requiresUsb && (phoneConnected || activeTargetName != null)) {
+            statusDetail.text = "Stop the USB stream before changing camera"
+            return
+        }
+        val sameCamera = currentLens.cameraId != null && currentLens.cameraId == lens.cameraId
+        // Optical presets share the logical back camera, so keep its torch active.
+        if (!sameCamera && torchOn) {
             torchOn = false
             setTorchUi(false)
         }
@@ -651,7 +704,7 @@ class MainActivity : Activity() {
                         synchronized(callerLifecycleLock) {
                             adaptiveSession = -1L
                             encoder.start()
-                            camera.startStreaming(encoder.inputSurface())
+                            camera.startStreaming(encoder.inputSurface(), streamConfig.hdr, streamConfig.requiresUsb)
                         }
                     }
                     result.onFailure { e ->
@@ -871,6 +924,13 @@ class MainActivity : Activity() {
 
     private fun startStream(target: ConnectionTarget) {
         if (blockedByIrlLive()) return
+        if (streamConfig.requiresUsb) {
+            statusDetail.text = "USB high modes require OBS discovery and reservation. Select this phone in the updated OBS dock."
+            return
+        }
+        streamClient.requiredLocalAddress = null
+        streamClient.requiredInterfaceName = null
+        streamClient.requiredPeerAddress = null
         stopStream(updateStatus = false)
         // Caller mode and listener mode share one native SRT transport. Fully
         // stop the listener before opening a manual caller connection.
@@ -894,7 +954,7 @@ class MainActivity : Activity() {
                     adaptiveSession = -1L
                     encoder.start()
                     startAudioIfAllowed()
-                    camera.startStreaming(encoder.inputSurface())
+                    camera.startStreaming(encoder.inputSurface(), streamConfig.hdr, streamConfig.requiresUsb)
                 }
                 mainHandler.post {
                     if (callerGeneration != generation) return@post
@@ -927,6 +987,44 @@ class MainActivity : Activity() {
         }
         callerConnectThread = thread
         thread.start()
+    }
+
+    private fun invalidateHighRoute(reason: String) {
+        highRoute = null
+        highModeError = reason
+        phoneConnected = false
+        streamClient.disconnect()
+        mainHandler.post { statusDetail.text = reason }
+    }
+
+    /** Called on the HTTP worker before a reservation can authorize high-mode media. */
+    @Synchronized
+    private fun prepareHighMode(capabilities: JSONObject?, peer: String, bitrateMbps: Int?): Boolean {
+        if (!streamConfig.requiresUsb) {
+            streamClient.requiredLocalAddress = null
+            streamClient.requiredInterfaceName = null
+            streamClient.requiredPeerAddress = null
+            return true
+        }
+        fun reject(reason: String): Boolean {
+            highModeError = reason
+            mainHandler.post { statusDetail.text = reason }
+            return false
+        }
+        pendingHighRoute = null
+        if (!ReceiverCapabilities.accepts(capabilities, streamConfig))
+            return reject("OBS receiver does not support the selected codec, dimensions and dynamic range. Update OBS or select SDR.")
+        val requestedBitrate = (bitrateMbps ?: streamConfig.bitrateMbps) * 1_000_000
+        val support = if (streamConfig.hdr) HighQualityCapabilities.hdr(this, camera.selectedCameraId(),
+            streamConfig.width, streamConfig.height, streamConfig.fps, requestedBitrate)
+        else HighQualityCapabilities.camera4kSdr(this, camera.selectedCameraId(), streamConfig.fps, requestedBitrate)
+        if (!support.available) return reject(support.reason)
+        val result = UsbStreamRoute(this).verify(peer, currentPort)
+        val route = result.route ?: return reject(result.reason)
+        if (phoneConnected && highRoute != route) return reject("Stop the current session before changing USB peer")
+        pendingHighRoute = route
+        highModeError = null
+        return true
     }
 
     private fun startAudioIfAllowed() {
@@ -965,6 +1063,21 @@ class MainActivity : Activity() {
         val thread = Thread({
             try {
                 while (isListenerActive(generation)) {
+                    if (streamConfig.requiresUsb && highRoute == null) {
+                        runOnUiThread {
+                            if (isListenerActive(generation)) statusDetail.text = highModeError
+                                ?: "Waiting for compatible OBS reservation over verified USB"
+                        }
+                        Thread.sleep(LISTENER_POLL_MS)
+                        continue
+                    }
+                    if (streamConfig.requiresUsb) {
+                        val route = highRoute ?: continue
+                        if (!UsbStreamRoute(this).isCurrent(route, currentPort)) {
+                            invalidateHighRoute("USB route changed. Reserve again over USB.")
+                            continue
+                        }
+                    }
                     val listenUrl = "srt://0.0.0.0:${currentPort}?mode=listener&latency=${streamConfig.latencyMs}"
                     val listenResult = runCatching {
                         streamClient.listen(
@@ -978,27 +1091,47 @@ class MainActivity : Activity() {
                             streamClient.disconnect()
                             return@runCatching
                         }
+                        if (streamConfig.requiresUsb) {
+                            val route = highRoute
+                            check(reservedBy != null && route != null &&
+                                UsbStreamRoute(this).isCurrent(route, currentPort)) {
+                                "USB reservation or route expired while awaiting OBS"
+                            }
+                        }
                         phoneConnected = true
                         cancelReservationRelease()
                         val liveTargetName = reservedSlotLabel ?: "OBS"
                         activeTargetName = liveTargetName
                         runOnUiThread {
                             if (!isListenerActive(generation)) return@runOnUiThread
-                            showLiveState(liveTargetName)
-                            mainHandler.removeCallbacks(statsTicker)
-                            mainHandler.post(statsTicker)
+                            statusText.text = "Starting camera…"
+                            statusDetail.text = "Configuring ${streamConfig.width} × ${streamConfig.height} ${streamConfig.dynamicRange}"
                         }
-                        adaptiveSession = -1L
-                        encoder.start()
-                        startAudioIfAllowed()
-                        camera.startStreaming(encoder.inputSurface())
+                        synchronized(callerLifecycleLock) {
+                            check(isListenerActive(generation) && phoneConnected) { "Session startup cancelled" }
+                            adaptiveSession = -1L
+                            encoder.start()
+                            startAudioIfAllowed()
+                            camera.startStreaming(encoder.inputSurface(), streamConfig.hdr, streamConfig.requiresUsb)
+                        }
                         while (isListenerActive(generation) && phoneConnected) {
+                            if (streamConfig.requiresUsb) {
+                                val route = highRoute
+                                if (route == null || !UsbStreamRoute(this).isCurrent(route, currentPort)) {
+                                    invalidateHighRoute("USB route lost. High mode stopped; reserve again over USB.")
+                                    break
+                                }
+                            }
                             Thread.sleep(LISTENER_POLL_MS)
                         }
                     }
 
                     if (listenResult.isFailure && isListenerActive(generation)) {
                         val error = listenResult.exceptionOrNull()
+                        if (streamConfig.requiresUsb) {
+                            highRoute = null
+                            highModeError = "USB high-mode startup failed: ${error?.message}. Check USB device binding and reserve again, or explicitly select SDR."
+                        }
                         runOnUiThread {
                             if (!isListenerActive(generation)) return@runOnUiThread
                             statusText.text = "Listener error"
@@ -1020,7 +1153,7 @@ class MainActivity : Activity() {
                             if (!isListenerActive(generation)) return@runOnUiThread
                             hideLiveState()
                             statusText.text = getString(R.string.status_ready)
-                            statusDetail.text = reservedSlotLabel?.let { "Holding $it for reconnect" }
+                            statusDetail.text = highModeError ?: reservedSlotLabel?.let { "Holding $it for reconnect" }
                                 ?: getString(R.string.status_waiting)
                         }
                     }
@@ -1167,6 +1300,7 @@ class MainActivity : Activity() {
         slotLabel: String = "",
         bitrateMbps: Int? = null,
     ): Boolean {
+        if (streamConfig.requiresUsb && pendingHighRoute == null && highRoute == null) return false
         val currentReservation = reservationState.confirmedSourceInstanceId
         if (phoneConnected && currentReservation != null && currentReservation != sourceInstanceId) return false
         val effectiveSlot = slotLabel.ifBlank {
@@ -1203,6 +1337,9 @@ class MainActivity : Activity() {
     private fun clearReservation() {
         cancelReservationRelease()
         reservationState.clear()
+        if (streamConfig.requiresUsb) streamClient.disconnect()
+        highRoute = null
+        pendingHighRoute = null
         selectedObsHost = null
         renderDisconnectVisibility()
     }

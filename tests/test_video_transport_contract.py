@@ -195,19 +195,25 @@ def test_send_failures_preserve_transport_generation_for_recovery():
         assert "SrtSendResult(sent, generation, recoveryRequired = !sent)" in send
 
 
-def test_video_encoder_selection_is_hardware_avc_only_with_explicit_failure():
+def test_video_encoder_selection_requires_hardware_surface_and_explicit_main10():
     source = VIDEO_ENCODER.read_text(encoding="utf-8")
     choose = source[source.index("private fun chooseEncoder") :]
 
-    # AVC-only target: no HEVC preference branch, explicit hardware AVC failure.
-    assert "MIMETYPE_VIDEO_AVC" in choose
+    assert "val mime = preference.advertisedMimeType()" in choose
+    assert "MIMETYPE_VIDEO_AVC" in source
+    assert "MIMETYPE_VIDEO_HEVC" in source
+    assert "CodecPreference.HevcMain10" in choose
+    assert "supportsMain10" in choose
+    assert "HEVCProfileMain10" in source
+    assert "COLOR_STANDARD_BT2020" in source
+    assert "COLOR_TRANSFER_HLG" in source
     assert "isHardwareAccelerated" in choose
     assert "isSoftwareOnly" in choose
     assert "COLOR_FormatSurface" in choose
     assert "BITRATE_MODE_CBR" in choose
     assert "areSizeAndRateSupported" in choose
     assert "No hardware surface encoder can satisfy" in choose
-    assert "needs a hardware AVC encoder" in choose
+    assert "needs a hardware" in choose
     # Never enable a software codec silently: failure throws, it does not fall back.
     assert "throw IllegalStateException" in choose
     # Log tag is unified so hardware-skip diagnostics are greppable in one place.

@@ -36,7 +36,7 @@ def test_camera_lifecycle_mutators_share_device_callback_lock():
     assert "closeCamera()" in switch_critical
     assert switch_critical.index("closeCamera()") < switch_critical.index("startPreview()")
 
-    start_streaming = block_after(SOURCE, "fun startStreaming(encodedSurface: Surface)")
+    start_streaming = block_after(SOURCE, "fun startStreaming(encodedSurface: Surface, hdr: Boolean = false, exclusiveOutput: Boolean = false)")
     start_critical = block_after(start_streaming, "synchronized(lifecycleLock)")
     assert "streamingSurface = encodedSurface" in start_critical
     assert "startPreview()" in start_critical

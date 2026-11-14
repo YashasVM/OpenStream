@@ -6,10 +6,14 @@ import android.os.Build
 import android.os.Bundle
 import android.view.WindowInsets
 import android.widget.EditText
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import dev.openstream.app.network.HighQualityCapabilities
 import dev.openstream.app.stream.ConnectionTarget
+import dev.openstream.app.stream.VideoQuality
 
 class SettingsActivity : Activity() {
 
@@ -17,6 +21,7 @@ class SettingsActivity : Activity() {
     private lateinit var inputObsPort: EditText
     private lateinit var inputLatency: EditText
     private lateinit var inputListeningPort: EditText
+    private lateinit var qualityGroup: RadioGroup
     private lateinit var adaptiveSwitch: Switch
     private lateinit var btnSave: TextView
     private lateinit var btnSaveAndConnect: TextView
@@ -31,6 +36,7 @@ class SettingsActivity : Activity() {
         inputObsPort = findViewById(R.id.settingsObsPort)
         inputLatency = findViewById(R.id.settingsLatency)
         inputListeningPort = findViewById(R.id.settingsListeningPort)
+        qualityGroup = findViewById(R.id.settingsQuality)
         adaptiveSwitch = findViewById(R.id.settingsAdaptive)
         btnSave = findViewById(R.id.btnSaveSettings)
         btnSaveAndConnect = findViewById(R.id.btnSaveAndConnect)
@@ -39,6 +45,30 @@ class SettingsActivity : Activity() {
 
         loadSettings()
         showVersionInfo()
+        val cameraId = intent.getStringExtra("cameraId")
+        val modes = listOf(R.id.qualityUsb4k, R.id.qualityUsbHdr, R.id.qualityUsb4kHdr)
+        modes.forEach { findViewById<RadioButton>(it).isEnabled = false }
+        Thread({
+            val supports = if (cameraId == null) modes.map {
+                HighQualityCapabilities.Support(false, "Select a camera before checking this mode")
+            } else listOf(
+                HighQualityCapabilities.camera4kSdr(this, cameraId, 30, 35_000_000),
+                HighQualityCapabilities.hdr(this, cameraId),
+                HighQualityCapabilities.hdr(this, cameraId, 3840, 2160, 30, 40_000_000),
+            )
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                modes.zip(supports).forEach { (id, support) ->
+                    findViewById<RadioButton>(id).apply {
+                        isEnabled = support.available
+                        if (!support.available) {
+                            text = "$text\n${support.reason}"
+                            if (isChecked) qualityGroup.check(R.id.qualityBalanced)
+                        }
+                    }
+                }
+            }
+        }, "OpenStreamModeCapabilities").start()
 
         btnSave.setOnClickListener { saveSettings(connectAfterSave = false) }
         btnSaveAndConnect.setOnClickListener { saveSettings(connectAfterSave = true) }
@@ -54,6 +84,14 @@ class SettingsActivity : Activity() {
         if (latency != ConnectionTarget.DEFAULT_LATENCY_MS) inputLatency.setText(latency.toString())
         val listenPort = prefs.getInt(KEY_LISTENING_PORT, ConnectionTarget.DEFAULT_PORT)
         inputListeningPort.setText(listenPort.toString())
+        qualityGroup.check(when (VideoQuality.fromPreference(prefs.getString(KEY_VIDEO_QUALITY, null))) {
+            VideoQuality.DataSaver -> R.id.qualityDataSaver
+            VideoQuality.Balanced -> R.id.qualityBalanced
+            VideoQuality.High -> R.id.qualityHigh
+            VideoQuality.Usb4k -> R.id.qualityUsb4k
+            VideoQuality.UsbHdr -> R.id.qualityUsbHdr
+            VideoQuality.Usb4kHdr -> R.id.qualityUsb4kHdr
+        })
         adaptiveSwitch.isChecked = prefs.getBoolean(KEY_ADAPTIVE_BITRATE, true)
     }
 
@@ -83,12 +121,21 @@ class SettingsActivity : Activity() {
             validRange = 1024..65535,
             label = "Listening port",
         ) ?: return
+        val quality = when (qualityGroup.checkedRadioButtonId) {
+            R.id.qualityDataSaver -> VideoQuality.DataSaver
+            R.id.qualityBalanced -> VideoQuality.Balanced
+            R.id.qualityUsb4k -> VideoQuality.Usb4k
+            R.id.qualityUsbHdr -> VideoQuality.UsbHdr
+            R.id.qualityUsb4kHdr -> VideoQuality.Usb4kHdr
+            else -> VideoQuality.High
+        }
 
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
             .putString(KEY_OBS_HOST, host)
             .putInt(KEY_OBS_PORT, port)
             .putInt(KEY_LATENCY, latency)
             .putInt(KEY_LISTENING_PORT, listenPort)
+            .putString(KEY_VIDEO_QUALITY, quality.name)
             .putBoolean(KEY_ADAPTIVE_BITRATE, adaptiveSwitch.isChecked)
             .apply()
 
@@ -142,7 +189,9 @@ class SettingsActivity : Activity() {
         const val KEY_OBS_PORT = "obs_port"
         const val KEY_LATENCY = "latency_ms"
         const val KEY_LISTENING_PORT = "listening_port"
+        const val KEY_VIDEO_QUALITY = "video_quality"
         const val KEY_ADAPTIVE_BITRATE = "adaptive_bitrate"
         const val EXTRA_CONNECT_AFTER_SAVE = "connect_after_save"
+        const val EXTRA_SETTINGS_CHANGED = "settings_changed"
     }
 }

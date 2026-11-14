@@ -42,8 +42,13 @@ class SrtStreamClient : EncodedMediaSink {
             field = value
         }
 
+    @Volatile var requiredInterfaceName: String? = null
+    @Volatile var requiredPeerAddress: String? = null
+
     private fun boundUrl(url: String): String = requiredLocalAddress?.let {
-        url + (if ('?' in url) "&" else "?") + "localaddr=$it"
+        url + (if ('?' in url) "&" else "?") + "localaddr=$it" +
+            "&localif=${checkNotNull(requiredInterfaceName).also { name -> require(name.matches(Regex("[a-zA-Z0-9_.-]+"))) }}" +
+            "&peeraddr=${checkNotNull(requiredPeerAddress).also { peer -> require(peer.matches(Regex("[0-9.]+"))) }}"
     } ?: url
     private val sessionGeneration = AtomicLong()
     private val operationLock = Any()

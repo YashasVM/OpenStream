@@ -122,6 +122,77 @@
             android:singleLine="true"
             android:layout_marginBottom="40dp" />
 
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="VIDEO QUALITY"
+            android:textColor="@color/os_text_secondary"
+            android:textSize="13sp"
+            android:fontFamily="sans-serif-medium"
+            android:layout_marginBottom="8dp" />
+
+        <RadioGroup
+            android:id="@+id/settingsQuality"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="8dp">
+
+            <RadioButton
+                android:id="@+id/qualityHigh"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:text="High · 1080p60 · 50 Mbps"
+                android:textColor="@color/os_text_primary"
+                android:buttonTint="@color/os_accent" />
+
+            <RadioButton
+                android:id="@+id/qualityBalanced"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:text="Balanced · 1080p30 · 12 Mbps"
+                android:textColor="@color/os_text_primary"
+                android:buttonTint="@color/os_accent" />
+
+            <RadioButton
+                android:id="@+id/qualityDataSaver"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:text="Data saver · 720p30 · 8 Mbps"
+                android:textColor="@color/os_text_primary"
+                android:buttonTint="@color/os_accent" />
+
+            <RadioButton
+                android:id="@+id/qualityUsb4k"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:text="USB · 4K SDR · 30 fps"
+                android:textColor="@color/os_text_primary"
+                android:buttonTint="@color/os_accent" />
+
+            <RadioButton
+                android:id="@+id/qualityUsbHdr"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:text="USB · 1080p HLG10 HDR · 30 fps"
+                android:textColor="@color/os_text_primary"
+                android:buttonTint="@color/os_accent" />
+
+            <RadioButton
+                android:id="@+id/qualityUsb4kHdr"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:text="USB · 4K HLG10 HDR · 30 fps"
+                android:textColor="@color/os_text_primary"
+                android:buttonTint="@color/os_accent" />
+        </RadioGroup>
+
         <Switch
             android:id="@+id/settingsAdaptive"
             android:layout_width="match_parent"
@@ -132,7 +203,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="4K SDR requires a verified USB route, camera and hardware encoder support, and receiver capability confirmation. It is unavailable until receiver negotiation is complete. HDR is unavailable: the current AVC pipeline does not provide 10-bit capture, Main10 encoding and HDR receiver signalling. SDR remains active."
+            android:text="USB modes require a compatible OBS receiver and a directly attached, verified USB network peer. Unsupported cameras, encoders or routes are rejected with a reason. HLG10 needs Android 13 and a ten-bit camera/HEVC encoder; local preview is paused during HDR. Screen sharing uses SDR only."
             android:textColor="@color/os_text_secondary"
             android:layout_marginBottom="16dp" />
 

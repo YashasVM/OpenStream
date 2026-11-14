@@ -215,6 +215,8 @@ class PhoneDiscoveryAdvertiser(
             .put("width", config.width)
             .put("height", config.height)
             .put("fps", config.fps)
+            .put("dynamicRange", config.dynamicRange)
+            .put("requiresUsb", config.requiresUsb)
             .put("controlPort", CameraControlServer.CONTROL_PORT)
             .put("busy", busyProvider())
             .put("reservedBy", reservedByProvider().orEmpty())
