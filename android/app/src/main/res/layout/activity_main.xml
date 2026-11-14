@@ -201,6 +201,11 @@
             <!-- Lens buttons added programmatically -->
         </LinearLayout>
 
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+            <Button android:id="@+id/btnProControls" android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp" android:text="Camera controls" android:textAllCaps="false" android:background="@drawable/bg_minimal_pill" android:textColor="@color/os_text_primary" />
+            <Button android:id="@+id/btnStreamSource" android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp" android:text="Source · Camera" android:textAllCaps="false" android:background="@drawable/bg_minimal_pill" android:textColor="@color/os_text_primary" />
+        </LinearLayout>
+
         <!-- Utility Button Row -->
         <LinearLayout
             android:layout_width="match_parent"

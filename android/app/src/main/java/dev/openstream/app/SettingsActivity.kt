@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Bundle
 import android.view.WindowInsets
 import android.widget.EditText
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import dev.openstream.app.stream.ConnectionTarget
@@ -16,6 +17,7 @@ class SettingsActivity : Activity() {
     private lateinit var inputObsPort: EditText
     private lateinit var inputLatency: EditText
     private lateinit var inputListeningPort: EditText
+    private lateinit var adaptiveSwitch: Switch
     private lateinit var btnSave: TextView
     private lateinit var btnSaveAndConnect: TextView
     private lateinit var btnBack: TextView
@@ -29,6 +31,7 @@ class SettingsActivity : Activity() {
         inputObsPort = findViewById(R.id.settingsObsPort)
         inputLatency = findViewById(R.id.settingsLatency)
         inputListeningPort = findViewById(R.id.settingsListeningPort)
+        adaptiveSwitch = findViewById(R.id.settingsAdaptive)
         btnSave = findViewById(R.id.btnSaveSettings)
         btnSaveAndConnect = findViewById(R.id.btnSaveAndConnect)
         btnBack = findViewById(R.id.btnBackSettings)
@@ -51,6 +54,7 @@ class SettingsActivity : Activity() {
         if (latency != ConnectionTarget.DEFAULT_LATENCY_MS) inputLatency.setText(latency.toString())
         val listenPort = prefs.getInt(KEY_LISTENING_PORT, ConnectionTarget.DEFAULT_PORT)
         inputListeningPort.setText(listenPort.toString())
+        adaptiveSwitch.isChecked = prefs.getBoolean(KEY_ADAPTIVE_BITRATE, true)
     }
 
     private fun saveSettings(connectAfterSave: Boolean) {
@@ -85,6 +89,7 @@ class SettingsActivity : Activity() {
             .putInt(KEY_OBS_PORT, port)
             .putInt(KEY_LATENCY, latency)
             .putInt(KEY_LISTENING_PORT, listenPort)
+            .putBoolean(KEY_ADAPTIVE_BITRATE, adaptiveSwitch.isChecked)
             .apply()
 
         Toast.makeText(this, "Settings saved", Toast.LENGTH_SHORT).show()
@@ -137,6 +142,7 @@ class SettingsActivity : Activity() {
         const val KEY_OBS_PORT = "obs_port"
         const val KEY_LATENCY = "latency_ms"
         const val KEY_LISTENING_PORT = "listening_port"
+        const val KEY_ADAPTIVE_BITRATE = "adaptive_bitrate"
         const val EXTRA_CONNECT_AFTER_SAVE = "connect_after_save"
     }
 }

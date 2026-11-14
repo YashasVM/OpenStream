@@ -122,6 +122,20 @@
             android:singleLine="true"
             android:layout_marginBottom="40dp" />
 
+        <Switch
+            android:id="@+id/settingsAdaptive"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="Adaptive bitrate · respond to SRT congestion"
+            android:textColor="@color/os_text_primary" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="4K SDR requires a verified USB route, camera and hardware encoder support, and receiver capability confirmation. It is unavailable until receiver negotiation is complete. HDR is unavailable: the current AVC pipeline does not provide 10-bit capture, Main10 encoding and HDR receiver signalling. SDR remains active."
+            android:textColor="@color/os_text_secondary"
+            android:layout_marginBottom="16dp" />
+
         <!-- Save and connect button -->
         <Button
             android:id="@+id/btnSaveAndConnect"

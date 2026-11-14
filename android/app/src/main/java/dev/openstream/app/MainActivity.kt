@@ -13,6 +13,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
@@ -35,6 +36,8 @@ import dev.openstream.app.encoder.MediaCodecAudioEncoder
 import dev.openstream.app.encoder.MediaCodecVideoEncoder
 import dev.openstream.app.irl.IrlActivity
 import dev.openstream.app.irl.IrlStreamService
+import dev.openstream.app.screen.ScreenCaptureController
+import dev.openstream.app.stream.AdaptiveBitrateController
 import dev.openstream.app.stream.ConnectionTarget
 import dev.openstream.app.stream.StreamConfig
 import dev.openstream.app.stream.SrtStreamClient
@@ -105,6 +108,16 @@ class MainActivity : Activity() {
     private var activeStreamBitrate: Int = streamConfig.bitrate
     private var lastObsSlotRenderKeys: List<String>? = null
     private val callerLifecycleLock = Any()
+    private lateinit var screenCapture: ScreenCaptureController
+    @Volatile private var screenCaptureActive = false
+    private var screenConsentPending = false
+    private var adaptiveController: AdaptiveBitrateController? = null
+    private var adaptiveSession = -1L
+    private var adaptiveFailed = false
+    @Volatile private var adaptationPending = false
+    @Volatile private var adaptiveFeedback = ""
+    private val adaptationWorker = java.util.concurrent.Executors.newSingleThreadExecutor()
+
 
     private val reservedBy: String?
         get() = reservationState.confirmedSourceInstanceId
@@ -130,6 +143,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        screenCapture = ScreenCaptureController(this)
         requestRuntimePermissions()
         setContentView(R.layout.activity_main)
         bindViews()
@@ -222,6 +236,7 @@ class MainActivity : Activity() {
             override fun surfaceDestroyed(holder: SurfaceHolder) {
                 // Close the camera before encoder teardown tries to rebuild a
                 // preview-only session against this now-invalid surface.
+                if (screenCaptureActive || screenConsentPending) return
                 camera.stop()
                 stopPhoneServer(clearReservation = false, updateStatus = false)
             }
@@ -240,6 +255,7 @@ class MainActivity : Activity() {
     }
 
     private fun startActivityServices() {
+        if (screenCaptureActive || screenConsentPending) return
         if (!activityStarted || !lifecycleStartGate.canStart()) return
         if (blockedByIrlLive()) return
         phoneAdvertiser.start()
@@ -294,6 +310,7 @@ class MainActivity : Activity() {
     override fun onStop() {
         activityStarted = false
         mainHandler.removeCallbacks(irlLiveRecheck)
+        if (screenCaptureActive || screenConsentPending) { super.onStop(); return }
         lifecycleStartGate.onStop()
         cancelLensRestart()
         stopLiveDotAnimation()
@@ -317,6 +334,9 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        screenCapture.stop()
+        if (screenCaptureActive) stopStream(updateStatus = false)
+        adaptationWorker.shutdownNow()
         clearReservation()
         identifyHideRunnable?.let(mainHandler::removeCallbacks)
         identifyHideRunnable = null
@@ -351,6 +371,35 @@ class MainActivity : Activity() {
     @Deprecated("Uses the platform Activity result API to avoid an AndroidX dependency")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 402) {
+            screenConsentPending = false
+            if (resultCode == RESULT_OK && data != null && activeTargetName != null) {
+                try {
+                    screenCaptureActive = true
+                    camera.stop()
+                    screenCapture.start(resultCode, data, encoder.inputSurface(), streamConfig.width,
+                        streamConfig.height, resources.displayMetrics.densityDpi,
+                        checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED &&
+                            getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
+                                .getBoolean(SettingsActivity.KEY_MICROPHONE_ENABLED, true)) { reason ->
+                        mainHandler.post {
+                            screenCaptureActive = false
+                            stopStream()
+                            statusDetail.text = reason
+                            startPreviewIfAllowed()
+                        }
+                    }
+                    findViewById<TextView>(R.id.btnStreamSource).text = "Source · Screen"
+                    statusDetail.text = "Sharing screen · microphone or muted; app audio is not captured"
+                } catch (error: Exception) {
+                    screenCaptureActive = false
+                    screenCapture.stop()
+                    stopStream()
+                    statusDetail.text = "Screen sharing failed: ${error.message}"
+                }
+            } else if (!activityStarted) stopStream()
+            return
+        }
         if (requestCode == SETTINGS_REQUEST_CODE && resultCode == RESULT_OK &&
             data?.getBooleanExtra(SettingsActivity.EXTRA_CONNECT_AFTER_SAVE, false) == true
         ) {
@@ -394,11 +443,36 @@ class MainActivity : Activity() {
     }
 
     private fun setupButtons() {
+        findViewById<View>(R.id.btnProControls).setOnClickListener { showProCameraControls(this, camera) }
+        findViewById<View>(R.id.btnStreamSource).setOnClickListener {
+            if (screenCaptureActive) {
+                screenCapture.stop()
+                screenCaptureActive = false
+                stopStream()
+                findViewById<TextView>(R.id.btnStreamSource).text = "Source · Camera"
+                startPreviewIfAllowed()
+                startPhoneServerIfAllowed()
+            } else if (activeTargetName == null) {
+                statusDetail.text = "Connect to an OBS slot first, then select Screen"
+            } else {
+                android.app.AlertDialog.Builder(this).setTitle("Share screen with OBS?")
+                    .setMessage("Everything you share is sent to the connected OBS computer. Audio uses the microphone when enabled. Other apps' playback audio is not captured. Stop from the notification or this Source button.")
+                    .setNegativeButton("Cancel", null).setPositiveButton("Choose screen") { _, _ ->
+                        screenConsentPending = true
+                        @Suppress("DEPRECATION")
+                        startActivityForResult(screenCapture.consentIntent(), 402)
+                    }.show()
+            }
+        }
         btnKeepScreenOn.setOnClickListener { toggleKeepScreenOn() }
         btnScreenOff.setOnClickListener { toggleDisplayOff() }
         btnTorch.setOnClickListener { toggleTorch() }
         btnFlipCamera.setOnClickListener { flipCamera() }
         btnSettings.setOnClickListener {
+            if (screenCaptureActive || screenConsentPending) {
+                statusDetail.text = "Stop screen sharing before changing settings"
+                return@setOnClickListener
+            }
             val intent = Intent(this, SettingsActivity::class.java)
             @Suppress("DEPRECATION")
             startActivityForResult(intent, SETTINGS_REQUEST_CODE)
@@ -486,9 +560,24 @@ class MainActivity : Activity() {
             }
         })
 
+        val focusGestures = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(event: MotionEvent): Boolean = true
+            override fun onSingleTapUp(event: MotionEvent): Boolean {
+                if (!screenCaptureActive && ::camera.isInitialized) {
+                    @Suppress("DEPRECATION")
+                    val rotation = windowManager.defaultDisplay.rotation * 90
+                    val accepted = camera.focusAtPreview(event.x / cameraPreview.width.coerceAtLeast(1),
+                        event.y / cameraPreview.height.coerceAtLeast(1), rotation)
+                    statusDetail.text = if (accepted) "Focus point set" else "Tap focus unavailable on this lens"
+                }
+                return true
+            }
+        })
         // Also handle pinch on the preview surface itself
         cameraPreview.setOnTouchListener { _, event ->
             scaleGestureDetector.onTouchEvent(event)
+            focusGestures.onTouchEvent(event)
+            if (event.actionMasked == MotionEvent.ACTION_UP) cameraPreview.performClick()
             true
         }
     }
@@ -529,6 +618,7 @@ class MainActivity : Activity() {
     }
 
     private fun selectLens(lens: CameraLens) {
+        if (screenCaptureActive || screenConsentPending) return
         if (lens == currentLens) return
         // switchLens reopens the camera, which would evict a live IRL stream.
         if (IrlStreamService.isLive) return
@@ -559,6 +649,7 @@ class MainActivity : Activity() {
                     val result = runCatching {
                         // Single-flight with caller/listener paths via callerLifecycleLock.
                         synchronized(callerLifecycleLock) {
+                            adaptiveSession = -1L
                             encoder.start()
                             camera.startStreaming(encoder.inputSurface())
                         }
@@ -800,6 +891,7 @@ class MainActivity : Activity() {
                 )
                 synchronized(callerLifecycleLock) {
                     check(callerGeneration == generation) { "SRT caller connection was cancelled" }
+                    adaptiveSession = -1L
                     encoder.start()
                     startAudioIfAllowed()
                     camera.startStreaming(encoder.inputSurface())
@@ -896,6 +988,7 @@ class MainActivity : Activity() {
                             mainHandler.removeCallbacks(statsTicker)
                             mainHandler.post(statsTicker)
                         }
+                        adaptiveSession = -1L
                         encoder.start()
                         startAudioIfAllowed()
                         camera.startStreaming(encoder.inputSurface())
@@ -994,6 +1087,7 @@ class MainActivity : Activity() {
                 val needsStatus = updateStatus
                 cancelLensRestart()
                 // Camera/encoder stops are safe off-UI (synchronized internally).
+                stopScreenCapture()
                 camera.stopStreaming()
                 encoder.stop()
                 audioEncoder.stop()
@@ -1031,6 +1125,7 @@ class MainActivity : Activity() {
 
     private fun stopActiveEncoding(updateStatus: Boolean = true) {
         cancelLensRestart()
+        stopScreenCapture()
         camera.stopStreaming()
         encoder.stop()
         audioEncoder.stop()
@@ -1219,8 +1314,53 @@ class MainActivity : Activity() {
         liveDotAnimator = null
     }
 
+    private fun stopScreenCapture() {
+        if (screenCaptureActive) {
+            screenCaptureActive = false
+            screenCapture.stop()
+            // A projection token cannot be reused on reconnect, and camera capture needs a visible activity.
+            phoneServerRunning = false
+            listenerGeneration += 1
+            mainHandler.post {
+                findViewById<TextView>(R.id.btnStreamSource).text = "Source · Camera"
+                statusDetail.text = "Screen sharing ended. Reconnect and grant consent to share again."
+            }
+        }
+    }
+
+    private fun updateAdaptiveBitrate() {
+        if (adaptationPending || adaptationWorker.isShutdown) return
+        adaptationPending = true
+        adaptationWorker.execute {
+            try {
+                val sample = streamClient.telemetry() ?: run { adaptiveFeedback = "SRT telemetry unavailable"; return@execute }
+                if (adaptiveSession != sample.sessionGeneration) {
+                    adaptiveSession = sample.sessionGeneration
+                    adaptiveController = AdaptiveBitrateController(activeStreamBitrate)
+                    adaptiveFailed = false
+                }
+                val enabled = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
+                    .getBoolean(SettingsActivity.KEY_ADAPTIVE_BITRATE, true)
+                if (!enabled || adaptiveFailed) {
+                    adaptiveFeedback = if (adaptiveFailed) "Encoder rejected adaptive bitrate" else "Fixed bitrate"
+                    return@execute
+                }
+                val controller = adaptiveController ?: return@execute
+                val next = controller.update(sample, android.os.SystemClock.elapsedRealtime())
+                if (next != null) synchronized(callerLifecycleLock) {
+                    if (streamClient.isCurrentSessionGeneration(sample.sessionGeneration) && !encoder.setBitrate(next))
+                        adaptiveFailed = true
+                }
+                adaptiveFeedback = String.format("%.1f Mbps · RTT %.0f ms · queue %.0f ms%s",
+                    controller.currentBitrate / 1_000_000.0, sample.rttMs, sample.sendBufferMs,
+                    if (adaptiveFailed) " · adaptive unavailable" else " · adaptive")
+            } finally { adaptationPending = false }
+        }
+    }
+
     private fun renderStreamStats(forceFailure: Boolean = false) {
         val targetName = activeTargetName ?: return
+        updateAdaptiveBitrate()
         val stats = streamClient.stats
         val megabits = stats.bytesSent * 8.0 / 1_000_000.0
 
@@ -1243,17 +1383,18 @@ class MainActivity : Activity() {
             megabits,
         )
         statusDetail.text = String.format(
-            "%.1fs · %d errors · %s",
+            "%.1fs · %d errors · %s · %s",
             stats.secondsSent,
             stats.sendFailures,
-            currentLens.displayName,
+            if (screenCaptureActive) "Screen" else currentLens.displayName,
+            adaptiveFeedback,
         )
     }
 
     // ─────────────────────────── Utilities ───────────────────────────
 
     private fun startPreviewIfAllowed() {
-        if (activityStarted && lifecycleStartGate.canStart() && !IrlStreamService.isLive &&
+        if (!screenCaptureActive && !screenConsentPending && activityStarted && lifecycleStartGate.canStart() && !IrlStreamService.isLive &&
             checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
             cameraPreview.holder.surface.isValid
         ) {
