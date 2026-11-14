@@ -4,6 +4,9 @@
 
 #include <QByteArray>
 #include <QComboBox>
+#include <QCheckBox>
+#include <QSpinBox>
+#include <QJsonArray>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -156,6 +159,66 @@ class OpenStreamDock final : public QWidget {
       send("/identify", R"({"label":"OBS"})");
     });
 
+    auto *pro = new QFormLayout();
+    exposure_ = new QSpinBox(this);
+    exposure_->setAccessibleName("Exposure compensation steps");
+    pro->addRow("Exposure steps", exposure_);
+    connect(exposure_, &QSpinBox::valueChanged, this, [this](int value) {
+      sendPro({{"command", "exposure"}, {"value", value}});
+    });
+    ae_lock_ = new QCheckBox("Lock exposure", this);
+    awb_lock_ = new QCheckBox("Lock white balance", this);
+    focus_lock_ = new QCheckBox("Lock focus", this);
+    for (auto pair : {std::make_pair(ae_lock_, "aeLock"), std::make_pair(awb_lock_, "awbLock"), std::make_pair(focus_lock_, "focusLock")}) {
+      pro->addRow(pair.first);
+      connect(pair.first, &QCheckBox::toggled, this, [this, command = pair.second](bool enabled) {
+        sendPro({{"command", command}, {"enabled", enabled}});
+      });
+    }
+    white_balance_ = new QComboBox(this);
+    white_balance_->setAccessibleName("White balance preset");
+    pro->addRow("White balance", white_balance_);
+    connect(white_balance_, &QComboBox::activated, this, [this](int index) {
+      sendPro({{"command", "whiteBalance"}, {"mode", white_balance_->itemData(index).toInt()}});
+    });
+    focus_x_ = new QDoubleSpinBox(this);
+    focus_y_ = new QDoubleSpinBox(this);
+    for (auto *coordinate : {focus_x_, focus_y_}) { coordinate->setRange(0, 1); coordinate->setSingleStep(.05); coordinate->setValue(.5); }
+    focus_x_->setAccessibleName("Focus sensor horizontal coordinate");
+    focus_y_->setAccessibleName("Focus sensor vertical coordinate");
+    pro->addRow("Focus sensor X", focus_x_);
+    pro->addRow("Focus sensor Y", focus_y_);
+    focus_at_ = new QPushButton("Focus at point", this);
+    pro->addRow(focus_at_);
+    connect(focus_at_, &QPushButton::clicked, this, [this] {
+      sendPro({{"command", "focus"}, {"x", focus_x_->value()}, {"y", focus_y_->value()}});
+    });
+    manual_focus_ = new QDoubleSpinBox(this);
+    manual_focus_->setAccessibleName("Manual focus diopters");
+    manual_focus_->setDecimals(2);
+    pro->addRow("Focus diopters", manual_focus_);
+    manual_focus_apply_ = new QPushButton("Apply manual focus", this);
+    pro->addRow(manual_focus_apply_);
+    connect(manual_focus_apply_, &QPushButton::clicked, this, [this] {
+      sendPro({{"command", "manualFocus"}, {"diopters", manual_focus_->value()}});
+    });
+    shutter_ = new QDoubleSpinBox(this);
+    shutter_->setAccessibleName("Manual shutter milliseconds");
+    shutter_->setDecimals(3);
+    iso_ = new QSpinBox(this);
+    iso_->setAccessibleName("Manual ISO");
+    pro->addRow("Shutter ms", shutter_);
+    pro->addRow("ISO", iso_);
+    manual_exposure_apply_ = new QPushButton("Apply manual exposure", this);
+    pro->addRow(manual_exposure_apply_);
+    connect(manual_exposure_apply_, &QPushButton::clicked, this, [this] {
+      sendPro({{"command", "manualExposure"}, {"exposureTimeNs", std::round(shutter_->value() * 1000000)}, {"sensitivityIso", iso_->value()}});
+    });
+    auto *reset = new QPushButton("Restore automatic camera", this);
+    pro->addRow(reset);
+    connect(reset, &QPushButton::clicked, this, [this] { sendPro({{"command", "reset"}}); });
+    controls_layout->addLayout(pro);
+
     layout->addWidget(controls_group);
 
     layout->addStretch();
@@ -268,6 +331,144 @@ class OpenStreamDock final : public QWidget {
     status_->setText(QString::fromUtf8(openstream_source_status(source)));
   }
 
+  void refreshLensSelector(obs_source_t *source) {
+    const size_t count = source ? openstream_camera_lens_count(source) : 0;
+    const QString selected = source
+                                 ? QString::fromUtf8(openstream_camera_current_lens(source))
+                                 : QString();
+    double zoom = 1.0;
+    double zoom_min = 1.0;
+    double zoom_max = 10.0;
+    if (source) openstream_camera_zoom_state(source, &zoom, &zoom_min, &zoom_max);
+
+    QStringList labels;
+    for (size_t index = 0; index < count; ++index) {
+      labels.append(QString::fromUtf8(openstream_camera_lens_label(source, index)));
+    }
+
+    if (labels != lens_labels_) {
+      lens_labels_ = labels;
+      while (QLayoutItem *item = lens_buttons_layout_->takeAt(0)) {
+        delete item->widget();
+        delete item;
+      }
+      delete lens_button_group_;
+      lens_button_group_ = new QButtonGroup(this);
+      lens_button_group_->setExclusive(true);
+      for (const QString &label : lens_labels_) {
+        auto *button = new QToolButton(lens_buttons_widget_);
+        button->setText(label);
+        button->setCheckable(true);
+        button->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        button->setAccessibleName("Select lens " + label);
+        lens_button_group_->addButton(button);
+        lens_buttons_layout_->addWidget(button);
+        connect(button, &QToolButton::clicked, this, [this, label] {
+          QJsonObject body;
+          body.insert("lens", label);
+          const QByteArray json = QJsonDocument(body).toJson(QJsonDocument::Compact);
+          send("/lens", json.constData());
+          if (obs_source_t *source = currentSource()) {
+            openstream_request_camera_status(source);
+          }
+        });
+      }
+      if (lens_labels_.isEmpty()) {
+        auto *waiting = new QLabel("Waiting for connected phone", lens_buttons_widget_);
+        lens_buttons_layout_->addWidget(waiting);
+      }
+      lens_buttons_layout_->addStretch();
+    }
+    {
+      QSignalBlocker blocker(lens_button_group_);
+      for (QAbstractButton *button : lens_button_group_->buttons()) {
+        button->setChecked(button->text() == selected);
+      }
+    }
+    lens_scroll_->setEnabled(!lens_labels_.isEmpty());
+
+    const int min_value = std::max(1, static_cast<int>(std::lround(zoom_min * 10.0)));
+    const int max_value = std::max(min_value, static_cast<int>(std::lround(zoom_max * 10.0)));
+    const int step = std::clamp((max_value - min_value) / 90, 1, 10);
+    QSignalBlocker zoom_blocker(zoom_);
+    zoom_->setRange(min_value, max_value);
+    zoom_->setSingleStep(step);
+    zoom_->setPageStep(step * 5);
+    if (!zoom_->isSliderDown() && !zoom_send_timer_->isActive()) {
+      zoom_->setValue(std::clamp(static_cast<int>(std::lround(zoom * 10.0)),
+                                 min_value,
+                                 max_value));
+      zoom_value_->setText(QString::number(zoom, 'f', 1) + QChar(0x00d7));
+    }
+  }
+
+  void sendPro(const QJsonObject &body) {
+    const auto json = QJsonDocument(body).toJson(QJsonDocument::Compact);
+    send("/camera", json.constData());
+  }
+
+  void refreshProState(obs_source_t *source) {
+    const auto state = QJsonDocument::fromJson(openstream_camera_pro_state(source)).object();
+    const bool available = !state.isEmpty();
+    {
+      QSignalBlocker block(exposure_);
+      exposure_->setRange(state.value("exposureMin").toInt(), state.value("exposureMax").toInt());
+      exposure_->setEnabled(available && exposure_->minimum() < exposure_->maximum());
+      if (!exposure_->hasFocus()) exposure_->setValue(state.value("exposureCompensation").toInt());
+      exposure_->setToolTip("One step = " + QString::number(state.value("exposureStep").toDouble()) + " EV");
+    }
+    const char *capabilities[] = {"aeLock", "awbLock", "focusLock"};
+    const char *values[] = {"aeLocked", "awbLocked", "focusLocked"};
+    QCheckBox *locks[] = {ae_lock_, awb_lock_, focus_lock_};
+    for (int i = 0; i < 3; ++i) {
+      QSignalBlocker block(locks[i]);
+      locks[i]->setEnabled(state.value(capabilities[i]).toBool());
+      locks[i]->setChecked(state.value(values[i]).toBool());
+    }
+    {
+      QSignalBlocker block(white_balance_);
+      white_balance_->clear();
+      const QStringList names = {"Off", "Auto", "Incandescent", "Fluorescent", "Warm fluorescent", "Daylight", "Cloudy", "Twilight", "Shade"};
+      for (const auto mode : state.value("whiteBalanceModes").toArray()) {
+        const int value = mode.toInt();
+        white_balance_->addItem(value >= 0 && value < names.size() ? names[value] : QString::number(value), value);
+      }
+      white_balance_->setCurrentIndex(white_balance_->findData(state.value("whiteBalanceMode").toInt()));
+      white_balance_->setEnabled(white_balance_->count() > 0);
+    }
+    focus_at_->setEnabled(state.value("tapFocus").toBool());
+    focus_x_->setEnabled(focus_at_->isEnabled());
+    focus_y_->setEnabled(focus_at_->isEnabled());
+    const double max_focus = state.value("focusMaxDiopters").toDouble();
+    manual_focus_->setRange(0, max_focus);
+    manual_focus_->setEnabled(max_focus > 0);
+    manual_focus_apply_->setEnabled(max_focus > 0);
+    const double min_time = state.value("exposureTimeMinNs").toDouble() / 1000000;
+    const double max_time = state.value("exposureTimeMaxNs").toDouble() / 1000000;
+    shutter_->setRange(min_time, max_time);
+    iso_->setRange(state.value("isoMin").toInt(), state.value("isoMax").toInt());
+    shutter_->setEnabled(min_time > 0);
+    iso_->setEnabled(min_time > 0);
+    manual_exposure_apply_->setEnabled(min_time > 0);
+  }
+
+  void refreshTorchState(obs_source_t *source) {
+    refreshProState(source);
+    const double temperature = openstream_camera_temperature(source);
+    temperature_->setText(std::isfinite(temperature)
+        ? "Battery temperature: " + QString::number(temperature, 'f', 1) + " °C"
+        : "Battery temperature: unavailable");
+    bool available = false;
+    bool enabled = false;
+    if (source) openstream_camera_torch_state(source, &available, &enabled);
+    const bool has_source = source != nullptr;
+    torch_on_->setEnabled(has_source && available);
+    torch_off_->setEnabled(has_source);
+    torch_status_->setText(!has_source ? "No source"
+                            : !available ? "Unavailable for this lens"
+                            : enabled ? "On" : "Off");
+  }
+
   void refreshSources() {
     QString selected_uuid;
     if (source_selector_->currentIndex() >= 0) {
@@ -334,10 +535,27 @@ class OpenStreamDock final : public QWidget {
   QLineEdit *name_ = nullptr;
   QPushButton *test_connect_ = nullptr;
   QPushButton *disconnect_ = nullptr;
-  QDoubleSpinBox *zoom_ = nullptr;
-  QPushButton *apply_zoom_ = nullptr;
-  QPushButton *lens_rear_ = nullptr;
-  QPushButton *lens_front_ = nullptr;
+  QSlider *zoom_ = nullptr;
+  QLabel *zoom_value_ = nullptr;
+  QTimer *zoom_send_timer_ = nullptr;
+  QScrollArea *lens_scroll_ = nullptr;
+  QWidget *lens_buttons_widget_ = nullptr;
+  QHBoxLayout *lens_buttons_layout_ = nullptr;
+  QButtonGroup *lens_button_group_ = nullptr;
+  QStringList lens_labels_ = {QStringLiteral("__loading__")};
+  QSpinBox *exposure_ = nullptr;
+  QCheckBox *ae_lock_ = nullptr;
+  QCheckBox *awb_lock_ = nullptr;
+  QCheckBox *focus_lock_ = nullptr;
+  QComboBox *white_balance_ = nullptr;
+  QDoubleSpinBox *focus_x_ = nullptr;
+  QDoubleSpinBox *focus_y_ = nullptr;
+  QPushButton *focus_at_ = nullptr;
+  QDoubleSpinBox *manual_focus_ = nullptr;
+  QPushButton *manual_focus_apply_ = nullptr;
+  QDoubleSpinBox *shutter_ = nullptr;
+  QSpinBox *iso_ = nullptr;
+  QPushButton *manual_exposure_apply_ = nullptr;
   QPushButton *torch_on_ = nullptr;
   QPushButton *torch_off_ = nullptr;
   QPushButton *identify_ = nullptr;

@@ -30,6 +30,7 @@ void obs_source_output_video(obs_source_t *, const struct obs_source_frame *fram
 struct ReleaseProbe {
   int listener = -1;
   int port = 0;
+  std::string response_body = "{\"ok\":true}";
   std::promise<std::string> request;
   std::thread worker;
 };
@@ -109,7 +110,55 @@ void start_control_probe(ReleaseProbe &probe,
 }
 
 void start_release_probe(ReleaseProbe &probe) {
-  start_control_probe(probe, [](const std::string &) { return std::string("{\"ok\":true}"); });
+  const std::string body = probe.response_body;
+  start_control_probe(probe, [body](const std::string &) { return body; });
+}
+
+void test_async_camera_status_loads_phone_lenses_and_zoom_range() {
+  ReleaseProbe probe;
+  probe.response_body =
+      R"({"zoom":0.6,"zoomMin":0.6,"zoomMax":8.0,"currentLens":"0.6×","availableLenses":["0.6×","1×","3×","5×","Front"],"torchAvailable":true,"torchEnabled":false,"cameraControls":{"exposureMin":-12,"exposureMax":12,"aeLock":true,"focusLocked":false}})";
+  start_release_probe(probe);
+  std::future<std::string> request = probe.request.get_future();
+
+  auto context = std::make_shared<OpenStreamSource>();
+  PhoneDevice phone;
+  phone.host = "127.0.0.1";
+  phone.control_port = probe.port;
+  set_active_phone(context.get(), phone);
+  require(queue_camera_status_request(context),
+          "active phone status request was not queued asynchronously");
+
+  const auto wait_result = request.wait_for(std::chrono::seconds(3));
+  const std::string captured = wait_result == std::future_status::ready ? request.get() : "";
+  probe.worker.join();
+  ::close(probe.listener);
+  require(wait_result == std::future_status::ready,
+          "async status request did not reach the active phone");
+  require(captured.find("GET /status HTTP/1.1") != std::string::npos,
+          "lens discovery did not use GET /status");
+
+  const auto cache_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (context->available_camera_lenses.empty() &&
+         std::chrono::steady_clock::now() < cache_deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  require(context->available_camera_lenses.size() == 5,
+          "phone JSON lens array was not loaded into the dynamic lens cache");
+  require(context->available_camera_lenses[2] == "3×" &&
+              context->current_camera_lens == "0.6×",
+          "dynamic lens labels or current lens were parsed incorrectly");
+  require(context->camera_zoom == 0.6 && context->camera_zoom_min == 0.6 &&
+              context->camera_zoom_max == 8.0,
+          "phone zoom value or per-lens limits were not applied");
+  require(context->camera_torch_available && !context->camera_torch_enabled,
+          "torch availability or state was not parsed from phone status");
+  const auto controls = QJsonDocument::fromJson(QByteArray::fromStdString(context->camera_pro_state)).object();
+  require(controls.value("exposureMin").toInt() == -12 && controls.value("aeLock").toBool(),
+          "pro control capabilities were not preserved in the dock status cache");
+  set_active_phone(context.get(), std::nullopt);
+  require(context->camera_pro_state == "{}", "pro controls from the prior phone leaked into a new selection");
+  context->camera_controls->stop();
 }
 
 void test_worker_releases_reservation_on_exit() {

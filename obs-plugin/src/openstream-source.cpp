@@ -1113,6 +1113,16 @@ struct OpenStreamSource {
   std::string active_slot_label;
   std::string active_selected_phone_id = PhoneDiscoveryReceiver::kAutoPhoneId;
   std::optional<PhoneDevice> active_phone;
+  std::vector<std::string> available_camera_lenses;
+  std::string current_camera_lens;
+  double camera_zoom = 1.0;
+  double camera_zoom_min = 1.0;
+  double camera_zoom_max = 10.0;
+  double battery_temperature = NAN;
+  std::string camera_pro_state = "{}";
+  bool camera_torch_available = false;
+  bool camera_torch_enabled = false;
+  bool camera_status_fetch_pending = false;
   std::string reservation_token;
   std::string reservation_token_phone_id;
   std::string reservation_token_host;
@@ -1379,6 +1389,17 @@ bool send_control_command(const std::string &host, int port,
 
 void set_active_phone(OpenStreamSource *ctx, std::optional<PhoneDevice> phone) {
   std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+  const bool changed = ctx->active_phone.has_value() != phone.has_value() ||
+                       (ctx->active_phone.has_value() && phone.has_value() &&
+                        (ctx->active_phone->host != phone->host ||
+                         ctx->active_phone->control_port != phone->control_port));
+  if (changed) {
+    ctx->available_camera_lenses.clear();
+    ctx->current_camera_lens.clear();
+    ctx->camera_pro_state = "{}";
+    ctx->camera_torch_available = false;
+    ctx->camera_torch_enabled = false;
+  }
   ctx->slot_busy = phone.has_value();
   ctx->active_phone = std::move(phone);
 }
@@ -1395,6 +1416,100 @@ std::optional<PhoneDevice> control_phone(OpenStreamSource *ctx) {
     }
   }
   return std::nullopt;
+}
+
+bool queue_camera_status_request(const std::shared_ptr<OpenStreamSource> &ctx) {
+  if (!ctx) return false;
+  std::optional<PhoneDevice> phone;
+  {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    phone = ctx->active_phone;
+  }
+  if (!phone.has_value()) {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    ctx->available_camera_lenses.clear();
+    ctx->current_camera_lens.clear();
+    ctx->camera_pro_state = "{}";
+    ctx->camera_torch_available = false;
+    ctx->camera_torch_enabled = false;
+    return false;
+  }
+  const auto client = ctx->camera_controls;
+  const std::string host = phone->host;
+  const int port = phone->control_port;
+  {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    if (ctx->camera_status_fetch_pending) return true;
+    ctx->camera_status_fetch_pending = true;
+  }
+  const bool queued = client->post([ctx, host, port] {
+    std::string response;
+    const bool received = send_control_request(host, port, "GET", "/status", "", &response);
+    const QJsonValue lenses_value = control_json_value(response, "availableLenses");
+    std::vector<std::string> labels;
+    if (lenses_value.isArray()) {
+      const QJsonArray lenses = lenses_value.toArray();
+      labels.reserve(std::min(static_cast<size_t>(lenses.size()), size_t{16}));
+      for (const QJsonValue &lens : lenses) {
+        if (!lens.isString()) continue;
+        const std::string label = lens.toString().toUtf8().toStdString();
+        if (!label.empty() && label.size() <= 64 &&
+            std::find(labels.begin(), labels.end(), label) == labels.end()) {
+          labels.push_back(label);
+          if (labels.size() == 16) break;
+        }
+      }
+    }
+    const std::string current = json_string_value(response, "currentLens").value_or("");
+    const auto zoom_value = control_json_value(response, "zoom");
+    const auto zoom_min_value = control_json_value(response, "zoomMin");
+    const auto zoom_max_value = control_json_value(response, "zoomMax");
+    const double zoom = zoom_value.isDouble() ? zoom_value.toDouble() : 1.0;
+    const double zoom_min = zoom_min_value.isDouble() ? zoom_min_value.toDouble() : 1.0;
+    const double zoom_max = zoom_max_value.isDouble() ? zoom_max_value.toDouble() : 10.0;
+    const auto torch_available_value = control_json_value(response, "torchAvailable");
+    const auto torch_enabled_value = control_json_value(response, "torchEnabled");
+    {
+      std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+      ctx->camera_status_fetch_pending = false;
+      // Discard a late response if the selected reservation changed while the
+      // HTTP request was in flight; status is scoped to the active phone.
+      if (!ctx->active_phone.has_value() || ctx->active_phone->host != host ||
+          ctx->active_phone->control_port != port) return;
+      ctx->available_camera_lenses = received ? std::move(labels) : std::vector<std::string>{};
+      ctx->current_camera_lens = received ? current : std::string{};
+      const auto pro = control_json_value(response, "cameraControls");
+      ctx->camera_pro_state = received && pro.isObject()
+          ? QJsonDocument(pro.toObject()).toJson(QJsonDocument::Compact).toStdString() : "{}";
+      const auto temperature = control_json_value(response, "batteryTemperatureC");
+      ctx->battery_temperature = received && temperature.isDouble() ? temperature.toDouble() : NAN;
+      if (received && torch_available_value.isBool()) {
+        ctx->camera_torch_available = torch_available_value.toBool();
+      } else if (!received) {
+        ctx->camera_pro_state = "{}";
+        ctx->camera_torch_available = false;
+        ctx->camera_torch_enabled = false;
+      }
+      if (received && torch_enabled_value.isBool()) {
+        ctx->camera_torch_enabled = torch_enabled_value.toBool();
+      }
+      if (received && std::isfinite(zoom) && std::isfinite(zoom_min) &&
+          std::isfinite(zoom_max) && zoom_min > 0.0 && zoom_max >= zoom_min &&
+          zoom_max <= 100.0) {
+        ctx->camera_zoom_min = zoom_min;
+        ctx->camera_zoom_max = zoom_max;
+        ctx->camera_zoom = std::clamp(zoom, zoom_min, zoom_max);
+      }
+    }
+    if (!received) {
+      blog(LOG_WARNING, "[OpenStream] Could not fetch camera lens status from active phone");
+    }
+  });
+  if (!queued) {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    ctx->camera_status_fetch_pending = false;
+  }
+  return queued;
 }
 
 std::string phone_label(const PhoneDevice &phone) {
@@ -3086,4 +3201,23 @@ void obs_module_unload(void) {
     g_winsock_started = false;
   }
 #endif
+}
+
+double openstream_camera_temperature(obs_source_t *source) {
+  return forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) -> double {
+    if (!owned) return NAN;
+    std::lock_guard<std::mutex> lock(owned->settings_mutex);
+    return owned->battery_temperature;
+  });
+}
+
+const char *openstream_camera_pro_state(obs_source_t *source) {
+  thread_local std::string state;
+  state = "{}";
+  forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    if (!owned) return;
+    std::lock_guard<std::mutex> lock(owned->settings_mutex);
+    state = owned->camera_pro_state;
+  });
+  return state.c_str();
 }

@@ -8,6 +8,7 @@ import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.params.MeteringRectangle
 import android.hardware.camera2.CameraCharacteristics
 import android.os.Build
 import android.os.Handler
@@ -16,6 +17,54 @@ import android.util.Log
 import android.util.Range
 import android.view.Surface
 import java.util.concurrent.atomic.AtomicLong
+
+data class CameraControlCapabilities(
+    val exposureMin: Int = 0, val exposureMax: Int = 0, val exposureStep: Float = 0f,
+    val aeLock: Boolean = false, val awbLock: Boolean = false,
+    val focusLock: Boolean = false, val tapFocus: Boolean = false,
+    val exposureTimeMinNs: Long = 0, val exposureTimeMaxNs: Long = 0,
+    val isoMin: Int = 0, val isoMax: Int = 0, val focusMaxDiopters: Float = 0f,
+    val whiteBalanceModes: List<Int> = emptyList(),
+)
+
+data class CameraControlState(
+    val exposureCompensation: Int = 0, val aeLocked: Boolean = false,
+    val awbLocked: Boolean = false, val focusLocked: Boolean = false,
+    val exposureTimeNs: Long? = null, val sensitivityIso: Int? = null,
+    val focusDiopters: Float? = null, val whiteBalanceMode: Int = CaptureRequest.CONTROL_AWB_MODE_AUTO,
+)
+
+internal fun previewFocusPoint(x: Float, y: Float, sensorOrientation: Int, displayRotationDegrees: Int, frontFacing: Boolean): Pair<Float, Float>? {
+    if (!x.isFinite() || !y.isFinite() || x !in 0f..1f || y !in 0f..1f) return null
+    val rotation = ((sensorOrientation + (if (frontFacing) displayRotationDegrees else -displayRotationDegrees)) % 360 + 360) % 360
+    val px = if (frontFacing) 1f - x else x
+    return when (rotation) {
+        90 -> y to (1f - px)
+        180 -> (1f - px) to (1f - y)
+        270 -> (1f - y) to px
+        else -> px to y
+    }
+}
+
+internal data class CameraCropRegion(val left: Int, val top: Int, val right: Int, val bottom: Int)
+
+/** Build a centered crop in active-array coordinates (which need not start at 0,0). */
+internal fun centeredCropRegion(
+    sensorLeft: Int,
+    sensorTop: Int,
+    sensorRight: Int,
+    sensorBottom: Int,
+    zoomRatio: Float,
+): CameraCropRegion {
+    val safeZoom = zoomRatio.coerceAtLeast(1.0f)
+    val sensorWidth = sensorRight - sensorLeft
+    val sensorHeight = sensorBottom - sensorTop
+    val cropWidth = (sensorWidth / safeZoom).toInt().coerceAtLeast(1)
+    val cropHeight = (sensorHeight / safeZoom).toInt().coerceAtLeast(1)
+    val left = sensorLeft + (sensorWidth - cropWidth) / 2
+    val top = sensorTop + (sensorHeight - cropHeight) / 2
+    return CameraCropRegion(left, top, left + cropWidth, top + cropHeight)
+}
 
 /**
  * Camera2Controller manages the lifecycle of a Camera2 device and its
@@ -68,6 +117,105 @@ class Camera2Controller(
     val zoomRatio: Float get() = synchronized(lifecycleLock) { currentZoomRatio }
     val zoomRange: ClosedFloatingPointRange<Float>
         get() = synchronized(lifecycleLock) { minZoomRatio..maxZoomRatio }
+
+    private var proCapabilities = CameraControlCapabilities()
+    private var proState = CameraControlState()
+    private var meteringRegion: MeteringRectangle? = null
+    private var afModes = emptyList<Int>()
+    private var aeRegionsAvailable = false
+    private var sensorOrientation = 0
+    private var frontFacing = false
+    val controlCapabilities: CameraControlCapabilities get() = synchronized(lifecycleLock) { proCapabilities }
+    val controlState: CameraControlState get() = synchronized(lifecycleLock) { proState }
+
+    fun setExposureCompensation(value: Int): Boolean = synchronized(lifecycleLock) {
+        if (value !in proCapabilities.exposureMin..proCapabilities.exposureMax) return@synchronized false
+        proState = proState.copy(exposureCompensation = value)
+        rebuildRepeatingRequest()
+        true
+    }
+
+    fun setAeLock(enabled: Boolean): Boolean = synchronized(lifecycleLock) {
+        if (enabled && (!proCapabilities.aeLock || proState.exposureTimeNs != null)) return@synchronized false
+        proState = proState.copy(aeLocked = enabled)
+        rebuildRepeatingRequest()
+        true
+    }
+
+    fun setAwbLock(enabled: Boolean): Boolean = synchronized(lifecycleLock) {
+        if (enabled && !proCapabilities.awbLock) return@synchronized false
+        proState = proState.copy(awbLocked = enabled)
+        rebuildRepeatingRequest()
+        true
+    }
+
+    fun setFocusLock(enabled: Boolean): Boolean = synchronized(lifecycleLock) {
+        if (enabled && (!proCapabilities.focusLock || proState.focusDiopters != null)) return@synchronized false
+        proState = proState.copy(focusLocked = enabled)
+        if (!enabled) meteringRegion = null
+        rebuildRepeatingRequest(if (enabled) CaptureRequest.CONTROL_AF_TRIGGER_START else CaptureRequest.CONTROL_AF_TRIGGER_CANCEL)
+        true
+    }
+
+    fun focusAtPreview(x: Float, y: Float, displayRotationDegrees: Int = 0, previewAspectRatio: Float = 16f / 9f): Boolean = synchronized(lifecycleLock) {
+        val (sx, sy) = previewFocusPoint(x, y, sensorOrientation, displayRotationDegrees, frontFacing)
+            ?: return@synchronized false
+        val sensor = sensorRect ?: return@synchronized false
+        if (!previewAspectRatio.isFinite() || previewAspectRatio <= 0f) return@synchronized false
+        val sensorAspect = sensor.width().toFloat() / sensor.height()
+        // Camera output crops the sensor to its stream aspect before display rotation.
+        val visibleWidth = minOf(1f, previewAspectRatio / sensorAspect)
+        val visibleHeight = minOf(1f, sensorAspect / previewAspectRatio)
+        focusAt(.5f + (sx - .5f) * visibleWidth, .5f + (sy - .5f) * visibleHeight)
+    }
+
+    /** Coordinates are normalized to the unrotated, unmirrored visible sensor crop. */
+    fun focusAt(x: Float, y: Float): Boolean = synchronized(lifecycleLock) {
+        if (!proCapabilities.tapFocus || !x.isFinite() || !y.isFinite() || x !in 0f..1f || y !in 0f..1f) return@synchronized false
+        val sensor = sensorRect ?: return@synchronized false
+        // Zoom-ratio metering coordinates describe the already zoomed active array.
+        val crop = centeredCropRegion(sensor.left, sensor.top, sensor.right, sensor.bottom, if (supportsZoomRatioKey) 1f else currentZoomRatio)
+        val width = (crop.right - crop.left).coerceAtLeast(1)
+        val height = (crop.bottom - crop.top).coerceAtLeast(1)
+        val box = (minOf(width, height) / 8).coerceAtLeast(1)
+        val left = (crop.left + (x * width).toInt() - box / 2).coerceIn(crop.left, crop.right - box)
+        val top = (crop.top + (y * height).toInt() - box / 2).coerceIn(crop.top, crop.bottom - box)
+        meteringRegion = MeteringRectangle(left, top, box, box, MeteringRectangle.METERING_WEIGHT_MAX)
+        proState = proState.copy(focusLocked = true, focusDiopters = null)
+        rebuildRepeatingRequest(CaptureRequest.CONTROL_AF_TRIGGER_CANCEL)
+        rebuildRepeatingRequest(CaptureRequest.CONTROL_AF_TRIGGER_START)
+        true
+    }
+
+    fun setManualExposure(exposureTimeNs: Long?, sensitivityIso: Int?): Boolean = synchronized(lifecycleLock) {
+        val caps = proCapabilities
+        if ((exposureTimeNs == null) != (sensitivityIso == null)) return@synchronized false
+        if (exposureTimeNs != null && (caps.exposureTimeMinNs == 0L || exposureTimeNs !in caps.exposureTimeMinNs..caps.exposureTimeMaxNs || sensitivityIso == null || sensitivityIso !in caps.isoMin..caps.isoMax)) return@synchronized false
+        proState = proState.copy(exposureTimeNs = exposureTimeNs, sensitivityIso = sensitivityIso, aeLocked = false)
+        rebuildRepeatingRequest()
+        true
+    }
+
+    fun setManualFocus(diopters: Float?): Boolean = synchronized(lifecycleLock) {
+        if (diopters != null && (!diopters.isFinite() || proCapabilities.focusMaxDiopters <= 0f || diopters !in 0f..proCapabilities.focusMaxDiopters)) return@synchronized false
+        proState = proState.copy(focusDiopters = diopters, focusLocked = false)
+        meteringRegion = null
+        rebuildRepeatingRequest(CaptureRequest.CONTROL_AF_TRIGGER_CANCEL)
+        true
+    }
+
+    fun setWhiteBalance(mode: Int): Boolean = synchronized(lifecycleLock) {
+        if (mode !in proCapabilities.whiteBalanceModes) return@synchronized false
+        proState = proState.copy(whiteBalanceMode = mode, awbLocked = false)
+        rebuildRepeatingRequest()
+        true
+    }
+
+    fun resetControls() = synchronized(lifecycleLock) {
+        proState = CameraControlState()
+        meteringRegion = null
+        rebuildRepeatingRequest(CaptureRequest.CONTROL_AF_TRIGGER_CANCEL)
+    }
 
     companion object {
         private const val TAG = "shinCamera"
@@ -323,6 +471,7 @@ class Camera2Controller(
 
     fun setZoom(ratio: Float): Float {
         return synchronized(lifecycleLock) {
+            if (!ratio.isFinite()) return@synchronized currentZoomRatio
             currentZoomRatio = ratio.coerceIn(minZoomRatio, maxZoomRatio)
             updateZoomInSession()
             currentZoomRatio
@@ -467,6 +616,30 @@ class Camera2Controller(
             Log.w(TAG, "Could not read characteristics for camera $cameraId", error)
             return
         }
+        sensorOrientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 0
+        frontFacing = chars.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
+        afModes = chars.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES)?.toList().orEmpty()
+        val manualSensor = chars.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)
+            ?.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR) == true
+        val time = if (manualSensor) chars.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE) else null
+        val iso = if (manualSensor) chars.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE) else null
+        val ev = chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
+        aeRegionsAvailable = (chars.get(CameraCharacteristics.CONTROL_MAX_REGIONS_AE) ?: 0) > 0
+        proCapabilities = CameraControlCapabilities(
+            exposureMin = ev?.lower ?: 0, exposureMax = ev?.upper ?: 0,
+            exposureStep = chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP)?.toFloat() ?: 0f,
+            aeLock = chars.get(CameraCharacteristics.CONTROL_AE_LOCK_AVAILABLE) == true,
+            awbLock = chars.get(CameraCharacteristics.CONTROL_AWB_LOCK_AVAILABLE) == true,
+            focusLock = CaptureRequest.CONTROL_AF_MODE_AUTO in afModes,
+            tapFocus = CaptureRequest.CONTROL_AF_MODE_AUTO in afModes && (chars.get(CameraCharacteristics.CONTROL_MAX_REGIONS_AF) ?: 0) > 0,
+            exposureTimeMinNs = time?.lower ?: 0,
+            exposureTimeMaxNs = minOf(time?.upper ?: 0, 1_000_000_000L / targetFps),
+            isoMin = iso?.lower ?: 0, isoMax = iso?.upper ?: 0,
+            focusMaxDiopters = if (CaptureRequest.CONTROL_AF_MODE_OFF in afModes) chars.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) ?: 0f else 0f,
+            whiteBalanceModes = chars.get(CameraCharacteristics.CONTROL_AWB_AVAILABLE_MODES)?.filter { it != CaptureRequest.CONTROL_AWB_MODE_OFF }.orEmpty(),
+        )
+        proState = CameraControlState()
+        meteringRegion = null
         flashAvailable = chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
         val availableFpsRanges = chars
             .get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
@@ -550,6 +723,7 @@ class Camera2Controller(
                                     applyFrameRate(this)
                                     applyZoom(this)
                                     applyTorch(this)
+                                    applyProControls(this)
                                 }.build()
                                 captureSession.setRepeatingRequest(request, null, handler)
                             }.onFailure { error ->
@@ -641,7 +815,35 @@ class Camera2Controller(
         )
     }
 
-    private fun rebuildRepeatingRequest() {
+    private fun applyProControls(builder: CaptureRequest.Builder) {
+        val state = proState
+        val caps = proCapabilities
+        val afMode = when {
+            state.focusDiopters != null -> CaptureRequest.CONTROL_AF_MODE_OFF
+            state.focusLocked -> CaptureRequest.CONTROL_AF_MODE_AUTO
+            CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO in afModes -> CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO
+            CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE in afModes -> CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE
+            else -> afModes.firstOrNull() ?: CaptureRequest.CONTROL_AF_MODE_OFF
+        }
+        builder.set(CaptureRequest.CONTROL_AF_MODE, afMode)
+        state.focusDiopters?.let { builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, it) }
+        meteringRegion?.let {
+            builder.set(CaptureRequest.CONTROL_AF_REGIONS, arrayOf(it))
+            if (aeRegionsAvailable) builder.set(CaptureRequest.CONTROL_AE_REGIONS, arrayOf(it))
+        }
+        builder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, state.exposureCompensation)
+        if (caps.aeLock) builder.set(CaptureRequest.CONTROL_AE_LOCK, state.aeLocked)
+        if (caps.awbLock) builder.set(CaptureRequest.CONTROL_AWB_LOCK, state.awbLocked)
+        if (state.whiteBalanceMode in caps.whiteBalanceModes) builder.set(CaptureRequest.CONTROL_AWB_MODE, state.whiteBalanceMode)
+        state.exposureTimeNs?.let {
+            builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+            builder.set(CaptureRequest.SENSOR_EXPOSURE_TIME, it)
+            builder.set(CaptureRequest.SENSOR_SENSITIVITY, state.sensitivityIso)
+            builder.set(CaptureRequest.SENSOR_FRAME_DURATION, 1_000_000_000L / targetFps)
+        }
+    }
+
+    private fun rebuildRepeatingRequest(afTrigger: Int = CaptureRequest.CONTROL_AF_TRIGGER_IDLE) {
         val device = camera ?: return
         val currentSession = session ?: return
         val generation = sessionGeneration.get()
@@ -668,8 +870,15 @@ class Camera2Controller(
                 applyFrameRate(this)
                 applyZoom(this)
                 applyTorch(this)
-            }.build()
-            currentSession.setRepeatingRequest(request, null, handler)
+                applyProControls(this)
+                set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_IDLE)
+            }
+            if (afTrigger != CaptureRequest.CONTROL_AF_TRIGGER_IDLE && proCapabilities.focusLock) {
+                request.set(CaptureRequest.CONTROL_AF_TRIGGER, afTrigger)
+                currentSession.capture(request.build(), null, handler)
+                request.set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_IDLE)
+            }
+            currentSession.setRepeatingRequest(request.build(), null, handler)
         }.onFailure { error ->
             val current = sessionGeneration.get() == generation &&
                 camera === device &&

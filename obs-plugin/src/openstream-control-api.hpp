@@ -19,3 +19,7 @@ bool openstream_set_camera_label(obs_source_t *source, const char *label);
 
 void openstream_register_dock();
 void openstream_unregister_dock();
+
+const char *openstream_camera_pro_state(obs_source_t *source);
+
+double openstream_camera_temperature(obs_source_t *source);
