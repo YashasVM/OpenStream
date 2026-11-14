@@ -21,6 +21,8 @@ def test_native_sender_reports_real_telemetry_and_verifies_bound_address(tmp_pat
 #include <srt/srt.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <net/if.h>
+#include <unistd.h>
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -59,7 +61,7 @@ int main() {
   assert(srt_listen(listener, 1) == 0);
   sender.advanceLifecycleGeneration(1);
   const auto url = "srt://127.0.0.1:" + std::to_string(ntohs(address.sin_port));
-  assert(sender.connect(url + "?localaddr=127.0.0.1", 1));
+  assert(sender.connect(url + "?localaddr=127.0.0.1&localif=lo&peeraddr=127.0.0.1", 1));
   assert(sender.verifyLocalAddress("127.0.0.1"));
   assert(!sender.verifyLocalAddress("127.0.0.2"));
   sockaddr_storage peer{};
@@ -80,10 +82,30 @@ int main() {
   sender.disconnect();
   assert(!sender.telemetry());
   srt_close(receiver);
+  // The same live loopback receiver must be unreachable when output is pinned
+  // to another NIC; a source-address-only bind would silently reach it.
+  struct if_nameindex *interfaces = if_nameindex();
+  assert(interfaces);
+  for (auto *entry = interfaces; entry->if_index; ++entry) {
+    if (std::string(entry->if_name) != "lo") {
+      sender.advanceLifecycleGeneration(2);
+      assert(!sender.connect(url + "?localaddr=127.0.0.1&localif=" + entry->if_name +
+                             "&peeraddr=127.0.0.1", 2));
+      assert(!sender.telemetry());
+      break;
+    }
+  }
+  if_freenameindex(interfaces);
   srt_close(listener);
   // A local address not assigned to this machine must fail instead of using another route.
   sender.advanceLifecycleGeneration(2);
   assert(!sender.connect(url + "?localaddr=203.0.113.55", 2));
+  assert(!sender.connect(url + "?localaddr=127.0.0.1&localif=not-a-device&peeraddr=127.0.0.1", 2));
+  assert(!sender.telemetry());
+  assert(!sender.connect(url + "?localaddr=127.0.0.1&localif=lo&peeraddr=127.0.0.2", 2));
+  assert(!sender.telemetry());
+  assert(!sender.connect(url + "?localaddr=127.0.0.1&peeraddr=127.0.0.1", 2));
+  assert(!sender.connect(url + "?localaddr=127.0.0.1&localif=lo", 2));
 }
 '''
     source = tmp_path / "sender.cpp"

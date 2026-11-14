@@ -27,6 +27,16 @@ void obs_source_output_video(obs_source_t *, const struct obs_source_frame *fram
   captured_video_width = frame->width;
 }
 
+static video_format captured_yuv_format = VIDEO_FORMAT_NONE;
+static uint8_t captured_trc = VIDEO_TRC_DEFAULT;
+static uint16_t captured_sample = 0;
+void obs_source_output_video2(obs_source_t *, const struct obs_source_frame2 *frame) {
+  require(frame != nullptr, "missing YUV frame");
+  captured_yuv_format = frame->format;
+  captured_trc = frame->trc;
+  std::memcpy(&captured_sample, frame->data[0], sizeof(captured_sample));
+}
+
 struct ReleaseProbe {
   int listener = -1;
   int port = 0;
@@ -396,9 +406,78 @@ void test_reserve_phone_uses_destination_bound_rebind_proof() {
           "rebind request missing expected destination-bound SHA-256 proof");
 }
 
+void test_hdr_preserves_ten_bit_output() {
+  OpenStreamSource context;
+  CodecContextPtr decoder(avcodec_alloc_context3(nullptr));
+  SwsContextPtr converter(nullptr);
+  std::vector<uint8_t> pixels;
+  for (const auto format : {AV_PIX_FMT_YUV420P10LE, AV_PIX_FMT_P010LE}) {
+    for (const auto transfer : {AVCOL_TRC_ARIB_STD_B67, AVCOL_TRC_SMPTE2084}) {
+      FramePtr frame(av_frame_alloc());
+      frame->width = 64;
+      frame->height = 32;
+      frame->format = format;
+      frame->color_primaries = AVCOL_PRI_BT2020;
+      frame->colorspace = AVCOL_SPC_BT2020_NCL;
+      frame->color_trc = transfer;
+      frame->color_range = AVCOL_RANGE_MPEG;
+      require(av_frame_get_buffer(frame.get(), 32) == 0, "HDR frame allocation failed");
+      const uint16_t sample = format == AV_PIX_FMT_P010LE ? 513 << 6 : 513;
+      std::memcpy(frame->data[0], &sample, sizeof(sample));
+      require(output_decoded_frame(&context, decoder.get(), frame.get(), 0, &converter, &pixels),
+              "HDR ten-bit output failed");
+      require(captured_sample == sample, "HDR output truncated ten-bit sample");
+      require(captured_yuv_format == (format == AV_PIX_FMT_P010LE ? VIDEO_FORMAT_P010 : VIDEO_FORMAT_I010),
+              "HDR output chose an eight-bit pixel format");
+      require(captured_trc == (transfer == AVCOL_TRC_ARIB_STD_B67 ? VIDEO_TRC_HLG : VIDEO_TRC_PQ),
+              "HDR output lost transfer function");
+      require(pixels.empty() && !converter, "HDR output allocated an eight-bit converter");
+      PhoneDevice negotiated;
+      negotiated.width = 64; negotiated.height = 32;
+      negotiated.session_codec = "video/hevc";
+      negotiated.session_dynamic_range = "hlg10";
+      context.active_phone = negotiated;
+      decoder->codec_id = AV_CODEC_ID_HEVC;
+      require(output_decoded_frame(&context, decoder.get(), frame.get(), 0, &converter, &pixels) ==
+                  (transfer == AVCOL_TRC_ARIB_STD_B67),
+              "Negotiated HLG session accepted a different transfer function");
+      context.active_phone->width = 128;
+      require(!output_decoded_frame(&context, decoder.get(), frame.get(), 0, &converter, &pixels),
+              "Negotiated high mode accepted different dimensions");
+      context.active_phone.reset();
+      frame->color_primaries = AVCOL_PRI_BT709;
+      require(!output_decoded_frame(&context, decoder.get(), frame.get(), 0, &converter, &pixels),
+              "HDR with incorrect primaries was accepted");
+    }
+  }
+  FramePtr truncated(av_frame_alloc());
+  truncated->width = 64; truncated->height = 32;
+  truncated->format = AV_PIX_FMT_YUV420P;
+  truncated->color_trc = AVCOL_TRC_ARIB_STD_B67;
+  require(av_frame_get_buffer(truncated.get(), 32) == 0, "SDR frame allocation failed");
+  require(!output_decoded_frame(&context, decoder.get(), truncated.get(), 0, &converter, &pixels),
+          "Eight-bit HDR was accepted");
+}
+
+void test_receiver_session_negotiation() {
+  PhoneDevice phone;
+  require(accept_receiver_session("{\"ok\":true}", phone), "Legacy SDR phone rejected");
+  require(accept_receiver_session("{\"session\":{\"codec\":\"video/avc\",\"width\":1920,\"height\":1080,\"fps\":60,\"dynamicRange\":\"sdr\"}}", phone), "Existing 1080p60 SDR rejected");
+  const std::string session = "{\"session\":{\"codec\":\"video/hevc\",\"width\":3840,\"height\":2160,\"fps\":30,\"dynamicRange\":\"hlg10\"}}";
+  require(accept_receiver_session(session, phone), "Supported UHD HLG session rejected");
+  require(phone.width == 3840 && phone.height == 2160 && phone.fps == 30, "Negotiated dimensions lost");
+  for (const std::string invalid : {
+      "{\"session\":null}",
+      "{\"session\":{\"codec\":\"video/avc\",\"width\":3840,\"height\":2160,\"fps\":30,\"dynamicRange\":\"hlg10\"}}",
+      "{\"session\":{\"codec\":\"video/hevc\",\"width\":7680,\"height\":2160,\"fps\":30,\"dynamicRange\":\"sdr\"}}"})
+    require(!accept_receiver_session(invalid, phone), "Unsupported session accepted");
+}
+
 int main() {
   test_usb_route_preference_and_labeling();
   test_reserve_phone_uses_destination_bound_rebind_proof();
+  test_hdr_preserves_ten_bit_output();
+  test_receiver_session_negotiation();
   test_converter_survives_format_changes();
   test_worker_releases_reservation_on_exit();
 

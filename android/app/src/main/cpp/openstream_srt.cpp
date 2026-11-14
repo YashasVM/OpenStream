@@ -22,6 +22,7 @@
 #if OPENSTREAM_HAVE_LIBSRT
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <net/if.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -441,6 +442,8 @@ struct SrtUrl {
   std::optional<std::string> passphrase;
   int pbkeylen = 16;
   std::string localAddress;
+  std::string localInterface;
+  std::string requiredPeer;
 };
 
 std::optional<std::string> percentDecode(const std::string &value) {
@@ -546,6 +549,8 @@ std::optional<SrtUrl> parseSrtUrl(const std::string &url) {
     while (offset < query.size()) {
       const size_t amp = query.find('&', offset);
       const std::string part = query.substr(offset, amp == std::string::npos ? std::string::npos : amp - offset);
+      if (part.rfind("localif=", 0) == 0) parsed.localInterface = part.substr(8);
+      if (part.rfind("peeraddr=", 0) == 0) parsed.requiredPeer = part.substr(9);
       if (part.rfind("localaddr=", 0) == 0) {
         parsed.localAddress = part.substr(10);
       }
@@ -713,11 +718,20 @@ class NativeSender {
     srt_setsockopt(socket, 0, SRTO_PEERLATENCY, &latency, sizeof latency);
     }
 
+    if (parsed->localAddress.empty() &&
+        (!parsed->localInterface.empty() || !parsed->requiredPeer.empty())) {
+      disconnect();
+      return false;
+    }
+    if (!parsed->requiredPeer.empty() && parsed->host != parsed->requiredPeer) {
+      disconnect();
+      return false;
+    }
     if (!parsed->localAddress.empty()) {
       sockaddr_in local{};
       local.sin_family = AF_INET;
       if (inet_pton(AF_INET, parsed->localAddress.c_str(), &local.sin_addr) != 1 ||
-          srt_bind(socket, reinterpret_cast<sockaddr *>(&local), sizeof(local)) == SRT_ERROR) {
+          !bindRouteSocket(socket, *parsed, local)) {
         logError("Could not bind SRT caller to required wired address");
         releaseAttemptSocket(socket, attempt);
         return false;
@@ -860,7 +874,7 @@ class NativeSender {
       return false;
     }
 
-    if (srt_bind(listenerSocket, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == SRT_ERROR) {
+    if (!bindRouteSocket(listenerSocket, *parsed, address)) {
       __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT bind failed: %s", srt_getlasterror_str());
       closeListenerSocket(listenerSocket);
       return false;
@@ -908,7 +922,18 @@ class NativeSender {
       sockaddr_storage peer{};
       int peer_len = sizeof(peer);
       acceptedSocket = srt_accept(listenerSocket, reinterpret_cast<sockaddr *>(&peer), &peer_len);
-      if (acceptedSocket != SRT_INVALID_SOCK) break;
+      if (acceptedSocket != SRT_INVALID_SOCK) {
+        in_addr required{};
+        if (!parsed->requiredPeer.empty() &&
+            (inet_pton(AF_INET, parsed->requiredPeer.c_str(), &required) != 1 ||
+             peer.ss_family != AF_INET ||
+             reinterpret_cast<sockaddr_in *>(&peer)->sin_addr.s_addr != required.s_addr)) {
+          srt_close(acceptedSocket);
+          acceptedSocket = SRT_INVALID_SOCK;
+          continue;
+        }
+        break;
+      }
 
       int systemError = 0;
       const int acceptError = srt_getlasterror(&systemError);
@@ -968,6 +993,38 @@ class NativeSender {
         static_cast<double>(stats.pktSndBuf)};
 #else
     return std::nullopt;
+#endif
+  }
+
+  bool bindRouteSocket(int socket, const SrtUrl &url, const sockaddr_in &address) {
+#if OPENSTREAM_HAVE_LIBSRT
+    if (url.localInterface.empty()) {
+      return url.requiredPeer.empty() &&
+          srt_bind(socket, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != SRT_ERROR;
+    }
+    if (url.localAddress.empty() || url.requiredPeer.empty() ||
+        url.localInterface.size() >= IF_NAMESIZE ||
+        url.localInterface.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-") != std::string::npos) return false;
+    const unsigned index = if_nametoindex(url.localInterface.c_str());
+    if (!index) return false;
+    const int udp = ::socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
+    if (udp < 0) return false;
+    // IP_UNICAST_IF constrains every UDP send to this NIC without CAP_NET_RAW.
+    // SRT acquires this exact socket; losing the NIC cannot select Wi-Fi.
+    const uint32_t networkIndex = htonl(index);
+    if (setsockopt(udp, IPPROTO_IP, IP_UNICAST_IF, &networkIndex, sizeof(networkIndex)) != 0 ||
+        ::bind(udp, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0) {
+      ::close(udp);
+      logError("Required USB route socket unavailable; refusing high mode");
+      return false;
+    }
+    if (srt_bind_acquire(socket, udp) == SRT_ERROR) {
+      ::close(udp);
+      return false;
+    }
+    return true;
+#else
+    return false;
 #endif
   }
 

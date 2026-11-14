@@ -719,66 +719,10 @@ class Camera2Controller(
         session?.close()
         session = null
         try {
-<<<<<<< HEAD
-            @Suppress("DEPRECATION")
-            device.createCaptureSession(
-                surfaces,
-                object : CameraCaptureSession.StateCallback() {
-                    override fun onConfigured(captureSession: CameraCaptureSession) {
-                        synchronized(lifecycleLock) {
-                            if (!desiredRunning || sessionGeneration.get() != generation || camera !== device) {
-                                captureSession.close()
-                                return
-                            }
-                            session = captureSession
-                            val template = if (encoded != null) {
-                                CameraDevice.TEMPLATE_RECORD
-                            } else {
-                                CameraDevice.TEMPLATE_PREVIEW
-                            }
-                            runCatching {
-                                val request = device.createCaptureRequest(template).apply {
-                                    addTarget(preview)
-                                    if (encoded != null) {
-                                        addTarget(encoded)
-                                    }
-                                    set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
-                                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
-                                    set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-                                    set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
-                                    applyFrameRate(this)
-                                    applyZoom(this)
-                                    applyTorch(this)
-                                    applyProControls(this)
-                                }.build()
-                                captureSession.setRepeatingRequest(request, null, handler)
-                            }.onFailure { error ->
-                                if (sessionGeneration.get() == generation && camera === device) {
-                                    recoverFromSessionFailure(
-                                        device,
-                                        generation,
-                                        "Could not start camera repeating request",
-                                        error,
-                                    )
-                                } else {
-                                    captureSession.close()
-                                }
-                            }
-                        }
-                    }
-
-                    override fun onConfigureFailed(captureSession: CameraCaptureSession) {
-                        synchronized(lifecycleLock) {
-                            if (!desiredRunning || sessionGeneration.get() != generation || camera !== device) {
-                                captureSession.close()
-                                return
-                            }
-=======
             val callback = object : CameraCaptureSession.StateCallback() {
                 override fun onConfigured(captureSession: CameraCaptureSession) {
                     synchronized(lifecycleLock) {
                         if (!desiredRunning || sessionGeneration.get() != generation || camera !== device) {
->>>>>>> 969d924 (Add direct Camera2 HLG10 capture and Main10 encoding)
                             captureSession.close()
                             return
                         }

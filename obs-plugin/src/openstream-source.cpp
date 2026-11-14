@@ -453,6 +453,8 @@ struct PhoneDevice {
   int height = 1080;
   int fps = 30;
   int bitrate_mbps = kDefaultBitrateMbps;
+  std::string session_codec;
+  std::string session_dynamic_range;
   bool busy = false;
   std::string reserved_by;
   std::string reservation_token;
@@ -918,6 +920,44 @@ class PhoneDiscoveryReceiver {
   }
 };
 
+// Capability version is independent of the legacy discovery envelope version.
+std::string receiver_capabilities_json() {
+  const bool hevc = avcodec_find_decoder(AV_CODEC_ID_HEVC) != nullptr;
+  return std::string("{\"version\":1,\"codecs\":[\"video/avc\"") +
+      (hevc ? ",\"video/hevc\"" : "") +
+      "],\"maxWidth\":3840,\"maxHeight\":2160,\"maxFps\":30,\"dynamicRanges\":[\"sdr\"" +
+      (hevc ? ",\"hlg10\"" : "") + "]}";
+}
+
+bool accept_receiver_session(const std::string &response, PhoneDevice &phone) {
+  const auto value = control_json_value(response, "session");
+  if (value.isUndefined()) {
+    phone.session_codec.clear();
+    phone.session_dynamic_range.clear();
+    return true; // Legacy phones remain SDR compatible.
+  }
+  if (!value.isObject()) return false;
+  const std::string session = QJsonDocument(value.toObject()).toJson(QJsonDocument::Compact).toStdString();
+  const auto codec = json_string_value(session, "codec");
+  const auto range = json_string_value(session, "dynamicRange");
+  const auto width = json_int_value(session, "width");
+  const auto height = json_int_value(session, "height");
+  const auto fps = json_int_value(session, "fps");
+  if (!codec || !range || !width || !height || !fps ||
+      *width <= 0 || *width > 3840 || *height <= 0 || *height > 2160 ||
+      *fps <= 0 || *fps > 60 ||
+      ((*width > 1920 || *height > 1080 || *range != "sdr") && *fps > 30) ||
+      (*codec != "video/avc" && *codec != "video/hevc") ||
+      (*codec == "video/hevc" && !avcodec_find_decoder(AV_CODEC_ID_HEVC)) ||
+      (*range != "sdr" && (*range != "hlg10" || *codec != "video/hevc"))) return false;
+  phone.session_codec = *codec;
+  phone.session_dynamic_range = *range;
+  phone.width = *width;
+  phone.height = *height;
+  phone.fps = *fps;
+  return true;
+}
+
 class DiscoveryAdvertiser {
  public:
   void start(int listener_port,
@@ -963,6 +1003,7 @@ class DiscoveryAdvertiser {
     payload << "SHIN/1 {"
             << "\"type\":\"dev.shin.listener\","
             << "\"version\":1,"
+            << "\"receiverCapabilities\":" << receiver_capabilities_json() << ","
             << "\"name\":\"" << json_escape(source_name_) << "\","
             << "\"instanceId\":\"" << json_escape(instance_id_) << "\","
             << "\"slotId\":\"" << json_escape(slot_id_) << "\","
@@ -1572,6 +1613,8 @@ std::string compute_rebind_ack(const std::string &active_token,
       .toStdString();
 }
 
+void queue_release_phone(OpenStreamSource *ctx, const PhoneDevice &phone);
+
 bool reserve_phone(OpenStreamSource *ctx, PhoneDevice &phone) {
   std::string candidate_token;
   std::string rebind_proof;
@@ -1617,7 +1660,8 @@ bool reserve_phone(OpenStreamSource *ctx, PhoneDevice &phone) {
     }
     body << "\"slotId\":\"" << json_escape(ctx->slot_id) << "\","
          << "\"slotLabel\":\"" << json_escape(ctx->slot_label) << "\","
-         << "\"bitrateMbps\":" << ctx->bitrate_mbps << "}";
+         << "\"bitrateMbps\":" << ctx->bitrate_mbps
+         << ",\"receiverCapabilities\":" << receiver_capabilities_json() << "}";
   }
   std::string response_body;
   if (!send_control_command(phone.host, phone.control_port, "/reserve", body.str(), &response_body)) {
@@ -1629,6 +1673,12 @@ bool reserve_phone(OpenStreamSource *ctx, PhoneDevice &phone) {
       return false;
     }
   }
+  phone.reservation_token = candidate_token;
+  if (!accept_receiver_session(response_body, phone)) {
+    queue_release_phone(ctx, phone);
+    phone.reservation_token.clear();
+    return false;
+  }
   {
     std::lock_guard<std::mutex> lock(ctx->settings_mutex);
     ctx->reservation_token = candidate_token;
@@ -1637,7 +1687,6 @@ bool reserve_phone(OpenStreamSource *ctx, PhoneDevice &phone) {
     ctx->reservation_rebind_pending = false;
     ctx->reservation_token_expires_at = std::chrono::steady_clock::now() + kReconnectReservationWindow;
   }
-  phone.reservation_token = candidate_token;
   return true;
 }
 
@@ -1942,14 +1991,42 @@ bool output_decoded_frame(OpenStreamSource *ctx,
   const AVPixelFormat source_format =
       static_cast<AVPixelFormat>(decoded_frame->format);
 
+  {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    if (ctx->active_phone && !ctx->active_phone->session_codec.empty()) {
+      const auto &phone = *ctx->active_phone;
+      const bool high_mode = phone.width > 1920 || phone.height > 1080 ||
+                             phone.session_dynamic_range != "sdr";
+      if (high_mode && (width != phone.width || height != phone.height ||
+          decoder_ctx->codec_id != (phone.session_codec == "video/hevc" ? AV_CODEC_ID_HEVC : AV_CODEC_ID_H264) ||
+          (phone.session_dynamic_range == "hlg10" && decoded_frame->color_trc != AVCOL_TRC_ARIB_STD_B67))) {
+        blog(LOG_WARNING, "[OpenStream] Frame differs from negotiated USB high mode");
+        return false;
+      }
+    }
+  }
+
   const bool can_output_i420 =
       (source_format == AV_PIX_FMT_YUV420P || source_format == AV_PIX_FMT_YUVJ420P) &&
       decoded_frame->data[0] && decoded_frame->data[1] && decoded_frame->data[2];
   const bool can_output_nv12 =
       source_format == AV_PIX_FMT_NV12 && decoded_frame->data[0] && decoded_frame->data[1];
-  if (can_output_i420 || can_output_nv12) {
+  const bool can_output_i010 = source_format == AV_PIX_FMT_YUV420P10LE &&
+      decoded_frame->data[0] && decoded_frame->data[1] && decoded_frame->data[2];
+  const bool can_output_p010 = source_format == AV_PIX_FMT_P010LE &&
+      decoded_frame->data[0] && decoded_frame->data[1];
+  const bool hdr = decoded_frame->color_trc == AVCOL_TRC_ARIB_STD_B67 ||
+                   decoded_frame->color_trc == AVCOL_TRC_SMPTE2084;
+  // HDR must reach OBS at ten bits with BT.2020 metadata, never via BGRA8.
+  if (hdr && ((!can_output_i010 && !can_output_p010) ||
+              decoded_frame->color_primaries != AVCOL_PRI_BT2020 ||
+              (decoded_frame->colorspace != AVCOL_SPC_BT2020_NCL &&
+               decoded_frame->colorspace != AVCOL_SPC_BT2020_CL))) return false;
+  if (can_output_i420 || can_output_nv12 || can_output_i010 || can_output_p010) {
     struct obs_source_frame2 yuv_frame = {};
-    yuv_frame.format = can_output_i420 ? VIDEO_FORMAT_I420 : VIDEO_FORMAT_NV12;
+    yuv_frame.format = can_output_i010 ? VIDEO_FORMAT_I010 :
+                       can_output_p010 ? VIDEO_FORMAT_P010 :
+                       can_output_i420 ? VIDEO_FORMAT_I420 : VIDEO_FORMAT_NV12;
     yuv_frame.width = static_cast<uint32_t>(width);
     yuv_frame.height = static_cast<uint32_t>(height);
     yuv_frame.timestamp = timestamp_ns;
@@ -1960,7 +2037,7 @@ bool output_decoded_frame(OpenStreamSource *ctx,
     yuv_frame.data[1] = decoded_frame->data[1];
     yuv_frame.linesize[0] = static_cast<uint32_t>(decoded_frame->linesize[0]);
     yuv_frame.linesize[1] = static_cast<uint32_t>(decoded_frame->linesize[1]);
-    if (can_output_i420) {
+    if (can_output_i420 || can_output_i010) {
       yuv_frame.data[2] = decoded_frame->data[2];
       yuv_frame.linesize[2] = static_cast<uint32_t>(decoded_frame->linesize[2]);
     }
