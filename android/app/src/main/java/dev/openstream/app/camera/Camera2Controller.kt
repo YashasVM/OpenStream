@@ -94,6 +94,7 @@ class Camera2Controller(
     private var session: CameraCaptureSession? = null
     private var streamingSurface: Surface? = null
     private var streamingHdr = false
+    private var exclusiveStreamingOutput = false
     @Volatile var onStreamingFailure: ((String) -> Unit)? = null
     @Volatile var onStreamingStarted: (() -> Unit)? = null
 
@@ -454,10 +455,11 @@ class Camera2Controller(
         }
     }
 
-    fun startStreaming(encodedSurface: Surface, hdr: Boolean = false) {
+    fun startStreaming(encodedSurface: Surface, hdr: Boolean = false, exclusiveOutput: Boolean = false) {
         synchronized(lifecycleLock) {
             check(!hdr || Build.VERSION.SDK_INT >= 33) { "HLG capture requires Android 13" }
             streamingHdr = hdr
+            exclusiveStreamingOutput = hdr || exclusiveOutput
             streamingSurface = encodedSurface
             if (camera == null) {
                 startPreview()
@@ -471,6 +473,7 @@ class Camera2Controller(
         synchronized(lifecycleLock) {
             streamingSurface = null
             streamingHdr = false
+            exclusiveStreamingOutput = false
             if (camera != null) {
                 createSession()
             }
@@ -485,6 +488,7 @@ class Camera2Controller(
             closeCamera()
             streamingSurface = null
             streamingHdr = false
+            exclusiveStreamingOutput = false
             quitCameraThreadLocked()
         }
     }
@@ -700,7 +704,7 @@ class Camera2Controller(
     private fun createSession() {
         val device = camera ?: return
         val preview = runCatching { previewSurfaceProvider() }.getOrNull()
-        if (!streamingHdr && (preview == null || !preview.isValid)) {
+        if (!exclusiveStreamingOutput && (preview == null || !preview.isValid)) {
             Log.w(TAG, "Deferring camera session until preview surface is valid")
             return
         }
@@ -710,8 +714,8 @@ class Camera2Controller(
             return
         }
         val generation = sessionGeneration.incrementAndGet()
-        // The encoder receives HLG directly. A standard TextureView is not a ten-bit preview.
-        val surfaces = if (streamingHdr) listOf(checkNotNull(encoded)) else listOfNotNull(preview, encoded)
+        // Use one direct encoder output for high modes, avoiding unsupported preview combinations.
+        val surfaces = if (exclusiveStreamingOutput) listOf(checkNotNull(encoded)) else listOfNotNull(preview, encoded)
         session?.close()
         session = null
         try {
@@ -788,7 +792,7 @@ class Camera2Controller(
                         val template = CameraDevice.TEMPLATE_RECORD
                         runCatching {
                             val request = device.createCaptureRequest(template).apply {
-                                if (!streamingHdr) addTarget(checkNotNull(preview))
+                                if (!exclusiveStreamingOutput) addTarget(checkNotNull(preview))
                                 if (encoded != null) {
                                     addTarget(encoded)
                                 }
@@ -940,7 +944,7 @@ class Camera2Controller(
         val currentSession = session ?: return
         val generation = sessionGeneration.get()
         val preview = runCatching { previewSurfaceProvider() }.getOrNull()
-        if (!streamingHdr && (preview == null || !preview.isValid)) {
+        if (!exclusiveStreamingOutput && (preview == null || !preview.isValid)) {
             Log.w(TAG, "Deferring camera request rebuild until preview surface is valid")
             return
         }
@@ -953,7 +957,7 @@ class Camera2Controller(
 
         runCatching {
             val request = device.createCaptureRequest(template).apply {
-                if (!streamingHdr) addTarget(checkNotNull(preview))
+                if (!exclusiveStreamingOutput) addTarget(checkNotNull(preview))
                 if (encoded != null) addTarget(encoded)
                 set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
                 set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
