@@ -9,6 +9,8 @@ import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.params.MeteringRectangle
+import android.hardware.camera2.params.OutputConfiguration
+import android.hardware.camera2.params.DynamicRangeProfiles
 import android.hardware.camera2.CameraCharacteristics
 import android.os.Build
 import android.os.Handler
@@ -91,6 +93,11 @@ class Camera2Controller(
     private var camera: CameraDevice? = null
     private var session: CameraCaptureSession? = null
     private var streamingSurface: Surface? = null
+    private var streamingHdr = false
+    @Volatile var onStreamingFailure: ((String) -> Unit)? = null
+    @Volatile var onStreamingStarted: (() -> Unit)? = null
+
+    fun selectedCameraId(): String = synchronized(lifecycleLock) { selectCameraId(lensProvider()) }
     private var activeCameraId: String? = null
     private var activeLens: CameraLens? = null
     private val cameraGeneration = AtomicLong()
@@ -375,8 +382,10 @@ class Camera2Controller(
                         }
                         Log.w(TAG, "Camera disconnected")
                         device.close()
+                        val failedStreaming = streamingSurface != null
                         closeCamera()
-                        watchForCameraAvailability(desiredId)
+                        if (failedStreaming && onStreamingFailure != null) onStreamingFailure?.invoke("Camera disconnected")
+                        else watchForCameraAvailability(desiredId)
                     }
                 }
 
@@ -392,8 +401,10 @@ class Camera2Controller(
                         }
                         Log.e(TAG, "Camera error: $error")
                         device.close()
+                        val failedStreaming = streamingSurface != null
                         closeCamera()
-                        if (error != CameraDevice.StateCallback.ERROR_CAMERA_DISABLED) {
+                        if (failedStreaming && onStreamingFailure != null) onStreamingFailure?.invoke("Camera error: $error")
+                        else if (error != CameraDevice.StateCallback.ERROR_CAMERA_DISABLED) {
                             watchForCameraAvailability(desiredId)
                         }
                         if (error == CameraDevice.StateCallback.ERROR_CAMERA_IN_USE ||
@@ -407,15 +418,20 @@ class Camera2Controller(
         } catch (security: SecurityException) {
             Log.e(TAG, "Camera permission was revoked while opening $desiredId", security)
             closeCamera()
+            if (streamingSurface != null) onStreamingFailure?.invoke("Camera permission revoked")
         } catch (error: Exception) {
             Log.e(TAG, "Could not open camera $desiredId", error)
             closeCamera()
-            watchForCameraAvailability(desiredId)
-            if (error is CameraAccessException &&
-                (error.reason == CameraAccessException.CAMERA_IN_USE ||
-                    error.reason == CameraAccessException.MAX_CAMERAS_IN_USE)
-            ) {
-                scheduleInUseRetryLocked(desiredId)
+            if (streamingSurface != null && onStreamingFailure != null) {
+                onStreamingFailure?.invoke("Could not open camera")
+            } else {
+                watchForCameraAvailability(desiredId)
+                if (error is CameraAccessException &&
+                    (error.reason == CameraAccessException.CAMERA_IN_USE ||
+                        error.reason == CameraAccessException.MAX_CAMERAS_IN_USE)
+                ) {
+                    scheduleInUseRetryLocked(desiredId)
+                }
             }
         }
     }
@@ -438,8 +454,10 @@ class Camera2Controller(
         }
     }
 
-    fun startStreaming(encodedSurface: Surface) {
+    fun startStreaming(encodedSurface: Surface, hdr: Boolean = false) {
         synchronized(lifecycleLock) {
+            check(!hdr || Build.VERSION.SDK_INT >= 33) { "HLG capture requires Android 13" }
+            streamingHdr = hdr
             streamingSurface = encodedSurface
             if (camera == null) {
                 startPreview()
@@ -452,6 +470,7 @@ class Camera2Controller(
     fun stopStreaming() {
         synchronized(lifecycleLock) {
             streamingSurface = null
+            streamingHdr = false
             if (camera != null) {
                 createSession()
             }
@@ -465,6 +484,7 @@ class Camera2Controller(
             cancelCameraRecoveryLocked()
             closeCamera()
             streamingSurface = null
+            streamingHdr = false
             quitCameraThreadLocked()
         }
     }
@@ -680,7 +700,7 @@ class Camera2Controller(
     private fun createSession() {
         val device = camera ?: return
         val preview = runCatching { previewSurfaceProvider() }.getOrNull()
-        if (preview == null || !preview.isValid) {
+        if (!streamingHdr && (preview == null || !preview.isValid)) {
             Log.w(TAG, "Deferring camera session until preview surface is valid")
             return
         }
@@ -690,10 +710,12 @@ class Camera2Controller(
             return
         }
         val generation = sessionGeneration.incrementAndGet()
-        val surfaces = if (encoded != null) listOf(preview, encoded) else listOf(preview)
+        // The encoder receives HLG directly. A standard TextureView is not a ten-bit preview.
+        val surfaces = if (streamingHdr) listOf(checkNotNull(encoded)) else listOfNotNull(preview, encoded)
         session?.close()
         session = null
         try {
+<<<<<<< HEAD
             @Suppress("DEPRECATION")
             device.createCaptureSession(
                 surfaces,
@@ -747,17 +769,82 @@ class Camera2Controller(
                                 captureSession.close()
                                 return
                             }
+=======
+            val callback = object : CameraCaptureSession.StateCallback() {
+                override fun onConfigured(captureSession: CameraCaptureSession) {
+                    synchronized(lifecycleLock) {
+                        if (!desiredRunning || sessionGeneration.get() != generation || camera !== device) {
+>>>>>>> 969d924 (Add direct Camera2 HLG10 capture and Main10 encoding)
                             captureSession.close()
-                            recoverFromSessionFailure(
-                                device,
-                                generation,
-                                "Capture session configuration failed",
-                            )
+                            return
+                        }
+                        session = captureSession
+                        // This controller feeds a video stream even while it is
+                        // preview-only. Some multi-camera HALs do not implement
+                        // TEMPLATE_PREVIEW for every physical camera (Samsung's
+                        // telephoto camera returns -38), but do support the
+                        // record template. Keeping one template also avoids a
+                        // capture behavior change when a stream starts/stops.
+                        val template = CameraDevice.TEMPLATE_RECORD
+                        runCatching {
+                            val request = device.createCaptureRequest(template).apply {
+                                if (!streamingHdr) addTarget(checkNotNull(preview))
+                                if (encoded != null) {
+                                    addTarget(encoded)
+                                }
+                                set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+                                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                                set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+                                applyFrameRate(this)
+                                applyZoom(this)
+                                applyTorch(this)
+                                applyProControls(this)
+                            }.build()
+                            captureSession.setRepeatingRequest(request, null, handler)
+                            if (encoded != null) onStreamingStarted?.invoke()
+                        }.onFailure { error ->
+                            if (sessionGeneration.get() == generation && camera === device) {
+                                recoverFromSessionFailure(
+                                    device,
+                                    generation,
+                                    "Could not start camera repeating request",
+                                    error,
+                                )
+                            } else {
+                                captureSession.close()
+                            }
                         }
                     }
-                },
-                handler,
-            )
+                }
+
+                override fun onConfigureFailed(captureSession: CameraCaptureSession) {
+                    synchronized(lifecycleLock) {
+                        if (!desiredRunning || sessionGeneration.get() != generation || camera !== device) {
+                            captureSession.close()
+                            return
+                        }
+                        captureSession.close()
+                        recoverFromSessionFailure(
+                            device,
+                            generation,
+                            "Capture session configuration failed",
+                        )
+                    }
+                }
+            }
+            if (streamingHdr && Build.VERSION.SDK_INT >= 33) {
+                val chars = checkNotNull(cameraManager).getCameraCharacteristics(device.id)
+                check(chars.get(CameraCharacteristics.REQUEST_AVAILABLE_DYNAMIC_RANGE_PROFILES)
+                    ?.supportedProfiles?.contains(DynamicRangeProfiles.HLG10) == true) { "Camera does not support HLG10" }
+                device.createCaptureSessionByOutputConfigurations(
+                    surfaces.map { OutputConfiguration(it).apply { dynamicRangeProfile = DynamicRangeProfiles.HLG10 } },
+                    callback, handler,
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                device.createCaptureSession(surfaces, callback, handler)
+            }
         } catch (error: IllegalStateException) {
             recoverFromSessionFailure(device, generation, "Could not create camera capture session", error)
         } catch (error: CameraAccessException) {
@@ -781,8 +868,13 @@ class Camera2Controller(
             } else {
                 Log.e(TAG, message)
             }
-            closeCamera()
-            watchForCameraAvailability(cameraId)
+            if (streamingSurface != null && onStreamingFailure != null) {
+                closeCamera()
+                onStreamingFailure?.invoke(message)
+            } else {
+                closeCamera()
+                watchForCameraAvailability(cameraId)
+            }
         }
     }
 
@@ -848,7 +940,7 @@ class Camera2Controller(
         val currentSession = session ?: return
         val generation = sessionGeneration.get()
         val preview = runCatching { previewSurfaceProvider() }.getOrNull()
-        if (preview == null || !preview.isValid) {
+        if (!streamingHdr && (preview == null || !preview.isValid)) {
             Log.w(TAG, "Deferring camera request rebuild until preview surface is valid")
             return
         }
@@ -861,7 +953,7 @@ class Camera2Controller(
 
         runCatching {
             val request = device.createCaptureRequest(template).apply {
-                addTarget(preview)
+                if (!streamingHdr) addTarget(checkNotNull(preview))
                 if (encoded != null) addTarget(encoded)
                 set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
                 set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)

@@ -15,10 +15,11 @@ import java.nio.ByteBuffer
 
 enum class CodecPreference {
     ForceAvc,
+    HevcMain10,
 }
 
 fun CodecPreference.advertisedMimeType(): String {
-    return MediaFormat.MIMETYPE_VIDEO_AVC
+    return if (this == CodecPreference.HevcMain10) MediaFormat.MIMETYPE_VIDEO_HEVC else MediaFormat.MIMETYPE_VIDEO_AVC
 }
 
 data class EncodedAccessUnit(
@@ -160,6 +161,16 @@ class MediaCodecVideoEncoder(
 
                 override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
                     if (streamGeneration != generation) return
+                    if (preference == CodecPreference.HevcMain10 && !isHlgMain10Output(
+                            format.integerOrNull(MediaFormat.KEY_PROFILE),
+                            format.integerOrNull(MediaFormat.KEY_COLOR_STANDARD),
+                            format.integerOrNull(MediaFormat.KEY_COLOR_TRANSFER),
+                            format.integerOrNull(MediaFormat.KEY_COLOR_RANGE),
+                        )) {
+                        Log.e("shinEncoder", "Encoder did not confirm Main10 BT2020 HLG limited output: $format")
+                        deliverIfCurrent(generation, EncodedAccessUnit(ByteArray(0), 0, 0, encoderFailure = true))
+                        return
+                    }
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
                         format.containsKey(MediaFormat.KEY_LATENCY)
                     ) {
@@ -264,6 +275,12 @@ class MediaCodecVideoEncoder(
     private fun createVideoFormat(applyOptionalTuning: Boolean): MediaFormat {
         return MediaFormat.createVideoFormat(mimeType, width, height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+            if (preference == CodecPreference.HevcMain10) {
+                setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10)
+                setInteger(MediaFormat.KEY_COLOR_STANDARD, MediaFormat.COLOR_STANDARD_BT2020)
+                setInteger(MediaFormat.KEY_COLOR_TRANSFER, MediaFormat.COLOR_TRANSFER_HLG)
+                setInteger(MediaFormat.KEY_COLOR_RANGE, MediaFormat.COLOR_RANGE_LIMITED)
+            }
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, keyframeIntervalSeconds)
@@ -311,7 +328,7 @@ class MediaCodecVideoEncoder(
         fps: Int,
         bitrate: Int,
     ): Pair<String, String> {
-        val mime = MediaFormat.MIMETYPE_VIDEO_AVC
+        val mime = preference.advertisedMimeType()
         val infos = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
         val candidates = infos.mapNotNull { candidate ->
             if (!candidate.isEncoder ||
@@ -325,6 +342,8 @@ class MediaCodecVideoEncoder(
             val capabilities = runCatching {
                 candidate.getCapabilitiesForType(mime)
             }.getOrNull() ?: return@mapNotNull null
+            if (preference == CodecPreference.HevcMain10 &&
+                !supportsMain10(capabilities.profileLevels.map { it.profile })) return@mapNotNull null
             if (!capabilities.colorFormats.contains(
                     MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface,
                 )
@@ -363,7 +382,7 @@ class MediaCodecVideoEncoder(
                     "at ${bitrate / 1_000_000} Mbps",
             )
             throw IllegalStateException(
-                "OpenStream needs a hardware AVC encoder that supports the selected stream profile",
+                "OpenStream needs a hardware $mime encoder that supports the selected stream profile",
             )
         }
     }
@@ -372,3 +391,14 @@ class MediaCodecVideoEncoder(
         private const val CALLBACK_THREAD_JOIN_TIMEOUT_MS = 500L
     }
 }
+
+internal fun supportsMain10(profiles: List<Int>): Boolean =
+    MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10 in profiles
+
+private fun MediaFormat.integerOrNull(key: String): Int? =
+    if (containsKey(key)) getInteger(key) else null
+
+internal fun isHlgMain10Output(profile: Int?, standard: Int?, transfer: Int?, range: Int?): Boolean =
+    profile == MediaCodecInfo.CodecProfileLevel.HEVCProfileMain10 &&
+        standard == MediaFormat.COLOR_STANDARD_BT2020 && transfer == MediaFormat.COLOR_TRANSFER_HLG &&
+        range == MediaFormat.COLOR_RANGE_LIMITED
