@@ -219,7 +219,11 @@ class ObsDiscoveryClient(
     }
 
     private fun publishDevices() {
-        lastPublishMs = nowMs()
+        val gen = synchronized(lifecycleLock) {
+            if (!desiredRunning) return
+            lastPublishMs = nowMs()
+            publishGeneration.get()
+        }
         val snapshot = synchronized(devices) {
             devices.values.sortedWith(
                 compareBy<DiscoveredObsDevice> { it.displayLabel }
@@ -227,7 +231,9 @@ class ObsDiscoveryClient(
             ).toList()
         }
         mainHandler.post {
-            onDevicesChanged(snapshot)
+            if (publishGeneration.get() == gen) {
+                onDevicesChanged(snapshot)
+            }
         }
     }
 
@@ -258,6 +264,7 @@ class ObsDiscoveryClient(
         private const val STOP_TIMEOUT_MS = 1_000L
         private const val MAX_DEVICES = 64
         private const val PUBLISH_DEBOUNCE_MS = 300L
+        private const val EXPIRY_POLL_MS = 1_500
     }
 }
 
