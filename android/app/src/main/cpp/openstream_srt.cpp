@@ -431,33 +431,56 @@ class MpegTsMuxer {
         chunk = 184;
       }
 
-      packet[3] = static_cast<uint8_t>((hasAdaptation ? 0x30 : 0x10) | nextContinuity(pid));
+      pkt[3] = static_cast<uint8_t>((hasAdaptation ? 0x30 : 0x10) | nextContinuity(pid));
       size_t payloadOffset = 4;
       if (hasAdaptation) {
         const size_t adaptationLength = 188 - 4 - 1 - chunk;
-        packet[payloadOffset++] = static_cast<uint8_t>(adaptationLength);
+        pkt[payloadOffset++] = static_cast<uint8_t>(adaptationLength);
         if (adaptationLength > 0) {
-          packet[payloadOffset++] = includePcr ? 0x10 : 0x00;
+          pkt[payloadOffset++] = includePcr ? 0x10 : 0x00;
           if (includePcr) {
-            writePcr(&packet[payloadOffset], *pcr90k);
+            writePcr(pkt + payloadOffset, *pcr90k);
             payloadOffset += 6;
           }
-          while (payloadOffset < 188 - chunk) {
-            packet[payloadOffset++] = 0xff;
+          const size_t stuffing = (188 - chunk) - payloadOffset;
+          if (stuffing > 0) {
+            std::fill_n(pkt + payloadOffset, stuffing, static_cast<uint8_t>(0xff));
+            payloadOffset += stuffing;
           }
         }
       }
 
-      std::copy(payload.begin() + static_cast<std::ptrdiff_t>(offset),
-                payload.begin() + static_cast<std::ptrdiff_t>(offset + chunk),
-                packet.begin() + static_cast<std::ptrdiff_t>(payloadOffset));
-      output.insert(output.end(), packet.begin(), packet.end());
-      offset += chunk;
+      size_t toCopy = chunk;
+      while (toCopy > 0) {
+        while (segIdx < segments.size() && segPos >= segments[segIdx].size) {
+          ++segIdx;
+          segPos = 0;
+        }
+        const size_t avail = segments[segIdx].size - segPos;
+        const size_t step = std::min(toCopy, avail);
+        std::copy_n(segments[segIdx].data + segPos, step, pkt + payloadOffset);
+        payloadOffset += step;
+        segPos += step;
+        toCopy -= step;
+      }
+
+      consumed += chunk;
       first = false;
     }
   }
 
+  void packetizePayload(std::vector<uint8_t> &output,
+                        uint16_t pid,
+                        const std::vector<uint8_t> &payload,
+                        bool payloadUnitStart,
+                        std::optional<uint64_t> pcr90k) {
+    packetizeSegments(output, pid, payload.data(), payload.size(), nullptr, 0, nullptr, 0,
+                      payloadUnitStart, pcr90k);
+  }
+
   VideoCodec codec_;
+  std::array<uint8_t, 188> patTemplate_{};
+  std::array<uint8_t, 188> pmtTemplate_{};
   std::map<uint16_t, uint8_t> continuity_;
   bool forceTables_ = true;
   uint64_t packetIndex_ = 0;
@@ -669,7 +692,8 @@ class NativeSender {
 #endif
   }
 
-  bool listen(const std::string &url, uint64_t expectedLifecycleGeneration) {
+  bool listen(const std::string &url, uint64_t expectedLifecycleGeneration,
+              const std::function<bool(const std::string &)> &authorizePeer) {
 #if OPENSTREAM_HAVE_LIBSRT
     disconnect();
     const auto parsed = parseSrtUrl(url);
