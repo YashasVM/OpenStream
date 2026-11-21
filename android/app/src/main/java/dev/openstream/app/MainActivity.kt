@@ -1445,6 +1445,104 @@ class MainActivity : Activity() {
         }
     }
 
+    // ─────────────────────────── Thermal & display efficiency ───────────────────────────
+
+    private fun capDisplayRefreshRate() {
+        val params = window.attributes
+        params.preferredRefreshRate = PREFERRED_DISPLAY_REFRESH_HZ
+        window.attributes = params
+    }
+
+    private fun applyPreviewBufferSize(): Boolean {
+        val (width, height) = camera.recommendedPreviewSize(currentLens, streamConfig.width, streamConfig.height)
+        val target = width to height
+        val hadPendingResize = pendingPreviewBufferSize != null
+        if (!hadPendingResize && appliedPreviewBufferSize == target) {
+            return true
+        }
+        val frame = runCatching { cameraPreview.holder.surfaceFrame }.getOrNull()
+        val currentW = frame?.width() ?: 0
+        val currentH = frame?.height() ?: 0
+        val alreadyMatches = currentW > 0 && currentH > 0 && (
+            (currentW == width && currentH == height) ||
+                (currentW == height && currentH == width)
+            )
+        if (alreadyMatches) {
+            if (hadPendingResize) {
+                // Supersede any queued setFixedSize() from an interrupted lens switch (A -> B -> A).
+                runCatching { cameraPreview.holder.setFixedSize(width, height) }
+            }
+            appliedPreviewBufferSize = target
+            pendingPreviewBufferSize = null
+            return true
+        }
+        pendingPreviewBufferSize = target
+        runCatching { cameraPreview.holder.setFixedSize(width, height) }
+            .onFailure {
+                pendingPreviewBufferSize = null
+                return true
+            }
+        // When surfaceFrame is already non-zero, defer session creation until
+        // surfaceChanged delivers the resized buffer; otherwise allow immediate start.
+        return currentW == 0 || currentH == 0
+    }
+
+    private fun registerThermalListener() {
+        if (thermalStatusListener != null) return
+        val powerManager = getSystemService(PowerManager::class.java) ?: return
+        currentThermalStatus = runCatching { powerManager.currentThermalStatus }
+            .getOrDefault(ThermalPolicy.STATUS_NONE)
+        val listener = PowerManager.OnThermalStatusChangedListener { status ->
+            currentThermalStatus = status
+            synchronized(callerLifecycleLock) {
+                applyThermalBitrate(force = false)
+            }
+            mainHandler.post { applyThermalDisplayMitigation(status) }
+        }
+        runCatching {
+            powerManager.addThermalStatusListener(listener)
+            thermalStatusListener = listener
+        }
+    }
+
+    private fun unregisterThermalListener() {
+        val listener = thermalStatusListener ?: return
+        thermalStatusListener = null
+        val powerManager = getSystemService(PowerManager::class.java) ?: return
+        runCatching { powerManager.removeThermalStatusListener(listener) }
+    }
+
+    private fun applyThermalBitrate(force: Boolean = false) {
+        val baseBitrate = activeStreamBitrate
+        if (baseBitrate <= 0) return
+        if (!force && activeTargetName == null) return
+        val mitigation = ThermalPolicy.evaluate(currentThermalStatus, baseBitrate)
+        if (!force && appliedThermalBitrate == mitigation.targetBitrateBps) return
+        if (encoder.updateBitrate(mitigation.targetBitrateBps)) {
+            appliedThermalBitrate = mitigation.targetBitrateBps
+        }
+    }
+
+    private fun resumeDiscoveryIfIdle() {
+        if (activityStarted && !phoneConnected && activeTargetName == null) {
+            obsDiscoveryClient.start()
+        }
+    }
+
+    private fun applyThermalDisplayMitigation(status: Int) {
+        if (activeTargetName == null) return
+        val mitigation = ThermalPolicy.evaluate(status, activeStreamBitrate)
+        if (mitigation.autoDimDisplay && !displayOff) {
+            setDisplayOff(true)
+        }
+    }
+
+    private fun notifyListenerStateChanged() {
+        synchronized(listenerWaitLock) {
+            listenerWaitLock.notifyAll()
+        }
+    }
+
     // ─────────────────────────── Port selector ───────────────────────────
 
     private fun changePort(newPort: Int) {
@@ -1469,6 +1567,7 @@ class MainActivity : Activity() {
             busyProvider = { isPhoneBusy() },
             reservedByProvider = { advertisedReservationId },
             selectedObsHostProvider = { selectedObsHost },
+            streamingProvider = { phoneConnected || activeTargetName != null },
         )
         phoneAdvertiser.start()
         if (wasListenerMode) {
@@ -1479,11 +1578,17 @@ class MainActivity : Activity() {
     // ─────────────────────────── Preview aspect ratio fix ───────────────────────────
 
     private fun adjustPreviewAspectRatio() {
-        // Camera outputs in landscape (e.g. 1920x1080) but phone is portrait
-        // The preview surface should match the camera aspect ratio to avoid stretching
-        val cameraAspect = streamConfig.width.toFloat() / streamConfig.height.toFloat()
-        // In portrait, the preview aspect should be height/width = 16/9
-        val targetAspect = cameraAspect // = 16:9
+        // Match the confirmed camera preview buffer's aspect ratio (falling back
+        // to the stream aspect ratio before sizing completes) so 4:3 cameras do
+        // not get stretched into a 16:9 viewport.
+        val bufferSize = appliedPreviewBufferSize ?: pendingPreviewBufferSize
+        val cameraAspect = if (bufferSize != null && bufferSize.first > 0 && bufferSize.second > 0) {
+            maxOf(bufferSize.first, bufferSize.second).toFloat() /
+                minOf(bufferSize.first, bufferSize.second).toFloat()
+        } else {
+            streamConfig.width.toFloat() / streamConfig.height.toFloat()
+        }
+        val targetAspect = cameraAspect
 
         val containerWidth = previewContainer.width
         val containerHeight = previewContainer.height
@@ -1536,9 +1641,9 @@ class MainActivity : Activity() {
         private const val RECONNECT_RESERVATION_MS = 45_000L
         private const val IDENTIFY_OVERLAY_MS = 3_000L
         private const val LENS_RESTART_DELAY_MS = 500L
-        private const val LISTENER_POLL_MS = 250L
         private const val LISTENER_RETRY_MS = 750L
         private const val LISTENER_STOP_TIMEOUT_MS = 2_000L
+        private const val PREFERRED_DISPLAY_REFRESH_HZ = 60f
         private const val SETTINGS_REQUEST_CODE = 200
         private val REQUIRED_PERMISSIONS = arrayOf(
             Manifest.permission.CAMERA,
