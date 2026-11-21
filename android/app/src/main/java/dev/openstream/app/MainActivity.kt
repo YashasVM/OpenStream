@@ -921,6 +921,7 @@ class MainActivity : Activity() {
     private fun startPhoneServerIfAllowed() {
         if (!activityStarted || !lifecycleStartGate.canStart()) return
         if (phoneServerRunning) return
+        if (callerSessionActive || activeTargetName != null) return
         if (listenerThread?.isAlive == true) {
             pendingListenerStart = true
             Log.w("shin", "Previous SRT listener is still stopping; not starting another")
@@ -928,6 +929,7 @@ class MainActivity : Activity() {
         }
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) return
         if (!cameraPreview.holder.surface.isValid) return
+        if (pendingPreviewBufferSize != null) return
 
         pendingListenerStart = false
         val generation = listenerGeneration + 1
@@ -944,6 +946,7 @@ class MainActivity : Activity() {
             try {
                 while (isListenerActive(generation)) {
                     val listenUrl = "srt://0.0.0.0:${currentPort}?mode=listener&latency=${streamConfig.latencyMs}"
+                    var mediaPeer: String? = null
                     val listenResult = runCatching {
                         streamClient.listen(
                             url = listenUrl,
@@ -951,26 +954,60 @@ class MainActivity : Activity() {
                             width = streamConfig.width,
                             height = streamConfig.height,
                             fps = streamConfig.fps,
+                            authorizePeer = java.util.function.Predicate { peer ->
+                                (isListenerActive(generation) && controlServer.isAuthorizedController(peer))
+                                    .also { allowed -> if (allowed) mediaPeer = peer }
+                            },
                         )
-                        if (!isListenerActive(generation)) {
+                        if (!isListenerActive(generation) ||
+                            mediaPeer?.let(controlServer::isAuthorizedController) != true
+                        ) {
                             streamClient.disconnect()
                             return@runCatching
                         }
                         phoneConnected = true
                         cancelReservationRelease()
+                        // Release WifiManager.MulticastLock while actively streaming; abort if cancelled mid-stop.
+                        if (!isListenerActive(generation) || !phoneConnected) {
+                            resumeDiscoveryIfIdle()
+                            return@runCatching
+                        }
+                        obsDiscoveryClient.stop()
+                        if (!isListenerActive(generation) || !phoneConnected ||
+                            mediaPeer?.let(controlServer::isAuthorizedController) != true
+                        ) {
+                            streamClient.disconnect()
+                            resumeDiscoveryIfIdle()
+                            return@runCatching
+                        }
                         val liveTargetName = reservedSlotLabel ?: "OBS"
-                        activeTargetName = liveTargetName
+                        synchronized(callerLifecycleLock) {
+                            if (!isListenerActive(generation) || !phoneConnected ||
+                                mediaPeer?.let(controlServer::isAuthorizedController) != true
+                            ) {
+                                streamClient.disconnect()
+                                resumeDiscoveryIfIdle()
+                                return@runCatching
+                            }
+                            activeTargetName = liveTargetName
+                            encoder.start()
+                            applyThermalBitrate(force = true)
+                            startAudioIfAllowed()
+                            camera.startStreaming(encoder.inputSurface())
+                        }
                         runOnUiThread {
-                            if (!isListenerActive(generation)) return@runOnUiThread
+                            if (!isListenerActive(generation) || !phoneConnected) return@runOnUiThread
                             showLiveState(liveTargetName)
                             mainHandler.removeCallbacks(statsTicker)
-                            mainHandler.post(statsTicker)
+                            if (!displayOff) mainHandler.post(statsTicker)
+                            applyThermalDisplayMitigation(currentThermalStatus)
                         }
-                        encoder.start()
-                        startAudioIfAllowed()
-                        camera.startStreaming(encoder.inputSurface())
-                        while (isListenerActive(generation) && phoneConnected) {
-                            Thread.sleep(LISTENER_POLL_MS)
+                        synchronized(listenerWaitLock) {
+                            while (isListenerActive(generation) && phoneConnected &&
+                                mediaPeer?.let(controlServer::isAuthorizedController) == true
+                            ) {
+                                listenerWaitLock.wait()
+                            }
                         }
                     }
 
