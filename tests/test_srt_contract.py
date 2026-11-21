@@ -115,7 +115,7 @@ def test_native_connect_and_listen_publish_only_current_generation():
     establish = block_after(kotlin, "private inline fun establishSession")
     assert "SrtNativeBridge.beginSession(generation)" in establish
     assert "SrtNativeBridge.connect(candidateUrl, codecMime, width, height, fps, generation)" in kotlin
-    assert "SrtNativeBridge.listen(url, codecMime, width, height, fps, generation)" in kotlin
+    assert "SrtNativeBridge.listen(url, codecMime, width, height, fps, generation, authorizePeer)" in kotlin
 
     publish = block_after(native, "bool setSocketForLifecycle")
     assert "std::lock_guard<std::mutex> lock(socketMutex_)" in publish
@@ -128,7 +128,7 @@ def test_native_connect_and_listen_publish_only_current_generation():
     connect = block_after(native, "bool connect(const std::string &url, uint64_t expectedLifecycleGeneration)")
     assert connect.index("setSocketForLifecycle(socket, expectedLifecycleGeneration)") < connect.index("srt_connect(")
 
-    listen = block_after(native, "bool listen(const std::string &url, uint64_t expectedLifecycleGeneration)")
+    listen = block_after(native, "bool listen(const std::string &url, uint64_t expectedLifecycleGeneration,")
     assert "setListenerSocketForLifecycle(listenerSocket, expectedLifecycleGeneration)" in listen
     assert "setSocketForLifecycle(acceptedSocket, expectedLifecycleGeneration)" in listen
 

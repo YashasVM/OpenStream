@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from _helpers import ROOT, function_body, read_text as read
+from _helpers import ROOT, block_after, function_body, read_text as read
 
 SERVER = Path(
     "android/app/src/main/java/dev/openstream/app/control/CameraControlServer.kt"
@@ -202,7 +202,7 @@ def test_mutating_controls_require_reservation_peer_before_side_effects():
 
 
 def test_authorization_requires_live_reservation_and_matching_peer():
-    auth = function_body(SERVER, "isAuthorizedController")
+    auth = block_after(SERVER, "fun isAuthorizedController(")
     assert "reservationProvider() != null" in auth
     assert "controllerAddress.isNotEmpty()" in auth
     assert "controllerAddress == activeControllerAddress" in auth
