@@ -219,6 +219,22 @@ class Camera2Controller(
         private const val CAMERA_THREAD_JOIN_TIMEOUT_MS = 500L
     }
 
+    /** Returns a camera-supported preview buffer size capped at [MAX_PREVIEW_LONG_EDGE]. */
+    fun recommendedPreviewSize(lens: CameraLens, streamWidth: Int, streamHeight: Int): Pair<Int, Int> {
+        val manager = cameraManager
+            ?: return computePreviewBufferSize(streamWidth, streamHeight)
+        val cameraId = runCatching { selectCameraId(lens) }.getOrNull()
+            ?: return computePreviewBufferSize(streamWidth, streamHeight)
+        val supported = runCatching {
+            val map = manager.getCameraCharacteristics(cameraId)
+                .get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+            map?.getOutputSizes(SurfaceHolder::class.java)
+                ?.map { it.width to it.height }
+                .orEmpty()
+        }.getOrDefault(emptyList())
+        return choosePreviewBufferSize(supported, streamWidth, streamHeight)
+    }
+
     /** Discover optical presets from logical multi-camera physical lens metadata. */
     fun availableLenses(): List<CameraLens> {
         val manager = cameraManager ?: run {
@@ -545,6 +561,21 @@ class Camera2Controller(
             torchOnInternal = enabled
             rebuildRepeatingRequest()
             true
+        }
+    }
+
+    /**
+     * Suppresses preview surface rendering while streaming (e.g. Display-Off mode)
+     * without tearing down the capture session so the ISP stops writing frames to
+     * the hidden SurfaceView with zero stream interruption.
+     */
+    fun setPreviewSuppressed(suppressed: Boolean) {
+        synchronized(lifecycleLock) {
+            if (previewSuppressed == suppressed) return
+            previewSuppressed = suppressed
+            if (camera != null && session != null && streamingSurface != null) {
+                rebuildRepeatingRequest()
+            }
         }
     }
 
