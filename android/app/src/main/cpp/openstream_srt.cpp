@@ -1209,8 +1209,20 @@ Java_dev_openstream_app_stream_SrtNativeBridge_nativeListen(
     g_state.connected = false;
   }
   g_state.sender.disconnect();
-  const bool connected =
-      g_state.sender.listen(urlString, static_cast<uint64_t>(session_generation));
+  if (!authorize_peer) return JNI_FALSE;
+  const jclass predicateClass = env->GetObjectClass(authorize_peer);
+  const jmethodID test = env->GetMethodID(predicateClass, "test", "(Ljava/lang/Object;)Z");
+  env->DeleteLocalRef(predicateClass);
+  if (!test) return JNI_FALSE;
+  const bool connected = g_state.sender.listen(
+      urlString, static_cast<uint64_t>(session_generation), [&](const std::string &peer) {
+        if (env->ExceptionCheck()) return false;
+        const jstring address = env->NewStringUTF(peer.c_str());
+        if (!address) return false;
+        const bool allowed = env->CallBooleanMethod(authorize_peer, test, address) == JNI_TRUE;
+        env->DeleteLocalRef(address);
+        return !env->ExceptionCheck() && allowed;
+      });
   bool published = false;
   {
     std::lock_guard<std::mutex> lock(g_state.mediaMutex);
@@ -1251,16 +1263,11 @@ Java_dev_openstream_app_stream_SrtNativeBridge_nativeSendVideo(
   }
 
   const bool keyFrame = (flags & kMediaCodecBufferFlagKeyFrame) != 0;
-  if (keyFrame && !g_state.codecConfig.empty()) {
-    std::vector<uint8_t> withConfig;
-    withConfig.reserve(g_state.codecConfig.size() + annexB.size());
-    withConfig.insert(withConfig.end(), g_state.codecConfig.begin(), g_state.codecConfig.end());
-    withConfig.insert(withConfig.end(), annexB.begin(), annexB.end());
-    annexB = std::move(withConfig);
-  }
+  const uint8_t *prefix = (keyFrame && !g_state.codecConfig.empty()) ? g_state.codecConfig.data() : nullptr;
+  const size_t prefixSize = (keyFrame && !g_state.codecConfig.empty()) ? g_state.codecConfig.size() : 0;
 
-  std::vector<uint8_t> ts =
-      g_state.muxer->muxAccessUnit(annexB, static_cast<int64_t>(presentation_time_us), keyFrame);
+  std::vector<uint8_t> ts = g_state.muxer->muxAccessUnit(
+      prefix, prefixSize, annexB.data(), annexB.size(), static_cast<int64_t>(presentation_time_us), keyFrame);
   const bool sent = g_state.sender.send(std::move(ts));
   if (!sent) {
     g_state.connected = false;
