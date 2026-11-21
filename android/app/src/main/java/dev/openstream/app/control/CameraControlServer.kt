@@ -174,8 +174,7 @@ class CameraControlServer(
 
     private fun handleClient(client: Socket) {
         try {
-            client.soTimeout = 5000
-            val input = BufferedInputStream(client.getInputStream())
+            val input = ControlRequestInput(client, 5000)
             val writer = PrintWriter(OutputStreamWriter(client.getOutputStream(), Charsets.UTF_8), false)
             val controllerAddress = client.inetAddress?.hostAddress.orEmpty()
 
@@ -323,7 +322,7 @@ class CameraControlServer(
         return json.toString()
     }
 
-    private fun isAuthorizedController(controllerAddress: String): Boolean {
+    internal fun isAuthorizedController(controllerAddress: String): Boolean {
         return reservationProvider() != null &&
             controllerAddress.isNotEmpty() &&
             controllerAddress == activeControllerAddress
