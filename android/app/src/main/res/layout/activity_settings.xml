@@ -51,7 +51,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:minHeight="48dp"
-                android:text="High · 1080p60 · 50 Mbps"
+                android:text="High · 1080p60 · 25 Mbps"
                 android:textColor="@color/os_text_primary"
                 android:buttonTint="@color/os_accent" />
 
@@ -60,7 +60,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:minHeight="48dp"
-                android:text="Balanced · 1080p30 · 12 Mbps"
+                android:text="Balanced · 1080p30 · 12 Mbps (Recommended)"
                 android:textColor="@color/os_text_primary"
                 android:buttonTint="@color/os_accent" />
 
