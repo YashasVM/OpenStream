@@ -142,6 +142,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         requestRuntimePermissions()
         setContentView(R.layout.activity_main)
+        capDisplayRefreshRate()
         bindViews()
         setupGestureDetector()
 
@@ -169,6 +170,7 @@ class MainActivity : Activity() {
             busyProvider = { isPhoneBusy() },
             reservedByProvider = { advertisedReservationId },
             selectedObsHostProvider = { selectedObsHost },
+            streamingProvider = { phoneConnected || activeTargetName != null },
         )
         obsDiscoveryClient = ObsDiscoveryClient(
             context = applicationContext,
@@ -235,14 +237,50 @@ class MainActivity : Activity() {
         cameraPreview.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {
                 initializeLenses()
-                startPreviewIfAllowed()
-                startPhoneServerIfAllowed()
+                if (applyPreviewBufferSize()) {
+                    startPreviewIfAllowed()
+                    startPhoneServerIfAllowed()
+                }
             }
             override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                val pending = pendingPreviewBufferSize
+                if (pending != null && width > 0 && height > 0) {
+                    val matchesTarget = (width == pending.first && height == pending.second) ||
+                        (width == pending.second && height == pending.first)
+                    if (matchesTarget) {
+                        pendingPreviewBufferSize = null
+                        appliedPreviewBufferSize = pending
+                        adjustPreviewAspectRatio()
+                        val deferredLens = pendingLensSwitch
+                        val shouldRestartStream = pendingLensRestartStream
+                        pendingLensSwitch = null
+                        pendingLensRestartStream = false
+                        if (deferredLens != null) {
+                            runCatching { camera.switchLens(deferredLens) }.onFailure { error ->
+                                Log.e("shin", "Lens switch failed", error)
+                                statusDetail.text = error.message ?: "Lens switch failed"
+                            }
+                            if (shouldRestartStream && activeTargetName != null) {
+                                scheduleLensEncoderRestart()
+                            }
+                        } else {
+                            startPreviewIfAllowed()
+                        }
+                        // Caller-mode sessions are gated inside startPhoneServerIfAllowed();
+                        // calling here also recovers fallback listener start if a caller
+                        // connection failed while the lens resize was in flight.
+                        startPhoneServerIfAllowed()
+                        return
+                    }
+                }
                 // Fix stretched preview: adjust SurfaceView to maintain camera aspect ratio
                 adjustPreviewAspectRatio()
             }
             override fun surfaceDestroyed(holder: SurfaceHolder) {
+                pendingPreviewBufferSize = null
+                appliedPreviewBufferSize = null
+                pendingLensSwitch = null
+                pendingLensRestartStream = false
                 // Close the camera before encoder teardown tries to rebuild a
                 // preview-only session against this now-invalid surface.
                 camera.stop()
@@ -264,6 +302,7 @@ class MainActivity : Activity() {
 
     private fun startActivityServices() {
         if (!activityStarted || !lifecycleStartGate.canStart()) return
+        registerThermalListener()
         phoneAdvertiser.start()
         obsDiscoveryClient.start()
         controlServer.start()
@@ -285,8 +324,12 @@ class MainActivity : Activity() {
     override fun onStop() {
         activityStarted = false
         lifecycleStartGate.onStop()
+        pendingLensSwitch = null
+        pendingLensRestartStream = false
+        unregisterThermalListener()
         cancelLensRestart()
         stopLiveDotAnimation()
+        notifyListenerStateChanged()
         // Never block the UI thread on network/thread joins (AGENTS.md 6).
         // Flag flips are immediate; heavy teardown runs on a daemon thread.
         // stopPhoneServer detects a non-UI thread and runs blocking teardown inline.
