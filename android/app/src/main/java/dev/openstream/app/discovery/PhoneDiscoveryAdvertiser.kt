@@ -23,6 +23,7 @@ class PhoneDiscoveryAdvertiser(
     private val busyProvider: () -> Boolean,
     private val reservedByProvider: () -> String? = { null },
     private val selectedObsHostProvider: () -> String? = { null },
+    private val streamingProvider: () -> Boolean = { false },
 ) {
     private val running = AtomicBoolean(false)
     @Volatile private var pendingRestart = false
@@ -76,13 +77,15 @@ class PhoneDiscoveryAdvertiser(
             finishWorkerAndRestart()
             return
         }
+        val broadcastAddress = runCatching { InetAddress.getByName("255.255.255.255") }.getOrNull()
+        val multicastAddress = runCatching { InetAddress.getByName(DISCOVERY_MULTICAST_ADDRESS) }.getOrNull()
         try {
             while (running.get()) {
-                val bytes = beaconPayload(instanceId).toByteArray(StandardCharsets.UTF_8)
-                val destinations = linkedSetOf(
-                    InetAddress.getByName("255.255.255.255"),
-                    InetAddress.getByName(DISCOVERY_MULTICAST_ADDRESS),
-                )
+                val busy = busyProvider()
+                val bytes = beaconPayload(instanceId, busy).toByteArray(StandardCharsets.UTF_8)
+                val destinations = LinkedHashSet<InetAddress>(3)
+                broadcastAddress?.let { destinations += it }
+                multicastAddress?.let { destinations += it }
                 selectedObsHostProvider()?.trim()?.takeIf { it.isNotEmpty() }?.let { host ->
                     runCatching { destinations += InetAddress.getByName(host) }
                 }
@@ -92,7 +95,8 @@ class PhoneDiscoveryAdvertiser(
                     }
                 }
                 try {
-                    Thread.sleep(1_000)
+                    val slowCadence = busy || streamingProvider()
+                    Thread.sleep(if (slowCadence) BUSY_BEACON_INTERVAL_MS else IDLE_BEACON_INTERVAL_MS)
                 } catch (_: InterruptedException) {
                     break
                 }
