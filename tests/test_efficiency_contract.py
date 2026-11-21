@@ -439,3 +439,35 @@ def test_efficiency_comment_renderer_enforces_trusted_spec_and_rejects_tampering
     assert "deadbee" not in md_bad_base
 
 
+def test_efficiency_pr_bot_workflow_is_isolated_serialized_and_trusted():
+    android_wf = read_text(".github/workflows/android.yml")
+    bot_wf = read_text(".github/workflows/efficiency-report.yml")
+
+    assert ":app:minifyReleaseWithR8" in android_wf
+    assert "--release-dex-dir" in android_wf
+    assert "tools/measure_efficiency.py" in android_wf
+    assert "--enforce-ceilings" in android_wf
+    assert "openstream-efficiency-report" in android_wf
+    assert "pull-requests: write" not in android_wf
+
+    assert "workflow_run:" in bot_wf
+    assert 'workflows: ["Android APK"]' in bot_wf
+    assert "pull-requests: write" in bot_wf
+    assert "persist-credentials: false" in bot_wf
+    assert "cancel-in-progress: false" in bot_wf
+    assert "queue: max" in bot_wf
+    assert "ref: ${{ github.event.workflow_run.head_sha }}" not in bot_wf
+    assert "len(matched) == 1" in bot_wf
+    assert "size_in_bytes" in bot_wf
+    assert "head -c $((max_zip_bytes + 1))" in bot_wf
+    assert "--unavailable" in bot_wf
+    assert "info.file_size > MAX_BYTES" in bot_wf
+    assert "stream.read(MAX_BYTES + 1)" in bot_wf
+    assert "tools/render_efficiency_comment.py" in bot_wf
+    assert "<!-- openstream-efficiency-report -->" in bot_wf
+    # Comment lookup must fail hard (no || true) and final PR state/head verification
+    # must happen AFTER comment lookup, right before PATCH/POST.
+    lookup_idx = bot_wf.index('--slurp "repos/${REPO}/issues/${pr_number}/comments"')
+    final_check_idx = bot_wf.index('if [ "$pr_still_matches" != "true" ]')
+    patch_idx = bot_wf.index("gh api -X PATCH")
+    assert lookup_idx < final_check_idx < patch_idx
