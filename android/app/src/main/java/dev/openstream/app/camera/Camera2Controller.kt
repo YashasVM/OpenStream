@@ -15,9 +15,123 @@ import android.os.HandlerThread
 import android.util.Log
 import android.util.Range
 import android.view.Surface
+import android.view.SurfaceHolder
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.abs
 
 internal data class CameraCropRegion(val left: Int, val top: Int, val right: Int, val bottom: Int)
+
+internal const val IDLE_PREVIEW_MIN_UPPER_FPS = 15
+internal const val IDLE_PREVIEW_MAX_FPS = 30
+internal const val MAX_PREVIEW_LONG_EDGE = 960
+
+/**
+ * Selects an AE target FPS range for either live streaming (prefers fixed
+ * [targetFps, targetFps] for steady cadence) or idle preview (prefers the
+ * lowest upper bound in [IDLE_PREVIEW_MIN_UPPER_FPS]..[IDLE_PREVIEW_MAX_FPS]
+ * so well-lit idle previews genuinely run below 30 fps when the HAL exposes a
+ * lower range, falling back to 30 fps otherwise).
+ */
+internal fun chooseCaptureFpsRange(
+    availableRanges: List<Pair<Int, Int>>,
+    targetFps: Int,
+    streaming: Boolean,
+): Pair<Int, Int>? {
+    if (availableRanges.isEmpty()) return null
+    val desiredUpper = if (streaming) targetFps else minOf(targetFps, IDLE_PREVIEW_MAX_FPS)
+    return if (streaming) {
+        availableRanges
+            .filter { (lower, upper) -> desiredUpper in lower..upper }
+            .minWithOrNull(
+                compareBy<Pair<Int, Int>>(
+                    { if (it.first == desiredUpper && it.second == desiredUpper) 0 else 1 },
+                    { it.second - it.first },
+                    { -it.first },
+                ),
+            )
+            ?: availableRanges
+                .filter { (_, upper) -> upper <= desiredUpper }
+                .maxWithOrNull(compareBy<Pair<Int, Int>> { it.second }.thenBy { it.first })
+    } else {
+        // For idle preview, prefer the lowest advertised upper bound >= 15 fps
+        // within <= 30 fps (e.g. [15, 15] or [12, 24] over [12, 30]), then lower
+        // minimum FPS when tied on upper bound.
+        val minUpper = minOf(IDLE_PREVIEW_MIN_UPPER_FPS, desiredUpper)
+        availableRanges
+            .filter { (_, upper) -> upper in minUpper..desiredUpper }
+            .minWithOrNull(
+                compareBy<Pair<Int, Int>>(
+                    { it.second },
+                    { it.first },
+                ),
+            )
+            ?: availableRanges
+                .filter { (_, upper) -> upper <= desiredUpper }
+                .maxWithOrNull(compareBy<Pair<Int, Int>> { it.second }.thenBy { -it.first })
+            ?: availableRanges
+                .filter { (lower, upper) -> desiredUpper in lower..upper }
+                .minWithOrNull(compareBy<Pair<Int, Int>> { it.second }.thenBy { it.first })
+    }
+}
+
+/**
+ * Caps the local viewfinder SurfaceView buffer size so Camera2 doesn't allocate
+ * a 1440p+ preview stream alongside the hardware encoder surface.
+ */
+internal fun computePreviewBufferSize(
+    streamWidth: Int,
+    streamHeight: Int,
+    maxLongEdge: Int = MAX_PREVIEW_LONG_EDGE,
+): Pair<Int, Int> {
+    val safeW = streamWidth.coerceAtLeast(2)
+    val safeH = streamHeight.coerceAtLeast(2)
+    val safeCap = maxLongEdge.coerceAtLeast(2)
+    val longEdge = maxOf(safeW, safeH)
+    if (longEdge <= safeCap) {
+        return (safeW and 1.inv()).coerceAtLeast(2) to (safeH and 1.inv()).coerceAtLeast(2)
+    }
+    val scale = safeCap.toDouble() / longEdge.toDouble()
+    val scaledW = ((safeW * scale).toInt() and 1.inv()).coerceAtLeast(2)
+    val scaledH = ((safeH * scale).toInt() and 1.inv()).coerceAtLeast(2)
+    return scaledW to scaledH
+}
+
+/**
+ * Chooses a camera-supported [SurfaceHolder] output size within [maxLongEdge]
+ * matching the stream aspect ratio, falling back to the smallest supported size
+ * if none fit under the cap, or [computePreviewBufferSize] if the HAL reports none.
+ */
+internal fun choosePreviewBufferSize(
+    supportedSizes: List<Pair<Int, Int>>,
+    streamWidth: Int,
+    streamHeight: Int,
+    maxLongEdge: Int = MAX_PREVIEW_LONG_EDGE,
+): Pair<Int, Int> {
+    val valid = supportedSizes.filter { (w, h) -> w > 0 && h > 0 }
+    if (valid.isEmpty()) {
+        return computePreviewBufferSize(streamWidth, streamHeight, maxLongEdge)
+    }
+    val targetAspect = streamWidth.coerceAtLeast(1).toDouble() / streamHeight.coerceAtLeast(1).toDouble()
+    val withinCap = valid.filter { (w, h) -> maxOf(w, h) <= maxLongEdge }
+    val aspectTolerance = 0.05
+    if (withinCap.isNotEmpty()) {
+        val matchingAspect = withinCap.filter { (w, h) ->
+            abs((w.toDouble() / h.toDouble()) - targetAspect) <= aspectTolerance
+        }
+        val pool = matchingAspect.ifEmpty { withinCap }
+        return pool.maxWithOrNull(
+            compareBy<Pair<Int, Int>> { -abs((it.first.toDouble() / it.second.toDouble()) - targetAspect) }
+                .thenBy { it.first.toLong() * it.second.toLong() },
+        )!!
+    }
+    // No supported size fits under maxLongEdge: pick the smallest matching aspect.
+    return valid.minWithOrNull(
+        compareBy<Pair<Int, Int>>(
+            { if (abs((it.first.toDouble() / it.second.toDouble()) - targetAspect) <= aspectTolerance) 0 else 1 },
+            { it.first.toLong() * it.second.toLong() },
+        ),
+    )!!
+}
 
 /** Build a centered crop in active-array coordinates (which need not start at 0,0). */
 internal fun centeredCropRegion(
@@ -82,7 +196,12 @@ class Camera2Controller(
     private var minZoomRatio = 1.0f
     private var sensorRect: Rect? = null
     private var supportsZoomRatioKey = false
-    private var captureFpsRange: Range<Int>? = null
+    private var streamingFpsRange: Range<Int>? = null
+    private var idlePreviewFpsRange: Range<Int>? = null
+    private var supportsVideoStabilizationOff = false
+    private var supportsFastNoiseReduction = false
+    private var supportsFastEdgeMode = false
+    private var previewSuppressed = false
 
     // Torch state
     private var torchOnInternal = false
