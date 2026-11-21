@@ -174,3 +174,131 @@ def test_release_build_enables_r8_shrinking_and_keeps_jni_symbols():
     assert "java.util.function.Predicate" in proguard
 
 
+def test_native_muxer_zero_copy_prefix_matches_concat_and_validates_mpegts(tmp_path):
+    compiler = shutil.which("g++") or shutil.which("clang++")
+    if compiler is None:
+        pytest.skip("requires C++ compiler")
+
+    source = read_text("android/app/src/main/cpp/openstream_srt.cpp")
+    media = source[source.index("enum class VideoCodec") : source.index("struct SrtUrl")]
+
+    harness = r"""
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <cstdlib>
+#include <map>
+#include <new>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
+static std::atomic<uint64_t> g_allocs{0};
+static thread_local bool g_count = false;
+void *operator new(std::size_t sz) {
+  if (g_count) g_allocs.fetch_add(1, std::memory_order_relaxed);
+  if (void *p = std::malloc(sz == 0 ? 1 : sz)) return p;
+  throw std::bad_alloc();
+}
+void operator delete(void *p) noexcept { std::free(p); }
+void operator delete(void *p, std::size_t) noexcept { std::free(p); }
+
+constexpr int kAudioSampleRate = 48000;
+constexpr int kAudioChannelCount = 1;
+""" + media + r"""
+static void verifyTsPackets(const std::vector<uint8_t> &ts,
+                            std::map<uint16_t, uint8_t> &expectedCc,
+                            std::vector<uint8_t> &reconstructedVideoPes) {
+  assert(ts.size() % 188 == 0);
+  for (size_t off = 0; off < ts.size(); off += 188) {
+    const uint8_t *p = ts.data() + off;
+    assert(p[0] == 0x47);
+    const uint16_t pid = static_cast<uint16_t>(((p[1] & 0x1fu) << 8u) | p[2]);
+    const uint8_t afc = (p[3] >> 4u) & 0x03u;
+    const uint8_t cc = p[3] & 0x0fu;
+    if (expectedCc.count(pid)) {
+      assert(cc == expectedCc[pid]);
+    }
+    expectedCc[pid] = static_cast<uint8_t>((cc + 1u) & 0x0fu);
+
+    size_t idx = 4;
+    if (afc == 2 || afc == 3) {
+      const uint8_t adaptLen = p[idx++];
+      assert(idx + adaptLen <= 188);
+      idx += adaptLen;
+    }
+    if ((afc == 1 || afc == 3) && pid == 0x101) {
+      reconstructedVideoPes.insert(reconstructedVideoPes.end(), p + idx, p + 188);
+    }
+    if ((afc == 1 || afc == 3) && (pid == 0x0000 || pid == 0x0100)) {
+      const uint8_t pointer = p[idx++];
+      idx += pointer;
+      const uint16_t secLen = static_cast<uint16_t>(((p[idx + 1] & 0x0fu) << 8u) | p[idx + 2]);
+      const size_t totalSecLen = 3u + secLen;
+      assert(idx + totalSecLen <= 188);
+      assert(crc32Mpeg(p + idx, totalSecLen) == 0);
+    }
+  }
+}
+
+int main() {
+  const std::vector<uint8_t> spsPps = {0, 0, 0, 1, 0x67, 0x42, 0xc0, 0x28, 0, 0, 0, 1, 0x68, 0xce};
+  std::vector<uint8_t> idr(4096, 0x65);
+  idr[0] = 0; idr[1] = 0; idr[2] = 0; idr[3] = 1;
+  std::vector<uint8_t> combined;
+  combined.insert(combined.end(), spsPps.begin(), spsPps.end());
+  combined.insert(combined.end(), idr.begin(), idr.end());
+
+  MpegTsMuxer splitMux(VideoCodec::Avc);
+  MpegTsMuxer concatMux(VideoCodec::Avc);
+  std::map<uint16_t, uint8_t> ccMap;
+
+  for (int i = 0; i < 65; ++i) {
+    const bool kf = (i % 30 == 0);
+    const auto tsSplit = splitMux.muxAccessUnit(
+        kf ? spsPps.data() : nullptr,
+        kf ? spsPps.size() : 0,
+        idr.data(),
+        idr.size(),
+        static_cast<int64_t>(i) * 33333,
+        kf);
+    const auto tsConcat = concatMux.muxAccessUnit(
+        kf ? combined : idr,
+        static_cast<int64_t>(i) * 33333,
+        kf);
+    assert(tsSplit == tsConcat);
+
+    std::vector<uint8_t> pes;
+    verifyTsPackets(tsSplit, ccMap, pes);
+    assert(pes.size() == 14 + (kf ? combined.size() : idr.size()));
+    assert(pes[0] == 0x00 && pes[1] == 0x00 && pes[2] == 0x01 && pes[3] == 0xe0);
+    const auto &expectedBody = kf ? combined : idr;
+    assert(std::equal(expectedBody.begin(), expectedBody.end(), pes.begin() + 14));
+  }
+
+  // Steady-state heap allocation bound: 1 allocation per video frame (output vector only).
+  g_allocs = 0;
+  g_count = true;
+  auto kfTs = splitMux.muxAccessUnit(spsPps.data(), spsPps.size(), idr.data(), idr.size(), 9999999, true);
+  g_count = false;
+  assert(kfTs.size() % 188 == 0);
+  assert(g_allocs.load() <= 1);
+
+  g_allocs = 0;
+  g_count = true;
+  auto pTs = splitMux.muxAccessUnit(nullptr, 0, idr.data(), idr.size(), 10033332, false);
+  g_count = false;
+  assert(pTs.size() % 188 == 0);
+  assert(g_allocs.load() <= 1);
+}
+"""
+    cpp = tmp_path / "mux_verify.cpp"
+    exe = tmp_path / "mux_verify"
+    cpp.write_text(harness, encoding="utf-8")
+    subprocess.run([compiler, "-std=c++20", "-O2", str(cpp), "-o", str(exe)], check=True)
+    subprocess.run([str(exe)], check=True, timeout=20)
+
+
