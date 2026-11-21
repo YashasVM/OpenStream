@@ -793,7 +793,16 @@ class NativeSender {
       sockaddr_storage peer{};
       int peer_len = sizeof(peer);
       acceptedSocket = srt_accept(listenerSocket, reinterpret_cast<sockaddr *>(&peer), &peer_len);
-      if (acceptedSocket != SRT_INVALID_SOCK) break;
+      if (acceptedSocket != SRT_INVALID_SOCK) {
+        char peerAddress[INET_ADDRSTRLEN]{};
+        const auto *ipv4 = reinterpret_cast<const sockaddr_in *>(&peer);
+        if (peer.ss_family == AF_INET &&
+            inet_ntop(AF_INET, &ipv4->sin_addr, peerAddress, sizeof peerAddress) &&
+            authorizePeer(peerAddress)) break;
+        srt_close(acceptedSocket);
+        acceptedSocket = SRT_INVALID_SOCK;
+        continue;
+      }
 
       int systemError = 0;
       const int acceptError = srt_getlasterror(&systemError);
@@ -1173,7 +1182,8 @@ Java_dev_openstream_app_stream_SrtNativeBridge_nativeListen(
     jint,
     jint,
     jint,
-    jlong session_generation) {
+    jlong session_generation,
+    jobject authorize_peer) {
   const char *rawUrl = env->GetStringUTFChars(url, nullptr);
   const char *rawCodec = env->GetStringUTFChars(codec_mime, nullptr);
   const std::string urlString(rawUrl);
