@@ -1115,6 +1115,7 @@ class MainActivity : Activity() {
                     }
                 }
             }
+            resumeDiscoveryIfIdle()
             mainHandler.post {
                 hideLiveState()
                 if (pendingListenerStart) startPhoneServerIfAllowed()
@@ -1129,22 +1130,31 @@ class MainActivity : Activity() {
 
     private fun stopStream(updateStatus: Boolean = true) {
         callerGeneration += 1
+        callerSessionActive = false
         callerConnectThread?.interrupt()
         activeTargetName = null
         mainHandler.removeCallbacks(statsTicker)
         phoneConnected = false
+        notifyListenerStateChanged()
         streamClient.disconnect()
         synchronized(callerLifecycleLock) {
-            stopActiveEncoding(updateStatus)
+            stopActiveEncoding(updateStatus = false)
         }
+        if (updateStatus) {
+            statusText.text = getString(R.string.status_stopped)
+            statusDetail.text = "Camera preview remains active"
+        }
+        resumeDiscoveryIfIdle()
         hideLiveState()
     }
 
     private fun stopActiveEncoding(updateStatus: Boolean = true) {
         cancelLensRestart()
+        pendingLensRestartStream = false
         camera.stopStreaming()
         encoder.stop()
         audioEncoder.stop()
+        appliedThermalBitrate = 0
         if (updateStatus) {
             statusText.text = getString(R.string.status_stopped)
             statusDetail.text = "Camera preview remains active"
@@ -1220,6 +1230,7 @@ class MainActivity : Activity() {
         cancelReservationRelease()
         reservationState.clear()
         selectedObsHost = null
+        notifyListenerStateChanged()
         renderDisconnectVisibility()
     }
 
@@ -1305,7 +1316,9 @@ class MainActivity : Activity() {
     private fun showLiveState(targetName: String) {
         liveBadge.visibility = View.VISIBLE
         btnStop.visibility = View.VISIBLE
-        startLiveDotAnimation()
+        if (!displayOff) {
+            startLiveDotAnimation()
+        }
         statusText.text = getString(R.string.status_streaming, targetName)
         statusText.setTextColor(getColor(R.color.os_text_primary))
         statusDetail.text = "${streamConfig.width}×${streamConfig.height}@${streamConfig.fps} · ${activeStreamBitrate / 1_000_000} Mbps"
