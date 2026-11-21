@@ -852,9 +852,25 @@ class Camera2Controller(
         }
     }
 
-    private fun applyFrameRate(builder: CaptureRequest.Builder) {
-        captureFpsRange?.let { range ->
-            builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, range)
+    private fun applyFrameRate(builder: CaptureRequest.Builder, streaming: Boolean) {
+        val range = if (streaming) streamingFpsRange else (idlePreviewFpsRange ?: streamingFpsRange)
+        range?.let { selected ->
+            builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, selected)
+        }
+    }
+
+    private fun applyEfficiencySettings(builder: CaptureRequest.Builder) {
+        if (supportsVideoStabilizationOff) {
+            builder.set(
+                CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF,
+            )
+        }
+        if (supportsFastNoiseReduction) {
+            builder.set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_FAST)
+        }
+        if (supportsFastEdgeMode) {
+            builder.set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_FAST)
         }
     }
 
