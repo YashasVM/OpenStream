@@ -433,3 +433,236 @@ def _extract_int(source: str, pattern: str, label: str) -> int:
     return int(match.group(1).replace("_", ""))
 
 
+def measure_power_and_thermal_budgets() -> tuple[dict[str, int], dict[str, int | float]]:
+    stream_cfg = read_repo_text("android/app/src/main/java/dev/openstream/app/stream/StreamConfig.kt")
+    camera_ctrl = read_repo_text("android/app/src/main/java/dev/openstream/app/camera/Camera2Controller.kt")
+    advertiser = read_repo_text("android/app/src/main/java/dev/openstream/app/discovery/PhoneDiscoveryAdvertiser.kt")
+    main_act = read_repo_text("android/app/src/main/java/dev/openstream/app/MainActivity.kt")
+    control_srv = read_repo_text("android/app/src/main/java/dev/openstream/app/control/CameraControlServer.kt")
+    srt_cpp = read_repo_text("android/app/src/main/cpp/openstream_srt.cpp")
+    thermal_policy = read_repo_text("android/app/src/main/java/dev/openstream/app/stream/ThermalPolicy.kt")
+
+    default_quality_match = re.search(
+        r"fun fromPreference\(value: String\?\): VideoQuality\s*=\s*entries\.firstOrNull\s*\{[^}]+\}\s*\?:\s*(\w+)",
+        stream_cfg,
+    )
+    if not default_quality_match:
+        raise ValueError("Could not locate VideoQuality.fromPreference default")
+    default_quality = default_quality_match.group(1)
+
+    default_width = _extract_int(stream_cfg, r"width\s*=\s*(\d+)", "Default width")
+    default_height = _extract_int(stream_cfg, r"height\s*=\s*(\d+)", "Default height")
+    balanced_fps = _extract_int(stream_cfg, r"fps\s*=\s*(\d+)", "Default fps")
+    balanced_bitrate_bps = _extract_int(stream_cfg, r"bitrate\s*=\s*([\d_]+)", "Default bitrate")
+    keyframe_interval_s = _extract_int(
+        stream_cfg, r"keyframeIntervalSeconds\s*=\s*(\d+)", "keyframeIntervalSeconds"
+    )
+    high_fps = _extract_int(
+        stream_cfg, r"VideoQuality\.High\s*->[^\n]*fps\s*=\s*(\d+)", "High preset fps"
+    )
+    high_bitrate_bps = _extract_int(
+        stream_cfg, r"VideoQuality\.High\s*->[^\n]*bitrate\s*=\s*([\d_]+)", "High preset bitrate"
+    )
+
+    if default_quality == "High":
+        eff_default_fps = high_fps
+        eff_default_bitrate_mbps = high_bitrate_bps // 1_000_000
+    elif default_quality == "DataSaver":
+        eff_default_fps = balanced_fps
+        eff_default_bitrate_mbps = 8
+    else:
+        eff_default_fps = balanced_fps
+        eff_default_bitrate_mbps = balanced_bitrate_bps // 1_000_000
+
+    max_preview_long = _extract_int(
+        camera_ctrl, r"MAX_PREVIEW_LONG_EDGE\s*=\s*(\d+)", "MAX_PREVIEW_LONG_EDGE"
+    )
+    idle_preview_max_fps = _extract_int(
+        camera_ctrl, r"IDLE_PREVIEW_MAX_FPS\s*=\s*(\d+)", "IDLE_PREVIEW_MAX_FPS"
+    )
+    scale = min(1.0, max_preview_long / float(max(default_width, default_height)))
+    preview_w = (int(default_width * scale) & ~1)
+    preview_h = (int(default_height * scale) & ~1)
+    preview_pixels = preview_w * preview_h
+
+    busy_beacon_ms = _extract_int(
+        advertiser, r"BUSY_BEACON_INTERVAL_MS\s*=\s*([\d_]+)L", "BUSY_BEACON_INTERVAL_MS"
+    )
+    idle_beacon_ms = _extract_int(
+        advertiser, r"IDLE_BEACON_INTERVAL_MS\s*=\s*([\d_]+)L", "IDLE_BEACON_INTERVAL_MS"
+    )
+    # Worst-case live mode (listener vs caller): caller mode must also slow
+    # beacon cadence via streamingProvider even without a reservation.
+    caller_slows_beacons = (
+        "streamingProvider = { phoneConnected || activeTargetName != null }" in main_act
+        and "val slowCadence = busy || streamingProvider()" in advertiser
+    )
+    effective_live_beacon_ms = busy_beacon_ms if caller_slows_beacons else idle_beacon_ms
+    listener_unbounded_wait = "listenerWaitLock.wait()" in main_act
+    listener_wakeups_per_min = 0 if listener_unbounded_wait else 240
+    accept_poll_ms = _extract_int(
+        srt_cpp, r"kListenerAcceptPollMs\s*=\s*(\d+)", "kListenerAcceptPollMs"
+    )
+    run_start = control_srv.index("private fun run()")
+    run_end = control_srv.index("private fun handleClient(", run_start)
+    control_accept_loop = control_srv[run_start:run_end]
+    control_has_so_timeout = "soTimeout" in control_accept_loop
+    control_wakeups_per_min = 60 if control_has_so_timeout else 0
+
+    def _fn_slice(src: str, start_marker: str, end_marker: str) -> str:
+        s = src.index(start_marker)
+        e = src.index(end_marker, s)
+        return src[s:e]
+
+    caller_fn = _fn_slice(main_act, "private fun startStream(", "private fun startAudioIfAllowed(")
+    listener_fn = _fn_slice(main_act, "private fun startPhoneServerIfAllowed(", "private fun isListenerActive(")
+    stop_server_fn = _fn_slice(main_act, "private fun stopPhoneServer(", "private fun stopStream(")
+    stop_stream_fn = _fn_slice(main_act, "private fun stopStream(", "private fun stopActiveEncoding(")
+    discovery_paused_live = (
+        "obsDiscoveryClient.stop()" in caller_fn
+        and "obsDiscoveryClient.stop()" in listener_fn
+        and "resumeDiscoveryIfIdle()" in stop_server_fn
+        and "resumeDiscoveryIfIdle()" in stop_stream_fn
+    )
+    discovery_live_wakeups_per_min = 0 if discovery_paused_live else 120
+    live_bg_wakeups_per_min = (
+        (60_000 // effective_live_beacon_ms)
+        + listener_wakeups_per_min
+        + control_wakeups_per_min
+        + discovery_live_wakeups_per_min
+    )
+
+    severe_scale_match = re.search(
+        r"STATUS_SEVERE\s*->\s*Triple\(([\d.]+)f", thermal_policy
+    )
+    severe_scale_pct = int(round(float(severe_scale_match.group(1)) * 100)) if severe_scale_match else 100
+
+    summary = {
+        "default_bitrate_mbps": eff_default_bitrate_mbps,
+        "default_fps": eff_default_fps,
+        "high_preset_bitrate_mbps": high_bitrate_bps // 1_000_000,
+        "preview_buffer_pixels": preview_pixels,
+        "live_bg_wakeups_per_min": live_bg_wakeups_per_min,
+    }
+    scenarios: dict[str, int | float] = {
+        "thermal_keyframe_cadence": 60 // max(1, keyframe_interval_s),
+        "thermal_idle_preview_max_fps": idle_preview_max_fps,
+        "thermal_severe_scale_pct": severe_scale_pct,
+        "power_srt_accept_poll_rate": round(1000.0 / accept_poll_ms, 2),
+        "power_control_idle_wakeups": control_wakeups_per_min,
+        "power_discovery_live_wakeups": discovery_live_wakeups_per_min,
+    }
+    return summary, scenarios
+
+
+def build_report(
+    apk_path: Path | None,
+    release_dex_dir: Path | None = None,
+) -> dict[str, Any]:
+    apk_summary, apk_scenarios = measure_apk(apk_path, release_dex_dir)
+    mux_summary, mux_scenarios, timing_notes = measure_native_muxer()
+    power_summary, power_scenarios = measure_power_and_thermal_budgets()
+
+    combined_values: dict[str, int | float] = {}
+    combined_values.update(apk_summary)
+    combined_values.update(mux_summary)
+    combined_values.update(power_summary)
+
+    combined_scenarios: dict[str, int | float] = {}
+    combined_scenarios.update(apk_scenarios)
+    combined_scenarios.update(mux_scenarios)
+    combined_scenarios.update(power_scenarios)
+
+    metrics: list[dict[str, Any]] = []
+    violations: list[str] = []
+    for metric_id, spec in CEILINGS.items():
+        if metric_id not in combined_values:
+            continue
+        value = combined_values[metric_id]
+        ceiling = spec["ceiling"]
+        passed = value <= ceiling
+        if not passed:
+            violations.append(f"{spec['label']}: {value} > ceiling {ceiling} ({spec['unit']})")
+        metrics.append(
+            {
+                "id": metric_id,
+                "area": spec["area"],
+                "label": spec["label"],
+                "value": value,
+                "unit": spec["unit"],
+                "ceiling": ceiling,
+                "passed": passed,
+            }
+        )
+
+    scenarios: list[dict[str, Any]] = []
+    for scenario_id, spec in SCENARIO_SPECS.items():
+        if scenario_id not in combined_scenarios:
+            continue
+        value = combined_scenarios[scenario_id]
+        ceiling = spec["ceiling"]
+        passed = value <= ceiling
+        if not passed:
+            violations.append(
+                f"{spec['scenario']} ({spec['metric']}): {value} > ceiling {ceiling}"
+            )
+        scenarios.append(
+            {
+                "id": scenario_id,
+                "area": spec["area"],
+                "scenario": spec["scenario"],
+                "metric": spec["metric"],
+                "value": value,
+                "unit": spec["unit"],
+                "ceiling": ceiling,
+                "passed": passed,
+            }
+        )
+
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "gitSha": os.environ.get("GITHUB_SHA", ""),
+        "passed": len(violations) == 0,
+        "violations": violations,
+        "metrics": metrics,
+        "scenarios": scenarios,
+        "notes": timing_notes,
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Measure OpenStream efficiency metrics")
+    parser.add_argument("--apk", type=Path, default=None, help="Path to built Android APK")
+    parser.add_argument(
+        "--release-dex-dir",
+        type=Path,
+        default=None,
+        help="Path to R8-minified release DEX output directory",
+    )
+    parser.add_argument("--output", type=Path, required=True, help="Output JSON report path")
+    parser.add_argument(
+        "--enforce-ceilings",
+        action="store_true",
+        help="Exit non-zero if any efficiency ceiling is exceeded",
+    )
+    args = parser.parse_args(argv)
+
+    report = build_report(args.apk, args.release_dex_dir)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+
+    print(f"Wrote efficiency report to {args.output}")
+    for m in report["metrics"]:
+        status = "PASS" if m["passed"] else "FAIL"
+        print(f"  [{status}] {m['area']} | {m['label']}: {m['value']} (ceiling {m['ceiling']} {m['unit']})")
+
+    if args.enforce_ceilings and not report["passed"]:
+        print("Efficiency ceiling violations:", file=sys.stderr)
+        for v in report["violations"]:
+            print(f"  - {v}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
