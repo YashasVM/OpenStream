@@ -11,6 +11,7 @@ class StreamConfigTest {
 
         assertEquals(30, config.fps)
         assertEquals(12, config.bitrateMbps)
+        assertEquals(2, config.keyframeIntervalSeconds)
         assertEquals(CodecPreference.ForceAvc, config.codecPreference)
         assertEquals(1, config.audioChannelCount)
         assertEquals(128_000, config.audioBitrate)
@@ -37,11 +38,12 @@ class StreamConfigTest {
         assertEquals(1920, high.width)
         assertEquals(1080, high.height)
         assertEquals(60, high.fps)
-        assertEquals(50, high.bitrateMbps)
+        assertEquals(25, high.bitrateMbps)
         assertEquals(12, balanced.bitrateMbps)
         assertEquals(1280, saver.width)
         assertEquals(720, saver.height)
         assertEquals(8, saver.bitrateMbps)
-        assertEquals(VideoQuality.High, VideoQuality.fromPreference("unknown"))
+        assertEquals(VideoQuality.Balanced, VideoQuality.fromPreference("unknown"))
+        assertEquals(VideoQuality.Balanced, VideoQuality.fromPreference(null))
     }
 }
