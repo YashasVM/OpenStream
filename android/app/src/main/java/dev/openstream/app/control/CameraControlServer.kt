@@ -12,10 +12,33 @@ import java.io.OutputStreamWriter
 import java.io.PrintWriter
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.SocketTimeoutException
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal fun torchCommandAllowed(enabled: Boolean, torchAvailable: Boolean): Boolean =
     !enabled || torchAvailable
+
+internal class ControlRequestInput(private val socket: Socket, timeoutMs: Int) :
+    BufferedInputStream(socket.getInputStream()) {
+    private val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs.toLong())
+
+    private fun beforeRead() {
+        val remaining = deadline - System.nanoTime()
+        if (remaining <= 0) throw SocketTimeoutException("Control request deadline exceeded")
+        socket.soTimeout = ((remaining + 999_999) / 1_000_000).toInt().coerceAtLeast(1)
+    }
+
+    override fun read(): Int {
+        beforeRead()
+        return super.read()
+    }
+
+    override fun read(bytes: ByteArray, offset: Int, length: Int): Int {
+        beforeRead()
+        return super.read(bytes, offset, length)
+    }
+}
 
 /**
  * Lightweight HTTP control server that accepts camera control commands from OBS.
@@ -110,14 +133,11 @@ class CameraControlServer(
             }
             openedSocket = socket
             serverSocket = socket
-            socket.soTimeout = 1000
             Log.i(TAG, "Camera control server listening on port $port")
 
             while (running.get()) {
                 val client = try {
                     socket.accept()
-                } catch (e: java.net.SocketTimeoutException) {
-                    continue
                 } catch (e: java.net.SocketException) {
                     if (running.get()) Log.w(TAG, "Socket error", e)
                     break
