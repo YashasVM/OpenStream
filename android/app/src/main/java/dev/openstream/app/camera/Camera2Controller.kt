@@ -682,20 +682,26 @@ class Camera2Controller(
         val availableFpsRanges = chars
             .get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
             .orEmpty()
-        captureFpsRange = availableFpsRanges
-            .filter { range -> targetFps in range.lower..range.upper }
-            .minWithOrNull(
-                compareBy<Range<Int>>(
-                    { if (it.lower == targetFps && it.upper == targetFps) 0 else 1 },
-                    { it.upper - it.lower },
-                    { -it.lower },
-                ),
+        val rangePairs = availableFpsRanges.map { it.lower to it.upper }
+        streamingFpsRange = chooseCaptureFpsRange(rangePairs, targetFps, streaming = true)
+            ?.let { (low, high) -> Range(low, high) }
+        idlePreviewFpsRange = chooseCaptureFpsRange(rangePairs, targetFps, streaming = false)
+            ?.let { (low, high) -> Range(low, high) }
+        supportsVideoStabilizationOff = chars
+            .get(CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES)
+            ?.contains(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF) == true
+        supportsFastNoiseReduction = chars
+            .get(CameraCharacteristics.NOISE_REDUCTION_AVAILABLE_NOISE_REDUCTION_MODES)
+            ?.contains(CaptureRequest.NOISE_REDUCTION_MODE_FAST) == true
+        supportsFastEdgeMode = chars
+            .get(CameraCharacteristics.EDGE_AVAILABLE_EDGE_MODES)
+            ?.contains(CaptureRequest.EDGE_MODE_FAST) == true
+        streamingFpsRange?.let { range ->
+            Log.i(
+                TAG,
+                "Camera $cameraId using AE FPS range ${range.lower}-${range.upper} (streaming) " +
+                    "and ${idlePreviewFpsRange?.lower}-${idlePreviewFpsRange?.upper} (idle) for ${targetFps}fps target",
             )
-            ?: availableFpsRanges
-                .filter { range -> range.upper <= targetFps }
-                .maxWithOrNull(compareBy<Range<Int>> { it.upper }.thenBy { it.lower })
-        captureFpsRange?.let { range ->
-            Log.i(TAG, "Camera $cameraId using AE FPS range ${range.lower}-${range.upper} for ${targetFps}fps target")
         } ?: Log.w(TAG, "Camera $cameraId exposes no AE FPS range suitable for ${targetFps}fps target")
         sensorRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
 
@@ -752,7 +758,9 @@ class Camera2Controller(
                             val template = CameraDevice.TEMPLATE_RECORD
                             runCatching {
                                 val request = device.createCaptureRequest(template).apply {
-                                    addTarget(preview)
+                                    if (encoded == null || !previewSuppressed) {
+                                        addTarget(preview)
+                                    }
                                     if (encoded != null) {
                                         addTarget(encoded)
                                     }
