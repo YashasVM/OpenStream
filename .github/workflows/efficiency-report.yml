@@ -98,3 +98,126 @@ jobs:
             exit 0
           fi
 
+          download_artifact() {
+            local run_id="$1"
+            local dest_dir="$2"
+            local max_zip_bytes=$((1024 * 1024))
+            local artifact_meta artifact_id artifact_size
+            artifact_meta=$(gh api "repos/${REPO}/actions/runs/${run_id}/artifacts" \
+              --jq '.artifacts[] | select(.name == "openstream-efficiency-report" and (.expired | not)) | [.id, .size_in_bytes] | @tsv' \
+              | head -n 1 || true)
+            if [ -z "$artifact_meta" ]; then
+              return 1
+            fi
+            IFS=$'\t' read -r artifact_id artifact_size <<< "$artifact_meta"
+            if [ -z "${artifact_id:-}" ] || [ "${artifact_size:-0}" -gt "$max_zip_bytes" ]; then
+              echo "Skipping oversized or invalid artifact ${artifact_id:-unknown} (${artifact_size:-0} bytes)." >&2
+              return 1
+            fi
+            gh api "repos/${REPO}/actions/artifacts/${artifact_id}/zip" \
+              | head -c $((max_zip_bytes + 1)) > "${dest_dir}/artifact.zip"
+            if [ "$(wc -c < "${dest_dir}/artifact.zip")" -gt "$max_zip_bytes" ]; then
+              echo "Downloaded artifact ${artifact_id} exceeded ${max_zip_bytes} bytes." >&2
+              return 1
+            fi
+            python3 - "${dest_dir}/artifact.zip" "${dest_dir}" <<'PY'
+          import sys, zipfile
+          from pathlib import Path
+          MAX_BYTES = 512 * 1024
+          zip_path, dest = Path(sys.argv[1]), Path(sys.argv[2])
+          with zipfile.ZipFile(zip_path) as zf:
+              infos = [i for i in zf.infolist() if i.filename == "efficiency-report.json"]
+              if not infos:
+                  raise SystemExit("efficiency-report.json missing from artifact")
+              info = infos[0]
+              if info.file_size > MAX_BYTES:
+                  raise SystemExit("efficiency-report.json declared size exceeds 512 KiB limit")
+              with zf.open(info, "r") as stream:
+                  data = stream.read(MAX_BYTES + 1)
+              if len(data) > MAX_BYTES:
+                  raise SystemExit("efficiency-report.json stream exceeds 512 KiB limit")
+              (dest / "efficiency-report.json").write_bytes(data)
+          PY
+          }
+
+          if download_artifact "$PR_RUN_ID" "$work_dir/pr"; then
+            baseline_sha=""
+            baseline_run_url=""
+            baseline_arg=()
+            baseline_runs=$(gh api "repos/${REPO}/actions/workflows/${WORKFLOW_ID}/runs?branch=main&event=push&status=completed&per_page=10" \
+              --jq '.workflow_runs[] | select(.conclusion == "success") | [.id, .head_sha, .html_url] | @tsv' || true)
+
+            while IFS=$'\t' read -r run_id run_sha run_url; do
+              [ -z "${run_id:-}" ] && continue
+              if download_artifact "$run_id" "$work_dir/baseline"; then
+                baseline_sha="$run_sha"
+                baseline_run_url="$run_url"
+                baseline_arg=(--baseline-report "$work_dir/baseline/efficiency-report.json")
+                break
+              fi
+            done <<< "$baseline_runs"
+
+            python3 tools/render_efficiency_comment.py \
+              --pr-report "$work_dir/pr/efficiency-report.json" \
+              "${baseline_arg[@]}" \
+              --pr-sha "$PR_HEAD_SHA" \
+              --pr-run-url "$PR_RUN_URL" \
+              --baseline-sha "$baseline_sha" \
+              --baseline-run-url "$baseline_run_url" \
+              --source-conclusion "$PR_CONCLUSION" \
+              --output "$work_dir/comment.md"
+          else
+            python3 tools/render_efficiency_comment.py \
+              --unavailable \
+              --pr-sha "$PR_HEAD_SHA" \
+              --pr-run-url "$PR_RUN_URL" \
+              --source-conclusion "$PR_CONCLUSION" \
+              --output "$work_dir/comment.md"
+          fi
+
+          # Lookup existing comment strictly without swallowing API errors so a
+          # transient lookup failure cannot fall through to POST a duplicate.
+          gh api --paginate --slurp "repos/${REPO}/issues/${pr_number}/comments" > "$work_dir/comments.json"
+          existing_comment_id=$(python3 - "$work_dir/comments.json" <<'PY'
+          import json, sys
+          pages = json.loads(open(sys.argv[1], encoding="utf-8").read())
+          comments = [c for page in pages for c in (page if isinstance(page, list) else [])]
+          for comment in comments:
+              user = (comment.get("user") or {}).get("login")
+              body = comment.get("body") or ""
+              if user == "github-actions[bot]" and "<!-- openstream-efficiency-report -->" in body:
+                  print(comment["id"])
+                  break
+          PY
+          )
+
+          # Re-verify PR open state and full head identity immediately before write.
+          gh api "repos/${REPO}/pulls/${pr_number}" > "$work_dir/pr-final.json"
+          pr_still_matches=$(python3 - "$work_dir/pr-final.json" <<'PY'
+          import json, os, sys
+          pr = json.loads(open(sys.argv[1], encoding="utf-8").read())
+          head = pr.get("head") or {}
+          head_repo = (head.get("repo") or {}).get("full_name")
+          ok = (
+              pr.get("state") == "open"
+              and head.get("sha") == os.environ["PR_HEAD_SHA"]
+              and head.get("ref") == os.environ["PR_HEAD_BRANCH"]
+              and head_repo == os.environ["PR_HEAD_REPO"]
+          )
+          print("true" if ok else "false")
+          PY
+          )
+          if [ "$pr_still_matches" != "true" ]; then
+            echo "PR #${pr_number} closed or head changed before write; skipping stale update."
+            exit 0
+          fi
+
+          if [ -n "$existing_comment_id" ]; then
+            gh api -X PATCH "repos/${REPO}/issues/comments/${existing_comment_id}" \
+              -F "body=@${work_dir}/comment.md" >/dev/null
+            echo "Updated sticky efficiency comment #${existing_comment_id} on PR #${pr_number}."
+          else
+            gh api -X POST "repos/${REPO}/issues/${pr_number}/comments" \
+              -F "body=@${work_dir}/comment.md" >/dev/null
+            echo "Created sticky efficiency comment on PR #${pr_number}."
+          fi
