@@ -15,6 +15,7 @@ import java.net.NetworkInterface
 import java.net.SocketTimeoutException
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 class ObsDiscoveryClient(
     private val context: Context,
@@ -22,7 +23,10 @@ class ObsDiscoveryClient(
     private val nowMs: () -> Long = { System.currentTimeMillis() },
 ) {
     private val running = AtomicBoolean(false)
-    @Volatile private var pendingRestart = false
+    private val publishGeneration = AtomicLong(0L)
+    private val lifecycleLock = Any()
+    private var desiredRunning = false
+    private var pendingRestart = false
     private val mainHandler = Handler(Looper.getMainLooper())
     // Bounded: every queue/map declares capacity + overflow policy (AGENTS.md rule 16).
     // Access-ordered so a re-put refreshes recency; the eldest entry (oldest
@@ -38,19 +42,26 @@ class ObsDiscoveryClient(
     }
     @Volatile private var socket: MulticastSocket? = null
     @Volatile private var worker: Thread? = null
-    @Volatile private var multicastLock: WifiManager.MulticastLock? = null
     @Volatile private var lastPublishMs = 0L
     @Volatile private var publishPending = false
 
     fun start() {
-        if (running.get()) return
+        synchronized(lifecycleLock) {
+            desiredRunning = true
+            startLocked()
+        }
+    }
+
+    private fun startLocked() {
+        if (!desiredRunning || running.get()) return
         if (worker?.isAlive == true) {
-            Log.w(TAG, "Discovery worker is still stopping; restart will follow")
             pendingRestart = true
+            Log.w(TAG, "Discovery worker is still stopping; restart will follow")
             return
         }
         if (!running.compareAndSet(false, true)) return
         pendingRestart = false
+        publishGeneration.incrementAndGet()
         worker = Thread(::receiveLoop, "shinDiscovery").apply {
             isDaemon = true
             start()
