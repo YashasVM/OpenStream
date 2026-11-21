@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -33,7 +34,7 @@ namespace {
 constexpr const char *kTag = "shinSRT";
 constexpr int kMinSrtLatencyMs = 80;
 constexpr int kMaxSrtLatencyMs = 200;
-constexpr int kListenerAcceptPollMs = 100;
+constexpr int kListenerAcceptPollMs = 500;
 constexpr int kMediaCodecBufferFlagKeyFrame = 1;
 constexpr int kMediaCodecBufferFlagCodecConfig = 2;
 constexpr int kAudioSampleRate = 48000;
