@@ -1380,6 +1380,7 @@ class MainActivity : Activity() {
 
     private fun startPreviewIfAllowed() {
         if (activityStarted && lifecycleStartGate.canStart() &&
+            pendingPreviewBufferSize == null &&
             checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
             cameraPreview.holder.surface.isValid
         ) {
@@ -1399,7 +1400,12 @@ class MainActivity : Activity() {
     // ─────────────────────────── Display off (screen off while streaming) ───────────────────────────
 
     private fun toggleDisplayOff() {
-        displayOff = !displayOff
+        setDisplayOff(!displayOff)
+    }
+
+    private fun setDisplayOff(enabled: Boolean) {
+        if (displayOff == enabled) return
+        displayOff = enabled
         if (displayOff) {
             // Save current brightness and dim to minimum
             originalBrightness = window.attributes.screenBrightness
@@ -1408,6 +1414,10 @@ class MainActivity : Activity() {
             window.attributes = params
             // Show black overlay to hide all UI (saves power on OLED)
             screenOffOverlay.visibility = View.VISIBLE
+            // Stop hidden UI animations, stats ticker, and Camera2 preview rendering
+            stopLiveDotAnimation()
+            mainHandler.removeCallbacks(statsTicker)
+            camera.setPreviewSuppressed(true)
             // Ensure screen stays on even when dimmed
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             btnScreenOff.text = "DISPLAY ✓"
@@ -1419,6 +1429,12 @@ class MainActivity : Activity() {
             params.screenBrightness = if (originalBrightness >= 0) originalBrightness else -1f
             window.attributes = params
             screenOffOverlay.visibility = View.GONE
+            camera.setPreviewSuppressed(false)
+            if (activeTargetName != null) {
+                startLiveDotAnimation()
+                mainHandler.removeCallbacks(statsTicker)
+                mainHandler.post(statsTicker)
+            }
             // Restore keep-screen-on to user's toggle state
             if (!keepScreenOn) {
                 window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
