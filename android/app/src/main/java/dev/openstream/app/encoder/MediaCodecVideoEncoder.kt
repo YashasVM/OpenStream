@@ -4,6 +4,7 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaFormat
+import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
@@ -194,6 +195,20 @@ class MediaCodecVideoEncoder(
             }
         }
         stopCallbackThread()
+    }
+
+    fun updateBitrate(newBitrateBps: Int): Boolean = synchronized(lifecycleLock) {
+        val encoder = codec ?: return@synchronized false
+        val clamped = newBitrateBps.coerceAtLeast(1_000_000)
+        runCatching {
+            val params = Bundle().apply {
+                putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, clamped)
+            }
+            encoder.setParameters(params)
+            true
+        }.onFailure { error ->
+            Log.w("shinEncoder", "Failed to dynamically update bitrate to $clamped bps", error)
+        }.getOrDefault(false)
     }
 
     private fun createConfiguredEncoder(codecName: String): MediaCodec {
