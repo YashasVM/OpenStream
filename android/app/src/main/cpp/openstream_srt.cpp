@@ -230,21 +230,44 @@ std::vector<uint8_t> makeAdtsFrame(const std::vector<uint8_t> &accessUnit,
 
 class MpegTsMuxer {
  public:
-  explicit MpegTsMuxer(VideoCodec codec) : codec_(codec) {}
+  explicit MpegTsMuxer(VideoCodec codec) : codec_(codec) {
+    initTableTemplates();
+  }
 
   std::vector<uint8_t> muxAccessUnit(const std::vector<uint8_t> &accessUnit,
                                      int64_t presentationTimeUs,
                                      bool keyFrame) {
+    return muxAccessUnit(nullptr, 0, accessUnit.data(), accessUnit.size(), presentationTimeUs, keyFrame);
+  }
+
+  std::vector<uint8_t> muxAccessUnit(const uint8_t *prefix,
+                                     size_t prefixSize,
+                                     const uint8_t *accessUnit,
+                                     size_t accessUnitSize,
+                                     int64_t presentationTimeUs,
+                                     bool keyFrame) {
+    const size_t totalUnitSize = prefixSize + accessUnitSize;
     std::vector<uint8_t> output;
-    output.reserve(estimatePacketizedSize(accessUnit.size() + 32) + kTableBytes);
+    output.reserve(estimatePacketizedSize(totalUnitSize + 32) + kTableBytes);
     if (forceTables_ || keyFrame || packetIndex_ % 30 == 0) {
       writePat(output);
       writePmt(output);
       forceTables_ = false;
     }
 
-    std::vector<uint8_t> payload = buildPes(accessUnit, presentationTimeUs);
-    packetizePayload(output, kVideoPid, payload, true, pts90k(presentationTimeUs));
+    const uint64_t pts = pts90k(presentationTimeUs);
+    std::array<uint8_t, 14> pesHeader{};
+    buildPesHeader(pesHeader.data(), 0xe0, totalUnitSize, pts);
+    packetizeSegments(output,
+                      kVideoPid,
+                      pesHeader.data(),
+                      pesHeader.size(),
+                      prefix,
+                      prefixSize,
+                      accessUnit,
+                      accessUnitSize,
+                      true,
+                      pts);
     ++packetIndex_;
     return output;
   }
@@ -282,83 +305,123 @@ class MpegTsMuxer {
     return ((payloadSize + 183) / 184) * 188;
   }
 
-  void packetizeSection(std::vector<uint8_t> &output, uint16_t pid, const std::vector<uint8_t> &section) {
-    std::vector<uint8_t> payload;
-    payload.reserve(section.size() + 1);
-    payload.push_back(0x00);
-    payload.insert(payload.end(), section.begin(), section.end());
-    packetizePayload(output, pid, payload, true, std::nullopt);
+  static void buildPesHeader(uint8_t *out, uint8_t streamId, size_t payloadSize, uint64_t pts90kValue) {
+    const size_t pesPayloadLength = payloadSize + 8;
+    const uint16_t packetLength = pesPayloadLength > 0xffff ? 0 : static_cast<uint16_t>(pesPayloadLength);
+    const uint64_t pts = pts90kValue & ((1ull << 33u) - 1u);
+    out[0] = 0x00;
+    out[1] = 0x00;
+    out[2] = 0x01;
+    out[3] = streamId;
+    out[4] = static_cast<uint8_t>((packetLength >> 8u) & 0xffu);
+    out[5] = static_cast<uint8_t>(packetLength & 0xffu);
+    out[6] = 0x80;
+    out[7] = 0x80;
+    out[8] = 0x05;
+    out[9] = static_cast<uint8_t>((0x02u << 4u) | (((pts >> 30u) & 0x07u) << 1u) | 1u);
+    out[10] = static_cast<uint8_t>((pts >> 22u) & 0xffu);
+    out[11] = static_cast<uint8_t>((((pts >> 15u) & 0x7fu) << 1u) | 1u);
+    out[12] = static_cast<uint8_t>((pts >> 7u) & 0xffu);
+    out[13] = static_cast<uint8_t>(((pts & 0x7fu) << 1u) | 1u);
+  }
+
+  void initTableTemplates() {
+    std::vector<uint8_t> patSection;
+    patSection.reserve(17);
+    patSection.push_back(0x00);
+    append16(patSection, 0xb000 | 13);
+    append16(patSection, 0x0001);
+    patSection.push_back(0xc1);
+    patSection.push_back(0x00);
+    patSection.push_back(0x00);
+    append16(patSection, kProgramNumber);
+    append16(patSection, 0xe000 | kPmtPid);
+    append32(patSection, crc32Mpeg(patSection.data(), patSection.size()));
+    buildStaticTablePacket(patTemplate_, 0x0000, patSection);
+
+    std::vector<uint8_t> pmtSection;
+    pmtSection.reserve(27);
+    pmtSection.push_back(0x02);
+    append16(pmtSection, 0xb000 | 23);
+    append16(pmtSection, kProgramNumber);
+    pmtSection.push_back(0xc1);
+    pmtSection.push_back(0x00);
+    pmtSection.push_back(0x00);
+    append16(pmtSection, 0xe000 | kVideoPid);
+    append16(pmtSection, 0xf000);
+    pmtSection.push_back(streamType());
+    append16(pmtSection, 0xe000 | kVideoPid);
+    append16(pmtSection, 0xf000);
+    pmtSection.push_back(0x0f);
+    append16(pmtSection, 0xe000 | kAudioPid);
+    append16(pmtSection, 0xf000);
+    append32(pmtSection, crc32Mpeg(pmtSection.data(), pmtSection.size()));
+    buildStaticTablePacket(pmtTemplate_, kPmtPid, pmtSection);
+  }
+
+  static void buildStaticTablePacket(std::array<uint8_t, 188> &packet,
+                                     uint16_t pid,
+                                     const std::vector<uint8_t> &section) {
+    packet.fill(0xff);
+    packet[0] = 0x47;
+    packet[1] = static_cast<uint8_t>(0x40 | ((pid >> 8u) & 0x1fu));
+    packet[2] = static_cast<uint8_t>(pid & 0xffu);
+    const size_t payloadSize = section.size() + 1;
+    const size_t adaptationLength = 188 - 4 - 1 - payloadSize;
+    packet[3] = 0x30;
+    size_t offset = 4;
+    packet[offset++] = static_cast<uint8_t>(adaptationLength);
+    if (adaptationLength > 0) {
+      packet[offset++] = 0x00;
+      offset = 188 - payloadSize;
+    }
+    packet[offset++] = 0x00;
+    std::copy(section.begin(), section.end(), packet.begin() + static_cast<std::ptrdiff_t>(offset));
   }
 
   void writePat(std::vector<uint8_t> &output) {
-    std::vector<uint8_t> section;
-    section.reserve(17);
-    section.push_back(0x00);
-    append16(section, 0xb000 | 13);
-    append16(section, 0x0001);
-    section.push_back(0xc1);
-    section.push_back(0x00);
-    section.push_back(0x00);
-    append16(section, kProgramNumber);
-    append16(section, 0xe000 | kPmtPid);
-    append32(section, crc32Mpeg(section.data(), section.size()));
-    packetizeSection(output, 0x0000, section);
+    const size_t start = output.size();
+    output.insert(output.end(), patTemplate_.begin(), patTemplate_.end());
+    output[start + 3] = static_cast<uint8_t>((patTemplate_[3] & 0xf0u) | nextContinuity(0x0000));
   }
 
   void writePmt(std::vector<uint8_t> &output) {
-    std::vector<uint8_t> section;
-    section.reserve(27);
-    section.push_back(0x02);
-    append16(section, 0xb000 | 23);
-    append16(section, kProgramNumber);
-    section.push_back(0xc1);
-    section.push_back(0x00);
-    section.push_back(0x00);
-    append16(section, 0xe000 | kVideoPid);
-    append16(section, 0xf000);
-    section.push_back(streamType());
-    append16(section, 0xe000 | kVideoPid);
-    append16(section, 0xf000);
-    section.push_back(0x0f);
-    append16(section, 0xe000 | kAudioPid);
-    append16(section, 0xf000);
-    append32(section, crc32Mpeg(section.data(), section.size()));
-    packetizeSection(output, kPmtPid, section);
+    const size_t start = output.size();
+    output.insert(output.end(), pmtTemplate_.begin(), pmtTemplate_.end());
+    output[start + 3] = static_cast<uint8_t>((pmtTemplate_[3] & 0xf0u) | nextContinuity(kPmtPid));
   }
 
-  std::vector<uint8_t> buildPes(const std::vector<uint8_t> &accessUnit, int64_t presentationTimeUs) {
-    std::vector<uint8_t> pes;
-    const uint64_t pts = pts90k(presentationTimeUs);
-    const size_t pesPayloadLength = accessUnit.size() + 8;
-    const uint16_t packetLength = pesPayloadLength > 0xffff ? 0 : static_cast<uint16_t>(pesPayloadLength);
-    pes.reserve(accessUnit.size() + 19);
-
-    pes.insert(pes.end(), {0x00, 0x00, 0x01, 0xe0});
-    append16(pes, packetLength);
-    pes.push_back(0x80);
-    pes.push_back(0x80);
-    pes.push_back(0x05);
-    appendPts(pes, 0x02, pts);
-    pes.insert(pes.end(), accessUnit.begin(), accessUnit.end());
-    return pes;
-  }
-
-  void packetizePayload(std::vector<uint8_t> &output,
-                        uint16_t pid,
-                        const std::vector<uint8_t> &payload,
-                        bool payloadUnitStart,
-                        std::optional<uint64_t> pcr90k) {
-    size_t offset = 0;
+  void packetizeSegments(std::vector<uint8_t> &output,
+                         uint16_t pid,
+                         const uint8_t *seg0,
+                         size_t seg0Size,
+                         const uint8_t *seg1,
+                         size_t seg1Size,
+                         const uint8_t *seg2,
+                         size_t seg2Size,
+                         bool payloadUnitStart,
+                         std::optional<uint64_t> pcr90k) {
+    struct Segment {
+      const uint8_t *data;
+      size_t size;
+    };
+    const std::array<Segment, 3> segments = {{{seg0, seg0Size}, {seg1, seg1Size}, {seg2, seg2Size}}};
+    size_t totalSize = seg0Size + seg1Size + seg2Size;
+    size_t consumed = 0;
+    size_t segIdx = 0;
+    size_t segPos = 0;
     bool first = true;
-    while (offset < payload.size()) {
-      std::array<uint8_t, 188> packet{};
-      packet.fill(0xff);
-      packet[0] = 0x47;
-      packet[1] = static_cast<uint8_t>(((payloadUnitStart && first) ? 0x40 : 0x00) | ((pid >> 8u) & 0x1fu));
-      packet[2] = static_cast<uint8_t>(pid & 0xffu);
+
+    while (consumed < totalSize) {
+      const size_t pktStart = output.size();
+      output.resize(pktStart + 188);
+      uint8_t *pkt = output.data() + pktStart;
+      pkt[0] = 0x47;
+      pkt[1] = static_cast<uint8_t>(((payloadUnitStart && first) ? 0x40 : 0x00) | ((pid >> 8u) & 0x1fu));
+      pkt[2] = static_cast<uint8_t>(pid & 0xffu);
 
       const bool includePcr = first && pcr90k.has_value();
-      const size_t remaining = payload.size() - offset;
+      const size_t remaining = totalSize - consumed;
       const size_t minAdaptationBody = includePcr ? 7 : 0;
       const size_t maxPayloadWithMinAdaptation = 188 - 4 - (minAdaptationBody == 0 ? 0 : 1 + minAdaptationBody);
       size_t chunk = std::min(remaining, maxPayloadWithMinAdaptation);
