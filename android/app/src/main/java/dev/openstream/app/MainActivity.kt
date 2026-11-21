@@ -473,6 +473,7 @@ class MainActivity : Activity() {
             // callback and this UI task. Never let the old failure tear it down.
             if (!streamClient.isCurrentSessionGeneration(sessionGeneration)) return@post
             phoneConnected = false
+            notifyListenerStateChanged()
             if (phoneServerRunning) {
                 if (activeTargetName != null) {
                     statusText.text = "Connection lost"
@@ -497,6 +498,7 @@ class MainActivity : Activity() {
         synchronized(callerLifecycleLock) {
             if (activeStreamBitrate == nextBitrate) return
             activeStreamBitrate = nextBitrate
+            appliedThermalBitrate = 0
             if (activeTargetName == null) {
                 encoder.stop()
                 encoder = createVideoEncoder(activeStreamBitrate)
@@ -573,38 +575,60 @@ class MainActivity : Activity() {
             encoder.stop()
         }
         currentLens = lens
-        runCatching { camera.switchLens(lens) }.onFailure { error ->
-            Log.e("shin", "Lens switch failed", error)
-            statusDetail.text = error.message ?: "Lens switch failed"
+        val hadPendingEncoderRestart = lensRestartRunnable != null
+        cancelLensRestart()
+        val needsStreamRestart = pendingLensRestartStream || hadPendingEncoderRestart || (wasStreaming && !sameCamera)
+        val bufferReady = if (!sameCamera || pendingPreviewBufferSize != null) {
+            applyPreviewBufferSize()
+        } else {
+            true
         }
-        // If we were streaming, re-create the encoder and re-attach after the camera settles.
-        // MediaCodecList probing is heavy; never run encoder.start() on the UI thread.
-        if (wasStreaming && !sameCamera) {
-            cancelLensRestart()
-            val restart = Runnable {
-                lensRestartRunnable = null
-                if (!activityStarted || activeTargetName == null) return@Runnable
-                Thread({
-                    val result = runCatching {
-                        // Single-flight with caller/listener paths via callerLifecycleLock.
-                        synchronized(callerLifecycleLock) {
-                            encoder.start()
-                            camera.startStreaming(encoder.inputSurface())
-                        }
-                    }
-                    result.onFailure { e ->
-                        Log.e("shin", "Failed to restart encoder after lens switch", e)
-                        mainHandler.post {
-                            statusText.text = "Encoder error"
-                            statusDetail.text = e.message ?: "Unknown"
-                        }
-                    }
-                }, "shinLensRestart").apply { isDaemon = true; start() }
+        if (bufferReady) {
+            pendingLensSwitch = null
+            pendingLensRestartStream = false
+            runCatching { camera.switchLens(lens) }.onFailure { error ->
+                Log.e("shin", "Lens switch failed", error)
+                statusDetail.text = error.message ?: "Lens switch failed"
             }
-            lensRestartRunnable = restart
-            mainHandler.postDelayed(restart, LENS_RESTART_DELAY_MS)
+            if (needsStreamRestart) {
+                scheduleLensEncoderRestart()
+            }
+        } else {
+            pendingLensSwitch = lens
+            pendingLensRestartStream = needsStreamRestart
         }
         buildLensButtons()
+    }
+
+    private fun scheduleLensEncoderRestart() {
+        // If we were streaming, re-create the encoder and re-attach after the camera settles.
+        // MediaCodecList probing is heavy; never run encoder.start() on the UI thread.
+        cancelLensRestart()
+        val restart = Runnable {
+            lensRestartRunnable = null
+            if (!activityStarted || activeTargetName == null || pendingPreviewBufferSize != null) {
+                return@Runnable
+            }
+            Thread({
+                val result = runCatching {
+                    // Single-flight with caller/listener paths via callerLifecycleLock.
+                    synchronized(callerLifecycleLock) {
+                        encoder.start()
+                        applyThermalBitrate(force = true)
+                        camera.startStreaming(encoder.inputSurface())
+                    }
+                }
+                result.onFailure { e ->
+                    Log.e("shin", "Failed to restart encoder after lens switch", e)
+                    mainHandler.post {
+                        statusText.text = "Encoder error"
+                        statusDetail.text = e.message ?: "Unknown"
+                    }
+                }
+            }, "shinLensRestart").apply { isDaemon = true; start() }
+        }
+        lensRestartRunnable = restart
+        mainHandler.postDelayed(restart, LENS_RESTART_DELAY_MS)
     }
 
     private fun flipCamera() {
@@ -819,6 +843,7 @@ class MainActivity : Activity() {
         statusDetail.text = "${currentLens.displayName} → ${target.name}"
         val generation = callerGeneration + 1
         callerGeneration = generation
+        callerSessionActive = true
         val thread = Thread({
             try {
                 streamClient.connect(
@@ -830,26 +855,39 @@ class MainActivity : Activity() {
                 )
                 synchronized(callerLifecycleLock) {
                     check(callerGeneration == generation) { "SRT caller connection was cancelled" }
+                    activeTargetName = target.name
                     encoder.start()
+                    applyThermalBitrate(force = true)
                     startAudioIfAllowed()
                     camera.startStreaming(encoder.inputSurface())
                 }
+                // Release WifiManager.MulticastLock only if this caller generation is still active;
+                // if cancelled mid-stop, restore discovery immediately.
+                if (callerGeneration == generation) {
+                    obsDiscoveryClient.stop()
+                    if (callerGeneration != generation) {
+                        resumeDiscoveryIfIdle()
+                    }
+                }
                 mainHandler.post {
                     if (callerGeneration != generation) return@post
-                    activeTargetName = target.name
                     mainHandler.removeCallbacks(statsTicker)
-                    mainHandler.post(statsTicker)
+                    if (!displayOff) mainHandler.post(statsTicker)
                     showLiveState(target.name)
+                    applyThermalDisplayMitigation(currentThermalStatus)
                 }
             } catch (error: Throwable) {
                 synchronized(callerLifecycleLock) {
                     if (callerGeneration == generation) {
+                        callerSessionActive = false
+                        activeTargetName = null
                         streamClient.disconnect()
                         stopActiveEncoding(updateStatus = false)
                     }
                 }
                 mainHandler.post {
                     if (callerGeneration != generation) return@post
+                    resumeDiscoveryIfIdle()
                     startPreviewIfAllowed()
                     startPhoneServerIfAllowed()
                     statusText.text = "Connection failed"
