@@ -205,3 +205,49 @@ def read_repo_text(rel_path: str) -> str:
     return (ROOT / rel_path).read_text(encoding="utf-8")
 
 
+def measure_apk(
+    apk_path: Path | None,
+    release_dex_dir: Path | None = None,
+) -> tuple[dict[str, int], dict[str, int]]:
+    summary: dict[str, int] = {}
+    scenarios: dict[str, int] = {}
+    if apk_path is not None:
+        if not apk_path.is_file():
+            raise RuntimeError(f"Supplied APK does not exist: {apk_path}")
+        total_bytes = apk_path.stat().st_size
+        dex_bytes = 0
+        arm64_bytes = 0
+        res_bytes = 0
+        native_by_abi: dict[str, int] = {}
+        with zipfile.ZipFile(apk_path, "r") as zf:
+            for info in zf.infolist():
+                name = info.filename
+                if name.endswith(".dex"):
+                    dex_bytes += info.file_size
+                elif name.startswith("lib/") and name.endswith(".so"):
+                    parts = name.split("/")
+                    if len(parts) >= 3:
+                        abi = parts[1]
+                        native_by_abi[abi] = native_by_abi.get(abi, 0) + info.file_size
+                        if abi == "arm64-v8a":
+                            arm64_bytes += info.file_size
+                elif name.startswith("res/") or name == "resources.arsc":
+                    res_bytes += info.file_size
+
+        summary["apk_total_bytes"] = total_bytes
+        summary["apk_arm64_native_bytes"] = arm64_bytes
+        scenarios["apk_debug_dex_bytes"] = dex_bytes
+        scenarios["apk_res_bytes"] = res_bytes
+        scenarios["apk_abi_count"] = len(native_by_abi)
+
+    if release_dex_dir is not None:
+        if not release_dex_dir.is_dir():
+            raise RuntimeError(f"Supplied release DEX directory does not exist: {release_dex_dir}")
+        dex_files = sorted(release_dex_dir.glob("*.dex"))
+        if not dex_files:
+            raise RuntimeError(f"No .dex files found in release DEX directory: {release_dex_dir}")
+        summary["release_r8_dex_bytes"] = sum(p.stat().st_size for p in dex_files)
+
+    return summary, scenarios
+
+
