@@ -116,7 +116,7 @@ class PhoneDiscoveryAdvertiser(
         }
     }
 
-    private fun beaconPayload(instanceId: String): String {
+    private fun beaconPayload(instanceId: String, busy: Boolean = busyProvider()): String {
         val json = JSONObject()
             .put("type", TYPE)
             .put("version", 1)
@@ -131,7 +131,7 @@ class PhoneDiscoveryAdvertiser(
             .put("height", config.height)
             .put("fps", config.fps)
             .put("controlPort", CameraControlServer.CONTROL_PORT)
-            .put("busy", busyProvider())
+            .put("busy", busy)
             .put("reservedBy", reservedByProvider().orEmpty())
         return "$PREFIX $json"
     }
@@ -153,5 +153,7 @@ class PhoneDiscoveryAdvertiser(
         const val PREFIX = "SHIN_PHONE/1"
         const val TYPE = "dev.shin.phone"
         private const val STOP_TIMEOUT_MS = 1_000L
+        private const val IDLE_BEACON_INTERVAL_MS = 1_000L
+        private const val BUSY_BEACON_INTERVAL_MS = 2_000L
     }
 }
