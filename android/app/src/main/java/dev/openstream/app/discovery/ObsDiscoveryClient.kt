@@ -69,63 +69,86 @@ class ObsDiscoveryClient(
     }
 
     fun stop() {
-        pendingRestart = false
-        running.set(false)
-        socket?.close()
-        socket = null
-        val thread = worker
-        thread?.interrupt()
+        val thread = synchronized(lifecycleLock) {
+            desiredRunning = false
+            pendingRestart = false
+            running.set(false)
+            runCatching { socket?.close() }
+            socket = null
+            worker.also { it?.interrupt() }
+        }
         if (thread != null && thread !== Thread.currentThread()) {
             runCatching { thread.join(STOP_TIMEOUT_MS) }
                 .onFailure { Thread.currentThread().interrupt() }
         }
-        if (worker === thread && thread?.isAlive != true) worker = null
-        mainHandler.removeCallbacks(publishRunnable)
-        publishPending = false
-        synchronized(devices) {
-            devices.clear()
+        val emptyPublishGen: Long? = synchronized(lifecycleLock) {
+            if (worker === thread && thread?.isAlive != true) worker = null
+            if (!desiredRunning) {
+                val gen = publishGeneration.incrementAndGet()
+                lastPublishMs = nowMs()
+                mainHandler.removeCallbacks(publishRunnable)
+                publishPending = false
+                synchronized(devices) {
+                    devices.clear()
+                }
+                gen
+            } else {
+                null
+            }
         }
-        releaseMulticastLock()
-        publishDevices()
+        if (emptyPublishGen != null) {
+            mainHandler.post {
+                if (publishGeneration.get() == emptyPublishGen) {
+                    onDevicesChanged(emptyList())
+                }
+            }
+        }
     }
 
-    private fun acquireMulticastLock() {
-        val wifiManager = context.applicationContext.getSystemService(WifiManager::class.java) ?: return
-        multicastLock = wifiManager.createMulticastLock("shinDiscovery").apply {
+    private fun acquireMulticastLock(): WifiManager.MulticastLock? {
+        val wifiManager = context.applicationContext.getSystemService(WifiManager::class.java) ?: return null
+        return wifiManager.createMulticastLock("shinDiscovery").apply {
             setReferenceCounted(false)
             acquire()
         }
     }
 
-    private fun releaseMulticastLock() {
-        multicastLock?.let { lock ->
-            if (lock.isHeld) {
-                lock.release()
-            }
+    private fun releaseMulticastLock(lock: WifiManager.MulticastLock?) {
+        if (lock != null && lock.isHeld) {
+            runCatching { lock.release() }
         }
-        multicastLock = null
     }
 
     private fun receiveLoop() {
-        // The multicast lock lifetime is paired to this worker: acquired here
-        // (off the UI thread) and released in finally, so start()/stop() can
-        // never leak a held lock.
+        // Each worker owns its own MulticastLock and socket, acquired here and
+        // released exclusively in this worker's finally block so a concurrent
+        // stop()/start() transition can never release a replacement worker's lock.
         var udp: MulticastSocket? = null
+        var ownedLock: WifiManager.MulticastLock? = null
         try {
-            runCatching { acquireMulticastLock() }
+            ownedLock = runCatching { acquireMulticastLock() }
                 .onFailure { Log.w(TAG, "Could not acquire multicast lock", it) }
-            val multicast = MulticastSocket(null).apply {
-                reuseAddress = true
-                soTimeout = 500
-                bind(InetSocketAddress(DISCOVERY_PORT))
-            }
+                .getOrNull()
+            val multicast = MulticastSocket(null)
             udp = multicast
-            socket = multicast
+            multicast.reuseAddress = true
+            multicast.soTimeout = 0
+            multicast.bind(InetSocketAddress(DISCOVERY_PORT))
+            synchronized(lifecycleLock) {
+                if (!running.get()) {
+                    runCatching { multicast.close() }
+                    return
+                }
+                socket = multicast
+            }
             joinDiscoveryMulticast(multicast)
             val buffer = ByteArray(4096)
 
             while (running.get()) {
                 try {
+                    // Block indefinitely when no OBS devices are cached so the
+                    // CPU can stay asleep; only poll for expiry while devices exist.
+                    multicast.soTimeout = if (hasDevices()) EXPIRY_POLL_MS else 0
                     val packet = DatagramPacket(buffer, buffer.size)
                     multicast.receive(packet)
                     val payload = String(packet.data, packet.offset, packet.length, StandardCharsets.UTF_8)
@@ -160,13 +183,15 @@ class ObsDiscoveryClient(
             if (running.get()) Log.w(TAG, "Discovery worker failed", e)
         } finally {
             runCatching { udp?.close() }
-            if (socket === udp) socket = null
-            releaseMulticastLock()
-            if (worker === Thread.currentThread()) worker = null
-            running.set(false)
-            if (pendingRestart) {
-                pendingRestart = false
-                start()
+            releaseMulticastLock(ownedLock)
+            synchronized(lifecycleLock) {
+                if (socket === udp) socket = null
+                if (worker === Thread.currentThread()) worker = null
+                running.set(false)
+                if (pendingRestart && desiredRunning) {
+                    pendingRestart = false
+                    startLocked()
+                }
             }
         }
     }
@@ -181,6 +206,8 @@ class ObsDiscoveryClient(
                 }
             }
     }
+
+    private fun hasDevices(): Boolean = synchronized(devices) { devices.isNotEmpty() }
 
     private fun pruneExpired(): Boolean {
         val cutoff = nowMs() - DEVICE_TTL_MS
