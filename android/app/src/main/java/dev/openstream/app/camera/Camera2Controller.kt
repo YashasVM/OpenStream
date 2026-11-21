@@ -900,13 +900,14 @@ class Camera2Controller(
 
         runCatching {
             val request = device.createCaptureRequest(template).apply {
-                addTarget(preview)
+                if (encoded == null || !previewSuppressed) addTarget(preview)
                 if (encoded != null) addTarget(encoded)
                 set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
                 set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
                 set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
                 set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
-                applyFrameRate(this)
+                applyEfficiencySettings(this)
+                applyFrameRate(this, streaming = encoded != null)
                 applyZoom(this)
                 applyTorch(this)
             }.build()
