@@ -34,14 +34,31 @@ jobs:
           python -m pip install --disable-pip-version-check pytest
           python -m pytest -q
 
-      - name: Run Android unit tests and lint, then build APK
+      - name: Run Android unit tests, lint, debug APK, and R8 release check
         working-directory: android
         run: |
           chmod +x ./gradlew
-          ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+          ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:minifyReleaseWithR8
 
       - name: Verify 16 KB native-library alignment
         run: python tools/check_android_16kb_alignment.py android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Measure efficiency and enforce ceilings
+        run: |
+          mkdir -p dist
+          python tools/measure_efficiency.py \
+            --apk android/app/build/outputs/apk/debug/app-debug.apk \
+            --release-dex-dir android/app/build/intermediates/dex/release/minifyReleaseWithR8 \
+            --output dist/efficiency-report.json \
+            --enforce-ceilings
+
+      - name: Upload efficiency report
+        if: always() && hashFiles('dist/efficiency-report.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: openstream-efficiency-report
+          path: dist/efficiency-report.json
+          if-no-files-found: ignore
 
       - name: Normalize Android build assets
         run: |
