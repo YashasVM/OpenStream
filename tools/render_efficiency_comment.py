@@ -375,3 +375,62 @@ def render_comment(
     return "\n".join(lines) + "\n"
 
 
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Render sticky OpenStream efficiency PR comment")
+    parser.add_argument("--pr-report", type=Path, default=None)
+    parser.add_argument("--baseline-report", type=Path, default=None)
+    parser.add_argument("--unavailable", action="store_true")
+    parser.add_argument("--unavailable-reason", default="PR efficiency artifact was not uploaded for this commit.")
+    parser.add_argument("--pr-sha", default="")
+    parser.add_argument("--pr-run-url", default="")
+    parser.add_argument("--baseline-sha", default="")
+    parser.add_argument("--baseline-run-url", default="")
+    parser.add_argument("--source-conclusion", default="success")
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args(argv)
+
+    if args.unavailable:
+        markdown = render_unavailable_comment(
+            pr_sha=args.pr_sha,
+            pr_run_url=args.pr_run_url,
+            source_conclusion=args.source_conclusion,
+            reason=args.unavailable_reason,
+        )
+    else:
+        if args.pr_report is None or not args.pr_report.is_file():
+            raise SystemExit("--pr-report is required unless --unavailable is set")
+        baseline_raw = None
+        if args.baseline_report is not None and args.baseline_report.is_file():
+            try:
+                baseline_raw = json.loads(args.baseline_report.read_text(encoding="utf-8"))
+            except (ValueError, UnicodeDecodeError, RecursionError) as exc:
+                print(f"Ignoring unreadable baseline report: {exc}", file=sys.stderr)
+        try:
+            pr_raw = json.loads(args.pr_report.read_text(encoding="utf-8"))
+            markdown = render_comment(
+                pr_raw,
+                baseline_raw,
+                pr_sha=args.pr_sha,
+                pr_run_url=args.pr_run_url,
+                baseline_sha=args.baseline_sha,
+                baseline_run_url=args.baseline_run_url,
+                source_conclusion=args.source_conclusion,
+            )
+        except (ValidationError, ValueError, UnicodeDecodeError, RecursionError) as exc:
+            # Keep detailed diagnostics in trusted workflow logs only; never echo
+            # untrusted PR-supplied IDs or JSON fragments into the public comment.
+            print(f"PR efficiency report rejected: {exc}", file=sys.stderr)
+            markdown = render_unavailable_comment(
+                pr_sha=args.pr_sha,
+                pr_run_url=args.pr_run_url,
+                source_conclusion=args.source_conclusion,
+                reason="PR efficiency report failed trusted validation. See the workflow run logs for details.",
+            )
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(markdown, encoding="utf-8")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
