@@ -3,6 +3,7 @@ package dev.openstream.app.stream
 import dev.openstream.app.encoder.EncodedAccessUnit
 import java.net.InetAddress
 import java.net.URI
+import java.util.function.Predicate
 import java.util.concurrent.atomic.AtomicLong
 
 data class StreamStats(
@@ -60,7 +61,7 @@ class SrtStreamClient {
         }
     }
 
-    fun listen(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
+    fun listen(url: String, codecMime: String, width: Int, height: Int, fps: Int, authorizePeer: Predicate<String>) {
         require(url.startsWith("srt://")) { "shin expects an SRT URL" }
         synchronized(operationLock) {
             // Caller and listener share one native SRT transport. establishSession()
@@ -69,7 +70,7 @@ class SrtStreamClient {
             // survive into the new session. Callers must not start a second
             // listen without going through establishSession/disconnect.
             establishSession("listener") { generation ->
-                SrtNativeBridge.listen(url, codecMime, width, height, fps, generation)
+                SrtNativeBridge.listen(url, codecMime, width, height, fps, generation, authorizePeer)
             }
         }
     }
@@ -314,8 +315,9 @@ private object SrtNativeBridge {
         height: Int,
         fps: Int,
         sessionGeneration: Long,
+        authorizePeer: Predicate<String>,
     ): Boolean = guardOr(false) {
-        nativeListen(url, codecMime, width, height, fps, sessionGeneration)
+        nativeListen(url, codecMime, width, height, fps, sessionGeneration, authorizePeer)
     }
     fun sendVideo(
         data: ByteArray,
@@ -353,6 +355,7 @@ private object SrtNativeBridge {
         height: Int,
         fps: Int,
         sessionGeneration: Long,
+        authorizePeer: Predicate<String>,
     ): Boolean
     private external fun nativeSendVideo(
         data: ByteArray,
