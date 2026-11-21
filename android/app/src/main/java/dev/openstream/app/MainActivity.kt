@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
@@ -36,6 +37,7 @@ import dev.openstream.app.encoder.MediaCodecVideoEncoder
 import dev.openstream.app.stream.ConnectionTarget
 import dev.openstream.app.stream.StreamConfig
 import dev.openstream.app.stream.SrtStreamClient
+import dev.openstream.app.stream.ThermalPolicy
 import dev.openstream.app.stream.VideoQuality
 
 class MainActivity : Activity() {
@@ -80,6 +82,7 @@ class MainActivity : Activity() {
     @Volatile private var listenerThread: Thread? = null
     @Volatile private var callerConnectThread: Thread? = null
     @Volatile private var callerGeneration = 0L
+    @Volatile private var callerSessionActive = false
     @Volatile private var pendingListenerStart = false
     @Volatile private var listenerGeneration = 0L
     @Volatile private var activityStarted = false
@@ -101,8 +104,16 @@ class MainActivity : Activity() {
     private var identifyHideRunnable: Runnable? = null
     private var currentDevices: List<DiscoveredObsDevice> = emptyList()
     private var activeStreamBitrate: Int = 0
+    private var appliedThermalBitrate: Int = 0
+    @Volatile private var currentThermalStatus: Int = ThermalPolicy.STATUS_NONE
+    private var thermalStatusListener: PowerManager.OnThermalStatusChangedListener? = null
+    private var appliedPreviewBufferSize: Pair<Int, Int>? = null
+    private var pendingPreviewBufferSize: Pair<Int, Int>? = null
+    private var pendingLensSwitch: CameraLens? = null
+    private var pendingLensRestartStream = false
     private var lastObsSlotRenderKeys: List<String>? = null
     private val callerLifecycleLock = Any()
+    private val listenerWaitLock = Object()
 
     private val reservedBy: String?
         get() = reservationState.confirmedSourceInstanceId
@@ -117,8 +128,9 @@ class MainActivity : Activity() {
 
     private val statsTicker = object : Runnable {
         override fun run() {
+            if (displayOff) return
             renderStreamStats()
-            if (activeTargetName != null) {
+            if (activeTargetName != null && !displayOff) {
                 mainHandler.postDelayed(this, 1_000)
             }
         }
