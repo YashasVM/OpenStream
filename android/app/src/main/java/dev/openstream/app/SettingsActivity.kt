@@ -53,8 +53,8 @@ class SettingsActivity : Activity() {
         }
         val quality = when (qualityGroup.checkedRadioButtonId) {
             R.id.qualityDataSaver -> VideoQuality.DataSaver
-            R.id.qualityBalanced -> VideoQuality.Balanced
-            else -> VideoQuality.High
+            R.id.qualityHigh -> VideoQuality.High
+            else -> VideoQuality.Balanced
         }
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
             .putString(KEY_VIDEO_QUALITY, quality.name)
