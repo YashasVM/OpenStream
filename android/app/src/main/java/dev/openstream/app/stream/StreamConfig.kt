@@ -40,7 +40,7 @@ data class StreamConfig(
         fun forQuality(quality: VideoQuality): StreamConfig = when (quality) {
             VideoQuality.DataSaver -> Default1080p30.copy(width = 1280, height = 720, bitrate = 8_000_000)
             VideoQuality.Balanced -> Default1080p30
-            VideoQuality.High -> Default1080p30.copy(fps = 60, bitrate = 50_000_000, audioBitrate = 192_000)
+            VideoQuality.High -> Default1080p30.copy(fps = 60, bitrate = 25_000_000, audioBitrate = 192_000)
         }
     }
 }
