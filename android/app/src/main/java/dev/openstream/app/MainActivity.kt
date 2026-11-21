@@ -1028,6 +1028,7 @@ class MainActivity : Activity() {
                     stopActiveEncoding(updateStatus = false)
                     phoneConnected = false
                     activeTargetName = null
+                    resumeDiscoveryIfIdle()
                     if (isListenerActive(generation)) {
                         scheduleReservationRelease()
                         runOnUiThread {
@@ -1058,7 +1059,7 @@ class MainActivity : Activity() {
     }
 
     private fun isListenerActive(generation: Long): Boolean {
-        return phoneServerRunning && listenerGeneration == generation
+        return activityStarted && lifecycleStartGate.canStart() && phoneServerRunning && listenerGeneration == generation
     }
 
     private fun stopPhoneServer(
@@ -1069,11 +1070,13 @@ class MainActivity : Activity() {
         // connects/listens cannot start. Heavy teardown (native disconnect,
         // thread joins, encoder stop) runs off the UI thread per AGENTS.md 6.
         callerGeneration += 1
+        callerSessionActive = false
         callerConnectThread?.interrupt()
         pendingListenerStart = false
         listenerGeneration += 1
         phoneServerRunning = false
         phoneConnected = false
+        notifyListenerStateChanged()
         if (clearReservation) clearReservation()
         activeTargetName = null
         mainHandler.removeCallbacks(statsTicker)
@@ -1104,6 +1107,7 @@ class MainActivity : Activity() {
                 camera.stopStreaming()
                 encoder.stop()
                 audioEncoder.stop()
+                appliedThermalBitrate = 0
                 if (needsStatus) {
                     mainHandler.post {
                         statusText.text = getString(R.string.status_stopped)
