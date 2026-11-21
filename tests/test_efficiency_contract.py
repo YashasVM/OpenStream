@@ -302,3 +302,140 @@ int main() {
     subprocess.run([str(exe)], check=True, timeout=20)
 
 
+def test_measure_efficiency_report_passes_all_ceilings_and_fails_on_missing_explicit_outputs(tmp_path):
+    measure = _load_tool("measure_efficiency")
+    report = measure.build_report(apk_path=None)
+
+    assert report["schemaVersion"] == 1
+    assert report["passed"] is True, f"Ceiling violations: {report['violations']}"
+    metrics = {m["id"]: m for m in report["metrics"]}
+    assert metrics["mux_video_allocs_per_frame"]["value"] == 1
+    assert metrics["mux_keyframe_allocs"]["value"] == 1
+    assert metrics["default_bitrate_mbps"]["value"] == 12
+    assert metrics["default_fps"]["value"] == 30
+    assert metrics["high_preset_bitrate_mbps"]["value"] == 25
+    assert metrics["preview_buffer_pixels"]["value"] == 960 * 540
+    assert metrics["live_bg_wakeups_per_min"]["value"] == 30
+
+    # Explicitly supplied missing APK or release DEX dir must fail hard.
+    with pytest.raises(RuntimeError, match="Supplied APK does not exist"):
+        measure.build_report(apk_path=tmp_path / "missing.apk")
+    with pytest.raises(RuntimeError, match="Supplied release DEX directory does not exist"):
+        measure.build_report(apk_path=None, release_dex_dir=tmp_path / "missing-dex")
+
+
+def test_efficiency_comment_renderer_enforces_trusted_spec_and_rejects_tampering(tmp_path):
+    measure = _load_tool("measure_efficiency")
+    render = _load_tool("render_efficiency_comment")
+
+    baseline = measure.build_report(apk_path=None)
+    pr = measure.build_report(apk_path=None)
+    # Tamper with PR report: exceed bitrate ceiling while lying about ceiling, label, unit, and passed.
+    for m in pr["metrics"]:
+        if m["id"] == "default_bitrate_mbps":
+            m["value"] = 18
+            m["ceiling"] = 999
+            m["label"] = "<script>alert(1)</script>"
+            m["unit"] = "fake"
+            m["passed"] = True
+
+    md = render.render_comment(
+        pr,
+        baseline,
+        pr_sha="abcdef1234567890",
+        pr_run_url="https://github.com/YashasVM/OpenStream/actions/runs/123",
+        baseline_sha="11111112222222",
+        baseline_run_url="https://github.com/YashasVM/OpenStream/actions/runs/100",
+        source_conclusion="failure",
+        require_build_metrics=False,
+    )
+
+    assert render.MARKER in md
+    assert "<!-- openstream-efficiency-result-sha:abcdef1234567890 -->" in md
+    # Trusted ceiling (12 Mbps) must still fail despite PR JSON claiming ceiling=999.
+    assert "❌ 1 trusted efficiency ceiling(s) exceeded." in md
+    assert "+6 Mbps (+50.0%)" in md
+    assert "<script>" not in md
+    assert "Default stream bitrate" in md
+    assert "Measurements are PR-produced" in md
+
+    # Omitting a required metric must fail validation (cannot hide regressions).
+    incomplete = measure.build_report(apk_path=None)
+    incomplete["metrics"] = [m for m in incomplete["metrics"] if m["id"] != "default_bitrate_mbps"]
+    with pytest.raises(render.ValidationError, match="Missing required metric"):
+        render.validate_report(incomplete, require_build_metrics=False)
+
+    # Full CI validation requires build metrics (APK + R8 DEX).
+    with pytest.raises(render.ValidationError, match="apk_total_bytes"):
+        render.validate_report(baseline, require_build_metrics=True)
+
+    # Unknown metric IDs and NaN values must fail closed.
+    bad_id = {
+        "schemaVersion": 1,
+        "metrics": [{"id": "evil_metric", "value": 1}],
+        "scenarios": [],
+    }
+    with pytest.raises(render.ValidationError):
+        render.validate_report(bad_id, require_build_metrics=False)
+
+    bad_nan = measure.build_report(apk_path=None)
+    bad_nan["metrics"][0]["value"] = float("nan")
+    with pytest.raises(render.ValidationError):
+        render.validate_report(bad_nan, require_build_metrics=False)
+
+    # CLI must handle malformed JSON AND untrusted validation errors cleanly without
+    # echoing PR-supplied IDs or JSON payloads into the public comment.
+    malformed_path = tmp_path / "malformed.json"
+    malformed_path.write_text("{not-valid-json <script>evil()</script>", encoding="utf-8")
+    out_malformed = tmp_path / "out-malformed.md"
+    assert render.main(["--pr-report", str(malformed_path), "--pr-sha", "abcdef1", "--output", str(out_malformed)]) == 0
+    malformed_md = out_malformed.read_text(encoding="utf-8")
+    assert render.MARKER in malformed_md
+    assert "Efficiency report unavailable" in malformed_md
+    assert "<script>" not in malformed_md
+
+    tampered_id_path = tmp_path / "tampered-id.json"
+    tampered_id_path.write_text('{"schemaVersion":1,"metrics":[{"id":"<img src=x onerror=alert(1)>","value":1}],"scenarios":[]}', encoding="utf-8")
+    out_tampered = tmp_path / "out-tampered.md"
+    assert render.main(["--pr-report", str(tampered_id_path), "--pr-sha", "abcdef1", "--output", str(out_tampered)]) == 0
+    tampered_md = out_tampered.read_text(encoding="utf-8")
+    assert render.MARKER in tampered_md
+    assert "Efficiency report unavailable" in tampered_md
+    assert "onerror" not in tampered_md
+
+    # Oversized JSON integers (400-digit float overflow AND 5000-digit Python int-str limit)
+    # must produce an unavailable comment cleanly instead of crashing.
+    huge_int_report = measure.build_report(apk_path=None)
+    huge_int_report["metrics"][0]["value"] = 10**400
+    with pytest.raises(render.ValidationError):
+        render.validate_report(huge_int_report, require_build_metrics=False)
+    for digits in (400, 5000):
+        huge_path = tmp_path / f"huge-int-{digits}.json"
+        huge_path.write_text(
+            '{"schemaVersion":1,"metrics":[{"id":"default_fps","value":' + ("9" * digits) + '}],"scenarios":[]}',
+            encoding="utf-8",
+        )
+        out_huge = tmp_path / f"out-huge-{digits}.md"
+        assert render.main(["--pr-report", str(huge_path), "--pr-sha", "abcdef1", "--output", str(out_huge)]) == 0
+        assert "Efficiency report unavailable" in out_huge.read_text(encoding="utf-8")
+
+    # Deeply nested JSON triggering RecursionError must also emit an unavailable comment.
+    deep_path = tmp_path / "deep-nested.json"
+    deep_path.write_text("[" * 2500 + "]" * 2500, encoding="utf-8")
+    out_deep = tmp_path / "out-deep.md"
+    assert render.main(["--pr-report", str(deep_path), "--pr-sha", "abcdef1", "--output", str(out_deep)]) == 0
+    assert "Efficiency report unavailable" in out_deep.read_text(encoding="utf-8")
+
+    # Invalid baseline is discarded and its SHA must not appear as the active baseline.
+    md_bad_base = render.render_comment(
+        baseline,
+        {"schemaVersion": 999},
+        pr_sha="abcdef1234567890",
+        baseline_sha="deadbeef1234567",
+        baseline_run_url="https://github.com/YashasVM/OpenStream/actions/runs/999",
+        require_build_metrics=False,
+    )
+    assert "Baseline: none yet" in md_bad_base
+    assert "deadbee" not in md_bad_base
+
+
