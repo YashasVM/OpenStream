@@ -29,7 +29,7 @@ data class StreamConfig(
             height = 1080,
             fps = 30,
             bitrate = 12_000_000,
-            keyframeIntervalSeconds = 1,
+            keyframeIntervalSeconds = 2,
             latencyMs = 120,
             codecPreference = CodecPreference.ForceAvc,
             audioSampleRate = 48_000,
