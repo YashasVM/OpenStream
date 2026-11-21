@@ -51,6 +51,6 @@ enum class VideoQuality {
     High;
 
     companion object {
-        fun fromPreference(value: String?): VideoQuality = entries.firstOrNull { it.name == value } ?: High
+        fun fromPreference(value: String?): VideoQuality = entries.firstOrNull { it.name == value } ?: Balanced
     }
 }
