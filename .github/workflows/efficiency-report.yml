@@ -1,0 +1,100 @@
+name: Efficiency PR Comment
+
+on:
+  workflow_run:
+    workflows: ["Android APK"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+# Serialize comment updates per PR branch and retain queued completions so an
+# older run finishing late can never evict a newer pending current-head report.
+concurrency:
+  group: efficiency-comment-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  comment:
+    name: Update sticky PR efficiency report
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      # Always check out the trusted default branch, never untrusted PR code.
+      - name: Check out trusted repository tools
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Download PR and main baseline reports and update sticky comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+          PR_RUN_ID: ${{ github.event.workflow_run.id }}
+          PR_RUN_URL: ${{ github.event.workflow_run.html_url }}
+          PR_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PR_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          PR_HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+          PR_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          PR_NUMBERS_JSON: ${{ toJSON(github.event.workflow_run.pull_requests) }}
+        run: |
+          set -euo pipefail
+          work_dir="$RUNNER_TEMP/efficiency-comment"
+          mkdir -p "$work_dir/pr" "$work_dir/baseline"
+
+          pr_number=$(python3 - <<'PY'
+          import json, os, subprocess
+
+          repo = os.environ["REPO"]
+          head_sha = os.environ["PR_HEAD_SHA"]
+          head_branch = os.environ["PR_HEAD_BRANCH"]
+          head_repo = os.environ["PR_HEAD_REPO"]
+
+          def matches_pr(pr: dict) -> bool:
+              head = pr.get("head") or {}
+              head_repo_obj = head.get("repo") or {}
+              return (
+                  pr.get("state") == "open"
+                  and head.get("sha") == head_sha
+                  and head.get("ref") == head_branch
+                  and head_repo_obj.get("full_name") == head_repo
+              )
+
+          candidate_numbers: set[int] = set()
+          for item in json.loads(os.environ.get("PR_NUMBERS_JSON", "[]") or "[]"):
+              if isinstance(item, dict) and isinstance(item.get("number"), int):
+                  candidate_numbers.add(item["number"])
+
+          if not candidate_numbers:
+              out = subprocess.check_output(
+                  ["gh", "api", f"repos/{repo}/commits/{head_sha}/pulls"],
+                  text=True,
+              )
+              for item in json.loads(out):
+                  if isinstance(item, dict) and matches_pr(item) and isinstance(item.get("number"), int):
+                      candidate_numbers.add(item["number"])
+
+          matched: list[int] = []
+          for number in sorted(candidate_numbers):
+              pr = json.loads(
+                  subprocess.check_output(["gh", "api", f"repos/{repo}/pulls/{number}"], text=True)
+              )
+              if matches_pr(pr):
+                  matched.append(number)
+
+          if len(matched) == 1:
+              print(matched[0])
+          PY
+          )
+
+          if [ -z "$pr_number" ]; then
+            echo "No unique open PR matching ${PR_HEAD_REPO}:${PR_HEAD_BRANCH}@${PR_HEAD_SHA}; skipping comment."
+            exit 0
+          fi
+
