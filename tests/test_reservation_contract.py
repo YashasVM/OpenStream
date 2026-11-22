@@ -289,7 +289,7 @@ def test_obs_slot_render_cache_renders_initial_empty_state_and_tracks_bitrate():
 
     assert "private var lastObsSlotRenderKeys: List<String>? = null" in source
     assert (
-        '"${device.sourceInstanceId}|${device.displayLabel}|${device.busy}|'
+        '"${device.sourceInstanceId}|${device.displayLabel}|${device.isUsb}|${device.busy}|'
         '${device.bitrateMbps}|${advertisedReservationId == device.sourceInstanceId}|$phoneConnected"'
         in source
     )

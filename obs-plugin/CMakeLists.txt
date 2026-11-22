@@ -198,18 +198,40 @@ target_link_libraries(openstream-obs PRIVATE
     ${SWSCALE_LIBRARY}
 )
 
-if (UNIX AND NOT APPLE)
+if (WIN32 OR (UNIX AND NOT APPLE))
     # Native OBS Studio exposes its dock API through obs-frontend-api. Keep
     # this UI dependency at the plugin boundary; the media engine stays in
     # openstream-source.cpp and does not depend on OBS frontend or Qt Widgets.
     find_package(Qt6 6.2 COMPONENTS Widgets REQUIRED)
-    find_library(OBS_FRONTEND_LIBRARY
-        NAMES obs-frontend-api
-        HINTS ${PC_OBS_FRONTEND_LIBRARY_DIRS} ${PC_LIBOBS_LIBRARY_DIRS}
-        REQUIRED
-    )
+    if (WIN32)
+        find_path(OBS_FRONTEND_INCLUDE_DIR
+            NAMES obs-frontend-api.h
+            HINTS ${OBS_ROOT}
+            PATH_SUFFIXES frontend/api include
+            REQUIRED
+        )
+        find_library(OBS_FRONTEND_LIBRARY
+            NAMES obs-frontend-api
+            HINTS ${OBS_ROOT} ${FFMPEG_ROOT}
+            PATH_SUFFIXES lib lib/x64 build/UI/obs-frontend-api/Release bin/64bit
+            REQUIRED
+        )
+        target_include_directories(openstream-obs PRIVATE ${OBS_FRONTEND_INCLUDE_DIR})
+    else()
+        find_library(OBS_FRONTEND_LIBRARY
+            NAMES obs-frontend-api
+            HINTS ${PC_OBS_FRONTEND_LIBRARY_DIRS} ${PC_LIBOBS_LIBRARY_DIRS}
+            REQUIRED
+        )
+    endif()
     target_sources(openstream-obs PRIVATE src/openstream-dock.cpp)
     target_link_libraries(openstream-obs PRIVATE Qt6::Widgets ${OBS_FRONTEND_LIBRARY})
+endif()
+
+if (MSVC)
+    # Keep UTF-8 string literals (for example "1×" lens labels and status dashes)
+    # identical between Windows MSVC and Linux GCC builds.
+    target_compile_options(openstream-obs PRIVATE /utf-8)
 endif()
 
 if (WIN32)

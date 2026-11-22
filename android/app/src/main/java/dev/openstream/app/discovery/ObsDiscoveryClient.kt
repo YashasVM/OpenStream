@@ -36,6 +36,7 @@ class ObsDiscoveryClient(
             return false
         }
     }
+    private val socketLock = Any()
     @Volatile private var socket: MulticastSocket? = null
     @Volatile private var worker: Thread? = null
     @Volatile private var multicastLock: WifiManager.MulticastLock? = null
@@ -60,8 +61,10 @@ class ObsDiscoveryClient(
     fun stop() {
         pendingRestart = false
         running.set(false)
-        socket?.close()
-        socket = null
+        synchronized(socketLock) {
+            runCatching { socket?.close() }
+            socket = null
+        }
         val thread = worker
         thread?.interrupt()
         if (thread != null && thread !== Thread.currentThread()) {
@@ -103,29 +106,62 @@ class ObsDiscoveryClient(
         try {
             runCatching { acquireMulticastLock() }
                 .onFailure { Log.w(TAG, "Could not acquire multicast lock", it) }
-            val multicast = MulticastSocket(null).apply {
-                reuseAddress = true
-                soTimeout = 500
-                bind(InetSocketAddress(DISCOVERY_PORT))
-            }
+            var activeInterfaces = activeMulticastInterfaces()
+            var joinedSignature = multicastInterfaceSignature(activeInterfaces)
+            var multicast = openMulticastSocket(activeInterfaces) ?: return
             udp = multicast
-            socket = multicast
-            joinDiscoveryMulticast(multicast)
             val buffer = ByteArray(4096)
+            var cachedEndpoints = UsbNetworkSupport.collectIpv4Endpoints()
+            var lastInterfaceRefreshNs = System.nanoTime()
 
             while (running.get()) {
+                val refreshNowNs = System.nanoTime()
+                if (refreshNowNs - lastInterfaceRefreshNs >= INTERFACE_REFRESH_NS) {
+                    cachedEndpoints = UsbNetworkSupport.collectIpv4Endpoints()
+                    val currentInterfaces = activeMulticastInterfaces()
+                    val currentSignature = multicastInterfaceSignature(currentInterfaces)
+                    if (currentSignature != joinedSignature) {
+                        // Recreating the socket releases stale kernel multicast
+                        // memberships from vanished tether adapters so repeated
+                        // USB reconnects never hit ENOBUFS.
+                        closeTrackedSocket(multicast)
+                        udp = null
+                        val reopened = openMulticastSocket(currentInterfaces) ?: break
+                        multicast = reopened
+                        udp = reopened
+                        activeInterfaces = currentInterfaces
+                        joinedSignature = currentSignature
+                    }
+                    lastInterfaceRefreshNs = refreshNowNs
+                }
                 try {
                     val packet = DatagramPacket(buffer, buffer.size)
                     multicast.receive(packet)
                     val payload = String(packet.data, packet.offset, packet.length, StandardCharsets.UTF_8)
                     val host = packet.address.hostAddress ?: continue
-                    val device = ObsDiscoveryProtocol.parseBeacon(payload, host, nowMs()) ?: continue
-                    synchronized(devices) {
+                    val parsed = ObsDiscoveryProtocol.parseBeacon(payload, host, nowMs()) ?: continue
+                    val isUsb = UsbNetworkSupport.isHostOnUsbSubnet(parsed.host, cachedEndpoints)
+                    val device = if (isUsb) parsed.copy(isUsb = true) else parsed
+                    val updated = synchronized(devices) {
                         val key = device.instanceId.ifBlank { "${device.host}:${device.port}" }
-                        devices[key] = device
+                        val existing = devices[key]
+                        if (UsbNetworkSupport.shouldReplaceDiscoveredDevice(
+                                existing = existing,
+                                incoming = device,
+                                nowMs = device.lastSeenMs,
+                                usbHoldMs = USB_ROUTE_HOLD_MS,
+                            )
+                        ) {
+                            devices[key] = device
+                            true
+                        } else {
+                            false
+                        }
                     }
-                    pruneExpired()
-                    publishDevicesDebounced()
+                    val pruned = pruneExpired()
+                    if (updated || pruned) {
+                        publishDevicesDebounced()
+                    }
                 } catch (_: SocketTimeoutException) {
                     if (pruneExpired()) {
                         publishDevicesDebounced()
@@ -148,8 +184,7 @@ class ObsDiscoveryClient(
         } catch (e: Exception) {
             if (running.get()) Log.w(TAG, "Discovery worker failed", e)
         } finally {
-            runCatching { udp?.close() }
-            if (socket === udp) socket = null
+            closeTrackedSocket(udp)
             releaseMulticastLock()
             if (worker === Thread.currentThread()) worker = null
             running.set(false)
@@ -160,15 +195,66 @@ class ObsDiscoveryClient(
         }
     }
 
-    private fun joinDiscoveryMulticast(socket: MulticastSocket) {
-        val group = InetAddress.getByName(DISCOVERY_MULTICAST_ADDRESS)
-        NetworkInterface.getNetworkInterfaces().asSequence()
-            .filter { it.isUp && !it.isLoopback }
-            .forEach { iface ->
-                runCatching {
-                    socket.joinGroup(InetSocketAddress(group, DISCOVERY_PORT), iface)
-                }
+    private fun openMulticastSocket(interfaces: List<NetworkInterface>): MulticastSocket? {
+        val fresh = MulticastSocket(null).apply {
+            reuseAddress = true
+            soTimeout = 500
+            bind(InetSocketAddress(DISCOVERY_PORT))
+        }
+        val active = synchronized(socketLock) {
+            if (!running.get()) {
+                false
+            } else {
+                socket = fresh
+                true
             }
+        }
+        if (!active) {
+            runCatching { fresh.close() }
+            return null
+        }
+        joinDiscoveryMulticast(fresh, interfaces)
+        return fresh
+    }
+
+    private fun closeTrackedSocket(target: MulticastSocket?) {
+        if (target == null) return
+        synchronized(socketLock) {
+            if (socket === target) socket = null
+        }
+        runCatching { target.close() }
+    }
+
+    private fun activeMulticastInterfaces(): List<NetworkInterface> {
+        val interfaces = runCatching { NetworkInterface.getNetworkInterfaces() }.getOrNull()
+            ?: return emptyList()
+        return interfaces.asSequence()
+            .filter { runCatching { it.isUp && !it.isLoopback }.getOrDefault(false) }
+            .toList()
+    }
+
+    private fun multicastInterfaceSignature(interfaces: List<NetworkInterface>): Set<String> =
+        interfaces.map { iface ->
+            val ipv4s = runCatching {
+                iface.inetAddresses.asSequence()
+                    .filterIsInstance<java.net.Inet4Address>()
+                    .mapNotNull { it.hostAddress }
+                    .sorted()
+                    .joinToString(",")
+            }.getOrDefault("")
+            "${iface.index}:${iface.name}:$ipv4s"
+        }.toSet()
+
+    private fun joinDiscoveryMulticast(
+        socket: MulticastSocket,
+        interfaces: List<NetworkInterface>,
+    ) {
+        val group = InetAddress.getByName(DISCOVERY_MULTICAST_ADDRESS)
+        interfaces.forEach { iface ->
+            runCatching {
+                socket.joinGroup(InetSocketAddress(group, DISCOVERY_PORT), iface)
+            }
+        }
     }
 
     private fun pruneExpired(): Boolean {
@@ -220,6 +306,8 @@ class ObsDiscoveryClient(
         private const val STOP_TIMEOUT_MS = 1_000L
         private const val MAX_DEVICES = 64
         private const val PUBLISH_DEBOUNCE_MS = 300L
+        private const val INTERFACE_REFRESH_NS = 2_000_000_000L
+        private const val USB_ROUTE_HOLD_MS = 3_000L
     }
 }
 

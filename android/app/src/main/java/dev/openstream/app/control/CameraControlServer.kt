@@ -11,6 +11,7 @@ import java.io.OutputStreamWriter
 import java.io.PrintWriter
 import java.net.ServerSocket
 import java.net.Socket
+import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -47,6 +48,9 @@ class CameraControlServer(
     @Volatile private var activeClient: Socket? = null
     @Volatile private var worker: Thread? = null
     @Volatile private var activeReservationToken: String? = null
+    @Volatile private var previousReservationToken: String? = null
+    @Volatile private var previousControllerAddress: String? = null
+    @Volatile private var lastRebindControllerAddress: String? = null
     @Volatile private var activeControllerAddress: String? = null
     @Volatile private var activeReservationSlotLabel: String? = null
     @Volatile private var activeReservationBitrateMbps: Int? = null
@@ -153,6 +157,7 @@ class CameraControlServer(
             val input = BufferedInputStream(client.getInputStream())
             val writer = PrintWriter(OutputStreamWriter(client.getOutputStream(), Charsets.UTF_8), false)
             val controllerAddress = client.inetAddress?.hostAddress.orEmpty()
+            val localAddress = client.localAddress?.hostAddress.orEmpty()
 
             // Parse request line
             val requestLine = readAsciiLine(input, MAX_REQUEST_LINE_BYTES) ?: return
@@ -230,7 +235,7 @@ class CameraControlServer(
                 method == "POST" && path == "/zoom" -> handleZoom(body, controllerAddress)
                 method == "POST" && path == "/torch" -> handleTorch(body, controllerAddress)
                 method == "POST" && path == "/lens" -> handleLens(body, controllerAddress)
-                method == "POST" && path == "/reserve" -> handleReserve(body, controllerAddress)
+                method == "POST" && path == "/reserve" -> handleReserve(body, controllerAddress, localAddress)
                 method == "POST" && path == "/release" -> handleRelease(body, controllerAddress)
                 method == "POST" && path == "/identify" -> handleIdentify(body, controllerAddress)
                 else -> {
@@ -301,6 +306,35 @@ class CameraControlServer(
             controllerAddress == activeControllerAddress
     }
 
+    internal fun isPeerAuthorized(controllerAddress: String): Boolean =
+        isAuthorizedController(controllerAddress)
+
+    internal fun handleReserveRequest(
+        body: String,
+        controllerAddress: String,
+        localAddress: String = "",
+    ): Pair<Int, String> = handleReserve(body, controllerAddress, localAddress)
+
+    private fun hasValidRebindProof(
+        activeToken: String?,
+        localAddress: String,
+        nextToken: String?,
+        providedProof: String?,
+    ): Boolean {
+        if (activeToken == null || activeToken.length < MIN_REBIND_TOKEN_CHARS ||
+            nextToken == null || nextToken.length < MIN_REBIND_TOKEN_CHARS ||
+            nextToken == activeToken ||
+            localAddress.isEmpty() || providedProof.isNullOrEmpty()
+        ) {
+            return false
+        }
+        val expected = computeRebindProof(activeToken, localAddress, nextToken)
+        return MessageDigest.isEqual(
+            expected.toByteArray(Charsets.UTF_8),
+            providedProof.lowercase().toByteArray(Charsets.UTF_8),
+        )
+    }
+
     private fun unauthorizedControlResponse(): String =
         """{"ok":false,"unauthorized":true,"error":"unauthorized"}"""
 
@@ -356,7 +390,11 @@ class CameraControlServer(
         return 200 to """{"ok":true,"lens":"${target.shortLabel}"}"""
     }
 
-    private fun handleReserve(body: String, controllerAddress: String): Pair<Int, String> {
+    private fun handleReserve(
+        body: String,
+        controllerAddress: String,
+        localAddress: String = "",
+    ): Pair<Int, String> {
         val json = parseJson(body) ?: return malformedResponse("reserve")
         val sourceInstanceId = json.optString("sourceInstanceId").trim()
         if (sourceInstanceId.isEmpty()) return 400 to """{"ok":false,"error":"missing sourceInstanceId"}"""
@@ -364,6 +402,7 @@ class CameraControlServer(
         if (reservationToken != null && reservationToken.length > MAX_RESERVATION_TOKEN_CHARS) {
             return 400 to """{"ok":false,"error":"reservation token too large"}"""
         }
+        val rebindProof = json.optString("rebindProof").trim().ifEmpty { null }
         val currentReservation = reservationProvider()
         if (currentReservation != null && currentReservation != sourceInstanceId) {
             return busyReservationResponse(currentReservation).let { 403 to it }
@@ -372,15 +411,41 @@ class CameraControlServer(
         // UI-made (local-only) reservations leave currentControllerAddress == null
         // until the first network reserve binds the peer. Allow the legitimate
         // OBS host claiming the same sourceInstanceId to adopt/bind here instead
-        // of failing closed and leaving the reservation sticky. Once bound, only
-        // the matching peer may renew; a different peer still gets 401.
+        // of failing closed and leaving the reservation sticky. Also allow the
+        // same OBS host to rebind from a new address (e.g. USB unplug -> Wi-Fi
+        // reconnect) after proving ownership with a SHA-256 proof bound to this
+        // socket's local IP and a fresh rotated token so a spoofed LAN peer can
+        // never steal or replay the active reservation token.
         val isUnboundLocalReservation = currentControllerAddress == null
+        val matchedActiveRebind = controllerAddress.isNotEmpty() &&
+            hasValidRebindProof(activeReservationToken, localAddress, reservationToken, rebindProof)
+        val isKnownRebindRetryPeer = controllerAddress.isNotEmpty() &&
+            (controllerAddress == lastRebindControllerAddress ||
+                controllerAddress == previousControllerAddress)
+        val matchedRetryRebind = !matchedActiveRebind &&
+            isKnownRebindRetryPeer &&
+            hasValidRebindProof(previousReservationToken, localAddress, reservationToken, rebindProof)
+        val provedReservationOwnership = matchedActiveRebind || matchedRetryRebind
         if (currentReservation == sourceInstanceId &&
             !isUnboundLocalReservation &&
+            !provedReservationOwnership &&
             (controllerAddress.isEmpty() ||
                 controllerAddress != currentControllerAddress)
         ) {
             return unauthorizedControlResponse().let { 401 to it }
+        }
+        val rebindAck = when {
+            matchedActiveRebind -> computeRebindAck(
+                activeReservationToken!!,
+                localAddress,
+                reservationToken!!,
+            )
+            matchedRetryRebind -> computeRebindAck(
+                previousReservationToken!!,
+                localAddress,
+                reservationToken!!,
+            )
+            else -> null
         }
         val slotLabel = json.optString("slotLabel", "")
         val bitrateMbps = if (json.has("bitrateMbps")) {
@@ -402,15 +467,34 @@ class CameraControlServer(
             activeReservationSlotLabel == slotLabel &&
             activeReservationBitrateMbps == bitrateMbps
         if (sameReservationConfig) {
+            if (matchedActiveRebind) {
+                previousReservationToken = activeReservationToken
+                previousControllerAddress = currentControllerAddress
+                lastRebindControllerAddress = controllerAddress
+            } else if (!matchedRetryRebind) {
+                previousReservationToken = null
+                previousControllerAddress = null
+                lastRebindControllerAddress = null
+            }
             activeReservationToken = reservationToken
             activeControllerAddress = controllerAddress.ifEmpty { null }
             return 200 to JSONObject()
                 .put("ok", true)
                 .put("reservedBy", sourceInstanceId)
+                .apply { if (rebindAck != null) put("rebindAck", rebindAck) }
                 .toString()
         }
         val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)
         return if (accepted) {
+            if (matchedActiveRebind) {
+                previousReservationToken = activeReservationToken
+                previousControllerAddress = currentControllerAddress
+                lastRebindControllerAddress = controllerAddress
+            } else if (!matchedRetryRebind) {
+                previousReservationToken = null
+                previousControllerAddress = null
+                lastRebindControllerAddress = null
+            }
             activeReservationToken = reservationToken
             activeControllerAddress = controllerAddress.ifEmpty { null }
             activeReservationSlotLabel = slotLabel
@@ -418,6 +502,7 @@ class CameraControlServer(
             200 to JSONObject()
                 .put("ok", true)
                 .put("reservedBy", sourceInstanceId)
+                .apply { if (rebindAck != null) put("rebindAck", rebindAck) }
                 .toString()
         } else {
             busyReservationResponse(reservationProvider().orEmpty()).let { 403 to it }
@@ -454,6 +539,9 @@ class CameraControlServer(
             activeControllerAddress = null
             activeReservationSlotLabel = null
             activeReservationBitrateMbps = null
+            previousReservationToken = null
+            previousControllerAddress = null
+            lastRebindControllerAddress = null
         }
         return 200 to """{"ok":$released}"""
     }
@@ -474,7 +562,30 @@ class CameraControlServer(
         private const val MAX_HEADER_LINE_BYTES = 2_048
         private const val MAX_HEADER_BYTES = 8_192
         private const val MAX_BODY_BYTES = 8_192
+        private const val MIN_REBIND_TOKEN_CHARS = 32
         private const val MAX_RESERVATION_TOKEN_CHARS = 256
         private const val STOP_TIMEOUT_MS = 1_000L
+
+        internal fun computeRebindProof(
+            activeToken: String,
+            localAddress: String,
+            nextToken: String,
+        ): String = sha256Hex("$activeToken|$localAddress|$nextToken")
+
+        internal fun computeRebindAck(
+            activeToken: String,
+            localAddress: String,
+            nextToken: String,
+        ): String = sha256Hex("$activeToken|ack|$localAddress|$nextToken")
+
+        private fun sha256Hex(material: String): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+                .digest(material.toByteArray(Charsets.UTF_8))
+            return buildString(digest.size * 2) {
+                for (byte in digest) {
+                    append("%02x".format(byte.toInt() and 0xff))
+                }
+            }
+        }
     }
 }
