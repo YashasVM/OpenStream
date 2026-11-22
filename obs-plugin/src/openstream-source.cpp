@@ -18,6 +18,7 @@
 #endif
 
 #include <obs-module.h>
+#include <QCryptographicHash>
 
 #include "async-control-client.hpp"
 #include "openstream-control-api.hpp"
@@ -40,6 +41,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <random>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -441,6 +443,9 @@ struct PhoneDevice {
   std::string name;
   std::string instance_id;
   std::string host;
+  std::string transport = "wifi";
+  std::string fallback_host;
+  std::chrono::steady_clock::time_point fallback_last_seen{};
   int port = 9100;
   int control_port = 9101;
   int latency_ms = 120;
@@ -453,6 +458,164 @@ struct PhoneDevice {
   std::string reservation_token;
   std::chrono::steady_clock::time_point last_seen = std::chrono::steady_clock::now();
 };
+
+constexpr auto kUsbRouteHold = std::chrono::seconds(3);
+constexpr auto kFallbackRouteTtl = std::chrono::seconds(5);
+
+bool is_usb_phone(const PhoneDevice &phone) {
+  return phone.transport == "usb";
+}
+
+bool has_fresh_fallback_host(const PhoneDevice &phone,
+                             std::chrono::steady_clock::time_point now) {
+  return !phone.fallback_host.empty() && phone.fallback_host != phone.host &&
+         phone.fallback_last_seen != std::chrono::steady_clock::time_point{} &&
+         now >= phone.fallback_last_seen &&
+         (now - phone.fallback_last_seen) < kFallbackRouteTtl;
+}
+
+bool apply_fallback_route(PhoneDevice &phone,
+                          std::chrono::steady_clock::time_point now) {
+  if (!is_usb_phone(phone) || !has_fresh_fallback_host(phone, now)) {
+    return false;
+  }
+  phone.host = phone.fallback_host;
+  phone.transport = "wifi";
+  return true;
+}
+
+bool should_accept_phone_beacon(const PhoneDevice *existing,
+                                const PhoneDevice &incoming,
+                                std::chrono::steady_clock::time_point now) {
+  if (existing != nullptr && is_usb_phone(*existing) && !is_usb_phone(incoming) &&
+      now >= existing->last_seen && (now - existing->last_seen) < kUsbRouteHold) {
+    return false;
+  }
+  return true;
+}
+
+bool merge_discovered_phone(PhoneDevice *existing,
+                            PhoneDevice &incoming,
+                            std::chrono::steady_clock::time_point now) {
+  if (!should_accept_phone_beacon(existing, incoming, now)) {
+    // Keep USB as primary while retaining the fresh Wi-Fi host for failover
+    // if USB control or SRT is blocked/unreachable.
+    existing->fallback_host = incoming.host;
+    existing->fallback_last_seen = incoming.last_seen;
+    return false;
+  }
+  if (existing != nullptr && is_usb_phone(incoming)) {
+    if (!is_usb_phone(*existing) && existing->host != incoming.host) {
+      incoming.fallback_host = existing->host;
+      incoming.fallback_last_seen = existing->last_seen;
+    } else if (has_fresh_fallback_host(*existing, now)) {
+      incoming.fallback_host = existing->fallback_host;
+      incoming.fallback_last_seen = existing->fallback_last_seen;
+    }
+  }
+  return true;
+}
+
+#ifndef _WIN32
+struct JoinedMulticastInterface {
+  int ifindex = 0;
+  in_addr address{};
+};
+
+void sync_discovery_multicast_interfaces(SocketHandle socket,
+                                         std::vector<JoinedMulticastInterface> &joined) {
+  std::vector<JoinedMulticastInterface> active;
+  ifaddrs *interfaces = nullptr;
+  if (getifaddrs(&interfaces) == 0) {
+    for (ifaddrs *iface = interfaces; iface != nullptr; iface = iface->ifa_next) {
+      if (!iface->ifa_addr || iface->ifa_addr->sa_family != AF_INET) continue;
+      if ((iface->ifa_flags & IFF_LOOPBACK) != 0 || (iface->ifa_flags & IFF_UP) == 0) continue;
+      const unsigned int ifindex = iface->ifa_name ? if_nametoindex(iface->ifa_name) : 0u;
+      if (ifindex == 0u) continue;
+      const in_addr addr = reinterpret_cast<sockaddr_in *>(iface->ifa_addr)->sin_addr;
+      const bool seen = std::any_of(active.begin(), active.end(), [&](const auto &item) {
+        return item.ifindex == static_cast<int>(ifindex);
+      });
+      if (!seen) {
+        active.push_back(JoinedMulticastInterface{static_cast<int>(ifindex), addr});
+      }
+    }
+    freeifaddrs(interfaces);
+  }
+
+  // Drop memberships for vanished adapters first so Linux never accumulates
+  // stale mc_list entries and hits ENOBUFS after repeated tether reconnects.
+  for (auto it = joined.begin(); it != joined.end();) {
+    const bool still_active = std::any_of(active.begin(), active.end(), [&](const auto &item) {
+      return item.ifindex == it->ifindex;
+    });
+    if (!still_active) {
+      ip_mreqn drop_req = {};
+      drop_req.imr_multiaddr.s_addr = inet_addr(kDiscoveryMulticastAddress);
+      drop_req.imr_address = it->address;
+      drop_req.imr_ifindex = it->ifindex;
+      setsockopt(socket, IPPROTO_IP, IP_DROP_MEMBERSHIP, &drop_req, sizeof(drop_req));
+      it = joined.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
+  for (const auto &iface : active) {
+    const bool already_joined = std::any_of(joined.begin(), joined.end(), [&](const auto &item) {
+      return item.ifindex == iface.ifindex;
+    });
+    if (already_joined) continue;
+    ip_mreqn add_req = {};
+    add_req.imr_multiaddr.s_addr = inet_addr(kDiscoveryMulticastAddress);
+    add_req.imr_address = iface.address;
+    add_req.imr_ifindex = iface.ifindex;
+    if (setsockopt(socket, IPPROTO_IP, IP_ADD_MEMBERSHIP, &add_req, sizeof(add_req)) == 0 ||
+        errno == EADDRINUSE) {
+      joined.push_back(iface);
+    }
+  }
+}
+#else
+void sync_discovery_multicast_interfaces(SocketHandle socket,
+                                         std::vector<std::string> &joined) {
+  std::vector<std::string> active;
+  for (const std::string &address : local_ipv4_addresses()) {
+    if (address == "0.0.0.0") continue;
+    if (std::find(active.begin(), active.end(), address) == active.end()) {
+      active.push_back(address);
+    }
+  }
+  for (auto it = joined.begin(); it != joined.end();) {
+    if (std::find(active.begin(), active.end(), *it) == active.end()) {
+      in_addr iface_addr = {};
+      if (inet_pton(AF_INET, it->c_str(), &iface_addr) == 1) {
+        ip_mreq drop_req = {};
+        drop_req.imr_multiaddr.s_addr = inet_addr(kDiscoveryMulticastAddress);
+        drop_req.imr_interface = iface_addr;
+        setsockopt(socket, IPPROTO_IP, IP_DROP_MEMBERSHIP,
+                   reinterpret_cast<const char *>(&drop_req), sizeof(drop_req));
+      }
+      it = joined.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  for (const std::string &address : active) {
+    if (std::find(joined.begin(), joined.end(), address) != joined.end()) continue;
+    in_addr iface_addr = {};
+    if (inet_pton(AF_INET, address.c_str(), &iface_addr) != 1) continue;
+    ip_mreq add_req = {};
+    add_req.imr_multiaddr.s_addr = inet_addr(kDiscoveryMulticastAddress);
+    add_req.imr_interface = iface_addr;
+    if (setsockopt(socket, IPPROTO_IP, IP_ADD_MEMBERSHIP,
+                   reinterpret_cast<const char *>(&add_req), sizeof(add_req)) == 0 ||
+        WSAGetLastError() == WSAEADDRINUSE) {
+      joined.push_back(address);
+    }
+  }
+}
+#endif
 
 class PhoneDiscoveryReceiver {
  public:
@@ -637,8 +800,20 @@ class PhoneDiscoveryReceiver {
                IP_ADD_MEMBERSHIP,
                reinterpret_cast<const char *>(&multicast_request),
                sizeof(multicast_request));
+#ifdef _WIN32
+    std::vector<std::string> joined_interfaces;
+#else
+    std::vector<JoinedMulticastInterface> joined_interfaces;
+#endif
+    sync_discovery_multicast_interfaces(socket, joined_interfaces);
+    auto last_interface_refresh = std::chrono::steady_clock::now();
 
     while (core->running.load()) {
+      const auto loop_now = std::chrono::steady_clock::now();
+      if (loop_now - last_interface_refresh >= std::chrono::seconds(3)) {
+        sync_discovery_multicast_interfaces(socket, joined_interfaces);
+        last_interface_refresh = loop_now;
+      }
       char buffer[4096] = {};
       sockaddr_in source = {};
 #ifdef _WIN32
@@ -682,6 +857,8 @@ class PhoneDiscoveryReceiver {
         continue;
       }
       device.host = packet_host;
+      const std::string advertised_transport = json_string_value(json, "transport").value_or("wifi");
+      device.transport = advertised_transport == "usb" ? "usb" : "wifi";
       device.port = json_int_value(json, "listenerPort").value_or(-1);
       device.control_port = json_int_value(json, "controlPort").value_or(-1);
       if (device.port < 1 || device.port > 65535 ||
@@ -702,29 +879,39 @@ class PhoneDiscoveryReceiver {
       device.busy = json_bool_value(json, "busy").value_or(false);
       device.reserved_by = json_string_value(json, "reservedBy").value_or("");
       device.last_seen = std::chrono::steady_clock::now();
+      bool stored = false;
       {
         std::lock_guard<std::mutex> lock(core->mutex);
         pruneExpiredLocked(*core);
-        // Overflow policy: evict eldest (oldest last_seen) with a warning,
-        // never grow unbounded.
-        if (core->devices_.size() >= kMaxDevices &&
-            core->devices_.find(device.instance_id) == core->devices_.end()) {
-          auto eldest = core->devices_.begin();
-          for (auto it = core->devices_.begin(); it != core->devices_.end(); ++it) {
-            if (it->second.last_seen < eldest->second.last_seen) eldest = it;
+        const auto existing = core->devices_.find(device.instance_id);
+        PhoneDevice *existing_ptr =
+            existing != core->devices_.end() ? &existing->second : nullptr;
+        if (merge_discovered_phone(existing_ptr, device, device.last_seen)) {
+          // Overflow policy: evict eldest (oldest last_seen) with a warning,
+          // never grow unbounded.
+          if (core->devices_.size() >= kMaxDevices &&
+              existing == core->devices_.end()) {
+            auto eldest = core->devices_.begin();
+            for (auto it = core->devices_.begin(); it != core->devices_.end(); ++it) {
+              if (it->second.last_seen < eldest->second.last_seen) eldest = it;
+            }
+            blog(LOG_WARNING, "[OpenStream] Discovery cap (%zu) reached; evicting %s",
+                 kMaxDevices, eldest->first.c_str());
+            core->devices_.erase(eldest);
           }
-          blog(LOG_WARNING, "[OpenStream] Discovery cap (%zu) reached; evicting %s",
-               kMaxDevices, eldest->first.c_str());
-          core->devices_.erase(eldest);
+          core->devices_[device.instance_id] = device;
+          stored = true;
         }
-        core->devices_[device.instance_id] = device;
       }
-      blog(LOG_INFO,
-           "[OpenStream] Discovered phone %s at %s:%d%s",
-           device.name.c_str(),
-           device.host.c_str(),
-           device.port,
-           device.busy ? " (busy)" : "");
+      if (stored) {
+        blog(LOG_INFO,
+             "[OpenStream] Discovered phone %s%s at %s:%d%s",
+             device.name.c_str(),
+             is_usb_phone(device) ? " [USB]" : "",
+             device.host.c_str(),
+             device.port,
+             device.busy ? " (busy)" : "");
+      }
     }
 
     close_socket(socket);
@@ -813,26 +1000,50 @@ class DiscoveryAdvertiser {
     sockaddr_in destination = {};
     destination.sin_family = AF_INET;
     destination.sin_port = htons(kDiscoveryPort);
-
-    std::vector<sockaddr_in> destinations;
-    for (const std::string &address : discovery_broadcast_addresses()) {
-      destination.sin_addr.s_addr = inet_addr(address.c_str());
-      destinations.push_back(destination);
-    }
-    destination.sin_addr.s_addr = inet_addr(kDiscoveryMulticastAddress);
-    destinations.push_back(destination);
+    sockaddr_in multicast_destination = destination;
+    multicast_destination.sin_addr.s_addr = inet_addr(kDiscoveryMulticastAddress);
 
     while (!stop_requested_.load()) {
       const std::string payload = beacon_payload();
-      for (sockaddr_in &target : destinations) {
+      // Re-enumerate adapters each tick so hot-plugged USB tethering interfaces
+      // immediately receive OBS discovery broadcasts and multicast packets.
+      for (const std::string &address : discovery_broadcast_addresses()) {
+        destination.sin_addr.s_addr = inet_addr(address.c_str());
         // Datagram sends never raise SIGPIPE, but keep the same suppression
         // flags so a future stream-socket reuse cannot reintroduce the crash.
         sendto(socket,
                payload.c_str(),
                static_cast<int>(payload.size()),
                openstream_socket_send_flags(),
-               reinterpret_cast<sockaddr *>(&target),
-               sizeof(target));
+               reinterpret_cast<sockaddr *>(&destination),
+               sizeof(destination));
+      }
+      bool sent_multicast = false;
+      for (const std::string &local_address : local_ipv4_addresses()) {
+        if (local_address == "0.0.0.0") continue;
+        in_addr iface_addr = {};
+        if (inet_pton(AF_INET, local_address.c_str(), &iface_addr) != 1) continue;
+        if (setsockopt(socket,
+                       IPPROTO_IP,
+                       IP_MULTICAST_IF,
+                       reinterpret_cast<const char *>(&iface_addr),
+                       sizeof(iface_addr)) == 0) {
+          sendto(socket,
+                 payload.c_str(),
+                 static_cast<int>(payload.size()),
+                 openstream_socket_send_flags(),
+                 reinterpret_cast<sockaddr *>(&multicast_destination),
+                 sizeof(multicast_destination));
+          sent_multicast = true;
+        }
+      }
+      if (!sent_multicast) {
+        sendto(socket,
+               payload.c_str(),
+               static_cast<int>(payload.size()),
+               openstream_socket_send_flags(),
+               reinterpret_cast<sockaddr *>(&multicast_destination),
+               sizeof(multicast_destination));
       }
       std::this_thread::sleep_for(std::chrono::seconds(1));
     }
@@ -903,6 +1114,10 @@ struct OpenStreamSource {
   std::string active_selected_phone_id = PhoneDiscoveryReceiver::kAutoPhoneId;
   std::optional<PhoneDevice> active_phone;
   std::string reservation_token;
+  std::string reservation_token_phone_id;
+  std::string reservation_token_host;
+  bool reservation_rebind_pending = false;
+  std::chrono::steady_clock::time_point reservation_token_expires_at{};
   uint64_t frames_output = 0;
   uint64_t stale_video_frames = 0;
   uint64_t stale_audio_frames = 0;
@@ -991,7 +1206,8 @@ void run_lifecycle_worker(OpenStreamSource *ctx) {
 }
 
 bool send_control_command(const std::string &host, int port,
-                          const std::string &path, const std::string &body);
+                          const std::string &path, const std::string &body,
+                          std::string *response_body_out = nullptr);
 std::optional<PhoneDevice> control_phone(OpenStreamSource *ctx);
 
 bool queue_control_command(OpenStreamSource *ctx, const std::string &path,
@@ -1021,7 +1237,8 @@ void set_slot_status(OpenStreamSource *ctx, std::string status) {
 }
 
 bool send_control_command(const std::string &host, int port,
-                          const std::string &path, const std::string &body) {
+                          const std::string &path, const std::string &body,
+                          std::string *response_body_out) {
   if (port < 1 || port > 65535 || body.size() > 8192 || path.empty() || path.front() != '/') {
     return false;
   }
@@ -1151,7 +1368,13 @@ bool send_control_command(const std::string &host, int port,
     return false;
   }
   const std::string response_body = response.substr(body_start, content_length);
-  return json_bool_value(response_body, "ok").value_or(false);
+  if (!json_bool_value(response_body, "ok").value_or(false)) {
+    return false;
+  }
+  if (response_body_out != nullptr) {
+    *response_body_out = response_body;
+  }
+  return true;
 }
 
 void set_active_phone(OpenStreamSource *ctx, std::optional<PhoneDevice> phone) {
@@ -1176,7 +1399,11 @@ std::optional<PhoneDevice> control_phone(OpenStreamSource *ctx) {
 
 std::string phone_label(const PhoneDevice &phone) {
   std::ostringstream label;
-  label << phone.name << "  "
+  label << phone.name;
+  if (is_usb_phone(phone)) {
+    label << " [USB]";
+  }
+  label << "  "
         << phone.width << "x" << phone.height << "@" << phone.fps;
   if (phone.busy) {
     label << "  Busy";
@@ -1186,22 +1413,117 @@ std::string phone_label(const PhoneDevice &phone) {
   return label.str();
 }
 
+std::string generate_reservation_token() {
+  static constexpr char kHex[] = "0123456789abcdef";
+  std::random_device rd;
+  std::string token;
+  token.reserve(32);
+  for (int i = 0; i < 4; ++i) {
+    const uint32_t value = rd();
+    for (int shift = 28; shift >= 0; shift -= 4) {
+      token.push_back(kHex[(value >> shift) & 0x0fu]);
+    }
+  }
+  return token;
+}
+
+std::string ensure_reservation_token_locked(OpenStreamSource *ctx,
+                                            const std::string &phone_id) {
+  if (ctx->reservation_token.empty() || ctx->reservation_token_phone_id != phone_id) {
+    ctx->reservation_token = generate_reservation_token();
+    ctx->reservation_token_phone_id = phone_id;
+    ctx->reservation_token_host.clear();
+  }
+  return ctx->reservation_token;
+}
+
+std::string compute_rebind_proof(const std::string &active_token,
+                                 const std::string &target_host,
+                                 const std::string &next_token) {
+  const std::string material = active_token + "|" + target_host + "|" + next_token;
+  return QCryptographicHash::hash(QByteArray::fromStdString(material),
+                                  QCryptographicHash::Sha256)
+      .toHex()
+      .toStdString();
+}
+
+std::string compute_rebind_ack(const std::string &active_token,
+                               const std::string &target_host,
+                               const std::string &next_token) {
+  const std::string material = active_token + "|ack|" + target_host + "|" + next_token;
+  return QCryptographicHash::hash(QByteArray::fromStdString(material),
+                                  QCryptographicHash::Sha256)
+      .toHex()
+      .toStdString();
+}
+
 bool reserve_phone(OpenStreamSource *ctx, PhoneDevice &phone) {
+  std::string candidate_token;
+  std::string rebind_proof;
+  std::string expected_rebind_ack;
   std::ostringstream body;
+  const auto now = std::chrono::steady_clock::now();
   {
     std::lock_guard<std::mutex> lock(ctx->settings_mutex);
-    if (ctx->reservation_token.empty()) {
-      ctx->reservation_token =
-          ctx->instance_id + "-" + std::to_string(os_gettime_ns());
+    if (!ctx->phone_connected.load() &&
+        ctx->reservation_token_expires_at != std::chrono::steady_clock::time_point{} &&
+        now >= ctx->reservation_token_expires_at) {
+      ctx->reservation_token.clear();
+      ctx->reservation_token_phone_id.clear();
+      ctx->reservation_token_host.clear();
+      ctx->reservation_rebind_pending = false;
+      ctx->reservation_token_expires_at = std::chrono::steady_clock::time_point{};
     }
-    phone.reservation_token = ctx->reservation_token;
+    const bool has_bound_token_for_phone =
+        !ctx->reservation_token.empty() &&
+        ctx->reservation_token_phone_id == phone.instance_id &&
+        !ctx->reservation_token_host.empty();
+    if (has_bound_token_for_phone &&
+        ctx->reservation_token_host == phone.host &&
+        !ctx->reservation_rebind_pending) {
+      candidate_token = ctx->reservation_token;
+    } else if (has_bound_token_for_phone) {
+      // Never send the active reservation token to an unverified new IP; prove
+      // ownership with a SHA-256 digest bound to the target IP and require the
+      // phone to authenticate its reply with rebindAck before rotating state.
+      // Mark rebind pending so if a reply is lost and OBS returns to the prior
+      // route, it still proves ownership instead of sending an unauthenticated reserve.
+      ctx->reservation_rebind_pending = true;
+      candidate_token = generate_reservation_token();
+      rebind_proof = compute_rebind_proof(ctx->reservation_token, phone.host, candidate_token);
+      expected_rebind_ack = compute_rebind_ack(ctx->reservation_token, phone.host, candidate_token);
+    } else {
+      candidate_token = generate_reservation_token();
+    }
     body << "{\"sourceInstanceId\":\"" << json_escape(ctx->instance_id) << "\","
-         << "\"reservationToken\":\"" << json_escape(phone.reservation_token) << "\","
-         << "\"slotId\":\"" << json_escape(ctx->slot_id) << "\","
+         << "\"reservationToken\":\"" << json_escape(candidate_token) << "\",";
+    if (!rebind_proof.empty()) {
+      body << "\"rebindProof\":\"" << json_escape(rebind_proof) << "\",";
+    }
+    body << "\"slotId\":\"" << json_escape(ctx->slot_id) << "\","
          << "\"slotLabel\":\"" << json_escape(ctx->slot_label) << "\","
          << "\"bitrateMbps\":" << ctx->bitrate_mbps << "}";
   }
-  return send_control_command(phone.host, phone.control_port, "/reserve", body.str());
+  std::string response_body;
+  if (!send_control_command(phone.host, phone.control_port, "/reserve", body.str(), &response_body)) {
+    return false;
+  }
+  if (!expected_rebind_ack.empty()) {
+    const auto actual_ack = json_string_value(response_body, "rebindAck");
+    if (!actual_ack.has_value() || *actual_ack != expected_rebind_ack) {
+      return false;
+    }
+  }
+  {
+    std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+    ctx->reservation_token = candidate_token;
+    ctx->reservation_token_phone_id = phone.instance_id;
+    ctx->reservation_token_host = phone.host;
+    ctx->reservation_rebind_pending = false;
+    ctx->reservation_token_expires_at = std::chrono::steady_clock::now() + kReconnectReservationWindow;
+  }
+  phone.reservation_token = candidate_token;
+  return true;
 }
 
 void queue_release_phone(OpenStreamSource *ctx, const PhoneDevice &phone) {
@@ -1307,6 +1629,10 @@ void openstream_stop_worker(OpenStreamSource *ctx) {
   {
     std::lock_guard<std::mutex> settings_lock(ctx->settings_mutex);
     ctx->reservation_token.clear();
+    ctx->reservation_token_phone_id.clear();
+    ctx->reservation_token_host.clear();
+    ctx->reservation_rebind_pending = false;
+    ctx->reservation_token_expires_at = std::chrono::steady_clock::time_point{};
   }
   set_active_phone(ctx, std::nullopt);
   set_slot_status(ctx, "Offline");
@@ -1884,6 +2210,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
       selected_phone_id.empty() || selected_phone_id == PhoneDiscoveryReceiver::kAutoPhoneId;
   std::string reconnect_phone_id;
   std::string expired_reconnect_phone_id;
+  std::string fallback_for_phone_id;
   auto reconnect_deadline = std::chrono::steady_clock::time_point{};
   bool reconnect_hold_exhausted = false;
   const auto hold_phone_for_reconnect = [&](const std::optional<PhoneDevice> &phone) {
@@ -1899,6 +2226,7 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
   const auto reset_reconnect_episode = [&]() {
     reconnect_phone_id.clear();
     expired_reconnect_phone_id.clear();
+    fallback_for_phone_id.clear();
     reconnect_deadline = std::chrono::steady_clock::time_point{};
     reconnect_hold_exhausted = false;
   };
@@ -1930,9 +2258,17 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
                 : std::string{};
         phone = ctx->phone_discovery.select(
             effective_phone_id, ctx->instance_id, deprioritized_phone_id);
+        const auto attempt_now = std::chrono::steady_clock::now();
+        if (phone.has_value() && fallback_for_phone_id == phone->instance_id) {
+          apply_fallback_route(*phone, attempt_now);
+          fallback_for_phone_id.clear();
+        }
         if (phone.has_value() && reserve_phone(ctx, *phone)) {
           reservation_acquired = true;
           break;
+        }
+        if (phone.has_value() && is_usb_phone(*phone)) {
+          fallback_for_phone_id = phone->instance_id;
         }
         if (auto_phone_selection && !reconnect_phone_id.empty()) {
           blog(LOG_INFO, "[OpenStream] Waiting for previously connected Android phone");
@@ -2005,6 +2341,9 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
              av_error(result).c_str());
         avformat_close_input(&raw_format_ctx);
         if (reserved_phone.has_value()) {
+          if (is_usb_phone(*reserved_phone)) {
+            fallback_for_phone_id = reserved_phone->instance_id;
+          }
           hold_phone_for_reconnect(reserved_phone);
           set_slot_status(ctx, "Reconnecting");
           set_active_phone(ctx, reserved_phone);
@@ -2029,6 +2368,11 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
     CodecContextPtr video_decoder_ctx;
     if (!open_video_decoder(format_ctx.get(), &video_stream_index, &video_decoder_ctx)) {
       ctx->phone_connected = false;
+      {
+        std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+        ctx->reservation_token_expires_at =
+            std::chrono::steady_clock::now() + kReconnectReservationWindow;
+      }
       if (reserved_phone.has_value()) {
         hold_phone_for_reconnect(reserved_phone);
         set_slot_status(ctx, "Reconnecting");
@@ -2060,6 +2404,11 @@ void openstream_worker(OpenStreamSource *ctx, std::string base_srt_url, std::str
         decode_packets(ctx, format_ctx.get(), video_stream_index, video_decoder_ctx.get(),
                        audio_stream_index, audio_decoder_ctx.get());
     ctx->phone_connected = false;
+    {
+      std::lock_guard<std::mutex> lock(ctx->settings_mutex);
+      ctx->reservation_token_expires_at =
+          std::chrono::steady_clock::now() + kReconnectReservationWindow;
+    }
     if (reconnect_attempt_video_frames >= kReconnectRecoveryVideoFrames) {
       reset_reconnect_episode();
     }
@@ -2235,7 +2584,7 @@ void openstream_update(void *data, obs_data_t *settings) {
                                             ctx->slot_label,
                                             ctx->instance_id);
     ctx->pairing_hint = "Open OpenStream on your phone, choose " + ctx->slot_label +
-                        ", and keep both devices on the same Wi-Fi. Pairing URL is in Advanced.";
+                        ", and connect over Wi-Fi or USB tethering. Pairing URL is in Advanced.";
     const std::vector<PhoneDevice> phones = ctx->phone_discovery.devices();
     ctx->phone_target_hint = "Waiting for a phone to choose " + ctx->slot_label;
     if (ctx->selected_phone_id == PhoneDiscoveryReceiver::kAutoPhoneId) {
@@ -2344,7 +2693,7 @@ void openstream_defaults(obs_data_t *settings) {
   obs_data_set_default_string(settings, "srt_url", "shin:auto");
   obs_data_set_default_string(settings, "selected_phone_id", PhoneDiscoveryReceiver::kAutoPhoneId);
   obs_data_set_default_string(settings, "phone_target_hint", "Open OpenStream on your phone to pair");
-  obs_data_set_default_string(settings, "pairing_hint", "Open OpenStream on your phone and choose this OBS computer. Keep both devices on the same Wi-Fi.");
+  obs_data_set_default_string(settings, "pairing_hint", "Open OpenStream on your phone and choose this OBS computer over Wi-Fi or USB tethering.");
   obs_data_set_default_string(settings, "pairing_url", "shin://connect");
   obs_data_set_default_bool(settings, "show_advanced", false);
   obs_data_set_default_bool(settings, "manual_receive", false);
@@ -2677,7 +3026,7 @@ bool openstream_set_camera_label(obs_source_t *source, const char *label) {
       owned->device_name = label;
       owned->slot_label = label;
       owned->pairing_hint = "Open OpenStream on your phone, choose " + owned->slot_label +
-                            ", and keep both devices on the same Wi-Fi.";
+                            ", and connect over Wi-Fi or USB tethering.";
     }
     owned->discovery.set_source_name(label);
     if (owned->source) {
@@ -2702,6 +3051,9 @@ const char *openstream_source_status(obs_source_t *source) {
         status = owned->slot_label + " — " + owned->slot_status;
         if (owned->active_phone.has_value()) {
           status += " — " + owned->active_phone->name;
+          if (is_usb_phone(*owned->active_phone)) {
+            status += " [USB]";
+          }
         }
         return status.c_str();
       });
@@ -2717,7 +3069,7 @@ bool obs_module_load(void) {
   }
 #endif
   obs_register_source(&openstream_source_info);
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
   openstream_register_dock();
 #endif
   blog(LOG_INFO, "[OpenStream] OBS plugin loaded: protocol 1, video + audio + remote controls");
@@ -2725,7 +3077,7 @@ bool obs_module_load(void) {
 }
 
 void obs_module_unload(void) {
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
   openstream_unregister_dock();
 #endif
 #ifdef _WIN32

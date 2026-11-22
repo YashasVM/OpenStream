@@ -650,7 +650,7 @@ class MainActivity : Activity() {
         // alive; without this, each beacon paid removeAllViews() + N TextView
         // inflations on the UI thread even when nothing changed.
         val renderKeys = devices.map { device ->
-            "${device.sourceInstanceId}|${device.displayLabel}|${device.busy}|${device.bitrateMbps}|${advertisedReservationId == device.sourceInstanceId}|$phoneConnected"
+            "${device.sourceInstanceId}|${device.displayLabel}|${device.isUsb}|${device.busy}|${device.bitrateMbps}|${advertisedReservationId == device.sourceInstanceId}|$phoneConnected"
         }
         if (renderKeys == lastObsSlotRenderKeys) return
         lastObsSlotRenderKeys = renderKeys
@@ -682,7 +682,8 @@ class MainActivity : Activity() {
             val isReservedForThisPhone = advertisedReservationId == device.sourceInstanceId
             val enabled = !device.busy || isReservedForThisPhone
             val card = TextView(this).apply {
-                text = "${device.displayLabel} · ${slotAvailabilityLabel(device, isReservedForThisPhone)}"
+                val transportBadge = if (device.isUsb) " · USB" else ""
+                text = "${device.displayLabel}$transportBadge · ${slotAvailabilityLabel(device, isReservedForThisPhone)}"
                 textSize = 12f
                 typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 gravity = Gravity.CENTER
@@ -712,7 +713,11 @@ class MainActivity : Activity() {
                     marginEnd = resources.getDimensionPixelSize(R.dimen.os_spacing_sm)
                 }
                 if (enabled) {
-                    setOnClickListener { reserveForSlot(device) }
+                    val sourceId = device.sourceInstanceId
+                    setOnClickListener {
+                        val latest = currentDevices.firstOrNull { it.sourceInstanceId == sourceId } ?: device
+                        reserveForSlot(latest)
+                    }
                 }
             }
             obsSlotList.addView(card)

@@ -12,6 +12,8 @@ import org.json.JSONObject
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.MulticastSocket
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -78,17 +80,100 @@ class PhoneDiscoveryAdvertiser(
         }
         try {
             while (running.get()) {
-                val bytes = beaconPayload(instanceId).toByteArray(StandardCharsets.UTF_8)
-                val destinations = linkedSetOf(
-                    InetAddress.getByName("255.255.255.255"),
-                    InetAddress.getByName(DISCOVERY_MULTICAST_ADDRESS),
-                )
-                selectedObsHostProvider()?.trim()?.takeIf { it.isNotEmpty() }?.let { host ->
-                    runCatching { destinations += InetAddress.getByName(host) }
-                }
-                destinations.forEach { destination ->
-                    runCatching {
-                        socket.send(DatagramPacket(bytes, bytes.size, destination, DISCOVERY_PORT))
+                val endpoints = UsbNetworkSupport.collectIpv4Endpoints()
+                val selectedHost = selectedObsHostProvider()?.trim()?.takeIf { it.isNotEmpty() }
+                var sentSelectedHost = false
+                if (endpoints.isNotEmpty()) {
+                    endpoints.forEach { endpoint ->
+                        val transport = if (endpoint.isUsb) {
+                            UsbNetworkSupport.TRANSPORT_USB
+                        } else {
+                            UsbNetworkSupport.TRANSPORT_WIFI
+                        }
+                        val bytes = beaconPayload(
+                            instanceId = instanceId,
+                            hostAddress = endpoint.hostAddress,
+                            transport = transport,
+                        ).toByteArray(StandardCharsets.UTF_8)
+                        runCatching {
+                            MulticastSocket(InetSocketAddress(endpoint.hostAddress, 0)).use { ifaceSocket ->
+                                ifaceSocket.broadcast = true
+                                endpoint.broadcastAddress?.let { broadcast ->
+                                    runCatching {
+                                        ifaceSocket.send(
+                                            DatagramPacket(
+                                                bytes,
+                                                bytes.size,
+                                                InetAddress.getByName(broadcast),
+                                                DISCOVERY_PORT,
+                                            ),
+                                        )
+                                    }
+                                }
+                                endpoint.networkInterface?.let { iface ->
+                                    runCatching {
+                                        ifaceSocket.networkInterface = iface
+                                        ifaceSocket.send(
+                                            DatagramPacket(
+                                                bytes,
+                                                bytes.size,
+                                                InetAddress.getByName(DISCOVERY_MULTICAST_ADDRESS),
+                                                DISCOVERY_PORT,
+                                            ),
+                                        )
+                                    }
+                                }
+                                if (selectedHost != null && UsbNetworkSupport.isOnSameIpv4Subnet(
+                                        selectedHost,
+                                        endpoint.hostAddress,
+                                        endpoint.prefixLength,
+                                    )
+                                ) {
+                                    runCatching {
+                                        ifaceSocket.send(
+                                            DatagramPacket(
+                                                bytes,
+                                                bytes.size,
+                                                InetAddress.getByName(selectedHost),
+                                                DISCOVERY_PORT,
+                                            ),
+                                        )
+                                        sentSelectedHost = true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (selectedHost != null && !sentSelectedHost) {
+                        val bytes = beaconPayload(
+                            instanceId = instanceId,
+                            hostAddress = localWifiAddress().orEmpty(),
+                            transport = null,
+                        ).toByteArray(StandardCharsets.UTF_8)
+                        runCatching {
+                            socket.send(
+                                DatagramPacket(
+                                    bytes,
+                                    bytes.size,
+                                    InetAddress.getByName(selectedHost),
+                                    DISCOVERY_PORT,
+                                ),
+                            )
+                        }
+                    }
+                } else {
+                    val bytes = beaconPayload(instanceId, transport = null).toByteArray(StandardCharsets.UTF_8)
+                    val destinations = linkedSetOf(
+                        InetAddress.getByName("255.255.255.255"),
+                        InetAddress.getByName(DISCOVERY_MULTICAST_ADDRESS),
+                    )
+                    selectedHost?.let { host ->
+                        runCatching { destinations += InetAddress.getByName(host) }
+                    }
+                    destinations.forEach { destination ->
+                        runCatching {
+                            socket.send(DatagramPacket(bytes, bytes.size, destination, DISCOVERY_PORT))
+                        }
                     }
                 }
                 try {
@@ -112,13 +197,17 @@ class PhoneDiscoveryAdvertiser(
         }
     }
 
-    private fun beaconPayload(instanceId: String): String {
+    private fun beaconPayload(
+        instanceId: String,
+        hostAddress: String = localWifiAddress().orEmpty(),
+        transport: String? = null,
+    ): String {
         val json = JSONObject()
             .put("type", TYPE)
             .put("version", 1)
             .put("name", "${Build.MANUFACTURER} ${Build.MODEL}".trim())
             .put("instanceId", instanceId)
-            .put("host", localWifiAddress().orEmpty())
+            .put("host", hostAddress)
             .put("listenerPort", port)
             .put("latencyMs", config.latencyMs)
             .put("bitrateMbps", config.bitrateMbps)
@@ -129,6 +218,9 @@ class PhoneDiscoveryAdvertiser(
             .put("controlPort", CameraControlServer.CONTROL_PORT)
             .put("busy", busyProvider())
             .put("reservedBy", reservedByProvider().orEmpty())
+        if (transport != null) {
+            json.put("transport", transport)
+        }
         return "$PREFIX $json"
     }
 

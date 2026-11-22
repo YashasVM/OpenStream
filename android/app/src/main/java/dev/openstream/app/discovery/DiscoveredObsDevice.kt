@@ -13,6 +13,7 @@ data class DiscoveredObsDevice(
     val pairingUrl: String,
     val lastSeenMs: Long,
     val busy: Boolean,
+    val isUsb: Boolean = false,
 ) {
     /**
      * Solo-camera display label: prefer the OBS computer name. Legacy

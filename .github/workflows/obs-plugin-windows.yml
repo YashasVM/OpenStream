@@ -55,7 +55,7 @@ jobs:
           $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Sort-Object FullName -Descending | Select-Object -First 1
           if (!$dumpbin) { throw "dumpbin.exe was not found" }
           $deps = (& $dumpbin.FullName /dependents $dll) -join "`n"
-          'avformat-62.dll','avcodec-62.dll','avutil-60.dll','swscale-9.dll' | ForEach-Object { if ($deps -notmatch [regex]::Escape($_)) { throw "Missing expected dependency $_" } }
+          'avformat-62.dll','avcodec-62.dll','avutil-60.dll','swscale-9.dll','obs-frontend-api.dll','Qt6Widgets.dll' | ForEach-Object { if ($deps -notmatch [regex]::Escape($_)) { throw "Missing expected dependency $_" } }
           'avformat-61.dll','avcodec-61.dll','avutil-59.dll','swscale-8.dll' | ForEach-Object { if ($deps -match [regex]::Escape($_)) { throw "Obsolete dependency $_" } }
 
       - name: Verify ZIP migration package
