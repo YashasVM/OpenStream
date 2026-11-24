@@ -24,6 +24,7 @@
 #include "openstream-control-api.hpp"
 #include "media-clock.hpp"
 #include "control-json.hpp"
+#include <QJsonArray>
 #include "socket-send.hpp"
 #include <util/platform.h>
 
@@ -1256,6 +1257,10 @@ void run_lifecycle_worker(OpenStreamSource *ctx) {
   }
 }
 
+bool send_control_request(const std::string &host, int port,
+                          const std::string &method, const std::string &path,
+                          const std::string &body,
+                          std::string *response_body_out = nullptr);
 bool send_control_command(const std::string &host, int port,
                           const std::string &path, const std::string &body,
                           std::string *response_body_out = nullptr);
@@ -1287,8 +1292,9 @@ void set_slot_status(OpenStreamSource *ctx, std::string status) {
   ctx->slot_status = std::move(status);
 }
 
-bool send_control_command(const std::string &host, int port,
-                          const std::string &path, const std::string &body,
+bool send_control_request(const std::string &host, int port,
+                          const std::string &method, const std::string &path,
+                          const std::string &body,
                           std::string *response_body_out) {
   if (port < 1 || port > 65535 || body.size() > 8192 || path.empty() || path.front() != '/') {
     return false;
@@ -1324,11 +1330,13 @@ bool send_control_command(const std::string &host, int port,
   }
 
   std::ostringstream request;
-  request << "POST " << path << " HTTP/1.1\r\n"
-          << "Host: " << host << ":" << port << "\r\n"
-          << "Content-Type: application/json\r\n"
-          << "Content-Length: " << body.size() << "\r\n"
-          << "Connection: close\r\n"
+  request << method << " " << path << " HTTP/1.1\r\n"
+          << "Host: " << host << ":" << port << "\r\n";
+  if (!body.empty() || method != "GET") {
+    request << "Content-Type: application/json\r\n"
+            << "Content-Length: " << body.size() << "\r\n";
+  }
+  request << "Connection: close\r\n"
           << "\r\n"
           << body;
   const std::string req = request.str();
@@ -1419,13 +1427,19 @@ bool send_control_command(const std::string &host, int port,
     return false;
   }
   const std::string response_body = response.substr(body_start, content_length);
-  if (!json_bool_value(response_body, "ok").value_or(false)) {
+  if (method != "GET" && !json_bool_value(response_body, "ok").value_or(false)) {
     return false;
   }
   if (response_body_out != nullptr) {
     *response_body_out = response_body;
   }
   return true;
+}
+
+bool send_control_command(const std::string &host, int port,
+                          const std::string &path, const std::string &body,
+                          std::string *response_body_out) {
+  return send_control_request(host, port, "POST", path, body, response_body_out);
 }
 
 void set_active_phone(OpenStreamSource *ctx, std::optional<PhoneDevice> phone) {
@@ -3136,6 +3150,67 @@ bool openstream_post_camera_command(obs_source_t *source, const char *path,
         if (!owned) return false;
         return queue_control_command(owned.get(), path, json_body);
       });
+}
+
+bool openstream_request_camera_status(obs_source_t *source) {
+  return forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    return queue_camera_status_request(owned);
+  });
+}
+
+size_t openstream_camera_lens_count(obs_source_t *source) {
+  return forward_to_camera(source, [](const std::shared_ptr<OpenStreamSource> &owned) {
+    if (!owned) return size_t{0};
+    std::lock_guard<std::mutex> lock(owned->settings_mutex);
+    return owned->available_camera_lenses.size();
+  });
+}
+
+const char *openstream_camera_lens_label(obs_source_t *source, size_t index) {
+  thread_local std::string label;
+  return forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    label.clear();
+    if (!owned) return label.c_str();
+    std::lock_guard<std::mutex> lock(owned->settings_mutex);
+    if (index < owned->available_camera_lenses.size()) {
+      label = owned->available_camera_lenses[index];
+    }
+    return label.c_str();
+  });
+}
+
+const char *openstream_camera_current_lens(obs_source_t *source) {
+  thread_local std::string label;
+  return forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    label.clear();
+    if (!owned) return label.c_str();
+    std::lock_guard<std::mutex> lock(owned->settings_mutex);
+    label = owned->current_camera_lens;
+    return label.c_str();
+  });
+}
+
+void openstream_camera_zoom_state(obs_source_t *source, double *zoom,
+                                  double *zoom_min, double *zoom_max) {
+  forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    if (!owned) return 0;
+    std::lock_guard<std::mutex> lock(owned->settings_mutex);
+    if (zoom) *zoom = owned->camera_zoom;
+    if (zoom_min) *zoom_min = owned->camera_zoom_min;
+    if (zoom_max) *zoom_max = owned->camera_zoom_max;
+    return 0;
+  });
+}
+
+void openstream_camera_torch_state(obs_source_t *source, bool *available,
+                                   bool *enabled) {
+  forward_to_camera(source, [&](const std::shared_ptr<OpenStreamSource> &owned) {
+    if (!owned) return 0;
+    std::lock_guard<std::mutex> lock(owned->settings_mutex);
+    if (available) *available = owned->camera_torch_available;
+    if (enabled) *enabled = owned->camera_torch_enabled;
+    return 0;
+  });
 }
 
 bool openstream_start_camera_source(obs_source_t *source) {

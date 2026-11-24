@@ -720,11 +720,11 @@ class NativeSender {
 
     if (parsed->localAddress.empty() &&
         (!parsed->localInterface.empty() || !parsed->requiredPeer.empty())) {
-      disconnect();
+      releaseAttemptSocket(socket, attempt);
       return false;
     }
     if (!parsed->requiredPeer.empty() && parsed->host != parsed->requiredPeer) {
-      disconnect();
+      releaseAttemptSocket(socket, attempt);
       return false;
     }
     if (!parsed->localAddress.empty()) {

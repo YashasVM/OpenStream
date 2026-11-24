@@ -191,6 +191,7 @@ class SettingsActivity : Activity() {
         const val KEY_LISTENING_PORT = "listening_port"
         const val KEY_VIDEO_QUALITY = "video_quality"
         const val KEY_ADAPTIVE_BITRATE = "adaptive_bitrate"
+        const val KEY_MICROPHONE_ENABLED = "microphone_enabled"
         const val EXTRA_CONNECT_AFTER_SAVE = "connect_after_save"
         const val EXTRA_SETTINGS_CHANGED = "settings_changed"
     }

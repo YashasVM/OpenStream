@@ -6,7 +6,6 @@ import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Bundle
 import android.os.Handler
-import android.os.Bundle
 import android.os.HandlerThread
 import android.util.Log
 import android.view.Surface
@@ -70,12 +69,15 @@ class MediaCodecVideoEncoder(
 
     fun inputSurface(): Surface = checkNotNull(surface) { "Encoder input surface is not ready" }
 
-    /** Changes the target bitrate of a running encoder; returns false when not running. */
-    fun setBitrate(bitrate: Int): Boolean = synchronized(lifecycleLock) {
+    /** Changes rate without replacing the input surface or media timestamps. */
+    fun setBitrate(bitsPerSecond: Int): Boolean = synchronized(lifecycleLock) {
+        require(bitsPerSecond > 0)
         val encoder = codec ?: return false
         runCatching {
-            encoder.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bitrate) })
-        }.isSuccess
+            encoder.setParameters(Bundle().apply {
+                putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bitsPerSecond)
+            })
+        }.onFailure { Log.w("shinEncoder", "Runtime bitrate change rejected", it) }.isSuccess
     }
 
     /** Asks a running encoder for an IDR frame as soon as possible. */
@@ -208,17 +210,6 @@ class MediaCodecVideoEncoder(
             stopCallbackThread()
             throw error
         }
-    }
-
-    /** Changes rate without replacing the input surface or media timestamps. */
-    fun setBitrate(bitsPerSecond: Int): Boolean = synchronized(lifecycleLock) {
-        require(bitsPerSecond > 0 && bitsPerSecond <= bitrate)
-        val encoder = codec ?: return false
-        runCatching {
-            encoder.setParameters(Bundle().apply {
-                putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bitsPerSecond)
-            })
-        }.onFailure { Log.w("shinEncoder", "Runtime bitrate change rejected", it) }.isSuccess
     }
 
     fun stop() = synchronized(lifecycleLock) {

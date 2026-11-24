@@ -32,12 +32,14 @@ def test_native_sender_reports_real_telemetry_and_verifies_bound_address(tmp_pat
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
 #include <vector>
 #define OPENSTREAM_HAVE_LIBSRT 1
+using jlong = int64_t;
 #define ANDROID_LOG_INFO 1
 #define ANDROID_LOG_WARN 2
 #define ANDROID_LOG_ERROR 3

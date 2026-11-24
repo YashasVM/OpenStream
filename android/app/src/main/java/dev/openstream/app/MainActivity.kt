@@ -674,9 +674,8 @@ class MainActivity : Activity() {
             statusDetail.text = "Stop the USB stream before changing camera"
             return
         }
-        val sameCamera = currentLens.cameraId != null && currentLens.cameraId == lens.cameraId
-        // Optical presets share the logical back camera, so keep its torch active.
-        if (!sameCamera && torchOn) {
+        // Turn off torch when switching cameras
+        if (torchOn) {
             torchOn = false
             setTorchUi(false)
         }

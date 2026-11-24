@@ -5,6 +5,7 @@ import dev.openstream.app.camera.Camera2Controller
 import dev.openstream.app.camera.CameraLens
 import dev.openstream.app.stream.StreamConfig
 import org.json.JSONException
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.OutputStreamWriter
