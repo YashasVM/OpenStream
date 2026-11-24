@@ -200,6 +200,13 @@
             android:text="Adaptive bitrate · respond to SRT congestion"
             android:textColor="@color/os_text_primary" />
 
+        <Switch
+            android:id="@+id/settingsMicrophone"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="Stream microphone audio"
+            android:textColor="@color/os_text_primary" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

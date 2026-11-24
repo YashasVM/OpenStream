@@ -23,6 +23,7 @@ class SettingsActivity : Activity() {
     private lateinit var inputListeningPort: EditText
     private lateinit var qualityGroup: RadioGroup
     private lateinit var adaptiveSwitch: Switch
+    private lateinit var microphoneSwitch: Switch
     private lateinit var btnSave: TextView
     private lateinit var btnSaveAndConnect: TextView
     private lateinit var btnBack: TextView
@@ -38,6 +39,7 @@ class SettingsActivity : Activity() {
         inputListeningPort = findViewById(R.id.settingsListeningPort)
         qualityGroup = findViewById(R.id.settingsQuality)
         adaptiveSwitch = findViewById(R.id.settingsAdaptive)
+        microphoneSwitch = findViewById(R.id.settingsMicrophone)
         btnSave = findViewById(R.id.btnSaveSettings)
         btnSaveAndConnect = findViewById(R.id.btnSaveAndConnect)
         btnBack = findViewById(R.id.btnBackSettings)
@@ -84,7 +86,10 @@ class SettingsActivity : Activity() {
         if (latency != ConnectionTarget.DEFAULT_LATENCY_MS) inputLatency.setText(latency.toString())
         val listenPort = prefs.getInt(KEY_LISTENING_PORT, ConnectionTarget.DEFAULT_PORT)
         inputListeningPort.setText(listenPort.toString())
-        qualityGroup.check(when (VideoQuality.fromPreference(prefs.getString(KEY_VIDEO_QUALITY, null))) {
+        val savedQuality = prefs.getString(KEY_VIDEO_QUALITY, null)
+            ?.let { VideoQuality.fromPreference(it) }
+            ?: VideoQuality.Balanced
+        qualityGroup.check(when (savedQuality) {
             VideoQuality.DataSaver -> R.id.qualityDataSaver
             VideoQuality.Balanced -> R.id.qualityBalanced
             VideoQuality.High -> R.id.qualityHigh
@@ -93,6 +98,7 @@ class SettingsActivity : Activity() {
             VideoQuality.Usb4kHdr -> R.id.qualityUsb4kHdr
         })
         adaptiveSwitch.isChecked = prefs.getBoolean(KEY_ADAPTIVE_BITRATE, true)
+        microphoneSwitch.isChecked = prefs.getBoolean(KEY_MICROPHONE_ENABLED, true)
     }
 
     private fun saveSettings(connectAfterSave: Boolean) {
@@ -137,6 +143,7 @@ class SettingsActivity : Activity() {
             .putInt(KEY_LISTENING_PORT, listenPort)
             .putString(KEY_VIDEO_QUALITY, quality.name)
             .putBoolean(KEY_ADAPTIVE_BITRATE, adaptiveSwitch.isChecked)
+            .putBoolean(KEY_MICROPHONE_ENABLED, microphoneSwitch.isChecked)
             .apply()
 
         Toast.makeText(this, "Settings saved", Toast.LENGTH_SHORT).show()

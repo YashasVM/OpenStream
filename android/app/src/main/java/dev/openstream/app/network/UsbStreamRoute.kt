@@ -18,16 +18,20 @@ class UsbStreamRoute(private val context: Context) {
     data class Result(val route: Verified?, val reason: String)
 
     /** Run off the UI thread. A cable's charging state and interface names are not transport proof. */
-    fun verify(targetHost: String, targetPort: Int): Result = try {
+    fun verify(targetHost: String, targetPort: Int, expectedLocalAddress: String? = null): Result = try {
         require(targetPort in 1..65535)
         val targets = InetAddress.getAllByName(targetHost).filterIsInstance<Inet4Address>()
+        val requiredLocal = expectedLocalAddress?.trim()?.takeIf { it.isNotEmpty() }
         var verified: Verified? = null
         for (target in targets) {
             for (networkInterface in NetworkInterface.getNetworkInterfaces().asSequence()) {
                 val local = networkInterface.inetAddresses.asSequence().filterIsInstance<Inet4Address>()
-                    .firstOrNull { candidate -> networkInterface.interfaceAddresses.any { address ->
-                        candidate != target && address.address == candidate && sameSubnet(candidate.address, target.address, address.networkPrefixLength.toInt())
-                    } } ?: continue
+                    .firstOrNull { candidate ->
+                        (requiredLocal == null || candidate.hostAddress == requiredLocal) &&
+                        networkInterface.interfaceAddresses.any { address ->
+                            candidate != target && address.address == candidate && sameSubnet(candidate.address, target.address, address.networkPrefixLength.toInt())
+                        }
+                    } ?: continue
                 if (!networkInterface.isUp || networkInterface.isLoopback) continue
                 // Restrict to a directly attached peer. Internet/default routes cannot certify the OBS cable.
                 if (networkInterface.interfaceAddresses.none { address ->

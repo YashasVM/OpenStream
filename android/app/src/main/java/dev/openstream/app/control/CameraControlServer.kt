@@ -62,9 +62,10 @@ class CameraControlServer(
     private val onToggleTorch: (Boolean) -> Unit,
     private val reservationProvider: () -> String?,
     private val onReserve: (String, String, Int?) -> Boolean,
-    private val onNegotiate: (JSONObject?, String, Int?) -> Boolean = { _, _, _ -> true },
+    private val onNegotiate: (JSONObject?, String, String, Int?) -> Boolean = { _, _, _, _ -> true },
     private val onReservationCommitted: () -> Unit = {},
     private val sessionProvider: () -> JSONObject = { JSONObject() },
+    private val batteryTemperatureProvider: () -> Double? = { null },
     private val onRelease: (String) -> Boolean,
     private val onIdentify: (String, String) -> Unit,
     private val onError: ((String) -> Unit)? = null,
@@ -326,9 +327,14 @@ class CameraControlServer(
             .put("zoomMin", camera.zoomRange.start.toDouble())
             .put("zoomMax", camera.zoomRange.endInclusive.toDouble())
             .put("currentLens", currentLensProvider().shortLabel)
-            .put("availableLenses", lensListProvider().map { it.shortLabel })
+            .put("availableLenses", JSONArray(lensListProvider().map { it.shortLabel }))
+            .put("torchAvailable", camera.isTorchAvailable)
+            .put("torchEnabled", camera.isTorchEnabled)
             .put("reservedBy", reservationProvider().orEmpty())
             .put("cameraControls", cameraControlsJson(camera))
+        batteryTemperatureProvider()?.takeIf { it.isFinite() }?.let {
+            json.put("batteryTemperatureC", it)
+        }
         return json.toString()
     }
 
@@ -547,7 +553,7 @@ class CameraControlServer(
                 StreamConfig.MAX_BITRATE_MBPS,
             )
         } else null
-        if (!onNegotiate(json.optJSONObject("receiverCapabilities"), controllerAddress, bitrateMbps)) {
+        if (!onNegotiate(json.optJSONObject("receiverCapabilities"), controllerAddress, localAddress, bitrateMbps)) {
             return 409 to JSONObject().put("ok", false).put("error", "Selected mode requires compatible receiver, camera and verified USB peer").toString()
         }
         val sameReservationConfig = currentReservation == sourceInstanceId &&

@@ -955,6 +955,11 @@ class NativeSender {
       srt_close(acceptedSocket);
       return false;
     }
+    if (!verifySocketLocalAddress(acceptedSocket, parsed->localAddress)) {
+      logError("SRT did not retain the required wired source address");
+      srt_close(acceptedSocket);
+      return false;
+    }
     srt_setsockopt(acceptedSocket, 0, SRTO_SNDTIMEO, &sendTimeoutMs, sizeof sendTimeoutMs);
     srt_setsockopt(acceptedSocket, 0, SRTO_TLPKTDROP, &tooLatePacketDrop, sizeof tooLatePacketDrop);
     srt_setsockopt(acceptedSocket, 0, SRTO_PEERIDLETIMEO, &peerIdleTimeoutMs, sizeof peerIdleTimeoutMs);
@@ -963,11 +968,6 @@ class NativeSender {
       return false;
     }
     logInfo("OBS connected to Android SRT listener");
-    if (!verifyLocalAddress(parsed->localAddress)) {
-      logError("SRT did not retain the required wired source address");
-      disconnect();
-      return false;
-    }
     return true;
 #else
     (void)url;
@@ -1028,17 +1028,27 @@ class NativeSender {
 #endif
   }
 
+  bool verifySocketLocalAddress(SRTSOCKET sock, const std::string &required) {
+#if OPENSTREAM_HAVE_LIBSRT
+    if (required.empty()) return true;
+    sockaddr_in actual{};
+    int length = sizeof(actual);
+    in_addr expected{};
+    return sock != SRT_INVALID_SOCK &&
+        inet_pton(AF_INET, required.c_str(), &expected) == 1 &&
+        srt_getsockname(sock, reinterpret_cast<sockaddr *>(&actual), &length) == 0 &&
+        actual.sin_family == AF_INET && actual.sin_addr.s_addr == expected.s_addr;
+#else
+    (void)sock;
+    return required.empty();
+#endif
+  }
+
   bool verifyLocalAddress(const std::string &required) {
 #if OPENSTREAM_HAVE_LIBSRT
     if (required.empty()) return true;
     std::lock_guard<std::mutex> lock(socketMutex_);
-    sockaddr_in actual{};
-    int length = sizeof(actual);
-    in_addr expected{};
-    return socket_ != SRT_INVALID_SOCK &&
-        inet_pton(AF_INET, required.c_str(), &expected) == 1 &&
-        srt_getsockname(socket_, reinterpret_cast<sockaddr *>(&actual), &length) == 0 &&
-        actual.sin_family == AF_INET && actual.sin_addr.s_addr == expected.s_addr;
+    return verifySocketLocalAddress(socket_, required);
 #else
     return required.empty();
 #endif

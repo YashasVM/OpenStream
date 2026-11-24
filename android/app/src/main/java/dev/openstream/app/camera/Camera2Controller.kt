@@ -121,6 +121,9 @@ class Camera2Controller(
     private var torchEnabled = false
     private var flashAvailable = false
 
+    val isTorchAvailable: Boolean get() = synchronized(lifecycleLock) { flashAvailable }
+    val isTorchEnabled: Boolean get() = synchronized(lifecycleLock) { torchEnabled }
+
     /** Zoom value as a fraction [minZoom, maxZoom]. */
     val zoomRatio: Float get() = synchronized(lifecycleLock) { currentZoomRatio }
     val zoomRange: ClosedFloatingPointRange<Float>

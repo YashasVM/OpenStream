@@ -3,10 +3,10 @@ package dev.openstream.app.network
 import android.content.Context
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaFormat
-import android.view.Surface
 
 object HighQualityCapabilities {
     data class Support(val available: Boolean, val reason: String)
@@ -16,9 +16,9 @@ object HighQualityCapabilities {
         require(fps > 0 && bitrate > 0)
         val characteristics = context.getSystemService(CameraManager::class.java).getCameraCharacteristics(cameraId)
         val map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-        val size = map?.getOutputSizes(Surface::class.java)?.firstOrNull { it.width == 3840 && it.height == 2160 }
+        val size = map?.getOutputSizes(MediaCodec::class.java)?.firstOrNull { it.width == 3840 && it.height == 2160 }
         if (size == null) Support(false, "Selected camera does not expose 3840 × 2160 capture")
-        else if (map.getOutputMinFrameDuration(Surface::class.java, size) > 1_000_000_000L / fps)
+        else if (map.getOutputMinFrameDuration(MediaCodec::class.java, size) > 1_000_000_000L / fps)
             Support(false, "Selected camera cannot capture 4K at $fps fps")
         else {
             val hardware = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.any { codec ->
@@ -50,9 +50,9 @@ object HighQualityCapabilities {
             val hlg = chars.get(CameraCharacteristics.REQUEST_AVAILABLE_DYNAMIC_RANGE_PROFILES)
                 ?.supportedProfiles?.contains(android.hardware.camera2.params.DynamicRangeProfiles.HLG10) == true
             val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-            val size = map?.getOutputSizes(Surface::class.java)?.firstOrNull { it.width == width && it.height == height }
+            val size = map?.getOutputSizes(MediaCodec::class.java)?.firstOrNull { it.width == width && it.height == height }
             if (!tenBit || !hlg) Support(false, "Selected camera does not support ten-bit HLG capture")
-            else if (size == null || map.getOutputMinFrameDuration(Surface::class.java, size) > 1_000_000_000L / fps)
+            else if (size == null || map.getOutputMinFrameDuration(MediaCodec::class.java, size) > 1_000_000_000L / fps)
                 Support(false, "Selected camera cannot capture this HDR size at $fps fps")
             else {
                 val hardware = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.any { codec ->

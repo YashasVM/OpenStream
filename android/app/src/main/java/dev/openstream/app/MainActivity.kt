@@ -79,7 +79,7 @@ class MainActivity : Activity() {
     private lateinit var obsDiscoveryClient: ObsDiscoveryClient
     private lateinit var controlServer: CameraControlServer
 
-    private val streamConfig = StreamConfig.Default1080p30
+    private var streamConfig = StreamConfig.Default1080p30
     private val mainHandler = Handler(Looper.getMainLooper())
     private val reservationState = ReservationState()
     @Volatile private var activeTargetName: String? = null
@@ -119,6 +119,9 @@ class MainActivity : Activity() {
     private var pendingHighRoute: UsbStreamRoute.Verified? = null
     @Volatile private var highModeError: String? = null
     private var screenConsentPending = false
+    private var screenConsentListenerGen = -1L
+    private var screenConsentCallerGen = -1L
+    private var screenConsentEncoder: MediaCodecVideoEncoder? = null
     private var adaptiveController: AdaptiveBitrateController? = null
     private var adaptiveSession = -1L
     private var adaptiveFailed = false
@@ -161,20 +164,15 @@ class MainActivity : Activity() {
             .getInt(SettingsActivity.KEY_LISTENING_PORT, ConnectionTarget.DEFAULT_PORT)
             .takeIf { it in 1024..65535 }
             ?: ConnectionTarget.DEFAULT_PORT
+        streamConfig = loadSavedStreamConfig()
+        activeStreamBitrate = streamConfig.bitrate
 
         streamClient = SrtStreamClient()
         if (!streamClient.isNativeAvailable) {
             statusDetail.text =
                 "SRT unavailable: ${streamClient.nativeLoadError?.message ?: "missing native lib"}"
         }
-        phoneAdvertiser = PhoneDiscoveryAdvertiser(
-            context = applicationContext,
-            config = streamConfig,
-            port = currentPort,
-            busyProvider = { isPhoneBusy() },
-            reservedByProvider = { advertisedReservationId },
-            selectedObsHostProvider = { selectedObsHost },
-        )
+        phoneAdvertiser = createPhoneAdvertiser()
         obsDiscoveryClient = ObsDiscoveryClient(
             context = applicationContext,
             onDevicesChanged = { devices ->
@@ -183,47 +181,8 @@ class MainActivity : Activity() {
             },
         )
         encoder = createVideoEncoder(activeStreamBitrate)
-        audioEncoder = MediaCodecAudioEncoder(
-            context = applicationContext,
-            sampleRate = streamConfig.audioSampleRate,
-            channelCount = streamConfig.audioChannelCount,
-            bitrate = streamConfig.audioBitrate,
-            onEncodedAccessUnit = { accessUnit ->
-                val result = encodedMediaSink.sendAudioAccessUnit(accessUnit)
-                if (result.recoveryRequired &&
-                    streamClient.isCurrentSessionGeneration(result.sessionGeneration)
-                ) {
-                    handleMediaTransportFailure(result.sessionGeneration)
-                }
-            },
-        )
-        camera = Camera2Controller(
-            context = applicationContext,
-            previewSurfaceProvider = { cameraPreview.holder.surface },
-            lensProvider = { currentLens },
-            targetFps = streamConfig.fps,
-        )
-        camera.onStreamingStarted = {
-            mainHandler.post {
-                if (phoneConnected && phoneServerRunning) {
-                    showLiveState(activeTargetName ?: "OBS")
-                    mainHandler.removeCallbacks(statsTicker)
-                    mainHandler.post(statsTicker)
-                    if (streamConfig.requiresUsb) statusDetail.text = "${streamConfig.dynamicRange.uppercase()} over USB · local preview paused"
-                }
-            }
-        }
-        camera.onStreamingFailure = { message ->
-            streamClient.disconnect()
-            phoneConnected = false
-            highRoute = null
-            highModeError = message
-            mainHandler.post {
-                stopStream(updateStatus = false)
-                statusText.text = "Camera session failed"
-                statusDetail.text = "$message. Stop and select an SDR profile to retry."
-            }
-        }
+        audioEncoder = createAudioEncoder()
+        camera = createCameraController()
         controlServer = CameraControlServer(
             cameraProvider = { camera },
             lensListProvider = { availableLenses },
@@ -235,21 +194,30 @@ class MainActivity : Activity() {
                 setTorchUi(enabled)
             }},
             reservationProvider = { reservedBy },
-            onNegotiate = { capabilities, peer, bitrate -> prepareHighMode(capabilities, peer, bitrate) },
+            onNegotiate = { capabilities, peer, localAddress, bitrate ->
+                prepareHighMode(capabilities, peer, localAddress, bitrate)
+            },
             onReservationCommitted = {
+                var cancelPendingAccept = false
                 synchronized(this) {
                     if (reservedBy != null && streamConfig.requiresUsb) {
                         pendingHighRoute?.let { route ->
+                            val routeChanged = highRoute != route
                             streamClient.requiredLocalAddress = route.localAddress
                             streamClient.requiredInterfaceName = route.interfaceName
                             streamClient.requiredPeerAddress = route.targetAddress
                             highRoute = route
+                            cancelPendingAccept = routeChanged && !phoneConnected && phoneServerRunning
                         }
                     }
                     pendingHighRoute = null
                 }
+                if (cancelPendingAccept) {
+                    streamClient.disconnect()
+                }
             },
             sessionProvider = { ReceiverCapabilities.session(streamConfig) },
+            batteryTemperatureProvider = { readBatteryTemperatureC() },
             onReserve = { sourceInstanceId, slotLabel, bitrateMbps ->
                 reserveForSource(sourceInstanceId, slotLabel, bitrateMbps).also { accepted ->
                     if (accepted) {
@@ -312,11 +280,15 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        // Reload listening port from settings if it changed
+        // Reload listening port and video quality from settings if changed
         val settingsPrefs = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
         val savedPort = settingsPrefs.getInt(SettingsActivity.KEY_LISTENING_PORT, currentPort)
         if (savedPort != currentPort && savedPort in 1024..65535) {
             changePort(savedPort)
+        }
+        val savedConfig = loadSavedStreamConfig()
+        if (savedConfig != streamConfig) {
+            applyStreamConfig(savedConfig)
         }
         startPendingConnectIfReady()
     }
@@ -417,17 +389,23 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == 402) {
             screenConsentPending = false
-            if (resultCode == RESULT_OK && data != null && activeTargetName != null) {
+            val expectedEncoder = screenConsentEncoder
+            val sessionMatches = listenerGeneration == screenConsentListenerGen &&
+                callerGeneration == screenConsentCallerGen &&
+                expectedEncoder != null &&
+                encoder === expectedEncoder
+            screenConsentEncoder = null
+            if (resultCode == RESULT_OK && data != null && activeTargetName != null && sessionMatches) {
                 try {
                     screenCaptureActive = true
                     camera.stop()
-                    screenCapture.start(resultCode, data, encoder.inputSurface(), streamConfig.width,
+                    screenCapture.start(resultCode, data, expectedEncoder.inputSurface(), streamConfig.width,
                         streamConfig.height, resources.displayMetrics.densityDpi,
                         checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED &&
                             getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
                                 .getBoolean(SettingsActivity.KEY_MICROPHONE_ENABLED, true)) { reason ->
                         mainHandler.post {
-                            screenCaptureActive = false
+                            stopScreenCapture()
                             stopStream()
                             statusDetail.text = reason
                             startPreviewIfAllowed()
@@ -436,12 +414,15 @@ class MainActivity : Activity() {
                     findViewById<TextView>(R.id.btnStreamSource).text = "Source · Screen"
                     statusDetail.text = "Sharing screen · microphone or muted; app audio is not captured"
                 } catch (error: Exception) {
-                    screenCaptureActive = false
-                    screenCapture.stop()
+                    stopScreenCapture()
                     stopStream()
                     statusDetail.text = "Screen sharing failed: ${error.message}"
                 }
-            } else if (!activityStarted) stopStream()
+            } else if (!activityStarted) {
+                phoneServerRunning = false
+                listenerGeneration += 1
+                stopStream()
+            }
             return
         }
         if (requestCode == SETTINGS_REQUEST_CODE && resultCode == RESULT_OK &&
@@ -494,8 +475,7 @@ class MainActivity : Activity() {
                 return@setOnClickListener
             }
             if (screenCaptureActive) {
-                screenCapture.stop()
-                screenCaptureActive = false
+                stopScreenCapture()
                 stopStream()
                 findViewById<TextView>(R.id.btnStreamSource).text = "Source · Camera"
                 startPreviewIfAllowed()
@@ -507,6 +487,9 @@ class MainActivity : Activity() {
                     .setMessage("Everything you share is sent to the connected OBS computer. Audio uses the microphone when enabled. Other apps' playback audio is not captured. Stop from the notification or this Source button.")
                     .setNegativeButton("Cancel", null).setPositiveButton("Choose screen") { _, _ ->
                         screenConsentPending = true
+                        screenConsentListenerGen = listenerGeneration
+                        screenConsentCallerGen = callerGeneration
+                        screenConsentEncoder = encoder
                         @Suppress("DEPRECATION")
                         startActivityForResult(screenCapture.consentIntent(), 402)
                     }.show()
@@ -525,8 +508,15 @@ class MainActivity : Activity() {
             @Suppress("DEPRECATION")
             startActivityForResult(intent, SETTINGS_REQUEST_CODE)
         }
-        // IRL Live is its own screen; this activity's onStop tears down OBS mode while it is on top.
+        // IRL Live is its own screen; tear down screen-share/OBS mode before entering IRL.
         findViewById<View>(R.id.btnIrlLive).setOnClickListener {
+            if (screenCaptureActive || screenConsentPending) {
+                screenConsentPending = false
+                screenConsentEncoder = null
+                stopScreenCapture()
+                stopStream(updateStatus = false)
+                stopPhoneServer(clearReservation = true, updateStatus = false)
+            }
             startActivity(Intent(this, IrlActivity::class.java))
         }
         btnStop.setOnClickListener {
@@ -541,6 +531,103 @@ class MainActivity : Activity() {
 
     private val encodedMediaSink: dev.openstream.app.stream.EncodedMediaSink
         get() = streamClient
+
+    private fun loadSavedStreamConfig(): StreamConfig {
+        val saved = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
+            .getString(SettingsActivity.KEY_VIDEO_QUALITY, null)
+            ?: return StreamConfig.Default1080p30
+        return StreamConfig.forQuality(VideoQuality.fromPreference(saved))
+    }
+
+    private fun readBatteryTemperatureC(): Double? {
+        val battery = registerReceiver(null, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            ?: return null
+        val tenths = battery.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
+        return if (tenths == Int.MIN_VALUE) null else tenths / 10.0
+    }
+
+    private fun createPhoneAdvertiser(): PhoneDiscoveryAdvertiser = PhoneDiscoveryAdvertiser(
+        context = applicationContext,
+        config = streamConfig,
+        port = currentPort,
+        busyProvider = { isPhoneBusy() },
+        reservedByProvider = { advertisedReservationId },
+        selectedObsHostProvider = { selectedObsHost },
+    )
+
+    private fun createAudioEncoder(): MediaCodecAudioEncoder = MediaCodecAudioEncoder(
+        context = applicationContext,
+        sampleRate = streamConfig.audioSampleRate,
+        channelCount = streamConfig.audioChannelCount,
+        bitrate = streamConfig.audioBitrate,
+        onEncodedAccessUnit = { accessUnit ->
+            val result = encodedMediaSink.sendAudioAccessUnit(accessUnit)
+            if (result.recoveryRequired &&
+                streamClient.isCurrentSessionGeneration(result.sessionGeneration)
+            ) {
+                handleMediaTransportFailure(result.sessionGeneration)
+            }
+        },
+    )
+
+    private fun createCameraController(): Camera2Controller = Camera2Controller(
+        context = applicationContext,
+        previewSurfaceProvider = { cameraPreview.holder.surface },
+        lensProvider = { currentLens },
+        targetFps = streamConfig.fps,
+    ).apply {
+        onStreamingStarted = {
+            mainHandler.post {
+                if (phoneConnected && phoneServerRunning) {
+                    showLiveState(activeTargetName ?: "OBS")
+                    mainHandler.removeCallbacks(statsTicker)
+                    mainHandler.post(statsTicker)
+                    if (streamConfig.requiresUsb) statusDetail.text = "${streamConfig.dynamicRange.uppercase()} over USB · local preview paused"
+                }
+            }
+        }
+        onStreamingFailure = { message ->
+            streamClient.disconnect()
+            phoneConnected = false
+            highRoute = null
+            highModeError = message
+            mainHandler.post {
+                stopStream(updateStatus = false)
+                statusText.text = "Camera session failed"
+                statusDetail.text = "$message. Stop and select an SDR profile to retry."
+            }
+        }
+    }
+
+    private fun applyStreamConfig(next: StreamConfig) {
+        if (next == streamConfig) return
+        stopStream(updateStatus = false)
+        stopPhoneServer(clearReservation = true, updateStatus = false)
+        phoneAdvertiser.stop()
+        camera.stop()
+        encoder.stop()
+        audioEncoder.stop()
+        synchronized(this) {
+            streamConfig = next
+            activeStreamBitrate = next.bitrate
+            highRoute = null
+            pendingHighRoute = null
+            highModeError = null
+            streamClient.requiredLocalAddress = null
+            streamClient.requiredInterfaceName = null
+            streamClient.requiredPeerAddress = null
+        }
+        phoneAdvertiser = createPhoneAdvertiser()
+        encoder = createVideoEncoder(activeStreamBitrate)
+        audioEncoder = createAudioEncoder()
+        camera = createCameraController()
+        if (activityStarted && lifecycleStartGate.canStart() && !blockedByIrlLive()) {
+            phoneAdvertiser.start()
+            initializeLenses()
+            startPreviewIfAllowed()
+            startPhoneServerIfAllowed()
+        }
+    }
 
     private fun createVideoEncoder(bitrate: Int): MediaCodecVideoEncoder {
         return MediaCodecVideoEncoder(
@@ -998,7 +1085,12 @@ class MainActivity : Activity() {
 
     /** Called on the HTTP worker before a reservation can authorize high-mode media. */
     @Synchronized
-    private fun prepareHighMode(capabilities: JSONObject?, peer: String, bitrateMbps: Int?): Boolean {
+    private fun prepareHighMode(
+        capabilities: JSONObject?,
+        peer: String,
+        localAddress: String,
+        bitrateMbps: Int?,
+    ): Boolean {
         if (!streamConfig.requiresUsb) {
             streamClient.requiredLocalAddress = null
             streamClient.requiredInterfaceName = null
@@ -1018,7 +1110,7 @@ class MainActivity : Activity() {
             streamConfig.width, streamConfig.height, streamConfig.fps, requestedBitrate)
         else HighQualityCapabilities.camera4kSdr(this, camera.selectedCameraId(), streamConfig.fps, requestedBitrate)
         if (!support.available) return reject(support.reason)
-        val result = UsbStreamRoute(this).verify(peer, currentPort)
+        val result = UsbStreamRoute(this).verify(peer, currentPort, localAddress)
         val route = result.route ?: return reject(result.reason)
         if (phoneConnected && highRoute != route) return reject("Stop the current session before changing USB peer")
         pendingHighRoute = route
@@ -1027,6 +1119,12 @@ class MainActivity : Activity() {
     }
 
     private fun startAudioIfAllowed() {
+        val micEnabled = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
+            .getBoolean(SettingsActivity.KEY_MICROPHONE_ENABLED, true)
+        if (!micEnabled) {
+            Log.i("shin", "Microphone disabled in settings; streaming video without audio")
+            return
+        }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             Log.i("shin", "Microphone permission not granted; streaming video without audio")
             return
@@ -1070,12 +1168,17 @@ class MainActivity : Activity() {
                         Thread.sleep(LISTENER_POLL_MS)
                         continue
                     }
+                    var attemptRoute: UsbStreamRoute.Verified? = null
                     if (streamConfig.requiresUsb) {
-                        val route = highRoute ?: continue
+                        val route = synchronized(this) { highRoute } ?: continue
                         if (!UsbStreamRoute(this).isCurrent(route, currentPort)) {
                             invalidateHighRoute("USB route changed. Reserve again over USB.")
                             continue
                         }
+                        attemptRoute = route
+                        streamClient.requiredLocalAddress = route.localAddress
+                        streamClient.requiredInterfaceName = route.interfaceName
+                        streamClient.requiredPeerAddress = route.targetAddress
                     }
                     val listenUrl = "srt://0.0.0.0:${currentPort}?mode=listener&latency=${streamConfig.latencyMs}"
                     val listenResult = runCatching {
@@ -1091,9 +1194,10 @@ class MainActivity : Activity() {
                             return@runCatching
                         }
                         if (streamConfig.requiresUsb) {
-                            val route = highRoute
-                            check(reservedBy != null && route != null &&
-                                UsbStreamRoute(this).isCurrent(route, currentPort)) {
+                            val currentRoute = synchronized(this) { highRoute }
+                            check(reservedBy != null && attemptRoute != null &&
+                                currentRoute == attemptRoute &&
+                                UsbStreamRoute(this).isCurrent(attemptRoute, currentPort)) {
                                 "USB reservation or route expired while awaiting OBS"
                             }
                         }
