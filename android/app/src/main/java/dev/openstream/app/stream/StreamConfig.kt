@@ -14,6 +14,10 @@ data class StreamConfig(
     val audioChannelCount: Int,
     val audioBitrate: Int,
 ) {
+    val hdr: Boolean get() = codecPreference == CodecPreference.HevcMain10
+    val requiresUsb: Boolean get() = width >= 3840 || hdr
+    val dynamicRange: String get() = if (hdr) "hlg10" else "sdr"
+
     val bitrateMbps: Int
         get() = bitrate / 1_000_000
 
@@ -36,5 +40,27 @@ data class StreamConfig(
             audioChannelCount = 1,
             audioBitrate = 128_000,
         )
+
+        fun forQuality(quality: VideoQuality): StreamConfig = when (quality) {
+            VideoQuality.DataSaver -> Default1080p30.copy(width = 1280, height = 720, bitrate = 8_000_000)
+            VideoQuality.Balanced -> Default1080p30
+            VideoQuality.Usb4k -> Default1080p30.copy(width = 3840, height = 2160, bitrate = 35_000_000)
+            VideoQuality.UsbHdr -> Default1080p30.copy(codecPreference = CodecPreference.HevcMain10, bitrate = 20_000_000)
+            VideoQuality.Usb4kHdr -> Default1080p30.copy(width = 3840, height = 2160, codecPreference = CodecPreference.HevcMain10, bitrate = 40_000_000)
+            VideoQuality.High -> Default1080p30.copy(fps = 60, bitrate = 50_000_000, audioBitrate = 192_000)
+        }
+    }
+}
+
+enum class VideoQuality {
+    DataSaver,
+    Balanced,
+    High,
+    Usb4k,
+    UsbHdr,
+    Usb4kHdr;
+
+    companion object {
+        fun fromPreference(value: String?): VideoQuality = entries.firstOrNull { it.name == value } ?: High
     }
 }

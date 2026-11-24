@@ -27,9 +27,20 @@ void obs_source_output_video(obs_source_t *, const struct obs_source_frame *fram
   captured_video_width = frame->width;
 }
 
+static video_format captured_yuv_format = VIDEO_FORMAT_NONE;
+static uint8_t captured_trc = VIDEO_TRC_DEFAULT;
+static uint16_t captured_sample = 0;
+void obs_source_output_video2(obs_source_t *, const struct obs_source_frame2 *frame) {
+  require(frame != nullptr, "missing YUV frame");
+  captured_yuv_format = frame->format;
+  captured_trc = frame->trc;
+  std::memcpy(&captured_sample, frame->data[0], sizeof(captured_sample));
+}
+
 struct ReleaseProbe {
   int listener = -1;
   int port = 0;
+  std::string response_body = "{\"ok\":true}";
   std::promise<std::string> request;
   std::thread worker;
 };
@@ -109,7 +120,55 @@ void start_control_probe(ReleaseProbe &probe,
 }
 
 void start_release_probe(ReleaseProbe &probe) {
-  start_control_probe(probe, [](const std::string &) { return std::string("{\"ok\":true}"); });
+  const std::string body = probe.response_body;
+  start_control_probe(probe, [body](const std::string &) { return body; });
+}
+
+void test_async_camera_status_loads_phone_lenses_and_zoom_range() {
+  ReleaseProbe probe;
+  probe.response_body =
+      R"({"zoom":0.6,"zoomMin":0.6,"zoomMax":8.0,"currentLens":"0.6×","availableLenses":["0.6×","1×","3×","5×","Front"],"torchAvailable":true,"torchEnabled":false,"cameraControls":{"exposureMin":-12,"exposureMax":12,"aeLock":true,"focusLocked":false}})";
+  start_release_probe(probe);
+  std::future<std::string> request = probe.request.get_future();
+
+  auto context = std::make_shared<OpenStreamSource>();
+  PhoneDevice phone;
+  phone.host = "127.0.0.1";
+  phone.control_port = probe.port;
+  set_active_phone(context.get(), phone);
+  require(queue_camera_status_request(context),
+          "active phone status request was not queued asynchronously");
+
+  const auto wait_result = request.wait_for(std::chrono::seconds(3));
+  const std::string captured = wait_result == std::future_status::ready ? request.get() : "";
+  probe.worker.join();
+  ::close(probe.listener);
+  require(wait_result == std::future_status::ready,
+          "async status request did not reach the active phone");
+  require(captured.find("GET /status HTTP/1.1") != std::string::npos,
+          "lens discovery did not use GET /status");
+
+  const auto cache_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  while (context->available_camera_lenses.empty() &&
+         std::chrono::steady_clock::now() < cache_deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  require(context->available_camera_lenses.size() == 5,
+          "phone JSON lens array was not loaded into the dynamic lens cache");
+  require(context->available_camera_lenses[2] == "3×" &&
+              context->current_camera_lens == "0.6×",
+          "dynamic lens labels or current lens were parsed incorrectly");
+  require(context->camera_zoom == 0.6 && context->camera_zoom_min == 0.6 &&
+              context->camera_zoom_max == 8.0,
+          "phone zoom value or per-lens limits were not applied");
+  require(context->camera_torch_available && !context->camera_torch_enabled,
+          "torch availability or state was not parsed from phone status");
+  const auto controls = QJsonDocument::fromJson(QByteArray::fromStdString(context->camera_pro_state)).object();
+  require(controls.value("exposureMin").toInt() == -12 && controls.value("aeLock").toBool(),
+          "pro control capabilities were not preserved in the dock status cache");
+  set_active_phone(context.get(), std::nullopt);
+  require(context->camera_pro_state == "{}", "pro controls from the prior phone leaked into a new selection");
+  context->camera_controls->stop();
 }
 
 void test_worker_releases_reservation_on_exit() {
@@ -347,9 +406,78 @@ void test_reserve_phone_uses_destination_bound_rebind_proof() {
           "rebind request missing expected destination-bound SHA-256 proof");
 }
 
+void test_hdr_preserves_ten_bit_output() {
+  OpenStreamSource context;
+  CodecContextPtr decoder(avcodec_alloc_context3(nullptr));
+  SwsContextPtr converter(nullptr);
+  std::vector<uint8_t> pixels;
+  for (const auto format : {AV_PIX_FMT_YUV420P10LE, AV_PIX_FMT_P010LE}) {
+    for (const auto transfer : {AVCOL_TRC_ARIB_STD_B67, AVCOL_TRC_SMPTE2084}) {
+      FramePtr frame(av_frame_alloc());
+      frame->width = 64;
+      frame->height = 32;
+      frame->format = format;
+      frame->color_primaries = AVCOL_PRI_BT2020;
+      frame->colorspace = AVCOL_SPC_BT2020_NCL;
+      frame->color_trc = transfer;
+      frame->color_range = AVCOL_RANGE_MPEG;
+      require(av_frame_get_buffer(frame.get(), 32) == 0, "HDR frame allocation failed");
+      const uint16_t sample = format == AV_PIX_FMT_P010LE ? 513 << 6 : 513;
+      std::memcpy(frame->data[0], &sample, sizeof(sample));
+      require(output_decoded_frame(&context, decoder.get(), frame.get(), 0, &converter, &pixels),
+              "HDR ten-bit output failed");
+      require(captured_sample == sample, "HDR output truncated ten-bit sample");
+      require(captured_yuv_format == (format == AV_PIX_FMT_P010LE ? VIDEO_FORMAT_P010 : VIDEO_FORMAT_I010),
+              "HDR output chose an eight-bit pixel format");
+      require(captured_trc == (transfer == AVCOL_TRC_ARIB_STD_B67 ? VIDEO_TRC_HLG : VIDEO_TRC_PQ),
+              "HDR output lost transfer function");
+      require(pixels.empty() && !converter, "HDR output allocated an eight-bit converter");
+      PhoneDevice negotiated;
+      negotiated.width = 64; negotiated.height = 32;
+      negotiated.session_codec = "video/hevc";
+      negotiated.session_dynamic_range = "hlg10";
+      context.active_phone = negotiated;
+      decoder->codec_id = AV_CODEC_ID_HEVC;
+      require(output_decoded_frame(&context, decoder.get(), frame.get(), 0, &converter, &pixels) ==
+                  (transfer == AVCOL_TRC_ARIB_STD_B67),
+              "Negotiated HLG session accepted a different transfer function");
+      context.active_phone->width = 128;
+      require(!output_decoded_frame(&context, decoder.get(), frame.get(), 0, &converter, &pixels),
+              "Negotiated high mode accepted different dimensions");
+      context.active_phone.reset();
+      frame->color_primaries = AVCOL_PRI_BT709;
+      require(!output_decoded_frame(&context, decoder.get(), frame.get(), 0, &converter, &pixels),
+              "HDR with incorrect primaries was accepted");
+    }
+  }
+  FramePtr truncated(av_frame_alloc());
+  truncated->width = 64; truncated->height = 32;
+  truncated->format = AV_PIX_FMT_YUV420P;
+  truncated->color_trc = AVCOL_TRC_ARIB_STD_B67;
+  require(av_frame_get_buffer(truncated.get(), 32) == 0, "SDR frame allocation failed");
+  require(!output_decoded_frame(&context, decoder.get(), truncated.get(), 0, &converter, &pixels),
+          "Eight-bit HDR was accepted");
+}
+
+void test_receiver_session_negotiation() {
+  PhoneDevice phone;
+  require(accept_receiver_session("{\"ok\":true}", phone), "Legacy SDR phone rejected");
+  require(accept_receiver_session("{\"session\":{\"codec\":\"video/avc\",\"width\":1920,\"height\":1080,\"fps\":60,\"dynamicRange\":\"sdr\"}}", phone), "Existing 1080p60 SDR rejected");
+  const std::string session = "{\"session\":{\"codec\":\"video/hevc\",\"width\":3840,\"height\":2160,\"fps\":30,\"dynamicRange\":\"hlg10\"}}";
+  require(accept_receiver_session(session, phone), "Supported UHD HLG session rejected");
+  require(phone.width == 3840 && phone.height == 2160 && phone.fps == 30, "Negotiated dimensions lost");
+  for (const std::string invalid : {
+      "{\"session\":null}",
+      "{\"session\":{\"codec\":\"video/avc\",\"width\":3840,\"height\":2160,\"fps\":30,\"dynamicRange\":\"hlg10\"}}",
+      "{\"session\":{\"codec\":\"video/hevc\",\"width\":7680,\"height\":2160,\"fps\":30,\"dynamicRange\":\"sdr\"}}"})
+    require(!accept_receiver_session(invalid, phone), "Unsupported session accepted");
+}
+
 int main() {
   test_usb_route_preference_and_labeling();
   test_reserve_phone_uses_destination_bound_rebind_proof();
+  test_hdr_preserves_ten_bit_output();
+  test_receiver_session_negotiation();
   test_converter_survives_format_changes();
   test_worker_releases_reservation_on_exit();
 

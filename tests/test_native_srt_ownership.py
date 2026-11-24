@@ -42,6 +42,7 @@ HARNESS_PRELUDE = r"""
 #include <utility>
 #include <vector>
 #include <arpa/inet.h>
+#include <net/if.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <srt/srt.h>
@@ -138,6 +139,8 @@ int srt_epoll_uwait(int, SRT_EPOLL_EVENT *, int, int64_t) { return SRT_ERROR; }
 int srt_epoll_remove_usock(int, SRTSOCKET) { return 0; }
 int srt_epoll_release(int) { return 0; }
 int srt_bind(SRTSOCKET, const struct sockaddr *, int) { return SRT_ERROR; }
+int srt_bind_acquire(SRTSOCKET, UDPSOCKET) { return SRT_ERROR; }
+int srt_getsockname(SRTSOCKET, struct sockaddr *, int *) { return SRT_ERROR; }
 int srt_listen(SRTSOCKET, int) { return SRT_ERROR; }
 SRTSOCKET srt_accept(SRTSOCKET, struct sockaddr *, int *) { return SRT_INVALID_SOCK; }
 }

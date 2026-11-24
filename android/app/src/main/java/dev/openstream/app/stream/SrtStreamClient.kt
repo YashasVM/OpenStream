@@ -36,6 +36,20 @@ class SrtPublisherException(message: String) : IllegalStateException(message)
 
 class SrtStreamClient : EncodedMediaSink {
     @Volatile private var connected = false
+    @Volatile var requiredLocalAddress: String? = null
+        set(value) {
+            require(value == null || value.matches(Regex("[0-9]{1,3}(\\.[0-9]{1,3}){3}")))
+            field = value
+        }
+
+    @Volatile var requiredInterfaceName: String? = null
+    @Volatile var requiredPeerAddress: String? = null
+
+    private fun boundUrl(url: String): String = requiredLocalAddress?.let {
+        url + (if ('?' in url) "&" else "?") + "localaddr=$it" +
+            "&localif=${checkNotNull(requiredInterfaceName).also { name -> require(name.matches(Regex("[a-zA-Z0-9_.-]+"))) }}" +
+            "&peeraddr=${checkNotNull(requiredPeerAddress).also { peer -> require(peer.matches(Regex("[0-9.]+"))) }}"
+    } ?: url
     private val sessionGeneration = AtomicLong()
     private val operationLock = Any()
     private val stateLock = Any()
@@ -110,11 +124,24 @@ class SrtStreamClient : EncodedMediaSink {
         return SrtPublisherStats(values[0], values[1], values[2].toInt(), values[3].toInt(), values[4].toInt())
     }
 
+    fun telemetry(): SrtTelemetry? {
+        val generation = synchronized(stateLock) {
+            if (!connected) return null
+            sessionGeneration.get()
+        }
+        val values = SrtNativeBridge.telemetry(generation) ?: return null
+        if (values.size != 7 || values.any { !it.isFinite() || it < 0 }) return null
+        return SrtTelemetry(
+            generation, values[0].toLong(), values[1].toLong(), values[2].toLong(),
+            values[3], values[4], values[5].toLong(), values[6].toInt(),
+        ).takeIf { isCurrentSessionGeneration(generation) }
+    }
+
     fun connect(url: String, codecMime: String, width: Int, height: Int, fps: Int) {
         require(url.startsWith("srt://")) { "shin V1 expects an SRT URL" }
         synchronized(operationLock) {
             establishSession("connection") { generation ->
-                connectToResolvedAddress(url, codecMime, width, height, fps, generation)
+                connectToResolvedAddress(boundUrl(url), codecMime, width, height, fps, generation)
             }
         }
     }
@@ -128,7 +155,7 @@ class SrtStreamClient : EncodedMediaSink {
             // survive into the new session. Callers must not start a second
             // listen without going through establishSession/disconnect.
             establishSession("listener") { generation ->
-                SrtNativeBridge.listen(url, codecMime, width, height, fps, generation)
+                SrtNativeBridge.listen(boundUrl(url), codecMime, width, height, fps, generation)
             }
         }
     }
@@ -365,6 +392,11 @@ private object SrtNativeBridge {
             default
         }
     }
+
+    fun telemetry(sessionGeneration: Long): DoubleArray? = guardOr(null) {
+        nativeTelemetry(sessionGeneration)
+    }
+    private external fun nativeTelemetry(sessionGeneration: Long): DoubleArray?
 
     fun beginSession(sessionGeneration: Long) {
         guardOr(Unit) { nativeBeginSession(sessionGeneration) }

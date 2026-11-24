@@ -36,6 +36,7 @@ def test_kotlin_native_methods_match_jni_exports():
         "nativeDisconnect",
         "nativeConnectError",
         "nativeStats",
+        "nativeTelemetry",
     }
     assert native_methods == kotlin_methods
 
@@ -47,7 +48,7 @@ def test_srt_address_fallback_uses_fresh_native_connects_and_honors_cancellation
     fallback = block_after(source, "private fun connectToResolvedAddress(")
     resolver = block_after(source, "private fun resolvedConnectUrls(")
 
-    assert "connectToResolvedAddress(url, codecMime, width, height, fps, generation)" in connect
+    assert "connectToResolvedAddress(boundUrl(url), codecMime, width, height, fps, generation)" in connect
     assert "InetAddress.getAllByName(host)" in resolver
     assert ".distinct()" in resolver
 
@@ -120,7 +121,7 @@ def test_native_connect_and_listen_publish_only_current_generation():
     establish = block_after(kotlin, "private inline fun establishSession")
     assert "SrtNativeBridge.beginSession(generation)" in establish
     assert "SrtNativeBridge.connect(candidateUrl, codecMime, width, height, fps, generation)" in kotlin
-    assert "SrtNativeBridge.listen(url, codecMime, width, height, fps, generation)" in kotlin
+    assert "SrtNativeBridge.listen(boundUrl(url), codecMime, width, height, fps, generation)" in kotlin
 
     publish = block_after(native, "uint64_t setSocketForLifecycle")
     assert "std::lock_guard<std::mutex> lock(socketMutex_)" in publish

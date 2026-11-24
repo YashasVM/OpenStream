@@ -22,6 +22,7 @@
 #if OPENSTREAM_HAVE_LIBSRT
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <net/if.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -440,6 +441,9 @@ struct SrtUrl {
   std::optional<std::string> streamId;
   std::optional<std::string> passphrase;
   int pbkeylen = 16;
+  std::string localAddress;
+  std::string localInterface;
+  std::string requiredPeer;
 };
 
 std::optional<std::string> percentDecode(const std::string &value) {
@@ -545,6 +549,11 @@ std::optional<SrtUrl> parseSrtUrl(const std::string &url) {
     while (offset < query.size()) {
       const size_t amp = query.find('&', offset);
       const std::string part = query.substr(offset, amp == std::string::npos ? std::string::npos : amp - offset);
+      if (part.rfind("localif=", 0) == 0) parsed.localInterface = part.substr(8);
+      if (part.rfind("peeraddr=", 0) == 0) parsed.requiredPeer = part.substr(9);
+      if (part.rfind("localaddr=", 0) == 0) {
+        parsed.localAddress = part.substr(10);
+      }
       constexpr const char *latencyKey = "latency=";
       if (part.rfind(latencyKey, 0) == 0) {
         const std::string value = part.substr(std::strlen(latencyKey));
@@ -709,6 +718,26 @@ class NativeSender {
     srt_setsockopt(socket, 0, SRTO_PEERLATENCY, &latency, sizeof latency);
     }
 
+    if (parsed->localAddress.empty() &&
+        (!parsed->localInterface.empty() || !parsed->requiredPeer.empty())) {
+      releaseAttemptSocket(socket, attempt);
+      return false;
+    }
+    if (!parsed->requiredPeer.empty() && parsed->host != parsed->requiredPeer) {
+      releaseAttemptSocket(socket, attempt);
+      return false;
+    }
+    if (!parsed->localAddress.empty()) {
+      sockaddr_in local{};
+      local.sin_family = AF_INET;
+      if (inet_pton(AF_INET, parsed->localAddress.c_str(), &local.sin_addr) != 1 ||
+          !bindRouteSocket(socket, *parsed, local)) {
+        logError("Could not bind SRT caller to required wired address");
+        releaseAttemptSocket(socket, attempt);
+        return false;
+      }
+    }
+
     addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_DGRAM;
@@ -747,6 +776,14 @@ class NativeSender {
 
     // A connect that completed just as it was cancelled has already lost its
     // socket to disconnect(), which closed it.
+    if (!ownsAttemptSocket(socket, attempt)) {
+      return false;
+    }
+    if (!verifyLocalAddress(parsed->localAddress)) {
+      logError("SRT did not retain the required wired source address");
+      releaseAttemptSocket(socket, attempt);
+      return false;
+    }
     return ownsAttemptSocket(socket, attempt);
 #else
     (void)url;
@@ -831,8 +868,13 @@ class NativeSender {
     address.sin_family = AF_INET;
     address.sin_port = htons(parsed->portNumber);
     address.sin_addr.s_addr = INADDR_ANY;
+    if (!parsed->localAddress.empty() &&
+        inet_pton(AF_INET, parsed->localAddress.c_str(), &address.sin_addr) != 1) {
+      closeListenerSocket(listenerSocket);
+      return false;
+    }
 
-    if (srt_bind(listenerSocket, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == SRT_ERROR) {
+    if (!bindRouteSocket(listenerSocket, *parsed, address)) {
       __android_log_print(ANDROID_LOG_ERROR, kTag, "SRT bind failed: %s", srt_getlasterror_str());
       closeListenerSocket(listenerSocket);
       return false;
@@ -880,7 +922,18 @@ class NativeSender {
       sockaddr_storage peer{};
       int peer_len = sizeof(peer);
       acceptedSocket = srt_accept(listenerSocket, reinterpret_cast<sockaddr *>(&peer), &peer_len);
-      if (acceptedSocket != SRT_INVALID_SOCK) break;
+      if (acceptedSocket != SRT_INVALID_SOCK) {
+        in_addr required{};
+        if (!parsed->requiredPeer.empty() &&
+            (inet_pton(AF_INET, parsed->requiredPeer.c_str(), &required) != 1 ||
+             peer.ss_family != AF_INET ||
+             reinterpret_cast<sockaddr_in *>(&peer)->sin_addr.s_addr != required.s_addr)) {
+          srt_close(acceptedSocket);
+          acceptedSocket = SRT_INVALID_SOCK;
+          continue;
+        }
+        break;
+      }
 
       int systemError = 0;
       const int acceptError = srt_getlasterror(&systemError);
@@ -902,6 +955,11 @@ class NativeSender {
       srt_close(acceptedSocket);
       return false;
     }
+    if (!verifySocketLocalAddress(acceptedSocket, parsed->localAddress)) {
+      logError("SRT did not retain the required wired source address");
+      srt_close(acceptedSocket);
+      return false;
+    }
     srt_setsockopt(acceptedSocket, 0, SRTO_SNDTIMEO, &sendTimeoutMs, sizeof sendTimeoutMs);
     srt_setsockopt(acceptedSocket, 0, SRTO_TLPKTDROP, &tooLatePacketDrop, sizeof tooLatePacketDrop);
     srt_setsockopt(acceptedSocket, 0, SRTO_PEERIDLETIMEO, &peerIdleTimeoutMs, sizeof peerIdleTimeoutMs);
@@ -915,6 +973,84 @@ class NativeSender {
     (void)url;
     logError("openstream_srt was built without libsrt. Rebuild with OPENSTREAM_ENABLE_LIBSRT=ON.");
     return false;
+#endif
+  }
+
+  std::optional<std::array<double, 7>> telemetry() {
+#if OPENSTREAM_HAVE_LIBSRT
+    // Keep socket ownership across bstats so teardown cannot close/reuse its ID.
+    std::lock_guard<std::mutex> socketLock(socketMutex_);
+    if (socket_ == SRT_INVALID_SOCK || !healthy_.load(std::memory_order_acquire)) {
+      return std::nullopt;
+    }
+    SRT_TRACEBSTATS stats{};
+    if (srt_bstats(socket_, &stats, 0) == SRT_ERROR) return std::nullopt;
+    std::lock_guard<std::mutex> queueLock(sendQueueMutex_);
+    return std::array<double, 7>{
+        static_cast<double>(stats.pktSentTotal), static_cast<double>(stats.pktSndLossTotal),
+        static_cast<double>(stats.pktRetransTotal), stats.msRTT,
+        static_cast<double>(stats.msSndBuf), static_cast<double>(sendQueueBytes_),
+        static_cast<double>(stats.pktSndBuf)};
+#else
+    return std::nullopt;
+#endif
+  }
+
+  bool bindRouteSocket(int socket, const SrtUrl &url, const sockaddr_in &address) {
+#if OPENSTREAM_HAVE_LIBSRT
+    if (url.localInterface.empty()) {
+      return url.requiredPeer.empty() &&
+          srt_bind(socket, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != SRT_ERROR;
+    }
+    if (url.localAddress.empty() || url.requiredPeer.empty() ||
+        url.localInterface.size() >= IF_NAMESIZE ||
+        url.localInterface.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-") != std::string::npos) return false;
+    const unsigned index = if_nametoindex(url.localInterface.c_str());
+    if (!index) return false;
+    const int udp = ::socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
+    if (udp < 0) return false;
+    // IP_UNICAST_IF constrains every UDP send to this NIC without CAP_NET_RAW.
+    // SRT acquires this exact socket; losing the NIC cannot select Wi-Fi.
+    const uint32_t networkIndex = htonl(index);
+    if (setsockopt(udp, IPPROTO_IP, IP_UNICAST_IF, &networkIndex, sizeof(networkIndex)) != 0 ||
+        ::bind(udp, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0) {
+      ::close(udp);
+      logError("Required USB route socket unavailable; refusing high mode");
+      return false;
+    }
+    if (srt_bind_acquire(socket, udp) == SRT_ERROR) {
+      ::close(udp);
+      return false;
+    }
+    return true;
+#else
+    return false;
+#endif
+  }
+
+  bool verifySocketLocalAddress(SRTSOCKET sock, const std::string &required) {
+#if OPENSTREAM_HAVE_LIBSRT
+    if (required.empty()) return true;
+    sockaddr_in actual{};
+    int length = sizeof(actual);
+    in_addr expected{};
+    return sock != SRT_INVALID_SOCK &&
+        inet_pton(AF_INET, required.c_str(), &expected) == 1 &&
+        srt_getsockname(sock, reinterpret_cast<sockaddr *>(&actual), &length) == 0 &&
+        actual.sin_family == AF_INET && actual.sin_addr.s_addr == expected.s_addr;
+#else
+    (void)sock;
+    return required.empty();
+#endif
+  }
+
+  bool verifyLocalAddress(const std::string &required) {
+#if OPENSTREAM_HAVE_LIBSRT
+    if (required.empty()) return true;
+    std::lock_guard<std::mutex> lock(socketMutex_);
+    return verifySocketLocalAddress(socket_, required);
+#else
+    return required.empty();
 #endif
   }
 
@@ -1487,4 +1623,17 @@ Java_dev_openstream_app_stream_SrtNativeBridge_nativeSendAudio(
     g_state.connected = false;
   }
   return sent ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_dev_openstream_app_stream_SrtNativeBridge_nativeTelemetry(
+    JNIEnv *env, jobject, jlong session_generation) {
+  std::lock_guard<std::mutex> lock(g_state.mediaMutex);
+  if (static_cast<uint64_t>(session_generation) != g_state.mediaSessionGeneration ||
+      !g_state.connected) return nullptr;
+  const auto values = g_state.sender.telemetry();
+  if (!values) return nullptr;
+  jdoubleArray result = env->NewDoubleArray(values->size());
+  if (result) env->SetDoubleArrayRegion(result, 0, values->size(), values->data());
+  return result;
 }

@@ -5,6 +5,7 @@ import dev.openstream.app.camera.Camera2Controller
 import dev.openstream.app.camera.CameraLens
 import dev.openstream.app.stream.StreamConfig
 import org.json.JSONException
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.OutputStreamWriter
@@ -14,6 +15,31 @@ import java.net.Socket
 import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicBoolean
 
+internal fun torchCommandAllowed(enabled: Boolean, torchAvailable: Boolean): Boolean =
+    !enabled || torchAvailable
+
+internal fun strictLong(json: JSONObject, key: String): Long = when (val value = json.get(key)) {
+    is Int -> value.toLong()
+    is Long -> value
+    else -> throw IllegalArgumentException("integer required")
+}
+
+internal fun strictInt(json: JSONObject, key: String): Int {
+    val value = strictLong(json, key)
+    require(value in Int.MIN_VALUE..Int.MAX_VALUE)
+    return value.toInt()
+}
+
+internal fun strictFloat(json: JSONObject, key: String): Float {
+    val value = json.get(key)
+    require(value is Number)
+    return value.toFloat().also { require(it.isFinite()) }
+}
+
+internal fun strictBoolean(json: JSONObject, key: String): Boolean =
+    (json.get(key) as? Boolean) ?: throw IllegalArgumentException("boolean required")
+
+
 /**
  * Lightweight HTTP control server that accepts camera control commands from OBS.
  * Runs on port 9101 by default. Provides endpoints:
@@ -21,6 +47,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * - POST /zoom       {"value": 2.5}
  * - POST /torch      {"enabled": true}
  * - POST /lens       {"lens": "Back"}
+ * - POST /camera     {"command":"exposure","value":2} (supported controls in /status)
  * - POST /reserve    {"sourceInstanceId": "...", "bitrateMbps": 12}
  * - POST /release    {"sourceInstanceId": "..."}
  * - POST /identify   {"label": "CAM B", "subtitle": "Close-up"}
@@ -35,6 +62,10 @@ class CameraControlServer(
     private val onToggleTorch: (Boolean) -> Unit,
     private val reservationProvider: () -> String?,
     private val onReserve: (String, String, Int?) -> Boolean,
+    private val onNegotiate: (JSONObject?, String, String, Int?) -> Boolean = { _, _, _, _ -> true },
+    private val onReservationCommitted: () -> Unit = {},
+    private val sessionProvider: () -> JSONObject = { JSONObject() },
+    private val batteryTemperatureProvider: () -> Double? = { null },
     private val onRelease: (String) -> Boolean,
     private val onIdentify: (String, String) -> Unit,
     private val onError: ((String) -> Unit)? = null,
@@ -196,7 +227,7 @@ class CameraControlServer(
             }
 
             val requiresJson = method == "POST" && when (path) {
-                "/zoom", "/torch", "/lens", "/reserve", "/release", "/identify" -> true
+                "/zoom", "/torch", "/lens", "/reserve", "/release", "/identify", "/camera" -> true
                 else -> false
             }
             val mediaType = contentType?.substringBefore(';')?.trim()
@@ -232,6 +263,7 @@ class CameraControlServer(
             // unauthorized/busy/stale flags for compatibility.
             val (statusCode, response) = when {
                 method == "GET" && path == "/status" -> 200 to handleStatus()
+                method == "POST" && path == "/camera" -> handleCamera(body, controllerAddress)
                 method == "POST" && path == "/zoom" -> handleZoom(body, controllerAddress)
                 method == "POST" && path == "/torch" -> handleTorch(body, controllerAddress)
                 method == "POST" && path == "/lens" -> handleLens(body, controllerAddress)
@@ -295,9 +327,67 @@ class CameraControlServer(
             .put("zoomMin", camera.zoomRange.start.toDouble())
             .put("zoomMax", camera.zoomRange.endInclusive.toDouble())
             .put("currentLens", currentLensProvider().shortLabel)
-            .put("availableLenses", lensListProvider().map { it.shortLabel })
+            .put("availableLenses", JSONArray(lensListProvider().map { it.shortLabel }))
+            .put("torchAvailable", camera.isTorchAvailable)
+            .put("torchEnabled", camera.isTorchEnabled)
             .put("reservedBy", reservationProvider().orEmpty())
+            .put("cameraControls", cameraControlsJson(camera))
+        batteryTemperatureProvider()?.takeIf { it.isFinite() }?.let {
+            json.put("batteryTemperatureC", it)
+        }
         return json.toString()
+    }
+
+    private fun cameraControlsJson(camera: Camera2Controller): JSONObject {
+        val caps = camera.controlCapabilities
+        val state = camera.controlState
+        return JSONObject()
+            .put("exposureMin", caps.exposureMin).put("exposureMax", caps.exposureMax)
+            .put("exposureStep", caps.exposureStep.toDouble())
+            .put("aeLock", caps.aeLock).put("awbLock", caps.awbLock)
+            .put("focusLock", caps.focusLock).put("tapFocus", caps.tapFocus)
+            .put("exposureTimeMinNs", caps.exposureTimeMinNs).put("exposureTimeMaxNs", caps.exposureTimeMaxNs)
+            .put("isoMin", caps.isoMin).put("isoMax", caps.isoMax)
+            .put("focusMaxDiopters", caps.focusMaxDiopters.toDouble())
+            .put("whiteBalanceModes", JSONArray(caps.whiteBalanceModes))
+            .put("exposureCompensation", state.exposureCompensation)
+            .put("aeLocked", state.aeLocked).put("awbLocked", state.awbLocked)
+            .put("focusLocked", state.focusLocked)
+            .put("exposureTimeNs", state.exposureTimeNs ?: JSONObject.NULL)
+            .put("sensitivityIso", state.sensitivityIso ?: JSONObject.NULL)
+            .put("focusDiopters", state.focusDiopters?.toDouble() ?: JSONObject.NULL)
+            .put("whiteBalanceMode", state.whiteBalanceMode)
+    }
+
+    private fun handleCamera(body: String, controllerAddress: String): Pair<Int, String> {
+        if (!isAuthorizedController(controllerAddress)) return 401 to unauthorizedControlResponse()
+        val json = parseJson(body) ?: return malformedResponse("camera")
+        val camera = cameraProvider()
+        val accepted = try {
+            when (json.getString("command")) {
+                "exposure" -> camera.setExposureCompensation(strictInt(json, "value"))
+                "aeLock" -> camera.setAeLock(strictBoolean(json, "enabled"))
+                "awbLock" -> camera.setAwbLock(strictBoolean(json, "enabled"))
+                "focusLock" -> camera.setFocusLock(strictBoolean(json, "enabled"))
+                "focus" -> camera.focusAt(strictFloat(json, "x"), strictFloat(json, "y"))
+                "manualExposure" -> camera.setManualExposure(
+                    if (json.isNull("exposureTimeNs")) null else strictLong(json, "exposureTimeNs"),
+                    if (json.isNull("sensitivityIso")) null else strictInt(json, "sensitivityIso"),
+                )
+                "manualFocus" -> camera.setManualFocus(if (json.isNull("diopters")) null else strictFloat(json, "diopters"))
+                "whiteBalance" -> camera.setWhiteBalance(strictInt(json, "mode"))
+                "reset" -> { camera.resetControls(); true }
+                else -> return malformedResponse("camera")
+            }
+        } catch (_: IllegalArgumentException) {
+            return malformedResponse("camera")
+        } catch (_: JSONException) {
+            return malformedResponse("camera")
+        }
+        return (if (accepted) 200 else 409) to JSONObject().put("ok", accepted)
+            .put("cameraControls", cameraControlsJson(camera))
+            .apply { if (!accepted) put("error", "unsupported control or value outside current lens range") }
+            .toString()
     }
 
     private fun isAuthorizedController(controllerAddress: String): Boolean {
@@ -463,6 +553,9 @@ class CameraControlServer(
                 StreamConfig.MAX_BITRATE_MBPS,
             )
         } else null
+        if (!onNegotiate(json.optJSONObject("receiverCapabilities"), controllerAddress, localAddress, bitrateMbps)) {
+            return 409 to JSONObject().put("ok", false).put("error", "Selected mode requires compatible receiver, camera and verified USB peer").toString()
+        }
         val sameReservationConfig = currentReservation == sourceInstanceId &&
             activeReservationSlotLabel == slotLabel &&
             activeReservationBitrateMbps == bitrateMbps
@@ -478,10 +571,12 @@ class CameraControlServer(
             }
             activeReservationToken = reservationToken
             activeControllerAddress = controllerAddress.ifEmpty { null }
+            onReservationCommitted()
             return 200 to JSONObject()
                 .put("ok", true)
                 .put("reservedBy", sourceInstanceId)
                 .apply { if (rebindAck != null) put("rebindAck", rebindAck) }
+                .put("session", sessionProvider())
                 .toString()
         }
         val accepted = onReserve(sourceInstanceId, slotLabel, bitrateMbps)
@@ -499,10 +594,12 @@ class CameraControlServer(
             activeControllerAddress = controllerAddress.ifEmpty { null }
             activeReservationSlotLabel = slotLabel
             activeReservationBitrateMbps = bitrateMbps
+            onReservationCommitted()
             200 to JSONObject()
                 .put("ok", true)
                 .put("reservedBy", sourceInstanceId)
                 .apply { if (rebindAck != null) put("rebindAck", rebindAck) }
+                .put("session", sessionProvider())
                 .toString()
         } else {
             busyReservationResponse(reservationProvider().orEmpty()).let { 403 to it }

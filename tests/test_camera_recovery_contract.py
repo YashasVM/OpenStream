@@ -123,7 +123,7 @@ def test_session_reconfigure_defers_invalid_output_surfaces_before_teardown():
         "session?.close()"
     )
 
-    rebuild = block_after(SOURCE, "private fun rebuildRepeatingRequest()")
+    rebuild = block_after(SOURCE, "private fun rebuildRepeatingRequest(afTrigger: Int = CaptureRequest.CONTROL_AF_TRIGGER_IDLE)")
     assert "runCatching { previewSurfaceProvider() }.getOrNull()" in rebuild
     assert "preview == null || !preview.isValid" in rebuild
     assert "encoded != null && !encoded.isValid" in rebuild
@@ -133,7 +133,7 @@ def test_session_reconfigure_defers_invalid_output_surfaces_before_teardown():
 
 
 def test_runtime_request_rebuild_recovers_only_broken_current_session():
-    rebuild = block_after(SOURCE, "private fun rebuildRepeatingRequest()")
+    rebuild = block_after(SOURCE, "private fun rebuildRepeatingRequest(afTrigger: Int = CaptureRequest.CONTROL_AF_TRIGGER_IDLE)")
     assert "val generation = sessionGeneration.get()" in rebuild
     failure = block_after(rebuild, ".onFailure { error ->")
 

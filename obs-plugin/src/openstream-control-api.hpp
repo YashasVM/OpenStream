@@ -8,6 +8,14 @@
 bool openstream_is_camera_source(obs_source_t *source);
 bool openstream_post_camera_command(obs_source_t *source, const char *path,
                                     const char *json_body);
+bool openstream_request_camera_status(obs_source_t *source);
+size_t openstream_camera_lens_count(obs_source_t *source);
+const char *openstream_camera_lens_label(obs_source_t *source, size_t index);
+const char *openstream_camera_current_lens(obs_source_t *source);
+void openstream_camera_zoom_state(obs_source_t *source, double *zoom,
+                                  double *zoom_min, double *zoom_max);
+void openstream_camera_torch_state(obs_source_t *source, bool *available,
+                                  bool *enabled);
 bool openstream_start_camera_source(obs_source_t *source);
 bool openstream_stop_camera_source(obs_source_t *source);
 const char *openstream_source_status(obs_source_t *source);
@@ -19,3 +27,7 @@ bool openstream_set_camera_label(obs_source_t *source, const char *label);
 
 void openstream_register_dock();
 void openstream_unregister_dock();
+
+const char *openstream_camera_pro_state(obs_source_t *source);
+
+double openstream_camera_temperature(obs_source_t *source);
