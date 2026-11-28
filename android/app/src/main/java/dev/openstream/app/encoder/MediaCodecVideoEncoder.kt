@@ -71,14 +71,15 @@ class MediaCodecVideoEncoder(
         if (codec != null || callbackThread != null) {
             stop()
         }
-        val (resolvedMime, resolvedCodecName) = chooseEncoder(width, height, fps, bitrate)
+        val (resolvedMime, resolvedCodecName, resolvedBitrateMode) = chooseEncoder(width, height, fps, bitrate)
         mimeType = resolvedMime
+        val modeLabel = if (resolvedBitrateMode == MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR) "CBR" else "VBR"
         Log.i(
             "shinEncoder",
-            "Using hardware encoder $resolvedCodecName for $mimeType " +
+            "Using hardware encoder $resolvedCodecName ($modeLabel) for $mimeType " +
                 "${width}x${height}@${fps} (${bitrate / 1_000_000} Mbps)",
         )
-        val encoder = createConfiguredEncoder(resolvedCodecName)
+        val encoder = createConfiguredEncoder(resolvedCodecName, resolvedBitrateMode)
         codec = encoder
 
         val thread = HandlerThread("shinEncoder").apply { start() }
@@ -196,13 +197,13 @@ class MediaCodecVideoEncoder(
         stopCallbackThread()
     }
 
-    private fun createConfiguredEncoder(codecName: String): MediaCodec {
+    private fun createConfiguredEncoder(codecName: String, bitrateMode: Int): MediaCodec {
         var firstError: Throwable? = null
         for (applyOptionalTuning in listOf(true, false)) {
             val encoder = MediaCodec.createByCodecName(codecName)
             try {
                 encoder.configure(
-                    createVideoFormat(applyOptionalTuning),
+                    createVideoFormat(applyOptionalTuning, bitrateMode),
                     null,
                     null,
                     MediaCodec.CONFIGURE_FLAG_ENCODE,
@@ -230,13 +231,13 @@ class MediaCodecVideoEncoder(
         error("Encoder configuration retry exhausted")
     }
 
-    private fun createVideoFormat(applyOptionalTuning: Boolean): MediaFormat {
+    private fun createVideoFormat(applyOptionalTuning: Boolean, bitrateMode: Int): MediaFormat {
         return MediaFormat.createVideoFormat(mimeType, width, height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, keyframeIntervalSeconds)
-            setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
+            setInteger(MediaFormat.KEY_BITRATE_MODE, bitrateMode)
             if (applyOptionalTuning && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
                 setInteger(MediaFormat.KEY_PRIORITY, 0)
                 setFloat(MediaFormat.KEY_OPERATING_RATE, fps.toFloat())
@@ -276,7 +277,7 @@ class MediaCodecVideoEncoder(
         height: Int,
         fps: Int,
         bitrate: Int,
-    ): Pair<String, String> {
+    ): Triple<String, String, Int> {
         val mime = MediaFormat.MIMETYPE_VIDEO_AVC
         val infos = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
         val candidates = infos.mapNotNull { candidate ->
@@ -297,12 +298,20 @@ class MediaCodecVideoEncoder(
             ) {
                 return@mapNotNull null
             }
-            if (!capabilities.encoderCapabilities.isBitrateModeSupported(
+            val bitrateMode = when {
+                capabilities.encoderCapabilities.isBitrateModeSupported(
                     MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR,
-                )
-            ) {
-                Log.d("shinEncoder", "Skipping ${candidate.name}: CBR is unsupported")
-                return@mapNotNull null
+                ) -> MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR
+                capabilities.encoderCapabilities.isBitrateModeSupported(
+                    MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR,
+                ) -> {
+                    Log.i("shinEncoder", "${candidate.name}: CBR unsupported; falling back to VBR")
+                    MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR
+                }
+                else -> {
+                    Log.d("shinEncoder", "Skipping ${candidate.name}: neither CBR nor VBR is supported")
+                    return@mapNotNull null
+                }
             }
 
             val videoCapabilities = capabilities.videoCapabilities
@@ -319,10 +328,12 @@ class MediaCodecVideoEncoder(
                 return@mapNotNull null
             }
 
-            mime to candidate.name
+            Triple(mime, candidate.name, bitrateMode)
         }
 
-        return candidates.firstOrNull() ?: run {
+        return candidates.sortedByDescending {
+            it.third == MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR
+        }.firstOrNull() ?: run {
             Log.e(
                 "shinEncoder",
                 "No hardware surface encoder can satisfy ${width}x${height}@${fps} " +
